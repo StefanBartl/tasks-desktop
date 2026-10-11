@@ -88,14 +88,16 @@ thing, the data class of an area.
 
 * `snapshot` has the `digest` of the document as its `ETag`; a client that
   sends `If-None-Match` gets `304`. Concurrent requests share one engine
-  question.
+  question, and an answer is reused for a second: a change is seen within
+  that time (the watcher that replaces the time comes with the next stage).
 * `task?id=<area>/<slug>`: the id is two plain names of letters, digits,
   `.`, `_` and `-`. Nothing else reaches the engine; whether the task exists
   is the engine's answer (404).
 * `next?n=&actor=&area=`: a number from 0 to 10 and plain names.
 * A query that is not plain, repeated or unknown is `400`. A route that
   takes no query refuses one.
-* Engine refusals keep their code (`not_found` is 404, `conflict` 409, ...);
+* Engine refusals keep their code (`not_found` is 404, `conflict` 409, ...),
+  cut to a lowercase word and one line of at most 512 characters;
   every other failure is told as `engine_failed` without detail; the detail
   goes to the terminal of whoever runs the hub. A write that ended without
   an answer is `outcome_unknown`.
@@ -120,9 +122,15 @@ adds `data_class` to each and lists `unclassified` and `private`, so a new
 area shows up as a decision to make instead of a quiet default.
 
 A file that exists and is not valid stops the hub from starting: a typo must
-not become "everything unclassified" without anyone seeing it.
+not become "everything unclassified" without anyone seeing it. The file is
+read at start; a change takes effect when the hub is restarted.
+
 `tasks-hub areas propose` writes a *proposal* (`areas.proposed.json`, never
-the active file); `tasks-hub areas check` fails while an area has no class.
+the active file). What the active file already decides is kept in the
+proposal (a private area is not proposed as internal again); a new area is
+proposed as `internal` unless `--private` names it, so read the proposal
+before it becomes `areas.json`. `tasks-hub areas check` fails while an area
+has no class.
 
 The consumers of these rules (another panel, a cloud runner, the client
 cache) do not exist yet; the rules are in place and tested for them.

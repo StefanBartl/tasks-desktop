@@ -360,6 +360,16 @@ fn areas_propose_check_and_the_active_file() {
     let check = command(&config).args(["areas", "check"]).output().unwrap();
     assert!(check.status.success(), "{check:?}");
 
+    // A new proposal must not undo what the active file decided: lib.nvim was
+    // private and stays private, with no --private on the command line.
+    let again = command(&config)
+        .args(["areas", "propose"])
+        .output()
+        .unwrap();
+    assert!(again.status.success(), "{again:?}");
+    let doc: Value = serde_json::from_slice(&again.stdout).unwrap();
+    assert_eq!(doc["areas"]["lib.nvim"]["class"], "private");
+
     // A name that is not an area of the vault, and a name that is no name.
     for bad in ["--private=no-such-area", "--private=../x"] {
         let out = command(&config)

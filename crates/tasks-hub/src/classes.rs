@@ -200,6 +200,12 @@ impl AreaPolicy {
         matches!(self.shown(area), Shown::Public | Shown::Internal)
     }
 
+    /// The entry of an area, if the file has one.
+    #[must_use]
+    pub fn entry(&self, area: &str) -> Option<&Entry> {
+        self.areas.get(area)
+    }
+
     /// The repository folder named for an area, if the file says one.
     #[must_use]
     pub fn repo_of(&self, area: &str) -> Option<&str> {
@@ -234,11 +240,14 @@ impl AreaPolicy {
     }
 }
 
-/// The text of a proposal: every area gets `internal` unless it is in
-/// `private`, and the repository that carries its name (or the name without
-/// a `wkdbook-` prefix) when `repo_exists` says it is there. The result is a
-/// *proposal for a person to read*: it is written next to the real file, not
-/// as the real file.
+/// The text of a proposal. What `existing` already says is kept as it is: a
+/// proposal that turned a private area back into `internal` would, once
+/// somebody renames it to `areas.json` without reading it, release the
+/// area. An area that is new gets `internal` (or `private` when it is in
+/// `private`, which wins over `existing` too) and the repository that
+/// carries its name (or the name without a `wkdbook-` prefix) when
+/// `repo_exists` says it is there. The result is a *proposal for a person
+/// to read*: it is written next to the real file, not as the real file.
 ///
 /// # Errors
 ///
@@ -246,22 +255,36 @@ impl AreaPolicy {
 pub fn propose<'a>(
     areas: impl IntoIterator<Item = &'a str>,
     private: &[String],
+    existing: &AreaPolicy,
     repo_exists: &dyn Fn(&str) -> bool,
 ) -> Result<String, String> {
     let mut map = BTreeMap::new();
     for name in areas {
-        let class = if private.iter().any(|p| p == name) {
-            Class::Private
-        } else {
-            Class::Internal
+        let forced_private = private.iter().any(|p| p == name);
+        let old = existing.entry(name);
+        let guess = || {
+            [Some(name), name.strip_prefix("wkdbook-")]
+                .into_iter()
+                .flatten()
+                .find(|c| plain_repo_name(c) && repo_exists(c))
+                .map(str::to_owned)
         };
-        let candidates = [Some(name), name.strip_prefix("wkdbook-")];
-        let repo = candidates
-            .into_iter()
-            .flatten()
-            .find(|c| plain_repo_name(c) && repo_exists(c))
-            .map(str::to_owned);
-        map.insert(name.to_owned(), Entry { class, repo });
+        let entry = match (old, forced_private) {
+            (Some(old), false) => old.clone(),
+            (Some(old), true) => Entry {
+                class: Class::Private,
+                repo: old.repo.clone().or_else(guess),
+            },
+            (None, forced) => Entry {
+                class: if forced {
+                    Class::Private
+                } else {
+                    Class::Internal
+                },
+                repo: guess(),
+            },
+        };
+        map.insert(name.to_owned(), entry);
     }
     // The same checks as for a file that is loaded.
     AreaPolicy::new(map.clone())?;
@@ -368,6 +391,7 @@ mod tests {
         let text = propose(
             ["lib.nvim", "wkdbook-tasks.nvim", "secret-area", "other"],
             &["secret-area".to_owned()],
+            &AreaPolicy::default(),
             &exists,
         )
         .unwrap();
@@ -381,8 +405,40 @@ mod tests {
     }
 
     #[test]
+    fn a_proposal_keeps_what_was_decided() {
+        // A person made `secret-area` private and `open-area` public. A new
+        // proposal must not turn either back into `internal`.
+        let existing = AreaPolicy::load(&temp(
+            "decided",
+            r#"{"schema":1,"areas":{
+                "secret-area":{"class":"private","repo":"secret-repo"},
+                "open-area":{"class":"public"}}}"#,
+        ))
+        .unwrap();
+        let text = propose(
+            ["secret-area", "open-area", "fresh-area"],
+            &[],
+            &existing,
+            &|_| false,
+        )
+        .unwrap();
+        let policy = AreaPolicy::load(&temp("decided-out", &text)).unwrap();
+        assert_eq!(policy.shown("secret-area"), Shown::Private);
+        assert_eq!(policy.repo_of("secret-area"), Some("secret-repo"));
+        assert_eq!(policy.shown("open-area"), Shown::Public);
+        assert_eq!(policy.shown("fresh-area"), Shown::Internal);
+        // An explicit --private wins over the file, never the other way.
+        let text = propose(["open-area"], &["open-area".to_owned()], &existing, &|_| {
+            false
+        })
+        .unwrap();
+        let policy = AreaPolicy::load(&temp("decided-forced", &text)).unwrap();
+        assert_eq!(policy.shown("open-area"), Shown::Private);
+    }
+
+    #[test]
     fn a_proposal_never_proposes_a_bad_name() {
-        let err = propose(["../x"], &[], &|_| false).unwrap_err();
+        let err = propose(["../x"], &[], &AreaPolicy::default(), &|_| false).unwrap_err();
         assert!(err.contains("not allowed") || err.contains("must"), "{err}");
     }
 }

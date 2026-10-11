@@ -635,7 +635,8 @@ async fn control_pair(State(st): State<Arc<Shared>>) -> Response {
 /// The engine's snapshot and what the hub derived from it.
 struct CachedSnapshot {
     at: Instant,
-    text: String,
+    /// Reference counted: answering from the cache does not copy megabytes.
+    text: Bytes,
     etag: Option<String>,
 }
 
@@ -662,13 +663,9 @@ fn etag_matches(header: &str, etag: &str) -> bool {
     })
 }
 
-fn json_response(status: StatusCode, text: String, etag: Option<&str>) -> Response {
-    let mut response = (
-        status,
-        [(header::CONTENT_TYPE, "application/json")],
-        Body::from(text),
-    )
-        .into_response();
+fn json_response(status: StatusCode, text: impl Into<Body>, etag: Option<&str>) -> Response {
+    let body: Body = text.into();
+    let mut response = (status, [(header::CONTENT_TYPE, "application/json")], body).into_response();
     if let Some(value) = etag.and_then(|e| HeaderValue::from_str(&format!("\"{e}\"")).ok()) {
         response.headers_mut().insert(header::ETAG, value);
     }
@@ -710,9 +707,25 @@ fn engine_failure(error: EngineError) -> Response {
                 // The engine could not do its job: that is the server's side.
                 _ => StatusCode::BAD_GATEWAY,
             };
+            // The engine is trusted to hold no path, not to be short or
+            // plain: a code is a lowercase word, a message is one short line.
+            let code_ok = !r.code.is_empty()
+                && r.code.len() <= 48
+                && r.code.bytes().all(|b| b.is_ascii_lowercase() || b == b'_');
+            let code = if code_ok {
+                r.code
+            } else {
+                "engine_failed".to_owned()
+            };
+            let message: String = r
+                .message
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(512)
+                .collect();
             let body = json!({ "error": {
-                "code": r.code,
-                "message": r.message,
+                "code": code,
+                "message": message,
                 "retryable": r.retryable,
             }});
             (status, axum::Json(body)).into_response()
@@ -777,7 +790,7 @@ async fn fresh_snapshot(st: &Shared) -> Result<Arc<CachedSnapshot>, Response> {
     let cached = Arc::new(CachedSnapshot {
         at: Instant::now(),
         etag: etag_of(&reply.text),
-        text: reply.text,
+        text: Bytes::from(reply.text),
     });
     *slot = Some(Arc::clone(&cached));
     Ok(cached)
@@ -1027,6 +1040,27 @@ mod tests {
         assert_eq!(etag_of(r#"{"digest":""}"#), None);
         assert_eq!(etag_of(r#"{}"#), None);
         assert_eq!(etag_of("not json"), None);
+    }
+
+    #[tokio::test]
+    async fn a_refusal_is_cut_to_a_word_and_a_line() {
+        use crate::engine::EngineRefusal;
+        let refusal = EngineRefusal {
+            code: "../../etc".to_owned(),
+            message: format!("line one\nline two\u{1b}[31m{}", "x".repeat(10_000)),
+            retryable: true,
+            text: String::new(),
+        };
+        let response = engine_failure(EngineError::Refused(refusal));
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let doc: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(doc["error"]["code"], "engine_failed");
+        let message = doc["error"]["message"].as_str().unwrap();
+        assert!(message.chars().count() <= 512, "{}", message.len());
+        assert!(!message.contains(|c: char| c.is_control()));
+        assert_eq!(doc["error"]["retryable"], true);
     }
 
     #[test]

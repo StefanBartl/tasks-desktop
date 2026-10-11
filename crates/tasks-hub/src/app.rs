@@ -354,7 +354,21 @@ pub async fn areas(command: AreasCommand) -> Result<String, String> {
             let repos = env.path("REPOS_DIR");
             let exists =
                 |candidate: &str| repos.as_ref().is_some_and(|r| r.join(candidate).is_dir());
-            let text = classes::propose(names.iter().map(String::as_str), &private, &exists)?;
+            // What is decided in the active file stays decided.
+            let existing = AreaPolicy::load(&dir).map_err(|e| e.to_string())?;
+            let fresh = existing
+                .unclassified(names.iter().map(String::as_str))
+                .len();
+            eprintln!(
+                "{} areas keep their entry from areas.json, {fresh} are new",
+                names.len() - fresh
+            );
+            let text = classes::propose(
+                names.iter().map(String::as_str),
+                &private,
+                &existing,
+                &exists,
+            )?;
             if write {
                 let target = classes::proposal_path(&dir);
                 std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
