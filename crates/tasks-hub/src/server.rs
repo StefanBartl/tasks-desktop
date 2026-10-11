@@ -14,20 +14,20 @@
 //! 7. the credential the route needs (none, the control secret, a session);
 //! 8. a mutation carries `application/json`.
 //!
-//! In this stage the server has no route that returns task data. The
-//! credential check for `/api/**` is already in place, so a route added
-//! later is closed until it is deliberately opened.
+//! The data routes (`snapshot`, `task`, `next`, `areas`) sit under `/api/`,
+//! so they are closed to anything without a session. A route added later
+//! is closed the same way until it is deliberately opened.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use app_core::authn::{
     fetch_site_ok, Clock, HostPolicy, PairingStore, RateLimiter, Secret, SessionStore, CODE_BYTES,
     TOKEN_BYTES,
 };
 use axum::body::{Body, Bytes};
-use axum::extract::{DefaultBodyLimit, Request, State};
+use axum::extract::{DefaultBodyLimit, RawQuery, Request, State};
 use axum::http::header::{self, HeaderMap, HeaderName, HeaderValue};
 use axum::http::{Method, StatusCode};
 use axum::middleware::{self, Next};
@@ -40,8 +40,11 @@ use hyper_util::service::TowerToHyperService;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::net::TcpListener;
-use tokio::sync::{watch, Semaphore};
+use tokio::sync::{watch, Mutex, Semaphore};
 use tokio::task::JoinHandle;
+
+use crate::classes::{AreaPolicy, Shown};
+use crate::engine::{Engine, EngineError, Method as EngineMethod};
 
 /// The name the hub gives itself in `hello` and in `hub.json`.
 pub const APP_NAME: &str = "tasks-desktop";
@@ -73,6 +76,9 @@ pub struct Limits {
     pub exchange_window: Duration,
     /// Open sessions; the oldest is closed beyond this.
     pub max_sessions: usize,
+    /// How long a snapshot of the engine is reused. Requests that come
+    /// while one is being made wait for it either way.
+    pub snapshot_ttl: Duration,
 }
 
 impl Default for Limits {
@@ -89,6 +95,7 @@ impl Default for Limits {
             exchange_max: 10,
             exchange_window: Duration::from_secs(60),
             max_sessions: 16,
+            snapshot_ttl: Duration::from_secs(1),
         }
     }
 }
@@ -112,6 +119,11 @@ pub struct ServerConfig {
     /// Changes with every start.
     pub instance: Secret,
     pub status: HubStatus,
+    /// The engine; `None` while it is not set up (the data routes answer
+    /// "engine unavailable").
+    pub engine: Option<Arc<dyn Engine>>,
+    /// The data classes of the areas.
+    pub policy: Arc<AreaPolicy>,
 }
 
 struct Shared {
@@ -124,6 +136,9 @@ struct Shared {
     limits: Limits,
     instance: String,
     status: HubStatus,
+    engine: Option<Arc<dyn Engine>>,
+    classes: Arc<AreaPolicy>,
+    snapshot: Mutex<Option<Arc<CachedSnapshot>>>,
 }
 
 /// A started server.
@@ -181,6 +196,9 @@ pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
         limits: limits.clone(),
         instance: instance.clone(),
         status: cfg.status,
+        engine: cfg.engine,
+        classes: cfg.policy,
+        snapshot: Mutex::new(None),
     });
     let app = router(shared);
     let (stop, stop_rx) = watch::channel(false);
@@ -198,6 +216,10 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/", get(shell))
         .route("/index.html", get(shell))
         .route("/api/tasks/hello", get(hello))
+        .route("/api/tasks/snapshot", get(snapshot))
+        .route("/api/tasks/task", get(task))
+        .route("/api/tasks/next", get(next))
+        .route("/api/tasks/areas", get(areas))
         .route(
             "/auth/exchange",
             post(exchange).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
@@ -604,6 +626,452 @@ async fn control_pair(State(st): State<Arc<Shared>>) -> Response {
     }
 }
 
+// ── data routes ─────────────────────────────────────────────────────────────
+//
+// Each of these is under `/api/`, so the guard has asked for a session
+// before the handler runs. The documents of the engine are passed on as the
+// engine wrote them; the hub adds only the class of an area (`hub.areas`).
+
+/// The engine's snapshot and what the hub derived from it.
+struct CachedSnapshot {
+    at: Instant,
+    text: String,
+    etag: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DigestOnly {
+    digest: Option<String>,
+}
+
+/// The ETag of a document: its digest, which does not move with
+/// `generated_at` (concept 4: two runs on an unchanged vault agree).
+fn etag_of(text: &str) -> Option<String> {
+    let digest = serde_json::from_str::<DigestOnly>(text).ok()?.digest?;
+    let plain = digest
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b':');
+    (plain && !digest.is_empty()).then_some(digest)
+}
+
+/// Does an `If-None-Match` header name this ETag (or `*`)?
+fn etag_matches(header: &str, etag: &str) -> bool {
+    let quoted = format!("\"{etag}\"");
+    header.split(',').map(str::trim).any(|candidate| {
+        candidate == "*" || candidate.strip_prefix("W/").unwrap_or(candidate) == quoted
+    })
+}
+
+fn json_response(status: StatusCode, text: String, etag: Option<&str>) -> Response {
+    let mut response = (
+        status,
+        [(header::CONTENT_TYPE, "application/json")],
+        Body::from(text),
+    )
+        .into_response();
+    if let Some(value) = etag.and_then(|e| HeaderValue::from_str(&format!("\"{e}\"")).ok()) {
+        response.headers_mut().insert(header::ETAG, value);
+    }
+    response
+}
+
+fn not_modified(etag: &str) -> Response {
+    let mut response = Response::new(Body::empty());
+    *response.status_mut() = StatusCode::NOT_MODIFIED;
+    if let Ok(value) = HeaderValue::from_str(&format!("\"{etag}\"")) {
+        response.headers_mut().insert(header::ETAG, value);
+    }
+    response
+}
+
+/// What a request without an engine gets: the hub is up, the engine is not.
+fn engine_unavailable(st: &Shared) -> Response {
+    let body = json!({ "error": {
+        "code": "engine_unavailable",
+        "message": "the engine is not ready",
+        "problem": st.status.problem,
+    }});
+    (StatusCode::SERVICE_UNAVAILABLE, axum::Json(body)).into_response()
+}
+
+/// Map what went wrong with a question to an answer. The engine's own
+/// refusals keep their code and their message (the contract promises that
+/// they hold no path of this machine); everything else is told in one word,
+/// and the detail goes to the terminal of whoever runs the hub.
+fn engine_failure(error: EngineError) -> Response {
+    match error {
+        EngineError::Refused(r) => {
+            let status = match r.code.as_str() {
+                "invalid_argument" | "unsupported_schema" => StatusCode::BAD_REQUEST,
+                "not_found" => StatusCode::NOT_FOUND,
+                "conflict" | "exists" => StatusCode::CONFLICT,
+                "forbidden" => StatusCode::FORBIDDEN,
+                "locked" => StatusCode::SERVICE_UNAVAILABLE,
+                // The engine could not do its job: that is the server's side.
+                _ => StatusCode::BAD_GATEWAY,
+            };
+            let body = json!({ "error": {
+                "code": r.code,
+                "message": r.message,
+                "retryable": r.retryable,
+            }});
+            (status, axum::Json(body)).into_response()
+        }
+        EngineError::BadRequest(message) => {
+            error_body(StatusCode::BAD_REQUEST, "bad_request", &message)
+        }
+        EngineError::Busy => {
+            let mut r = error_body(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "busy",
+                "the engine is busy, try again",
+            );
+            r.headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
+            r
+        }
+        EngineError::Timeout => error_body(
+            StatusCode::GATEWAY_TIMEOUT,
+            "engine_timeout",
+            "the engine did not answer in time",
+        ),
+        EngineError::OutcomeUnknown(_) => error_body(
+            StatusCode::BAD_GATEWAY,
+            "outcome_unknown",
+            "the outcome is unknown, read again before you trust the state",
+        ),
+        other => {
+            eprintln!("engine: {other}");
+            error_body(
+                StatusCode::BAD_GATEWAY,
+                "engine_failed",
+                "the engine could not answer",
+            )
+        }
+    }
+}
+
+async fn ask(
+    st: &Shared,
+    method: EngineMethod,
+    params: Option<&serde_json::Value>,
+) -> Result<crate::engine::Reply, Response> {
+    let Some(engine) = &st.engine else {
+        return Err(engine_unavailable(st));
+    };
+    engine.call(method, params).await.map_err(engine_failure)
+}
+
+/// One snapshot at a time: requests that arrive while the engine is busy
+/// with one wait for it and share its answer. A short life, because the
+/// watcher that would tell "changed" comes with the next package.
+async fn fresh_snapshot(st: &Shared) -> Result<Arc<CachedSnapshot>, Response> {
+    let mut slot = st.snapshot.lock().await;
+    let fresh = slot
+        .as_ref()
+        .filter(|c| c.at.elapsed() < st.limits.snapshot_ttl);
+    if let Some(c) = fresh {
+        return Ok(Arc::clone(c));
+    }
+    let reply = ask(st, EngineMethod::Snapshot, None).await?;
+    let cached = Arc::new(CachedSnapshot {
+        at: Instant::now(),
+        etag: etag_of(&reply.text),
+        text: reply.text,
+    });
+    *slot = Some(Arc::clone(&cached));
+    Ok(cached)
+}
+
+/// A route that takes no query says so, instead of ignoring one.
+fn no_query(query: Option<&str>) -> Option<Response> {
+    match query {
+        None | Some("") => None,
+        Some(_) => Some(error_body(
+            StatusCode::BAD_REQUEST,
+            "bad_query",
+            "this route takes no query",
+        )),
+    }
+}
+
+async fn snapshot(
+    State(st): State<Arc<Shared>>,
+    RawQuery(query): RawQuery,
+    headers: HeaderMap,
+) -> Response {
+    if let Some(response) = no_query(query.as_deref()) {
+        return response;
+    }
+    let cached = match fresh_snapshot(&st).await {
+        Ok(c) => c,
+        Err(response) => return response,
+    };
+    if let Some(etag) = &cached.etag {
+        let seen = single(&headers, &header::IF_NONE_MATCH).ok().flatten();
+        if seen.is_some_and(|h| etag_matches(&h, etag)) {
+            return not_modified(etag);
+        }
+    }
+    json_response(StatusCode::OK, cached.text.clone(), cached.etag.as_deref())
+}
+
+/// The query of a request as pairs, refusing what is not plain: a key that
+/// is not listed, a key twice, a value with anything but letters, digits,
+/// `.`, `_`, `-` and `/` (no escapes: nothing here needs them; what a
+/// value may be is for the handler of its parameter to say).
+fn parse_query(
+    query: Option<&str>,
+    allowed: &[&str],
+) -> Result<std::collections::HashMap<String, String>, &'static str> {
+    let mut out = std::collections::HashMap::new();
+    let Some(query) = query.filter(|q| !q.is_empty()) else {
+        return Ok(out);
+    };
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=').ok_or("a query part has no value")?;
+        if !allowed.contains(&key) {
+            return Err("unknown query parameter");
+        }
+        let plain = !value.is_empty()
+            && value.len() <= 128
+            && value
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'/'));
+        if !plain {
+            return Err("a query value is not plain text");
+        }
+        if out.insert(key.to_owned(), value.to_owned()).is_some() {
+            return Err("a query parameter is given twice");
+        }
+    }
+    Ok(out)
+}
+
+/// `<area>/<slug>`: two plain names. The engine says whether the task is
+/// there; this only keeps anything else from ever reaching it.
+fn valid_task_id(id: &str) -> bool {
+    let Some((area, slug)) = id.split_once('/') else {
+        return false;
+    };
+    let plain = |t: &str| {
+        t.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+    };
+    crate::config::valid_area_name(area).is_ok()
+        && plain(area)
+        && !slug.is_empty()
+        && slug.len() <= 128
+        && !slug.starts_with('.')
+        && plain(slug)
+}
+
+async fn task(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
+    let params = match parse_query(query.as_deref(), &["id"]) {
+        Ok(p) => p,
+        Err(why) => return error_body(StatusCode::BAD_REQUEST, "bad_query", why),
+    };
+    let Some(id) = params.get("id").filter(|id| valid_task_id(id)) else {
+        return error_body(
+            StatusCode::BAD_REQUEST,
+            "bad_id",
+            "id must be <area>/<slug>",
+        );
+    };
+    match ask(&st, EngineMethod::Task, Some(&json!({ "id": id }))).await {
+        Ok(reply) => json_response(StatusCode::OK, reply.text, None),
+        Err(response) => response,
+    }
+}
+
+async fn next(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
+    let params = match parse_query(query.as_deref(), &["n", "actor", "area"]) {
+        Ok(p) => p,
+        Err(why) => return error_body(StatusCode::BAD_REQUEST, "bad_query", why),
+    };
+    let mut request = serde_json::Map::new();
+    if let Some(n) = params.get("n") {
+        match n.parse::<u8>() {
+            Ok(n) if n <= 10 => {
+                request.insert("n".to_owned(), json!(n));
+            }
+            _ => return error_body(StatusCode::BAD_REQUEST, "bad_query", "n is 0 to 10"),
+        }
+    }
+    if let Some(actor) = params.get("actor") {
+        request.insert("actor".to_owned(), json!(actor));
+    }
+    if let Some(area) = params.get("area") {
+        if crate::config::valid_area_name(area).is_err() {
+            return error_body(StatusCode::BAD_REQUEST, "bad_query", "area is not a name");
+        }
+        request.insert("area".to_owned(), json!(area));
+    }
+    let request = serde_json::Value::Object(request);
+    match ask(&st, EngineMethod::Next, Some(&request)).await {
+        Ok(reply) => json_response(StatusCode::OK, reply.text, None),
+        Err(response) => response,
+    }
+}
+
+/// The areas, each with the class it is shown with. An area the file does
+/// not name is `unclassified`; so the list tells a person what still needs
+/// a decision.
+async fn areas(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
+    if let Some(response) = no_query(query.as_deref()) {
+        return response;
+    }
+    let reply = match ask(&st, EngineMethod::Areas, None).await {
+        Ok(r) => r,
+        Err(response) => return response,
+    };
+    let Ok(doc) = serde_json::from_str::<serde_json::Value>(&reply.text) else {
+        return error_body(
+            StatusCode::BAD_GATEWAY,
+            "engine_failed",
+            "the engine could not answer",
+        );
+    };
+    let mut out = Vec::new();
+    let mut unclassified = Vec::new();
+    let mut private = Vec::new();
+    for area in doc["areas"].as_array().map_or(&[][..], Vec::as_slice) {
+        let Some(name) = area["name"].as_str() else {
+            continue;
+        };
+        let shown = st.classes.shown(name);
+        match shown {
+            Shown::Unclassified => unclassified.push(name.to_owned()),
+            Shown::Private => private.push(name.to_owned()),
+            Shown::Public | Shown::Internal => {}
+        }
+        let mut entry = area.clone();
+        entry["data_class"] = json!(shown);
+        out.push(entry);
+    }
+    let body = json!({
+        "schema": 1,
+        "kind": "hub.areas",
+        "areas": out,
+        "unclassified": unclassified,
+        "private": private,
+    });
+    json_response(StatusCode::OK, body.to_string(), None)
+}
+
 async fn not_found() -> Response {
     error_body(StatusCode::NOT_FOUND, "not_found", "no such route")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn task_ids_are_two_plain_names() {
+        for good in [
+            "lib.nvim/alpha",
+            "wkdbook-tasks.nvim/tasks-app-p2",
+            "ALL/x_y.z",
+        ] {
+            assert!(valid_task_id(good), "{good}");
+        }
+        for bad in [
+            "", "a", "a/", "/b", "a/b/c", "../b", "a/..", "a/.b", ".a/b", "a b/c", "a/b c",
+            "a\\b/c", "a/b?c", "a/b%2e", "a/b\n",
+        ] {
+            assert!(!valid_task_id(bad), "{bad:?}");
+        }
+        assert!(!valid_task_id(&format!("a/{}", "b".repeat(129))));
+    }
+
+    #[test]
+    fn a_query_is_plain_or_refused() {
+        let ok = parse_query(Some("id=lib.nvim/alpha&n=2"), &["id", "n"]).unwrap();
+        assert_eq!(ok.get("id").map(String::as_str), Some("lib.nvim/alpha"));
+        assert!(parse_query(None, &["id"]).unwrap().is_empty());
+        assert!(parse_query(Some(""), &["id"]).unwrap().is_empty());
+        for bad in [
+            "id",
+            "id=",
+            "x=1",
+            "id=a&id=b",
+            "id=a%20b",
+            "id=a+b",
+            "id=a b",
+            "id=a;b",
+        ] {
+            assert!(parse_query(Some(bad), &["id"]).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn if_none_match_is_read_the_way_http_says() {
+        let tag = "sha256:00aa";
+        assert!(etag_matches("\"sha256:00aa\"", tag));
+        assert!(etag_matches("W/\"sha256:00aa\"", tag));
+        assert!(etag_matches("*", tag));
+        assert!(etag_matches("\"x\" , \"sha256:00aa\"", tag));
+        assert!(!etag_matches("sha256:00aa", tag));
+        assert!(!etag_matches("\"sha256:00ab\"", tag));
+        assert!(!etag_matches("", tag));
+    }
+
+    #[test]
+    fn a_digest_is_the_etag_only_when_it_is_plain() {
+        assert_eq!(
+            etag_of(r#"{"digest":"sha256:0123456789abcdef"}"#).as_deref(),
+            Some("sha256:0123456789abcdef")
+        );
+        assert_eq!(etag_of(r#"{"digest":"a\" b"}"#), None);
+        assert_eq!(etag_of(r#"{"digest":""}"#), None);
+        assert_eq!(etag_of(r#"{}"#), None);
+        assert_eq!(etag_of("not json"), None);
+    }
+
+    #[test]
+    fn engine_failures_become_the_right_status_and_tell_no_detail() {
+        use crate::engine::EngineRefusal;
+        let refusal = |code: &str| {
+            EngineError::Refused(EngineRefusal {
+                code: code.to_owned(),
+                message: "m".to_owned(),
+                retryable: false,
+                text: String::new(),
+            })
+        };
+        let cases = [
+            (refusal("invalid_argument"), 400),
+            (refusal("not_found"), 404),
+            (refusal("conflict"), 409),
+            (refusal("forbidden"), 403),
+            (refusal("locked"), 503),
+            (refusal("internal"), 502),
+            (EngineError::Busy, 503),
+            (EngineError::Timeout, 504),
+            (EngineError::BadRequest("x".to_owned()), 400),
+            (EngineError::OutcomeUnknown("x".to_owned()), 502),
+            (
+                EngineError::Failed {
+                    code: Some(1),
+                    detail: "C:\\Users\\someone\\secret".to_owned(),
+                },
+                502,
+            ),
+            (EngineError::Spawn("C:\\x".to_owned()), 502),
+            (EngineError::Protocol("x".to_owned()), 502),
+        ];
+        for (error, status) in cases {
+            let shown = error.to_string();
+            let r = engine_failure(error);
+            assert_eq!(r.status().as_u16(), status, "{shown}");
+        }
+        assert_eq!(
+            engine_failure(EngineError::Busy)
+                .headers()
+                .get(header::RETRY_AFTER)
+                .and_then(|v| v.to_str().ok()),
+            Some("1")
+        );
+    }
 }

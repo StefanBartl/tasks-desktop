@@ -1,0 +1,388 @@
+//! Data classes of the areas, per device (concept 5.7, decision 13.6).
+//!
+//! `areas.json` lives in the app's config folder, not in the vault: the vault
+//! is synced and changed by pull requests, and a release written there could
+//! be set by a third party. **Fail closed:** an area without an entry is
+//! "unclassified", and an unclassified area is not released for anything
+//! that leaves the hub (another panel, a cloud runner). It is still shown to
+//! the user, marked as unclassified.
+//!
+//! ```json
+//! { "schema": 1,
+//!   "areas": { "lib.nvim": { "class": "internal", "repo": "lib.nvim" },
+//!              "secret-area": { "class": "private" } } }
+//! ```
+
+use std::collections::BTreeMap;
+use std::fmt;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+use crate::config::valid_area_name;
+
+/// The class of an area.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Class {
+    /// May leave the hub, e.g. into a public report.
+    Public,
+    /// Mine and not secret: may go to another panel of the same user, to a
+    /// cloud runner after a consent (the consent is not in this crate yet).
+    Internal,
+    /// Never leaves the hub: not to another panel, not to a cloud runner,
+    /// not into a cache of the client, not with a title into a log.
+    Private,
+}
+
+/// What an area may be used for. Showing it to the user on this machine is
+/// always allowed and is not a use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Use {
+    /// An answer for another panel of the app.
+    CrossPanel,
+    /// A prompt that goes to a runner outside this machine.
+    CloudRunner,
+    /// Kept by the client in a cache that outlives the session.
+    ClientCache,
+}
+
+/// The class an area is shown with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Shown {
+    Public,
+    Internal,
+    Private,
+    Unclassified,
+}
+
+/// One entry of the file.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Entry {
+    pub class: Class,
+    /// The repository folder of the area (they are not named alike:
+    /// `wkdbook-tasks.nvim` is `tasks.nvim`). Optional, a plain name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct File {
+    schema: u32,
+    areas: BTreeMap<String, Entry>,
+}
+
+/// The schema of `areas.json` this build reads and writes.
+pub const SCHEMA: u32 = 1;
+
+/// The most areas a file may name; a vault has about fifty.
+const MAX_AREAS: usize = 1000;
+/// The largest file that is read.
+const MAX_FILE_BYTES: u64 = 256 * 1024;
+
+/// What is known about the areas of this device.
+#[derive(Debug, Clone, Default)]
+pub struct AreaPolicy {
+    areas: BTreeMap<String, Entry>,
+}
+
+/// Why `areas.json` is not usable. The hub does not start with a file it
+/// cannot read: a typo must not turn into "everything unclassified" unseen.
+#[derive(Debug)]
+pub enum ClassesError {
+    Unreadable(PathBuf, std::io::Error),
+    Invalid(PathBuf, String),
+}
+
+impl fmt::Display for ClassesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unreadable(p, e) => write!(f, "cannot read {}: {e}", p.display()),
+            Self::Invalid(p, e) => write!(f, "invalid {}: {e}", p.display()),
+        }
+    }
+}
+
+impl std::error::Error for ClassesError {}
+
+/// The path of the active file in a config folder.
+#[must_use]
+pub fn path(dir: &Path) -> PathBuf {
+    dir.join("areas.json")
+}
+
+/// The path of the proposal (never read by the hub).
+#[must_use]
+pub fn proposal_path(dir: &Path) -> PathBuf {
+    dir.join("areas.proposed.json")
+}
+
+fn plain_repo_name(name: &str) -> bool {
+    valid_area_name(name).is_ok()
+}
+
+impl AreaPolicy {
+    /// Build a policy from entries, checking every name.
+    ///
+    /// # Errors
+    ///
+    /// The reason for the first name that is not acceptable.
+    pub fn new(areas: BTreeMap<String, Entry>) -> Result<Self, String> {
+        if areas.len() > MAX_AREAS {
+            return Err(format!("more than {MAX_AREAS} areas"));
+        }
+        for (name, entry) in &areas {
+            valid_area_name(name).map_err(|why| format!("area {name:?}: {why}"))?;
+            let bad_repo = entry.repo.as_deref().filter(|r| !plain_repo_name(r));
+            if let Some(repo) = bad_repo {
+                return Err(format!("area {name:?}: repo {repo:?} is not a plain name"));
+            }
+        }
+        Ok(Self { areas })
+    }
+
+    /// Load `areas.json` from the config folder. No file is a policy in
+    /// which nothing is classified.
+    ///
+    /// # Errors
+    ///
+    /// [`ClassesError`] for a file that exists and cannot be used.
+    pub fn load(dir: &Path) -> Result<Self, ClassesError> {
+        let file_path = path(dir);
+        let file = match std::fs::File::open(&file_path) {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(e) => return Err(ClassesError::Unreadable(file_path, e)),
+        };
+        let mut text = String::new();
+        if let Err(e) = file.take(MAX_FILE_BYTES + 1).read_to_string(&mut text) {
+            return Err(ClassesError::Unreadable(file_path, e));
+        }
+        if text.len() as u64 > MAX_FILE_BYTES {
+            return Err(ClassesError::Invalid(
+                file_path,
+                format!("larger than {} KiB", MAX_FILE_BYTES / 1024),
+            ));
+        }
+        let parsed: File = serde_json::from_str(&text)
+            .map_err(|e| ClassesError::Invalid(file_path.clone(), e.to_string()))?;
+        if parsed.schema != SCHEMA {
+            return Err(ClassesError::Invalid(
+                file_path,
+                format!("schema {} is not {SCHEMA}", parsed.schema),
+            ));
+        }
+        Self::new(parsed.areas).map_err(|why| ClassesError::Invalid(file_path, why))
+    }
+
+    /// The class an area is shown with.
+    #[must_use]
+    pub fn shown(&self, area: &str) -> Shown {
+        match self.areas.get(area).map(|e| e.class) {
+            Some(Class::Public) => Shown::Public,
+            Some(Class::Internal) => Shown::Internal,
+            Some(Class::Private) => Shown::Private,
+            None => Shown::Unclassified,
+        }
+    }
+
+    /// May the area be used for this? An unclassified area may not: nothing
+    /// is released until somebody said so.
+    #[must_use]
+    pub fn allows(&self, area: &str, usage: Use) -> bool {
+        // Today every use has the same rule. The parameter is there so a
+        // caller says what it wants, and a later rule can tell the uses apart.
+        let _ = usage;
+        matches!(self.shown(area), Shown::Public | Shown::Internal)
+    }
+
+    /// The repository folder named for an area, if the file says one.
+    #[must_use]
+    pub fn repo_of(&self, area: &str) -> Option<&str> {
+        self.areas.get(area)?.repo.as_deref()
+    }
+
+    /// The areas of `all` that are private.
+    #[must_use]
+    pub fn private_areas<'a>(&self, all: impl IntoIterator<Item = &'a str>) -> Vec<&'a str> {
+        all.into_iter()
+            .filter(|a| self.shown(a) == Shown::Private)
+            .collect()
+    }
+
+    /// The areas of `all` that have no entry.
+    #[must_use]
+    pub fn unclassified<'a>(&self, all: impl IntoIterator<Item = &'a str>) -> Vec<&'a str> {
+        all.into_iter()
+            .filter(|a| self.shown(a) == Shown::Unclassified)
+            .collect()
+    }
+
+    /// How many entries the file has.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.areas.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.areas.is_empty()
+    }
+}
+
+/// The text of a proposal: every area gets `internal` unless it is in
+/// `private`, and the repository that carries its name (or the name without
+/// a `wkdbook-` prefix) when `repo_exists` says it is there. The result is a
+/// *proposal for a person to read*: it is written next to the real file, not
+/// as the real file.
+///
+/// # Errors
+///
+/// The reason when a name is not acceptable.
+pub fn propose<'a>(
+    areas: impl IntoIterator<Item = &'a str>,
+    private: &[String],
+    repo_exists: &dyn Fn(&str) -> bool,
+) -> Result<String, String> {
+    let mut map = BTreeMap::new();
+    for name in areas {
+        let class = if private.iter().any(|p| p == name) {
+            Class::Private
+        } else {
+            Class::Internal
+        };
+        let candidates = [Some(name), name.strip_prefix("wkdbook-")];
+        let repo = candidates
+            .into_iter()
+            .flatten()
+            .find(|c| plain_repo_name(c) && repo_exists(c))
+            .map(str::to_owned);
+        map.insert(name.to_owned(), Entry { class, repo });
+    }
+    // The same checks as for a file that is loaded.
+    AreaPolicy::new(map.clone())?;
+    let file = File {
+        schema: SCHEMA,
+        areas: map,
+    };
+    serde_json::to_string_pretty(&file)
+        .map(|t| format!("{t}\n"))
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp(name: &str, text: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "tasks-desktop-classes-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(path(&dir), text).unwrap();
+        dir
+    }
+
+    const GOOD: &str = r#"{"schema":1,"areas":{
+        "alpha.nvim":{"class":"internal","repo":"alpha.nvim"},
+        "pub-area":{"class":"public"},
+        "secret-area":{"class":"private"}}}"#;
+
+    #[test]
+    fn a_missing_file_classifies_nothing() {
+        let dir = std::env::temp_dir().join("tasks-desktop-classes-none");
+        let policy = AreaPolicy::load(&dir).unwrap();
+        assert!(policy.is_empty());
+        assert_eq!(policy.shown("anything"), Shown::Unclassified);
+    }
+
+    #[test]
+    fn unclassified_and_private_leave_nothing() {
+        let policy = AreaPolicy::load(&temp("good", GOOD)).unwrap();
+        for usage in [Use::CrossPanel, Use::CloudRunner, Use::ClientCache] {
+            assert!(policy.allows("alpha.nvim", usage));
+            assert!(policy.allows("pub-area", usage));
+            assert!(!policy.allows("secret-area", usage), "private {usage:?}");
+            assert!(
+                !policy.allows("never-heard-of", usage),
+                "unclassified {usage:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_new_area_is_marked_unclassified() {
+        let policy = AreaPolicy::load(&temp("new", GOOD)).unwrap();
+        let all = ["alpha.nvim", "secret-area", "brand-new.nvim"];
+        assert_eq!(policy.unclassified(all), ["brand-new.nvim"]);
+        assert_eq!(policy.private_areas(all), ["secret-area"]);
+        assert_eq!(policy.repo_of("alpha.nvim"), Some("alpha.nvim"));
+        assert_eq!(policy.repo_of("pub-area"), None);
+    }
+
+    #[test]
+    fn a_file_that_is_not_right_is_refused() {
+        for (name, text) in [
+            ("typo", r#"{"schema":1,"areas":{"a":{"clas":"private"}}}"#),
+            ("class", r#"{"schema":1,"areas":{"a":{"class":"secret"}}}"#),
+            ("schema", r#"{"schema":2,"areas":{}}"#),
+            ("extra", r#"{"schema":1,"areas":{},"more":1}"#),
+            (
+                "traversal",
+                r#"{"schema":1,"areas":{"../x":{"class":"private"}}}"#,
+            ),
+            (
+                "repo",
+                r#"{"schema":1,"areas":{"a":{"class":"public","repo":"../x"}}}"#,
+            ),
+            ("json", "{"),
+        ] {
+            let got = AreaPolicy::load(&temp(name, text));
+            assert!(
+                matches!(got, Err(ClassesError::Invalid(..))),
+                "{name}: {got:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_huge_file_is_refused() {
+        let mut text = String::from(r#"{"schema":1,"areas":{"#);
+        for i in 0..20_000 {
+            text.push_str(&format!(r#""area{i}":{{"class":"public"}},"#));
+        }
+        text.push_str(r#""z":{"class":"public"}}}"#);
+        let got = AreaPolicy::load(&temp("huge", &text));
+        assert!(matches!(got, Err(ClassesError::Invalid(..))), "{got:?}");
+    }
+
+    #[test]
+    fn a_proposal_round_trips_through_the_loader() {
+        let exists = |c: &str| c == "tasks.nvim" || c == "lib.nvim";
+        let text = propose(
+            ["lib.nvim", "wkdbook-tasks.nvim", "secret-area", "other"],
+            &["secret-area".to_owned()],
+            &exists,
+        )
+        .unwrap();
+        let dir = temp("proposal", &text);
+        let policy = AreaPolicy::load(&dir).unwrap();
+        assert_eq!(policy.shown("secret-area"), Shown::Private);
+        assert_eq!(policy.shown("other"), Shown::Internal);
+        assert_eq!(policy.repo_of("lib.nvim"), Some("lib.nvim"));
+        assert_eq!(policy.repo_of("wkdbook-tasks.nvim"), Some("tasks.nvim"));
+        assert_eq!(policy.repo_of("other"), None);
+    }
+
+    #[test]
+    fn a_proposal_never_proposes_a_bad_name() {
+        let err = propose(["../x"], &[], &|_| false).unwrap_err();
+        assert!(err.contains("not allowed") || err.contains("must"), "{err}");
+    }
+}

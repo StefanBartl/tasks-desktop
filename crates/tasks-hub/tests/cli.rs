@@ -130,18 +130,88 @@ async fn serve_open_and_pair() {
         .unwrap();
     assert_eq!(second.status, 401);
 
-    // The session is a session: past the guard, a route that is not there.
+    // With the session the data routes answer, through the real engine.
     let auth = format!("Bearer {token}");
-    let r = client::request(
-        port,
-        "GET",
+    let get = |path: &'static str, extra: Vec<(&'static str, String)>| {
+        let auth = auth.clone();
+        async move {
+            let mut headers = vec![("Authorization", auth)];
+            headers.extend(extra);
+            let headers: Vec<(&str, &str)> =
+                headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
+            client::request(port, "GET", path, &headers, "")
+                .await
+                .unwrap()
+        }
+    };
+    if hello["engine"]["ready"] != true {
+        // No engine on this machine: the routes say so and do not crash.
+        let r = get("/api/tasks/snapshot", vec![]).await;
+        assert_eq!(r.status, 503, "{r:?}");
+        return;
+    }
+
+    let snap = get("/api/tasks/snapshot", vec![]).await;
+    assert_eq!(snap.status, 200, "{snap:?}");
+    let etag = snap.header("etag").expect("an ETag").to_owned();
+    let doc: Value = serde_json::from_str(&snap.body).unwrap();
+    assert_eq!(doc["kind"], "tasks.snapshot");
+    assert!(doc["tasks"].as_array().is_some_and(|t| !t.is_empty()));
+    // No path of this machine in the document.
+    let vault = fixture_vault().canonicalize().unwrap();
+    let vault = vault.display().to_string().replace('\\', "/");
+    assert!(!snap.body.replace("\\\\", "/").contains(&vault));
+
+    let again = get("/api/tasks/snapshot", vec![("If-None-Match", etag.clone())]).await;
+    assert_eq!(again.status, 304, "{again:?}");
+    assert!(again.body.is_empty());
+    let other = get(
         "/api/tasks/snapshot",
-        &[("Authorization", &auth)],
-        "",
+        vec![("If-None-Match", "\"nope\"".to_owned())],
     )
-    .await
-    .unwrap();
-    assert_eq!(r.status, 404, "{r:?}");
+    .await;
+    assert_eq!(other.status, 200);
+
+    let areas = get("/api/tasks/areas", vec![]).await;
+    assert_eq!(areas.status, 200, "{areas:?}");
+    let areas: Value = serde_json::from_str(&areas.body).unwrap();
+    assert_eq!(areas["kind"], "hub.areas");
+    // There is no areas.json in this config folder: nothing is classified.
+    for area in areas["areas"].as_array().unwrap() {
+        assert_eq!(area["data_class"], "unclassified", "{area}");
+    }
+    assert_eq!(
+        areas["unclassified"].as_array().unwrap().len(),
+        areas["areas"].as_array().unwrap().len()
+    );
+
+    let one = get("/api/tasks/task?id=lib.nvim/alpha", vec![]).await;
+    assert_eq!(one.status, 200, "{one:?}");
+    let one: Value = serde_json::from_str(&one.body).unwrap();
+    assert_eq!(one["task"]["id"], "lib.nvim/alpha");
+
+    let missing = get("/api/tasks/task?id=lib.nvim/no-such-task", vec![]).await;
+    assert_eq!(missing.status, 404, "{missing:?}");
+    for bad in [
+        "/api/tasks/task",
+        "/api/tasks/task?id=..%2Fx",
+        "/api/tasks/task?id=../x/y",
+        "/api/tasks/task?id=a/b/c",
+        "/api/tasks/task?id=alpha",
+        "/api/tasks/task?id=a/b&id=c/d",
+        "/api/tasks/task?id=a/b&x=1",
+    ] {
+        let r = get(bad, vec![]).await;
+        assert_eq!(r.status, 400, "{bad}: {r:?}");
+    }
+
+    let next = get("/api/tasks/next?n=2", vec![]).await;
+    assert_eq!(next.status, 200, "{next:?}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&next.body).unwrap()["kind"],
+        "tasks.next"
+    );
+    assert_eq!(get("/api/tasks/next?n=99", vec![]).await.status, 400);
 }
 
 #[tokio::test]
@@ -246,4 +316,73 @@ async fn a_hub_on_a_taken_port_that_is_this_app_is_already_running() {
     assert!(!second_config.join("hub.json").exists());
     let hello = get_hello(port).await;
     assert_eq!(hello["app"], "tasks-desktop");
+}
+
+#[test]
+fn areas_propose_check_and_the_active_file() {
+    let config = temp_dir("areas");
+    let out = command(&config)
+        .args(["areas", "propose", "--private=lib.nvim", "--write"])
+        .output()
+        .unwrap();
+    if !out.status.success()
+        && String::from_utf8_lossy(&out.stderr).contains("not ready")
+        && std::env::var_os("TASKS_DESKTOP_REQUIRE_ENGINE").is_none()
+    {
+        eprintln!("skipped: no engine on this machine");
+        return;
+    }
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // The proposal is a file for a person; the hub does not read it.
+    let doc: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(doc["schema"], 1);
+    assert_eq!(doc["areas"]["lib.nvim"]["class"], "private");
+    assert_eq!(doc["areas"]["cascade.nvim"]["class"], "internal");
+    assert!(config.join("areas.proposed.json").is_file());
+    assert!(!config.join("areas.json").exists());
+
+    // Nothing is classified yet, so the check says so and fails.
+    let check = command(&config).args(["areas", "check"]).output().unwrap();
+    assert!(!check.status.success());
+    assert!(String::from_utf8_lossy(&check.stderr).contains("no data class"));
+
+    // Once a person has renamed it, the check passes.
+    std::fs::rename(
+        config.join("areas.proposed.json"),
+        config.join("areas.json"),
+    )
+    .unwrap();
+    let check = command(&config).args(["areas", "check"]).output().unwrap();
+    assert!(check.status.success(), "{check:?}");
+
+    // A name that is not an area of the vault, and a name that is no name.
+    for bad in ["--private=no-such-area", "--private=../x"] {
+        let out = command(&config)
+            .args(["areas", "propose", bad])
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{bad} was accepted");
+    }
+}
+
+#[test]
+fn a_broken_areas_file_stops_the_hub_instead_of_classifying_nothing() {
+    let config = temp_dir("badareas");
+    std::fs::write(
+        config.join("areas.json"),
+        r#"{"schema":1,"areas":{"a":{"clas":"private"}}}"#,
+    )
+    .unwrap();
+    let out = command(&config)
+        .args(["serve", "--port", &free_port().to_string()])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("areas.json"));
+    assert!(!config.join("hub.json").exists());
 }

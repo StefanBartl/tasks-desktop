@@ -14,11 +14,23 @@ use tokio::net::TcpStream;
 const MAX_REPLY_BYTES: usize = 64 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(5);
 
-/// A status code and the body text.
+/// A status code, the headers and the body text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reply {
     pub status: u16,
+    pub headers: Vec<(String, String)>,
     pub body: String,
+}
+
+impl Reply {
+    /// The value of a header, by name without regard to case.
+    #[must_use]
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
+    }
 }
 
 /// Send one request to the hub on `port`.
@@ -88,14 +100,19 @@ fn parse(bytes: &[u8]) -> io::Result<Reply> {
     let bad = || io::Error::new(io::ErrorKind::InvalidData, "not an HTTP reply");
     let text = std::str::from_utf8(bytes).map_err(|_| bad())?;
     let (head, body) = text.split_once("\r\n\r\n").ok_or_else(bad)?;
-    let status = head
-        .lines()
+    let mut lines = head.split("\r\n");
+    let status = lines
         .next()
         .and_then(|l| l.split(' ').nth(1))
         .and_then(|s| s.parse::<u16>().ok())
         .ok_or_else(bad)?;
+    let headers = lines
+        .filter_map(|l| l.split_once(':'))
+        .map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned()))
+        .collect();
     Ok(Reply {
         status,
+        headers,
         body: body.to_owned(),
     })
 }
@@ -106,14 +123,11 @@ mod tests {
 
     #[test]
     fn a_reply_is_parsed() {
-        let r = parse(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\n{}").unwrap();
-        assert_eq!(
-            r,
-            Reply {
-                status: 200,
-                body: "{}".to_owned()
-            }
-        );
+        let r = parse(b"HTTP/1.1 200 OK\r\nETag: \"x\"\r\ncontent-length: 2\r\n\r\n{}").unwrap();
+        assert_eq!(r.status, 200);
+        assert_eq!(r.body, "{}");
+        assert_eq!(r.header("etag"), Some("\"x\""));
+        assert_eq!(r.header("missing"), None);
     }
 
     #[test]

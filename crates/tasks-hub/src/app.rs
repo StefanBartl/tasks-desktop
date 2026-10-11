@@ -1,4 +1,4 @@
-//! The two commands of the program: `serve` and `open`.
+//! The commands of the program: `serve`, `open` and `areas`.
 //!
 //! They live in the library so that their parts can be tested; `main.rs`
 //! only reads the arguments.
@@ -11,10 +11,11 @@ use app_core::authn::{Secret, SystemClock, CODE_BYTES, TOKEN_BYTES};
 use app_core::registry::{self, HubRecord};
 use serde_json::Value;
 
+use crate::classes::{self, AreaPolicy};
 use crate::client;
 use crate::config::{self, Env, FileConfig};
 use crate::discovery::discover;
-use crate::engine::{probe, CliEngine, CliEngineConfig};
+use crate::engine::{probe, CliEngine, CliEngineConfig, Engine, Method};
 use crate::server::{self, HubStatus, Limits, ServerConfig, APP_NAME, DEFAULT_PORT};
 
 /// What to do when the hub is started.
@@ -87,44 +88,60 @@ async fn wait_for_stop() {
     let _ = tokio::signal::ctrl_c().await;
 }
 
-/// Find the engine and ask it `hello`. The answer is a short code for
-/// `hello` and a longer text for the terminal of whoever started the hub.
-async fn engine_status(file: &FileConfig, env: &Env) -> (HubStatus, Option<String>) {
+/// What the start found out about the engine.
+struct EngineState {
+    status: HubStatus,
+    /// Only when the engine answered `hello` as this app needs.
+    engine: Option<Arc<dyn Engine>>,
+    /// A longer text for the terminal of whoever started the hub (it may
+    /// hold paths; `hello` gets only the short code of `status`).
+    note: Option<String>,
+}
+
+/// Find the engine and ask it `hello`.
+async fn engine_state(file: &FileConfig, env: &Env) -> EngineState {
+    let failed = |code: &'static str, note: String| EngineState {
+        status: HubStatus {
+            engine_ready: false,
+            problem: Some(code),
+        },
+        engine: None,
+        note: Some(note),
+    };
     let setup = match discover(file, env).await {
         Ok(setup) => setup,
-        Err(problem) => {
-            return (
-                HubStatus {
-                    engine_ready: false,
-                    problem: Some(problem.code()),
-                },
-                Some(problem.to_string()),
-            );
-        }
+        Err(problem) => return failed(problem.code(), problem.to_string()),
     };
     let engine = CliEngine::new(CliEngineConfig::from_setup(&setup, env.clone()));
     match probe(&engine).await {
-        Ok(_) => {
-            let note = setup
+        Ok(_) => EngineState {
+            status: HubStatus {
+                engine_ready: true,
+                problem: None,
+            },
+            engine: Some(Arc::new(engine)),
+            note: setup
                 .lib_problem
                 .as_ref()
-                .map(|p| format!("note: {p} (the engine may still find it)"));
-            (
-                HubStatus {
-                    engine_ready: true,
-                    problem: None,
-                },
-                note,
-            )
-        }
-        Err(problem) => (
-            HubStatus {
-                engine_ready: false,
-                problem: Some(problem.code()),
-            },
-            Some(problem.to_string()),
-        ),
+                .map(|p| format!("note: {p} (the engine may still find it)")),
+        },
+        Err(problem) => failed(problem.code(), problem.to_string()),
     }
+}
+
+/// The names of the areas the engine knows.
+async fn area_names(engine: &dyn Engine) -> Result<Vec<String>, String> {
+    let reply = engine
+        .call(Method::Areas, None)
+        .await
+        .map_err(|e| e.to_string())?;
+    let doc: Value = serde_json::from_str(&reply.text).map_err(|e| e.to_string())?;
+    Ok(doc["areas"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice)
+        .iter()
+        .filter_map(|a| a["name"].as_str().map(str::to_owned))
+        .collect())
 }
 
 /// Run the server until Ctrl-C.
@@ -145,10 +162,32 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
         ));
     }
 
-    let (status, note) = engine_status(&file, &env).await;
-    if let Some(note) = &note {
+    // A file that cannot be read stops the start: a typo must not turn
+    // into "everything unclassified" without anyone seeing it.
+    let policy = Arc::new(AreaPolicy::load(&dir).map_err(|e| e.to_string())?);
+
+    let state = engine_state(&file, &env).await;
+    if let Some(note) = &state.note {
         eprintln!("{note}");
     }
+    if let Some(engine) = &state.engine {
+        match area_names(engine.as_ref()).await {
+            Ok(names) => {
+                let open = policy.unclassified(names.iter().map(String::as_str));
+                if !open.is_empty() {
+                    eprintln!(
+                        "note: {} of {} areas have no data class and are treated as unclassified \
+                         (run `tasks-hub areas propose`): {}",
+                        open.len(),
+                        names.len(),
+                        open.join(", ")
+                    );
+                }
+            }
+            Err(e) => eprintln!("note: could not list the areas: {e}"),
+        }
+    }
+    let status = state.status.clone();
 
     let control = Secret::generate(TOKEN_BYTES).map_err(|e| e.to_string())?;
     let instance = Secret::generate(CODE_BYTES).map_err(|e| e.to_string())?;
@@ -160,6 +199,8 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
         control_secret: control.clone(),
         instance: instance.clone(),
         status: status.clone(),
+        engine: state.engine.clone(),
+        policy: Arc::clone(&policy),
     };
     // The port is part of the origin, so the wanted one is tried first. When
     // it is taken the server still starts, on another port, and says so:
@@ -264,6 +305,82 @@ pub async fn open() -> Result<String, String> {
     let doc: Value = serde_json::from_str(&reply.body).map_err(|e| e.to_string())?;
     let code = doc["code"].as_str().ok_or("the hub sent no code")?;
     Ok(format!("http://127.0.0.1:{}/#pair={code}", record.port))
+}
+
+/// What `tasks-hub areas ...` is asked to do.
+#[derive(Debug, Clone)]
+pub enum AreasCommand {
+    /// Print a proposal; with `write` also keep it next to the real file.
+    Propose { private: Vec<String>, write: bool },
+    /// List the areas that have no data class.
+    Check,
+}
+
+/// Run an `areas` command and return what to print.
+///
+/// # Errors
+///
+/// A text for the person at the terminal. `Check` fails when an area has
+/// no data class, so a script can rely on the exit status.
+pub async fn areas(command: AreasCommand) -> Result<String, String> {
+    let env = Env::from_process();
+    let dir = app_dir(&env)?;
+    let file = config::load_file(&dir).map_err(|e| e.to_string())?;
+    let state = engine_state(&file, &env).await;
+    let Some(engine) = state.engine else {
+        return Err(format!(
+            "the engine is not ready: {}",
+            state.note.unwrap_or_default()
+        ));
+    };
+    let names = area_names(engine.as_ref()).await?;
+    match command {
+        AreasCommand::Propose { private, write } => {
+            for name in &private {
+                config::valid_area_name(name)
+                    .map_err(|why| format!("--private {name:?}: {why}"))?;
+            }
+            let unknown: Vec<&str> = private
+                .iter()
+                .map(String::as_str)
+                .filter(|p| !names.iter().any(|n| n == p))
+                .collect();
+            if !unknown.is_empty() {
+                return Err(format!(
+                    "--private names no area of the vault: {}",
+                    unknown.join(", ")
+                ));
+            }
+            let repos = env.path("REPOS_DIR");
+            let exists =
+                |candidate: &str| repos.as_ref().is_some_and(|r| r.join(candidate).is_dir());
+            let text = classes::propose(names.iter().map(String::as_str), &private, &exists)?;
+            if write {
+                let target = classes::proposal_path(&dir);
+                std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                std::fs::write(&target, &text).map_err(|e| e.to_string())?;
+                eprintln!(
+                    "written: {} (read it, then rename it to areas.json; the hub reads only that name)",
+                    target.display()
+                );
+            }
+            Ok(text)
+        }
+        AreasCommand::Check => {
+            let policy = AreaPolicy::load(&dir).map_err(|e| e.to_string())?;
+            let open = policy.unclassified(names.iter().map(String::as_str));
+            if open.is_empty() {
+                Ok(format!("all {} areas have a data class", names.len()))
+            } else {
+                Err(format!(
+                    "{} of {} areas have no data class: {}",
+                    open.len(),
+                    names.len(),
+                    open.join(", ")
+                ))
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -34,6 +34,16 @@ then has another origin.
 `tasks-hub open` prints `http://127.0.0.1:PORT/#pair=<code>`. The code is
 good once and for 60 seconds.
 
+```
+tasks-hub areas propose [--private=a,b] [--write]   a data class for every area (a proposal)
+tasks-hub areas check                               fails while an area has no data class
+```
+
+Which areas may leave the hub is decided per device in `areas.json` in the
+config folder; an area with no entry counts as unclassified and is released
+for nothing. `propose --write` writes `areas.proposed.json` next to it; the
+hub reads only `areas.json`. See [docs/SECURITY.md](docs/SECURITY.md).
+
 ## Layout
 
 ```

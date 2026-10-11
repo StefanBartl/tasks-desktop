@@ -100,6 +100,40 @@ fn main() {
             "task"
         ]);
     }
+    // The documents the data routes are tested with.
+    if fake.get("error").is_none() {
+        match method.as_str() {
+            "snapshot" => {
+                doc["digest"] = json!("sha256:00000000000000aa");
+                doc["rev"] = json!("rev:000001");
+                doc["counts"] = json!({ "listed": 1, "unlisted": 0 });
+                doc["tasks"] = json!([{ "id": "alpha.nvim/one", "area": "alpha.nvim" }]);
+            }
+            "areas" => {
+                doc["areas"] = json!([
+                    { "name": "alpha.nvim", "open": 1 },
+                    { "name": "beta.nvim", "open": 0 },
+                    { "name": "secret-area", "open": 2 },
+                ]);
+            }
+            "task" => {
+                let id = params.get("id").and_then(Value::as_str).unwrap_or("");
+                if id == "alpha.nvim/missing" {
+                    doc["kind"] = json!("tasks.error");
+                    doc["code"] = json!("not_found");
+                    doc["message"] = json!("no such task");
+                    doc["retryable"] = json!(false);
+                } else {
+                    doc["task"] = json!({ "id": id });
+                    doc["body"] = json!("");
+                }
+            }
+            "next" => {
+                doc["echoed"] = params.clone();
+            }
+            _ => {}
+        }
+    }
     if fake.get("stamp").and_then(Value::as_bool) == Some(true) {
         doc["started_ms"] = json!(started);
         doc["ended_ms"] = json!(now_ms());

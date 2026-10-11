@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use app_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
 use serde_json::Value;
+use tasks_hub::classes::AreaPolicy;
 use tasks_hub::server::{start, HubStatus, Limits, RunningServer, ServerConfig};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -42,6 +43,8 @@ impl Harness {
             pairing_ttl: Duration::from_secs(60),
             control_secret: control.clone(),
             instance: Secret::generate(CODE_BYTES).unwrap(),
+            engine: None,
+            policy: Arc::new(AreaPolicy::default()),
             status: HubStatus {
                 engine_ready: true,
                 problem: None,
@@ -866,6 +869,8 @@ async fn the_server_binds_loopback_only() {
         pairing_ttl: Duration::from_secs(60),
         control_secret: Secret::generate(TOKEN_BYTES).unwrap(),
         instance: Secret::generate(CODE_BYTES).unwrap(),
+        engine: None,
+        policy: Arc::new(AreaPolicy::default()),
         status: HubStatus {
             engine_ready: false,
             problem: Some("no_vault"),

@@ -130,22 +130,33 @@ impl FileConfig {
             return Err("port: must be 1024 or higher".to_owned());
         }
         for name in &self.extra_areas {
-            let bad = |why: &str| Err(format!("extra_areas: {name:?} {why}"));
-            if name.is_empty() || name.chars().count() > MAX_AREA_NAME {
-                return bad("must have 1 to 128 characters");
-            }
-            if name.starts_with('.') || name.ends_with([' ', '.']) {
-                return bad("must not start with a dot or end with a dot or a space");
-            }
-            if name
-                .chars()
-                .any(|c| c.is_control() || "/\\,:*?\"<>|".contains(c))
-            {
-                return bad("holds a character that is not allowed in a folder name");
-            }
+            valid_area_name(name).map_err(|why| format!("extra_areas: {name:?} {why}"))?;
         }
         Ok(())
     }
+}
+
+/// Is this one plain folder name, fit to be an area (or a repository)?
+/// Nothing that could climb out of a folder, name a drive, hide itself or
+/// break a comma separated list.
+///
+/// # Errors
+///
+/// What is wrong with the name.
+pub fn valid_area_name(name: &str) -> Result<(), &'static str> {
+    if name.is_empty() || name.chars().count() > MAX_AREA_NAME {
+        return Err("must have 1 to 128 characters");
+    }
+    if name.starts_with('.') || name.ends_with([' ', '.']) {
+        return Err("must not start with a dot or end with a dot or a space");
+    }
+    if name
+        .chars()
+        .any(|c| c.is_control() || "/\\,:*?\"<>|".contains(c))
+    {
+        return Err("holds a character that is not allowed in a folder name");
+    }
+    Ok(())
 }
 
 /// Why the settings file could not be used.

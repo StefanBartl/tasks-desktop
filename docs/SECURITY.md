@@ -45,7 +45,7 @@ itself and never reaches the router.
 |---|---|---|
 | none | | the placeholder page, `GET /api/tasks/hello` (version, instance id, whether the engine is ready, a short problem code; no task, no area, no path) |
 | pairing code | 128 bits, one use, 60 s | `POST /auth/exchange` for a session token |
-| session token | 256 bits, in the memory of the hub only, at most 16 open | the data routes (none yet) |
+| session token | 256 bits, in the memory of the hub only, at most 16 open | the data routes: `GET /api/tasks/snapshot`, `task?id=`, `next`, `areas` |
 | control secret | 256 bits, in `control.secret` | `POST /api/control/pair`: mint a pairing code. Nothing else. |
 
 Comparisons are constant time and look at every stored entry. Secrets come
@@ -78,6 +78,54 @@ program ask for access. It is protected by the rights of your account:
   does not start.
 
 `hub.json` (port, process id, version, instance id) holds no secret.
+
+## The data routes
+
+They sit under `/api/`, so the guard has asked for a session before a
+handler runs. They hand on the documents of the engine as it wrote them
+(the contract promises no path of this machine in any of them) and add one
+thing, the data class of an area.
+
+* `snapshot` has the `digest` of the document as its `ETag`; a client that
+  sends `If-None-Match` gets `304`. Concurrent requests share one engine
+  question.
+* `task?id=<area>/<slug>`: the id is two plain names of letters, digits,
+  `.`, `_` and `-`. Nothing else reaches the engine; whether the task exists
+  is the engine's answer (404).
+* `next?n=&actor=&area=`: a number from 0 to 10 and plain names.
+* A query that is not plain, repeated or unknown is `400`. A route that
+  takes no query refuses one.
+* Engine refusals keep their code (`not_found` is 404, `conflict` 409, ...);
+  every other failure is told as `engine_failed` without detail; the detail
+  goes to the terminal of whoever runs the hub. A write that ended without
+  an answer is `outcome_unknown`.
+* No engine (not set up): `503 engine_unavailable` with a short problem code,
+  and `hello` still answers, so a page can say what is missing.
+
+## Data classes (`areas.json`)
+
+`<config>/areas.json`, per device, never in the vault (the vault is synced
+and changed by pull requests). Each area is `public`, `internal` or
+`private`; an area with no entry is **unclassified**, and an unclassified
+area is released for nothing that leaves the hub.
+
+| Class | Another panel | A cloud runner | A cache of the client |
+|---|---|---|---|
+| `public`, `internal` | yes | yes (after a consent, later) | yes |
+| `private` | no | no | no |
+| unclassified | no | no | no |
+
+The user always sees every area on this machine; `GET /api/tasks/areas`
+adds `data_class` to each and lists `unclassified` and `private`, so a new
+area shows up as a decision to make instead of a quiet default.
+
+A file that exists and is not valid stops the hub from starting: a typo must
+not become "everything unclassified" without anyone seeing it.
+`tasks-hub areas propose` writes a *proposal* (`areas.proposed.json`, never
+the active file); `tasks-hub areas check` fails while an area has no class.
+
+The consumers of these rules (another panel, a cloud runner, the client
+cache) do not exist yet; the rules are in place and tested for them.
 
 ## What this does not protect against
 
