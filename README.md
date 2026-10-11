@@ -4,8 +4,9 @@ A local web UI and desktop app for [tasks.nvim](https://github.com/StefanBartl/t
 see the vault at a glance, create and move tasks, plans and a dashboard,
 in the browser first and later as a small native app.
 
-**Status: pre-alpha, P2 (hub core and read-only UI) in progress.** Nothing here is
-released yet.
+**Status: pre-alpha, P2 (hub core and read-only UI) in progress.** The hub
+starts, pairs a browser and answers `hello`; it serves no task data yet.
+Nothing here is released.
 
 ## Principles
 
@@ -13,23 +14,38 @@ released yet.
   frontmatter; it talks to tasks.nvim through the versioned documents
   `tasks-export/1` (read) and `tasks-ops/1` (write).
 - **Loopback only, token always.** Host and Origin are checked, there is no
-  data endpoint without a session.
+  data endpoint without a session. See [docs/SECURITY.md](docs/SECURITY.md).
 - **Data classes fail closed.** An area without an entry in the per-device
   `areas.json` is treated as not released.
 - tasks.nvim stays a pure Lua plugin. This repository holds the hub, the UI
   and the native shell.
 
+## Use
+
+```
+tasks-hub serve [--port 1024-65535]   run the hub until Ctrl-C
+tasks-hub open                        print a one-time pairing link for the running hub
+```
+
+The hub tries port 17615 first (the port is part of the origin, so it is
+fixed). If it is taken the hub starts on a free port and says so; the page
+then has another origin.
+
+`tasks-hub open` prints `http://127.0.0.1:PORT/#pair=<code>`. The code is
+good once and for 60 seconds.
+
 ## Layout
 
 ```
-crates/app-core/    process runner, later auth, SSE, registry (no task or Tauri knowledge)
-crates/tasks-hub/   config, discovery, engine trait and CliEngine (lib + bin)
-crates/hub-testkit/ a fake Neovim and the tests that need a process
+crates/app-core/    process runner, auth rules, pairing and sessions, hub.json (no task or Tauri knowledge)
+crates/tasks-hub/   config, discovery, engine trait and CliEngine, the server, the program (lib + bin)
+crates/hub-testkit/ a fake Neovim and the tests that need a process or a socket
 e2e/fixture/vault   synthetic vault (no real data), made by tools/make-fixture-vault.lua
-engine.lock         the tasks.nvim commit this is built against
+docs/SECURITY.md    what the server checks, and what it does not
+engine.lock         the tasks.nvim and lib.nvim commits this is built against
 ```
 
-The UI (Svelte 5), the Tauri shell and the end-to-end tests are added by the
+The UI (Svelte 5), the Tauri shell and the browser tests are added by the
 phases P2 to P7; the plan lives in the maintainer's notes.
 
 ## Build
@@ -46,8 +62,10 @@ that a failure, as CI does.
 
 ## Settings
 
-`config.json` in the config folder (`%APPDATA%	asks-desktop`, or
-`TASKS_DESKTOP_CONFIG_DIR`) may set `vault`, `nvim`, `engine_dir`, `lib_dir`
-and `extra_areas`. Unknown keys are refused. Every value falls back to an
-environment variable (`TASKS_VAULT`, `TASKS_NVIM`, `TASKS_ENGINE_DIR`,
-`LIB_NVIM_DIR`) and then to a search; the hub says which one it used.
+`config.json` in the config folder (`%APPDATA%\tasks-desktop` on Windows, or
+whatever `TASKS_DESKTOP_CONFIG_DIR` names) may set `vault`, `nvim`,
+`engine_dir`, `lib_dir`, `extra_areas` and `port`. Unknown keys are refused.
+Every path falls back to an environment variable (`TASKS_VAULT`,
+`TASKS_NVIM`, `TASKS_ENGINE_DIR`, `LIB_NVIM_DIR`, and `TASKS_DESKTOP_PORT`
+for the port) and then to a search; a value that is set decides, a wrong one
+is an error and no quiet fall back. The hub says which source it used.

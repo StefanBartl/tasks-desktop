@@ -249,6 +249,19 @@ pub enum ProbeProblem {
     TooOld { missing: Vec<String> },
 }
 
+impl ProbeProblem {
+    /// A short, fixed word for the problem, free of paths (see
+    /// `SetupProblem::code`).
+    #[must_use]
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::Call(_) => "engine_unreachable",
+            Self::ContractUnsupported { .. } => "contract_unsupported",
+            Self::TooOld { .. } => "engine_too_old",
+        }
+    }
+}
+
 impl fmt::Display for ProbeProblem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

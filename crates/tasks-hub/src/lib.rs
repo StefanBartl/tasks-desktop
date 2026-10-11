@@ -5,9 +5,12 @@
 //! through a trait so the one-process-per-call `CliEngine` of P2 can later
 //! give way to a persistent host without touching the routes.
 
+pub mod app;
+pub mod client;
 pub mod config;
 pub mod discovery;
 pub mod engine;
+pub mod server;
 
 /// Version of this hub, as reported by `hello`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

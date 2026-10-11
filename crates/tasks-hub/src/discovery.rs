@@ -60,6 +60,24 @@ pub enum SetupProblem {
     },
 }
 
+impl SetupProblem {
+    /// A short, fixed word for the problem. It carries no path, so it may
+    /// be shown to any client of `hello`.
+    #[must_use]
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::InvalidSetting(_) => "invalid_setting",
+            Self::NoVault { .. } => "no_vault",
+            Self::VaultNotADirectory(_) => "vault_not_a_directory",
+            Self::NvimNotFound { .. } => "nvim_not_found",
+            Self::NvimProbeFailed(_) => "nvim_probe_failed",
+            Self::NvimTooOld { .. } => "nvim_too_old",
+            Self::EngineNotFound { .. } => "engine_not_found",
+            Self::LibNotFound { .. } => "lib_not_found",
+        }
+    }
+}
+
 impl fmt::Display for SetupProblem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

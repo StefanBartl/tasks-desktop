@@ -110,6 +110,8 @@ pub struct FileConfig {
     /// Folders that are areas although they have no `ROADMAP/` or `Backlog/`.
     #[serde(default)]
     pub extra_areas: Vec<String>,
+    /// The port the hub tries first (it is part of the origin).
+    pub port: Option<u16>,
 }
 
 /// The longest name of an area the hub accepts.
@@ -124,6 +126,9 @@ impl FileConfig {
     ///
     /// The reason, as text, for the first value that is not acceptable.
     pub fn validate(&self) -> Result<(), String> {
+        if self.port.is_some_and(|p| p < 1024) {
+            return Err("port: must be 1024 or higher".to_owned());
+        }
         for name in &self.extra_areas {
             let bad = |why: &str| Err(format!("extra_areas: {name:?} {why}"));
             if name.is_empty() || name.chars().count() > MAX_AREA_NAME {
