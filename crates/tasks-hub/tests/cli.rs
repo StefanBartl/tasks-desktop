@@ -222,3 +222,28 @@ fn open_without_a_hub_says_so() {
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("no hub"));
 }
+
+#[tokio::test]
+async fn a_hub_on_a_taken_port_that_is_this_app_is_already_running() {
+    // Two config folders: the record check passes for the second hub, so only
+    // the bind can tell it that the port belongs to a hub of this app.
+    let first_config = temp_dir("taken-a");
+    let port = free_port();
+    let _first = start_hub(&first_config, port);
+
+    let second_config = temp_dir("taken-b");
+    let second = command(&second_config)
+        .args(["serve", "--port", &port.to_string()])
+        .output()
+        .unwrap();
+    assert!(!second.status.success(), "{second:?}");
+    assert!(
+        String::from_utf8_lossy(&second.stderr).contains("already running"),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    // It did not take over the record of the first.
+    assert!(!second_config.join("hub.json").exists());
+    let hello = get_hello(port).await;
+    assert_eq!(hello["app"], "tasks-desktop");
+}

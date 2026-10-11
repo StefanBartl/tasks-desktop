@@ -57,3 +57,6 @@ jobs:
           tool: cargo-audit,cargo-deny
       - run: cargo audit
       - run: cargo deny check
+      # No crate version younger than a week (a hijacked release is caught
+      # within hours, usually; see tools/check-lock-age.py).
+      - run: python tools/check-lock-age.py --min-days 7

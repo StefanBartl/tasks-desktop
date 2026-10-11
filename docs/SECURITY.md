@@ -15,7 +15,7 @@ Every request goes through one guard, in this order. A refusal stops there.
 | # | Check | Refusal | Why |
 |---|---|---|---|
 | 1 | `Host` is exactly `127.0.0.1:PORT`, `localhost:PORT` or `[::1]:PORT` (one header, ASCII) | 403 / 400 | DNS rebinding |
-| 2 | `Content-Length` is a number and not over 1 MiB | 413 / 400 | memory |
+| 2 | `Content-Length` is a number and not over 1 MiB (1 KiB for the two pairing routes, which take a few bytes) | 413 / 400 | memory |
 | 3 | `Origin`, if sent, is exactly one of the three origins; `Sec-Fetch-Site`, if sent, is `same-origin` or `none` | 403 | cross-site requests |
 | 4 | the method is one the route knows (no `OPTIONS`, no CORS) | 405 | no cross-origin access at all |
 | 5 | a mutation without `Origin` is a program client: it must carry a credential and must not send `Sec-Fetch-Site` | 403 | a browser always sends `Origin` with a POST |
@@ -35,7 +35,9 @@ the strict policy with Trusted Types arrives with the user interface.
 Routes are classified by their raw path. Everything under `/api/` needs a
 session unless it is on the short list below, so a route that is added later
 is closed until someone opens it on purpose; a path with percent escapes or
-a trailing slash is not the list's path and needs a session too.
+a trailing slash is not the list's path and needs a session too. A path
+outside `/api/` that is not the page is answered "not found" by the guard
+itself and never reaches the router.
 
 ## Credentials
 
@@ -113,6 +115,20 @@ The engine runs with an empty environment plus a short list: `PATH`,
 own settings (`TASKS_VAULT`, `LIB_NVIM_DIR`, `TASKS_EXTRA_AREAS`). Every
 other `TASKS_*` switch is left out. The request goes in on stdin as printable
 ASCII; nothing the user typed is put on a command line.
+
+## Dependencies
+
+The tree is small (about 50 crates) and its policy is in the repository:
+
+* `Cargo.lock` is committed and every build uses `--locked`.
+* `deny.toml` allows a short list of licenses, crates.io only, no git
+  sources, no wildcard versions; `cargo audit` and `cargo deny check` run
+  in CI.
+* A version that is younger than seven days is not taken
+  (`tools/check-lock-age.py`, also run in CI). Cargo has no setting for
+  this. A newer version is taken with `cargo update -p <crate> --precise
+  <version>` once it is old enough, in a commit of its own with a look at
+  the lockfile diff.
 
 ## Reporting
 

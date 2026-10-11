@@ -543,6 +543,7 @@ async fn a_body_over_the_limit_is_refused_unread() {
 async fn a_chunked_body_over_the_limit_is_refused_while_it_is_read() {
     let limits = Limits {
         max_body_bytes: 64,
+        small_body_bytes: 64,
         ..Limits::default()
     };
     let h = Harness::with(limits).await;
@@ -914,4 +915,125 @@ async fn a_client_that_sends_nothing_is_dropped() {
     idle.write_all(b"GET /api/tasks/hel").await.unwrap();
     let ended = tokio::time::timeout(Duration::from_secs(5), idle.read_to_end(&mut buf)).await;
     assert!(ended.is_ok(), "the slow client was not dropped");
+}
+
+#[tokio::test]
+async fn a_silent_connection_is_dropped() {
+    // Not even half a request line: the slot must not be held for ever.
+    let limits = Limits {
+        header_timeout: Duration::from_millis(300),
+        ..Limits::default()
+    };
+    let h = Harness::with(limits).await;
+    let mut silent = TcpStream::connect(h.addr()).await.unwrap();
+    let mut buf = Vec::new();
+    let ended = tokio::time::timeout(Duration::from_secs(4), silent.read_to_end(&mut buf)).await;
+    assert!(ended.is_ok(), "a connection that sent nothing was kept");
+}
+
+#[tokio::test]
+async fn an_idle_keep_alive_connection_is_dropped() {
+    let limits = Limits {
+        header_timeout: Duration::from_millis(300),
+        ..Limits::default()
+    };
+    let h = Harness::with(limits).await;
+    let mut conn = TcpStream::connect(h.addr()).await.unwrap();
+    let head = format!(
+        "GET /api/tasks/hello HTTP/1.1\r\nHost: {}\r\n\r\n",
+        h.host()
+    );
+    conn.write_all(head.as_bytes()).await.unwrap();
+    // Read the first answer (a short JSON body), then say nothing more.
+    let mut seen = Vec::new();
+    let mut chunk = [0u8; 1024];
+    let first = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let n = conn.read(&mut chunk).await.unwrap();
+            assert!(n > 0, "closed before the answer");
+            seen.extend_from_slice(&chunk[..n]);
+            if String::from_utf8_lossy(&seen).contains("\"capabilities\"") {
+                break;
+            }
+        }
+    })
+    .await;
+    assert!(first.is_ok(), "no answer");
+    let mut rest = Vec::new();
+    let ended = tokio::time::timeout(Duration::from_secs(4), conn.read_to_end(&mut rest)).await;
+    assert!(ended.is_ok(), "an idle keep-alive connection was kept");
+}
+
+#[tokio::test]
+async fn the_routes_that_take_a_few_bytes_take_only_a_few_bytes() {
+    let h = Harness::new().await;
+    let host = h.host();
+    let origin = h.origin();
+    // Declared: refused unread.
+    let r = send(
+        h.addr(),
+        request(
+            "POST",
+            "/auth/exchange",
+            &[
+                ("Host", &host),
+                ("Origin", &origin),
+                ("Content-Type", "application/json"),
+                ("Content-Length", "4096"),
+            ],
+            b"",
+        ),
+    )
+    .await;
+    assert_eq!(r.status, 413, "{r:?}");
+    // Chunked, so not declared: refused while it is read.
+    let mut body = Vec::new();
+    for _ in 0..4 {
+        body.extend_from_slice(b"200\r\n");
+        body.extend_from_slice(&[b'a'; 0x200]);
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(b"0\r\n\r\n");
+    let r = send(
+        h.addr(),
+        request(
+            "POST",
+            "/auth/exchange",
+            &[
+                ("Host", &host),
+                ("Origin", &origin),
+                ("Content-Type", "application/json"),
+                ("Transfer-Encoding", "chunked"),
+            ],
+            &body,
+        ),
+    )
+    .await;
+    assert_eq!(r.status, 413, "{r:?}");
+}
+
+#[tokio::test]
+async fn what_is_not_ours_is_not_found_whatever_is_asked() {
+    let h = Harness::new().await;
+    let host = h.host();
+    for (method, path) in [
+        ("GET", "/nope"),
+        ("POST", "/nope"),
+        ("DELETE", "/etc/passwd"),
+    ] {
+        let r = send(h.addr(), request(method, path, &[("Host", &host)], b"")).await;
+        assert_eq!(r.status, 404, "{method} {path}: {r:?}");
+    }
+    // Even here the guard speaks first about a foreign origin.
+    let r = send(
+        h.addr(),
+        request(
+            "POST",
+            "/nope",
+            &[("Host", &host), ("Origin", "http://evil.example")],
+            b"",
+        ),
+    )
+    .await;
+    assert_eq!(r.status, 403, "{r:?}");
 }

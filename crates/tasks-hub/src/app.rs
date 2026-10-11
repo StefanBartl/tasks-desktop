@@ -58,14 +58,33 @@ async fn running_hub(dir: &std::path::Path) -> Option<HubRecord> {
     if record.app != APP_NAME {
         return None;
     }
-    let reply = client::request(record.port, "GET", "/api/tasks/hello", &[], "")
+    let doc = hello_of(record.port).await?;
+    (doc["instance"].as_str() == Some(record.instance.as_str())).then_some(record)
+}
+
+/// What the program on `port` says to `hello`, if it is a hub of this app.
+async fn hello_of(port: u16) -> Option<Value> {
+    let reply = client::request(port, "GET", "/api/tasks/hello", &[], "")
         .await
         .ok()?;
     let doc: Value = serde_json::from_str(&reply.body).ok()?;
-    (reply.status == 200
-        && doc["app"] == APP_NAME
-        && doc["instance"].as_str() == Some(record.instance.as_str()))
-    .then_some(record)
+    (reply.status == 200 && doc["app"] == APP_NAME).then_some(doc)
+}
+
+/// Wait for Ctrl-C, or for SIGTERM where there is one.
+async fn wait_for_stop() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        if let Ok(mut term) = signal(SignalKind::terminate()) {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = term.recv() => {}
+            }
+            return;
+        }
+    }
+    let _ = tokio::signal::ctrl_c().await;
 }
 
 /// Find the engine and ask it `hello`. The answer is a short code for
@@ -148,6 +167,12 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
     let running = match server::start(make_cfg(want)).await {
         Ok(r) => r,
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            // Two hubs that start at the same moment both passed the check
+            // above; the bind is what decides. Another hub of this app on
+            // the port is "already running", not a reason for a second one.
+            if hello_of(want).await.is_some() {
+                return Err(format!("a hub is already running on port {want}"));
+            }
             eprintln!("note: port {want} is in use, using a free port; the origin changes");
             server::start(make_cfg(0))
                 .await
@@ -157,18 +182,22 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
     };
     let port = running.addr().port();
 
-    registry::write_secret(&dir, &control.to_hex()).map_err(|e| e.to_string())?;
-    registry::write_record(
-        &dir,
-        &HubRecord {
-            app: APP_NAME.to_owned(),
-            port,
-            pid: std::process::id(),
-            version: crate::VERSION.to_owned(),
-            instance: running.instance().to_owned(),
-        },
-    )
-    .map_err(|e| e.to_string())?;
+    let record = HubRecord {
+        app: APP_NAME.to_owned(),
+        port,
+        pid: std::process::id(),
+        version: crate::VERSION.to_owned(),
+        instance: running.instance().to_owned(),
+    };
+    let written = registry::write_secret(&dir, &control.to_hex())
+        .and_then(|()| registry::write_record(&dir, &record));
+    if let Err(e) = written {
+        // Leave nothing half written behind, and do not serve unannounced.
+        registry::remove_secret(&dir);
+        registry::remove_record(&dir);
+        running.shutdown().await;
+        return Err(e.to_string());
+    }
 
     println!(
         "tasks-desktop hub {} on http://127.0.0.1:{port}/",
@@ -176,7 +205,7 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
     );
     println!("run `tasks-hub open` for a pairing link; Ctrl-C stops the hub");
 
-    let _ = tokio::signal::ctrl_c().await;
+    wait_for_stop().await;
     registry::remove_record(&dir);
     registry::remove_secret(&dir);
     running.shutdown().await;

@@ -56,6 +56,10 @@ pub struct Limits {
     /// Request line and headers together. hyper cannot go below 8 KiB.
     pub max_head_bytes: usize,
     pub max_body_bytes: usize,
+    /// The body of the routes that take a few bytes (a code, nothing).
+    /// What is not logged in yet must not be able to make the hub buffer
+    /// a megabyte per connection.
+    pub small_body_bytes: usize,
     /// How long a client may take to send the request head.
     pub header_timeout: Duration,
     /// How long a request may take from its head to its answer.
@@ -76,6 +80,7 @@ impl Default for Limits {
         Self {
             max_head_bytes: 8 * 1024,
             max_body_bytes: 1024 * 1024,
+            small_body_bytes: 1024,
             header_timeout: Duration::from_secs(10),
             request_timeout: Duration::from_secs(30),
             max_connections: 64,
@@ -193,8 +198,14 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/", get(shell))
         .route("/index.html", get(shell))
         .route("/api/tasks/hello", get(hello))
-        .route("/auth/exchange", post(exchange))
-        .route("/api/control/pair", post(control_pair))
+        .route(
+            "/auth/exchange",
+            post(exchange).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
+        )
+        .route(
+            "/api/control/pair",
+            post(control_pair).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
+        )
         .fallback(not_found)
         .layer(DefaultBodyLimit::max(shared.limits.max_body_bytes))
         .layer(middleware::from_fn_with_state(Arc::clone(&shared), guard))
@@ -212,8 +223,12 @@ async fn accept_loop(
         let (stream, _peer) = tokio::select! {
             accepted = listener.accept() => match accepted {
                 Ok(pair) => pair,
-                // A failed accept (a reset while queued) is not the end.
-                Err(_) => continue,
+                // A failed accept (a reset while queued, or no file
+                // handle left) is not the end; do not spin on it either.
+                Err(_) => {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    continue;
+                }
             },
             _ = stop.changed() => break,
         };
@@ -345,10 +360,14 @@ async fn judge(st: &Shared, class: Class, req: Request, next: Next) -> Response 
     // 2. Declared body size
     // (No header at all is fine: a GET, or a chunked body that the body
     // limit of the extractor bounds while it is read.)
+    let body_limit = match class {
+        Class::Exchange | Class::ControlPair => st.limits.small_body_bytes,
+        _ => st.limits.max_body_bytes,
+    };
     match single(headers, &header::CONTENT_LENGTH) {
         Ok(None) => {}
         Ok(Some(len)) => match len.parse::<usize>() {
-            Ok(n) if n <= st.limits.max_body_bytes => {}
+            Ok(n) if n <= body_limit => {}
             Ok(_) => {
                 let mut r =
                     error_body(StatusCode::PAYLOAD_TOO_LARGE, "too_large", "body too large");
@@ -412,6 +431,12 @@ async fn judge(st: &Shared, class: Class, req: Request, next: Next) -> Response 
             "bad_method",
             "method not allowed",
         );
+    }
+
+    // What is not one of our routes ends here, so that a route which is
+    // later added to the router outside `/api/` cannot be open by accident.
+    if class == Class::Other {
+        return error_body(StatusCode::NOT_FOUND, "not_found", "no such route");
     }
 
     // 5. A mutation without an Origin is a program client, never a browser.

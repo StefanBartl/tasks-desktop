@@ -87,7 +87,10 @@ impl fmt::Display for RandomError {
 impl std::error::Error for RandomError {}
 
 /// Random bytes with a text form. It never appears in `Debug` output.
-#[derive(Clone, PartialEq, Eq)]
+///
+/// There is no `PartialEq`: `==` would stop at the first differing byte.
+/// Use [`Secret::matches`].
+#[derive(Clone)]
 pub struct Secret(Vec<u8>);
 
 impl fmt::Debug for Secret {

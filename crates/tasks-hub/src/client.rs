@@ -33,6 +33,15 @@ pub async fn request(
     headers: &[(&str, &str)],
     body: &str,
 ) -> io::Result<Reply> {
+    // The request line is built from these two: neither may carry a space
+    // or a control character, or it would be a second line or a second part.
+    let plain = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_graphic());
+    if !plain(method) || !plain(path) || !path.starts_with('/') {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "the method or the path is not plain text",
+        ));
+    }
     let mut text = format!("{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n");
     for (name, value) in headers {
         // A header value with a line break would be a second header.
@@ -113,6 +122,25 @@ mod tests {
         assert!(parse(b"hello").is_err());
         assert!(parse(b"HTTP/1.1 abc\r\n\r\n").is_err());
         assert!(parse(&[0xff, 0xfe, b'\r', b'\n', b'\r', b'\n']).is_err());
+    }
+
+    #[tokio::test]
+    async fn a_method_or_path_with_a_break_or_a_space_is_refused() {
+        for (method, path) in [
+            ("GET", "/a b"),
+            ("GET", "/a\r\nHost: x"),
+            ("GET", "a"),
+            ("GET", ""),
+            ("GE T", "/"),
+            ("", "/"),
+        ] {
+            let err = request(1, method, path, &[], "").await.unwrap_err();
+            assert_eq!(
+                err.kind(),
+                io::ErrorKind::InvalidInput,
+                "{method:?} {path:?}"
+            );
+        }
     }
 
     #[tokio::test]

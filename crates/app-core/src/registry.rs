@@ -99,6 +99,18 @@ pub fn remove_record(dir: &Path) {
 pub fn write_secret(dir: &Path, secret_hex: &str) -> io::Result<()> {
     fs::create_dir_all(dir)?;
     let path = secret_path(dir);
+    // Windows: the file is made (empty) and given to the user before the
+    // secret is written into it, so no moment exists in which the inherited
+    // rights guard the secret.
+    #[cfg(windows)]
+    {
+        fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&path)?;
+        restrict_to_user(&path)?;
+    }
     let mut options = fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -114,11 +126,7 @@ pub fn write_secret(dir: &Path, secret_hex: &str) -> io::Result<()> {
         file.set_permissions(fs::Permissions::from_mode(0o600))?;
     }
     file.write_all(secret_hex.as_bytes())?;
-    file.write_all(b"\n")?;
-    drop(file);
-    #[cfg(windows)]
-    restrict_to_user(&path)?;
-    Ok(())
+    file.write_all(b"\n")
 }
 
 /// Windows: take every inherited right off the file and give it to the
@@ -150,7 +158,8 @@ fn restrict_to_user(path: &Path) -> io::Result<()> {
         Ok(())
     } else {
         Err(io::Error::other(format!(
-            "icacls could not restrict the control secret (exit {:?})",
+            "icacls could not restrict the control secret (exit {:?}); \
+             set TASKS_DESKTOP_CONFIG_DIR to a folder that only you own",
             status.code()
         )))
     }
