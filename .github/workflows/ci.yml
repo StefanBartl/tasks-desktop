@@ -8,12 +8,37 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+  # A missing engine is a failure in CI, not a skipped test.
+  TASKS_DESKTOP_REQUIRE_ENGINE: "1"
+  TASKS_ENGINE_DIR: ${{ github.workspace }}/engine/tasks.nvim
+  LIB_NVIM_DIR: ${{ github.workspace }}/engine/lib.nvim
+
 jobs:
   rust:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # Actions are pinned by commit (concept 7.4); the comment names the tag.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Read the pinned engine commit
+        id: engine
+        shell: bash
+        run: echo "commit=$(sed -n 's/^commit *= *//p' engine.lock)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: StefanBartl/tasks.nvim
+          ref: ${{ steps.engine.outputs.commit }}
+          path: engine/tasks.nvim
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: StefanBartl/lib.nvim
+          path: engine/lib.nvim
+      - uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1
+        with:
+          neovim: true
+          version: v0.12.2
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
         with:
           components: rustfmt, clippy
       - run: cargo fmt --all --check

@@ -11,3 +11,7 @@ description = "Tauri-free building blocks of the local app server: process, safe
 workspace = true
 
 [dependencies]
+tokio = { version = "1", default-features = false, features = ["io-util", "process", "time", "macros", "rt"] }
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread"] }

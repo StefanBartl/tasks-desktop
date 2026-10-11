@@ -22,8 +22,10 @@ released yet.
 ## Layout
 
 ```
-crates/app-core/    process, auth, SSE, registry (no task or Tauri knowledge)
-crates/tasks-hub/   engine trait, snapshot, queue, watch, routes (lib + bin)
+crates/app-core/    process runner, later auth, SSE, registry (no task or Tauri knowledge)
+crates/tasks-hub/   config, discovery, engine trait and CliEngine (lib + bin)
+crates/hub-testkit/ a fake Neovim and the tests that need a process
+e2e/fixture/vault   synthetic vault (no real data), made by tools/make-fixture-vault.lua
 engine.lock         the tasks.nvim commit this is built against
 ```
 
@@ -34,5 +36,18 @@ phases P2 to P7; the plan lives in the maintainer's notes.
 
 ```
 cargo build --locked
-cargo test --locked
+cargo test --workspace --locked
 ```
+
+The tests that talk to the real engine need Neovim >= 0.12, a tasks.nvim and a
+lib.nvim checkout (found through `REPOS_DIR`, or `TASKS_ENGINE_DIR` and
+`LIB_NVIM_DIR`). Without them they skip; `TASKS_DESKTOP_REQUIRE_ENGINE=1` makes
+that a failure, as CI does.
+
+## Settings
+
+`config.json` in the config folder (`%APPDATA%	asks-desktop`, or
+`TASKS_DESKTOP_CONFIG_DIR`) may set `vault`, `nvim`, `engine_dir`, `lib_dir`
+and `extra_areas`. Unknown keys are refused. Every value falls back to an
+environment variable (`TASKS_VAULT`, `TASKS_NVIM`, `TASKS_ENGINE_DIR`,
+`LIB_NVIM_DIR`) and then to a search; the hub says which one it used.

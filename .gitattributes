@@ -1,0 +1,3 @@
+*.md -text
+*.json -text
+e2e/fixture/** -text
