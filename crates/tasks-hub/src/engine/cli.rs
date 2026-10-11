@@ -344,10 +344,14 @@ impl CliEngine {
             let result = inner.execute(method, stdin, || tx.is_closed()).await;
             let _ = tx.send(result);
         });
+        // The sender is gone without an answer only if the task panicked.
         rx.await.unwrap_or_else(|_| {
-            Err(EngineError::Process(
-                "the engine task ended without an answer".to_owned(),
-            ))
+            let lost = EngineError::Process("the engine task ended without an answer".to_owned());
+            Err(if method == Method::Ops {
+                lost.for_write()
+            } else {
+                lost
+            })
         })
     }
 }
