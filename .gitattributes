@@ -1,3 +1,7 @@
 *.md -text
 *.json -text
 e2e/fixture/** -text
+*.rs text eol=lf
+*.toml text eol=lf
+*.lua text eol=lf
+*.yml text eol=lf
