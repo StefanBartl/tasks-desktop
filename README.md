@@ -5,8 +5,9 @@ see the vault at a glance, create and move tasks, plans and a dashboard,
 in the browser first and later as a small native app.
 
 **Status: pre-alpha, P2 (hub core and read-only UI) in progress.** The hub
-starts, pairs a browser and answers `hello`; it serves no task data yet.
-Nothing here is released.
+starts, pairs a browser, serves the vault's snapshot, tasks, next and areas
+and tells open streams when the vault changed. There is no user interface
+yet. Nothing here is released.
 
 ## Principles
 

@@ -45,6 +45,7 @@ impl Harness {
             instance: Secret::generate(CODE_BYTES).unwrap(),
             engine: None,
             policy: Arc::new(AreaPolicy::default()),
+            watch: None,
             status: HubStatus {
                 engine_ready: true,
                 problem: None,
@@ -871,6 +872,7 @@ async fn the_server_binds_loopback_only() {
         instance: Secret::generate(CODE_BYTES).unwrap(),
         engine: None,
         policy: Arc::new(AreaPolicy::default()),
+        watch: None,
         status: HubStatus {
             engine_ready: false,
             problem: Some("no_vault"),

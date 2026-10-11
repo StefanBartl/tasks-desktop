@@ -16,7 +16,8 @@ use crate::client;
 use crate::config::{self, Env, FileConfig};
 use crate::discovery::discover;
 use crate::engine::{probe, CliEngine, CliEngineConfig, Engine, Method};
-use crate::server::{self, HubStatus, Limits, ServerConfig, APP_NAME, DEFAULT_PORT};
+use crate::server::{self, HubStatus, Limits, ServerConfig, WatchConfig, APP_NAME, DEFAULT_PORT};
+use crate::store::RefreshOptions;
 
 /// What to do when the hub is started.
 #[derive(Debug, Clone, Default)]
@@ -96,6 +97,8 @@ struct EngineState {
     /// A longer text for the terminal of whoever started the hub (it may
     /// hold paths; `hello` gets only the short code of `status`).
     note: Option<String>,
+    /// The vault to watch, once the engine is known to be there.
+    vault: Option<PathBuf>,
 }
 
 /// Find the engine and ask it `hello`.
@@ -107,6 +110,7 @@ async fn engine_state(file: &FileConfig, env: &Env) -> EngineState {
         },
         engine: None,
         note: Some(note),
+        vault: None,
     };
     let setup = match discover(file, env).await {
         Ok(setup) => setup,
@@ -120,6 +124,7 @@ async fn engine_state(file: &FileConfig, env: &Env) -> EngineState {
                 problem: None,
             },
             engine: Some(Arc::new(engine)),
+            vault: Some(setup.vault.value.clone()),
             note: setup
                 .lib_problem
                 .as_ref()
@@ -193,7 +198,12 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
     let instance = Secret::generate(CODE_BYTES).map_err(|e| e.to_string())?;
     let make_cfg = |port: u16| ServerConfig {
         addr: std::net::SocketAddr::from(([127, 0, 0, 1], port)),
-        limits: Limits::default(),
+        // A watcher replaces the one-second life of a snapshot; the age that
+        // is left is a net, not the way a change is seen.
+        limits: Limits {
+            snapshot_max_age: state.vault.as_ref().map(|_| Duration::from_secs(120)),
+            ..Limits::default()
+        },
         clock: Arc::new(SystemClock::new()),
         pairing_ttl: Duration::from_secs(60),
         control_secret: control.clone(),
@@ -201,6 +211,10 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
         status: status.clone(),
         engine: state.engine.clone(),
         policy: Arc::clone(&policy),
+        watch: state.vault.clone().map(|vault| WatchConfig {
+            vault,
+            refresh: RefreshOptions::default(),
+        }),
     };
     // The port is part of the origin, so the wanted one is tried first. When
     // it is taken the server still starts, on another port, and says so:

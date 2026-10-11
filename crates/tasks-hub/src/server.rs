@@ -18,9 +18,14 @@
 //! so they are closed to anything without a session. A route added later
 //! is closed the same way until it is deliberately opened.
 
+use std::collections::HashMap;
+use std::convert::Infallible;
 use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex as StdMutex};
+use std::task::{Context, Poll};
+use std::time::Duration;
 
 use app_core::authn::{
     fetch_site_ok, Clock, HostPolicy, PairingStore, RateLimiter, Secret, SessionStore, CODE_BYTES,
@@ -34,17 +39,20 @@ use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
+use futures_core::Stream;
 use hyper::server::conn::http1;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::service::TowerToHyperService;
 use serde::Deserialize;
 use serde_json::json;
 use tokio::net::TcpListener;
-use tokio::sync::{watch, Mutex, Semaphore};
+use tokio::sync::{broadcast, mpsc, watch, Semaphore};
 use tokio::task::JoinHandle;
 
 use crate::classes::{AreaPolicy, Shown};
 use crate::engine::{Engine, EngineError, Method as EngineMethod};
+use crate::store::{self, RefreshOptions, SnapshotStore, StoreOptions};
+use crate::watch::{self as fswatch, Hint};
 
 /// The name the hub gives itself in `hello` and in `hub.json`.
 pub const APP_NAME: &str = "tasks-desktop";
@@ -76,9 +84,13 @@ pub struct Limits {
     pub exchange_window: Duration,
     /// Open sessions; the oldest is closed beyond this.
     pub max_sessions: usize,
-    /// How long a snapshot of the engine is reused. Requests that come
-    /// while one is being made wait for it either way.
-    pub snapshot_ttl: Duration,
+    /// How old a held snapshot may get before it is fetched again. `None`:
+    /// only a change (the watcher, the timer, a rescan) replaces it.
+    pub snapshot_max_age: Option<Duration>,
+    /// Open event streams one session may hold.
+    pub max_streams_per_session: usize,
+    /// How often an idle event stream says it is alive.
+    pub heartbeat: Duration,
 }
 
 impl Default for Limits {
@@ -95,7 +107,9 @@ impl Default for Limits {
             exchange_max: 10,
             exchange_window: Duration::from_secs(60),
             max_sessions: 16,
-            snapshot_ttl: Duration::from_secs(1),
+            snapshot_max_age: Some(Duration::from_secs(1)),
+            max_streams_per_session: 4,
+            heartbeat: Duration::from_secs(15),
         }
     }
 }
@@ -124,6 +138,62 @@ pub struct ServerConfig {
     pub engine: Option<Arc<dyn Engine>>,
     /// The data classes of the areas.
     pub policy: Arc<AreaPolicy>,
+    /// Watch the vault for changes. `None`: the snapshot is only replaced by
+    /// its age and by a request for a rescan (what tests without a vault do).
+    pub watch: Option<WatchConfig>,
+}
+
+/// What to watch and how patiently.
+#[derive(Debug, Clone)]
+pub struct WatchConfig {
+    pub vault: PathBuf,
+    pub refresh: RefreshOptions,
+}
+
+/// The event streams that are open, by session token.
+#[derive(Default)]
+struct StreamCounter {
+    by_token: StdMutex<HashMap<String, usize>>,
+}
+
+/// One open stream; the place is given back when it is dropped.
+struct StreamGuard {
+    counter: Arc<StreamCounter>,
+    token: String,
+}
+
+impl StreamCounter {
+    fn acquire(self: &Arc<Self>, token: &str, max: usize) -> Option<StreamGuard> {
+        let mut map = self
+            .by_token
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let open = map.entry(token.to_owned()).or_insert(0);
+        if *open >= max {
+            return None;
+        }
+        *open += 1;
+        Some(StreamGuard {
+            counter: Arc::clone(self),
+            token: token.to_owned(),
+        })
+    }
+}
+
+impl Drop for StreamGuard {
+    fn drop(&mut self) {
+        let mut map = self
+            .counter
+            .by_token
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(open) = map.get_mut(&self.token) {
+            *open = open.saturating_sub(1);
+            if *open == 0 {
+                map.remove(&self.token);
+            }
+        }
+    }
 }
 
 struct Shared {
@@ -138,7 +208,8 @@ struct Shared {
     status: HubStatus,
     engine: Option<Arc<dyn Engine>>,
     classes: Arc<AreaPolicy>,
-    snapshot: Mutex<Option<Arc<CachedSnapshot>>>,
+    store: Arc<SnapshotStore>,
+    streams: Arc<StreamCounter>,
 }
 
 /// A started server.
@@ -147,6 +218,19 @@ pub struct RunningServer {
     instance: String,
     stop: watch::Sender<bool>,
     task: JoinHandle<()>,
+    refresher: Option<JoinHandle<()>>,
+    // Kept alive: the refresher ends when every sender of hints is gone, and
+    // the timer must keep running even if the file watcher could not start.
+    _hints: Option<mpsc::UnboundedSender<Hint>>,
+    _watcher: Option<fswatch::Watcher>,
+}
+
+impl Drop for RunningServer {
+    fn drop(&mut self) {
+        if let Some(r) = &self.refresher {
+            r.abort();
+        }
+    }
 }
 
 impl RunningServer {
@@ -163,9 +247,13 @@ impl RunningServer {
     }
 
     /// Stop accepting, let open requests end, wait for the accept loop.
-    pub async fn shutdown(self) {
+    pub async fn shutdown(mut self) {
         let _ = self.stop.send(true);
-        let _ = tokio::time::timeout(Duration::from_secs(5), self.task).await;
+        if let Some(r) = self.refresher.take() {
+            r.abort();
+        }
+        let task = std::mem::replace(&mut self.task, tokio::spawn(async {}));
+        let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
     }
 }
 
@@ -186,6 +274,13 @@ pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
     let addr = listener.local_addr()?;
     let instance = cfg.instance.to_hex();
     let limits = cfg.limits.clone();
+    let store = SnapshotStore::new(
+        cfg.engine.clone(),
+        StoreOptions {
+            max_age: limits.snapshot_max_age,
+            ..StoreOptions::default()
+        },
+    );
     let shared = Arc::new(Shared {
         policy: HostPolicy::loopback(addr.port()),
         pairing: PairingStore::new(Arc::clone(&cfg.clock), cfg.pairing_ttl),
@@ -196,10 +291,27 @@ pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
         limits: limits.clone(),
         instance: instance.clone(),
         status: cfg.status,
-        engine: cfg.engine,
+        engine: cfg.engine.clone(),
         classes: cfg.policy,
-        snapshot: Mutex::new(None),
+        store: Arc::clone(&store),
+        streams: Arc::new(StreamCounter::default()),
     });
+
+    // The watcher only says "look again"; the refresher does the looking.
+    let (mut hints, mut watcher, mut refresher) = (None, None, None);
+    if let Some(w) = cfg.watch {
+        let (tx, rx) = mpsc::unbounded_channel();
+        match fswatch::start(&w.vault, tx.clone()) {
+            Ok(started) => watcher = Some(started),
+            // Not fatal: the timer and the rescan request still work.
+            Err(e) => {
+                eprintln!("note: the vault cannot be watched ({e}); scanning on a timer only")
+            }
+        }
+        refresher = Some(store::spawn_refresher(Arc::clone(&store), rx, w.refresh));
+        hints = Some(tx);
+    }
+
     let app = router(shared);
     let (stop, stop_rx) = watch::channel(false);
     let task = tokio::spawn(accept_loop(listener, app, limits, stop_rx));
@@ -208,6 +320,9 @@ pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
         instance,
         stop,
         task,
+        refresher,
+        _hints: hints,
+        _watcher: watcher,
     })
 }
 
@@ -220,6 +335,8 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/api/tasks/task", get(task))
         .route("/api/tasks/next", get(next))
         .route("/api/tasks/areas", get(areas))
+        .route("/api/tasks/events", get(events))
+        .route("/api/tasks/rescan", post(rescan))
         .route(
             "/auth/exchange",
             post(exchange).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
@@ -632,29 +749,6 @@ async fn control_pair(State(st): State<Arc<Shared>>) -> Response {
 // before the handler runs. The documents of the engine are passed on as the
 // engine wrote them; the hub adds only the class of an area (`hub.areas`).
 
-/// The engine's snapshot and what the hub derived from it.
-struct CachedSnapshot {
-    at: Instant,
-    /// Reference counted: answering from the cache does not copy megabytes.
-    text: Bytes,
-    etag: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct DigestOnly {
-    digest: Option<String>,
-}
-
-/// The ETag of a document: its digest, which does not move with
-/// `generated_at` (concept 4: two runs on an unchanged vault agree).
-fn etag_of(text: &str) -> Option<String> {
-    let digest = serde_json::from_str::<DigestOnly>(text).ok()?.digest?;
-    let plain = digest
-        .bytes()
-        .all(|b| b.is_ascii_alphanumeric() || b == b':');
-    (plain && !digest.is_empty()).then_some(digest)
-}
-
 /// Does an `If-None-Match` header name this ETag (or `*`)?
 fn etag_matches(header: &str, etag: &str) -> bool {
     let quoted = format!("\"{etag}\"");
@@ -775,27 +869,6 @@ async fn ask(
     engine.call(method, params).await.map_err(engine_failure)
 }
 
-/// One snapshot at a time: requests that arrive while the engine is busy
-/// with one wait for it and share its answer. A short life, because the
-/// watcher that would tell "changed" comes with the next package.
-async fn fresh_snapshot(st: &Shared) -> Result<Arc<CachedSnapshot>, Response> {
-    let mut slot = st.snapshot.lock().await;
-    let fresh = slot
-        .as_ref()
-        .filter(|c| c.at.elapsed() < st.limits.snapshot_ttl);
-    if let Some(c) = fresh {
-        return Ok(Arc::clone(c));
-    }
-    let reply = ask(st, EngineMethod::Snapshot, None).await?;
-    let cached = Arc::new(CachedSnapshot {
-        at: Instant::now(),
-        etag: etag_of(&reply.text),
-        text: Bytes::from(reply.text),
-    });
-    *slot = Some(Arc::clone(&cached));
-    Ok(cached)
-}
-
 /// A route that takes no query says so, instead of ignoring one.
 fn no_query(query: Option<&str>) -> Option<Response> {
     match query {
@@ -816,9 +889,12 @@ async fn snapshot(
     if let Some(response) = no_query(query.as_deref()) {
         return response;
     }
-    let cached = match fresh_snapshot(&st).await {
+    if !st.store.has_engine() {
+        return engine_unavailable(&st);
+    }
+    let cached = match st.store.current().await {
         Ok(c) => c,
-        Err(response) => return response,
+        Err(error) => return engine_failure(error),
     };
     if let Some(etag) = &cached.etag {
         let seen = single(&headers, &header::IF_NONE_MATCH).ok().flatten();
@@ -972,6 +1048,102 @@ async fn areas(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Resp
     json_response(StatusCode::OK, body.to_string(), None)
 }
 
+/// The body of an event stream: what the task of the connection sends.
+struct EventStream {
+    rx: mpsc::Receiver<Bytes>,
+}
+
+impl Stream for EventStream {
+    type Item = Result<Bytes, Infallible>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.rx.poll_recv(cx).map(|item| item.map(Ok))
+    }
+}
+
+/// `GET /api/tasks/events`: server-sent events (concept 3.4). A `hello`
+/// first (with where the stream stands), then one `tasks` event per change.
+/// An event is a hint: what changed, as ids; the client reads again. There
+/// is no replay: a client that connects reads the snapshot first.
+async fn events(
+    State(st): State<Arc<Shared>>,
+    RawQuery(query): RawQuery,
+    headers: HeaderMap,
+) -> Response {
+    if let Some(response) = no_query(query.as_deref()) {
+        return response;
+    }
+    if !st.store.has_engine() {
+        return engine_unavailable(&st);
+    }
+    // The guard has checked the session; the token is the key of the count.
+    let token = bearer(&headers).unwrap_or_default();
+    let Some(guard) = st
+        .streams
+        .acquire(&token, st.limits.max_streams_per_session)
+    else {
+        return error_body(
+            StatusCode::TOO_MANY_REQUESTS,
+            "too_many_streams",
+            "this session has too many open event streams",
+        );
+    };
+    // Start from a known state: the snapshot is held before the stream is.
+    if let Err(error) = st.store.current().await {
+        return engine_failure(error);
+    }
+    let (mut changes, seq, rev) = st.store.subscribe();
+    let (tx, rx) = mpsc::channel::<Bytes>(16);
+    let heartbeat = st.limits.heartbeat;
+    let instance = st.instance.clone();
+    tokio::spawn(async move {
+        let _guard = guard;
+        let hello = format!(
+            "event: hello\ndata: {}\n\n",
+            json!({ "rev": rev, "seq": seq, "instance": instance })
+        );
+        if tx.send(Bytes::from(hello)).await.is_err() {
+            return;
+        }
+        let mut ticker =
+            tokio::time::interval_at(tokio::time::Instant::now() + heartbeat, heartbeat);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            let message = tokio::select! {
+                change = changes.recv() => match change {
+                    Ok(c) => c.to_sse(),
+                    // This client was too slow for the buffer: it must read again.
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        "event: resync\ndata: {}\n\n".to_owned()
+                    }
+                    Err(broadcast::error::RecvError::Closed) => return,
+                },
+                _ = ticker.tick() => ": ping\n\n".to_owned(),
+                () = tx.closed() => return,
+            };
+            if tx.send(Bytes::from(message)).await.is_err() {
+                return;
+            }
+        }
+    });
+    let mut response = Response::new(Body::from_stream(EventStream { rx }));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/event-stream; charset=utf-8"),
+    );
+    response
+}
+
+/// `POST /api/tasks/rescan`: a client that got the focus again asks for a
+/// full scan. Many asks while one runs are one scan.
+async fn rescan(State(st): State<Arc<Shared>>) -> Response {
+    if !st.store.has_engine() {
+        return engine_unavailable(&st);
+    }
+    st.store.request_rescan();
+    (StatusCode::ACCEPTED, axum::Json(json!({ "ok": true }))).into_response()
+}
+
 async fn not_found() -> Response {
     error_body(StatusCode::NOT_FOUND, "not_found", "no such route")
 }
@@ -1028,18 +1200,6 @@ mod tests {
         assert!(!etag_matches("sha256:00aa", tag));
         assert!(!etag_matches("\"sha256:00ab\"", tag));
         assert!(!etag_matches("", tag));
-    }
-
-    #[test]
-    fn a_digest_is_the_etag_only_when_it_is_plain() {
-        assert_eq!(
-            etag_of(r#"{"digest":"sha256:0123456789abcdef"}"#).as_deref(),
-            Some("sha256:0123456789abcdef")
-        );
-        assert_eq!(etag_of(r#"{"digest":"a\" b"}"#), None);
-        assert_eq!(etag_of(r#"{"digest":""}"#), None);
-        assert_eq!(etag_of(r#"{}"#), None);
-        assert_eq!(etag_of("not json"), None);
     }
 
     #[tokio::test]

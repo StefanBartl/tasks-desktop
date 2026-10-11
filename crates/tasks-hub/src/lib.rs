@@ -12,6 +12,8 @@ pub mod config;
 pub mod discovery;
 pub mod engine;
 pub mod server;
+pub mod store;
+pub mod watch;
 
 /// Version of this hub, as reported by `hello`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

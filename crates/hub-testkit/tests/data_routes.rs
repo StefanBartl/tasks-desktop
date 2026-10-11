@@ -61,7 +61,7 @@ async fn hub(engine: Option<Arc<dyn Engine>>, status: HubStatus) -> Hub {
     let cfg = ServerConfig {
         addr: "127.0.0.1:0".parse().unwrap(),
         limits: Limits {
-            snapshot_ttl: Duration::ZERO,
+            snapshot_max_age: Some(Duration::ZERO),
             ..Limits::default()
         },
         clock: Arc::new(ManualClock::new()),
@@ -71,6 +71,7 @@ async fn hub(engine: Option<Arc<dyn Engine>>, status: HubStatus) -> Hub {
         status,
         engine,
         policy: policy(),
+        watch: None,
     };
     let server = start(cfg).await.unwrap();
     let mut h = Hub {

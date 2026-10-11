@@ -45,7 +45,7 @@ itself and never reaches the router.
 |---|---|---|
 | none | | the placeholder page, `GET /api/tasks/hello` (version, instance id, whether the engine is ready, a short problem code; no task, no area, no path) |
 | pairing code | 128 bits, one use, 60 s | `POST /auth/exchange` for a session token |
-| session token | 256 bits, in the memory of the hub only, at most 16 open | the data routes: `GET /api/tasks/snapshot`, `task?id=`, `next`, `areas` |
+| session token | 256 bits, in the memory of the hub only, at most 16 open | the data routes: `GET /api/tasks/snapshot`, `task?id=`, `next`, `areas`, `events`, and `POST /api/tasks/rescan` |
 | control secret | 256 bits, in `control.secret` | `POST /api/control/pair`: mint a pairing code. Nothing else. |
 
 Comparisons are constant time and look at every stored entry. Secrets come
@@ -87,9 +87,17 @@ handler runs. They hand on the documents of the engine as it wrote them
 thing, the data class of an area.
 
 * `snapshot` has the `digest` of the document as its `ETag`; a client that
-  sends `If-None-Match` gets `304`. Concurrent requests share one engine
-  question, and an answer is reused for a second: a change is seen within
-  that time (the watcher that replaces the time comes with the next stage).
+  sends `If-None-Match` gets `304`. The hub holds one snapshot and serves it
+  from memory; it is replaced when the vault changed (below), and a client
+  that asks while it is being replaced waits for that one answer.
+* `events` is a server-sent event stream: a `hello` with where the stream
+  stands, then one `tasks` event per change with the ids that were changed,
+  added or removed (ids only: no title, no path), a heartbeat every 15
+  seconds, and a `resync` for a client that was too slow. An event is a hint,
+  not a diff: the client reads the snapshot again. There is no replay. A
+  session may hold four streams (`429` beyond that).
+* `rescan` (POST) asks for a full scan now, for a client that got the focus
+  back; many asks are one scan.
 * `task?id=<area>/<slug>`: the id is two plain names of letters, digits,
   `.`, `_` and `-`. Nothing else reaches the engine; whether the task exists
   is the engine's answer (404).
@@ -103,6 +111,24 @@ thing, the data class of an area.
   an answer is `outcome_unknown`.
 * No engine (not set up): `503 engine_unavailable` with a short problem code,
   and `hello` still answers, so a page can say what is missing.
+
+## How a change is seen
+
+A file watcher (`notify`, the stable 8.x line) watches the vault and says
+only "something that matters changed"; what matters is decided by path:
+`.md` files in `ROADMAP/tasks` (folder tasks too), `ROADMAP/plans`,
+`Backlog/FEATURES` and `Backlog/TASKS`, and the entries of the vault root
+that are not hidden (a new area). Leftovers of tools (`*.tasks-tmp.*`,
+`*.frontmatter.*`, lock files, backups, swap files, Vim's `4913`, sync
+conflicts) and the folder events Windows adds for a changed folder do not
+count. After 300 ms of quiet there is **one** scan by the engine, however
+many files changed. A state that a tool is in the middle of changing (a
+duplicate id while a task is being finished, an unreadable file during an
+editor's save) is read once more after half a second before it is shown.
+
+Events can be lost: the watcher may drop some under a burst, and one that
+fails tells the hub to rescan. A full scan every 45 seconds is the net under
+that, so a change is never missed for longer.
 
 ## Data classes (`areas.json`)
 
@@ -174,7 +200,8 @@ ASCII; nothing the user typed is put on a command line.
 
 ## Dependencies
 
-The tree is small (about 50 crates) and its policy is in the repository:
+The tree is small (about 70 crates, of which the file watcher and its
+platform backends are about twenty) and its policy is in the repository:
 
 * `Cargo.lock` is committed and every build uses `--locked`.
 * `deny.toml` allows a short list of licenses, crates.io only, no git

@@ -104,10 +104,46 @@ fn main() {
     if fake.get("error").is_none() {
         match method.as_str() {
             "snapshot" => {
-                doc["digest"] = json!("sha256:00000000000000aa");
-                doc["rev"] = json!("rev:000001");
-                doc["counts"] = json!({ "listed": 1, "unlisted": 0 });
-                doc["tasks"] = json!([{ "id": "alpha.nvim/one", "area": "alpha.nvim" }]);
+                // With `<vault>/.fake-n` the document follows that number, so a
+                // test can change "the vault" by writing a file; every call is
+                // counted in `<vault>/.fake-calls`.
+                let vault = std::env::var("TASKS_VAULT").unwrap_or_default();
+                let state = std::path::Path::new(&vault).join(".fake-n");
+                if let Ok(text) = std::fs::read_to_string(&state) {
+                    use std::io::Write as _;
+                    let n: u64 = text.trim().parse().unwrap_or(0);
+                    let transient =
+                        std::fs::remove_file(std::path::Path::new(&vault).join(".fake-transient"))
+                            .is_ok();
+                    if let Ok(mut calls) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(std::path::Path::new(&vault).join(".fake-calls"))
+                    {
+                        let _ = writeln!(calls, "call");
+                    }
+                    let mut tasks: Vec<Value> = (0..=n)
+                        .map(|i| {
+                            json!({
+                                "id": format!("alpha.nvim/t{i}"),
+                                "area": "alpha.nvim",
+                                "etag": format!("sha256:{i:016x}"),
+                                "problems": [],
+                            })
+                        })
+                        .collect();
+                    if transient {
+                        tasks[0]["problems"] = json!([{ "code": "duplicate-id", "msg": "x" }]);
+                    }
+                    doc["digest"] = json!(format!("sha256:{n:016x}"));
+                    doc["rev"] = json!(format!("rev:{n:06x}"));
+                    doc["tasks"] = json!(tasks);
+                } else {
+                    doc["digest"] = json!("sha256:00000000000000aa");
+                    doc["rev"] = json!("rev:000001");
+                    doc["counts"] = json!({ "listed": 1, "unlisted": 0 });
+                    doc["tasks"] = json!([{ "id": "alpha.nvim/one", "area": "alpha.nvim" }]);
+                }
             }
             "areas" => {
                 doc["areas"] = json!([

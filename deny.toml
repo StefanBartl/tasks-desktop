@@ -18,6 +18,10 @@ allow = [
     "Apache-2.0 WITH LLVM-exception",
     "Unicode-3.0",
     "BSD-3-Clause",
+    # notify (the file watcher) is CC0-1.0, a public domain dedication, and
+    # its Linux backend inotify is ISC, a permissive license like MIT.
+    "CC0-1.0",
+    "ISC",
 ]
 
 [bans]
