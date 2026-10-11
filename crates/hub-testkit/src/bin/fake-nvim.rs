@@ -9,6 +9,8 @@
 //! * `echo_stdin`: put the bytes it received on stdin in the answer;
 //! * `error`: answer with a `tasks.error` of that code;
 //! * `kind`, `schema`: answer with another kind or schema than asked for;
+//! * `marker`: write this file after the wait, so a test can tell that the
+//!   process ran to the end (or that it never started);
 //! * `exit`: print nothing but a line on stderr and end with this status;
 //! * `huge`: answer with a string of this many bytes.
 
@@ -51,6 +53,9 @@ fn main() {
 
     if let Some(ms) = fake.get("sleep_ms").and_then(Value::as_u64) {
         std::thread::sleep(Duration::from_millis(ms));
+    }
+    if let Some(path) = fake.get("marker").and_then(Value::as_str) {
+        let _ = std::fs::write(path, b"ran");
     }
     if let Some(code) = fake.get("exit").and_then(Value::as_i64) {
         eprintln!(

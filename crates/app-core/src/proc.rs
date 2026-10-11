@@ -150,10 +150,13 @@ pub async fn run(spec: Spec) -> Result<Output, ProcError> {
         )
     };
 
-    let outcome = match tokio::time::timeout(spec.timeout, pipes).await {
+    // One deadline for the whole run: the pipes and the wait share it, so the
+    // watchdog never grants the time twice.
+    let deadline = tokio::time::Instant::now() + spec.timeout;
+    let outcome = match tokio::time::timeout_at(deadline, pipes).await {
         Ok(Ok(((), out, err))) => {
             // The pipes are closed, so the child is ending. Bound the wait too.
-            match tokio::time::timeout(spec.timeout, child.wait()).await {
+            match tokio::time::timeout_at(deadline, child.wait()).await {
                 Ok(Ok(status)) => {
                     return Ok(Output {
                         code: status.code(),

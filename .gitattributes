@@ -1,6 +1,9 @@
-e2e/fixture/** -text
+*.md text eol=lf
 *.rs text eol=lf
 *.toml text eol=lf
 *.lua text eol=lf
 *.yml text eol=lf
-*.md text eol=lf
+
+# Last, so it wins over the rules above: the fixture vault is byte exact,
+# every etag of the contract is a hash of these bytes.
+e2e/fixture/** -text

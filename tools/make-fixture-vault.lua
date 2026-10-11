@@ -18,8 +18,20 @@ vim.opt.rtp:prepend(lib_dir)
 vim.opt.rtp:prepend(engine_dir)
 
 out = vim.fs.normalize(out)
-vim.fn.delete(out .. "/vault", "rf")
 vim.fn.mkdir(out, "p")
+
+-- `<out>/vault` is deleted before it is built again. Only do that to a folder this script made:
+-- it leaves a marker next to the vault, and without the marker an existing `vault` is left alone.
+local marker = out .. "/.make-fixture-vault"
+if vim.uv.fs_stat(out .. "/vault") then
+  if not vim.uv.fs_stat(marker) then
+    io.stderr:write(
+      "refusing to delete " .. out .. "/vault: it was not made by this script (no marker)\n"
+    )
+    os.exit(2)
+  end
+  vim.fn.delete(out .. "/vault", "rf")
+end
 
 local H = {
   tmpdir = function()
@@ -35,4 +47,5 @@ local H = {
 
 local fixture = dofile(vim.fs.normalize(engine_dir) .. "/TESTS/contract_fixture.lua")
 local root = fixture.build(H)
+H.write(marker, "made by tools/make-fixture-vault.lua\n")
 io.stdout:write("fixture vault: " .. root .. "\n")

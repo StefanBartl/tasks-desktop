@@ -21,19 +21,26 @@ jobs:
     steps:
       # Actions are pinned by commit (concept 7.4); the comment names the tag.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Read the pinned engine commit
+        with:
+          persist-credentials: false
+      - name: Read the pinned engine commits
         id: engine
         shell: bash
-        run: echo "commit=$(sed -n 's/^commit *= *//p' engine.lock)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "commit=$(sed -n 's/^commit *= *//p' engine.lock)" >> "$GITHUB_OUTPUT"
+          echo "lib_commit=$(sed -n 's/^lib_commit *= *//p' engine.lock)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: StefanBartl/tasks.nvim
           ref: ${{ steps.engine.outputs.commit }}
           path: engine/tasks.nvim
+          persist-credentials: false
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: StefanBartl/lib.nvim
+          ref: ${{ steps.engine.outputs.lib_commit }}
           path: engine/lib.nvim
+          persist-credentials: false
       - uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1
         with:
           neovim: true

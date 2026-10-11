@@ -1,5 +1,8 @@
-# The tasks.nvim engine this app is built and tested against (concept 9.6).
+# The engine this app is built and tested against (concept 9.6).
 # The engine stays a pure Lua plugin; the contract is `tasks-export/1`
 # (read) and `tasks-ops/1` (write), see docs/CONTRACT.md in tasks.nvim.
-repo   = https://github.com/StefanBartl/tasks.nvim
-commit = c4f1d1119636c28cee35a95228980a83924f64d4
+# Both checkouts are pinned by commit; CI reads `commit` and `lib_commit`.
+repo       = https://github.com/StefanBartl/tasks.nvim
+commit     = c4f1d1119636c28cee35a95228980a83924f64d4
+lib_repo   = https://github.com/StefanBartl/lib.nvim
+lib_commit = a54108bfaa59124fbeb4470bc9155ec1ef6ecf39

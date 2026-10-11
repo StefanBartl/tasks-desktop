@@ -119,13 +119,33 @@ pub enum EngineError {
     Busy,
     /// The engine did not answer within its time and was killed.
     Timeout,
-    /// The process could not be started or its pipes failed.
+    /// The process could not be started: nothing ran, nothing changed.
+    Spawn(String),
+    /// The process started but its pipes failed.
     Process(String),
     /// The process ended without a document (exit status and a scrubbed
     /// excerpt of its error output).
     Failed { code: Option<i32>, detail: String },
     /// A document came back that does not fit the contract.
     Protocol(String),
+    /// A write (`ops`) started and did not end with a document: some of it
+    /// may have been written. The caller must read again before it believes
+    /// anything about the vault; the text says what happened.
+    OutcomeUnknown(String),
+}
+
+impl EngineError {
+    /// What a failure means for a write: once the process has started, an
+    /// error that is not the engine's own refusal leaves the outcome open.
+    #[must_use]
+    pub fn for_write(self) -> Self {
+        match self {
+            Self::Timeout | Self::Process(_) | Self::Failed { .. } | Self::Protocol(_) => {
+                Self::OutcomeUnknown(self.to_string())
+            }
+            other => other,
+        }
+    }
 }
 
 impl fmt::Display for EngineError {
@@ -135,12 +155,14 @@ impl fmt::Display for EngineError {
             Self::BadRequest(m) => write!(f, "bad request: {m}"),
             Self::Busy => f.write_str("the engine queue is full"),
             Self::Timeout => f.write_str("the engine did not answer in time"),
+            Self::Spawn(m) => write!(f, "engine could not be started: {m}"),
             Self::Process(m) => write!(f, "engine process: {m}"),
             Self::Failed { code, detail } => match code {
                 Some(c) => write!(f, "engine failed (exit {c}): {detail}"),
                 None => write!(f, "engine failed: {detail}"),
             },
             Self::Protocol(m) => write!(f, "engine protocol: {m}"),
+            Self::OutcomeUnknown(m) => write!(f, "the outcome of the write is unknown ({m})"),
         }
     }
 }
@@ -169,6 +191,7 @@ pub fn child_env(env: &Env, engine: Option<&EngineVars<'_>>) -> Vec<(OsString, O
     const PASS: &[&str] = &[
         "PATH",
         "PATHEXT",
+        "REPOS_DIR",
         "SystemRoot",
         "windir",
         "TEMP",

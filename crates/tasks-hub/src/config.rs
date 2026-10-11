@@ -112,6 +112,37 @@ pub struct FileConfig {
     pub extra_areas: Vec<String>,
 }
 
+/// The longest name of an area the hub accepts.
+const MAX_AREA_NAME: usize = 128;
+
+impl FileConfig {
+    /// Check the values that become part of a path or of a list the engine
+    /// splits itself: an area name is one plain folder name, nothing that
+    /// could climb out of the vault or break the comma separated list.
+    ///
+    /// # Errors
+    ///
+    /// The reason, as text, for the first value that is not acceptable.
+    pub fn validate(&self) -> Result<(), String> {
+        for name in &self.extra_areas {
+            let bad = |why: &str| Err(format!("extra_areas: {name:?} {why}"));
+            if name.is_empty() || name.chars().count() > MAX_AREA_NAME {
+                return bad("must have 1 to 128 characters");
+            }
+            if name.starts_with('.') || name.ends_with([' ', '.']) {
+                return bad("must not start with a dot or end with a dot or a space");
+            }
+            if name
+                .chars()
+                .any(|c| c.is_control() || "/\\,:*?\"<>|".contains(c))
+            {
+                return bad("holds a character that is not allowed in a folder name");
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Why the settings file could not be used.
 #[derive(Debug)]
 pub enum ConfigError {
@@ -160,14 +191,34 @@ pub fn config_dir(env: &Env) -> Option<PathBuf> {
 ///
 /// [`ConfigError`] when the file exists and cannot be read or is not valid.
 pub fn load_file(dir: &Path) -> Result<FileConfig, ConfigError> {
+    use std::io::Read;
+
     let path = dir.join("config.json");
-    let text = match std::fs::read_to_string(&path) {
-        Ok(t) => t,
+    let file = match std::fs::File::open(&path) {
+        Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(FileConfig::default()),
         Err(e) => return Err(ConfigError::Unreadable(path, e)),
     };
-    serde_json::from_str(&text).map_err(|e| ConfigError::Invalid(path, e.to_string()))
+    // A settings file is a few lines; a device or a huge file is not one.
+    let mut text = String::new();
+    if let Err(e) = file.take(MAX_FILE_BYTES + 1).read_to_string(&mut text) {
+        return Err(ConfigError::Unreadable(path, e));
+    }
+    if text.len() as u64 > MAX_FILE_BYTES {
+        return Err(ConfigError::Invalid(
+            path,
+            format!("larger than {} KiB", MAX_FILE_BYTES / 1024),
+        ));
+    }
+    let cfg: FileConfig = serde_json::from_str(&text)
+        .map_err(|e| ConfigError::Invalid(path.clone(), e.to_string()))?;
+    cfg.validate()
+        .map_err(|why| ConfigError::Invalid(path, why))?;
+    Ok(cfg)
 }
+
+/// The largest settings file that is read.
+const MAX_FILE_BYTES: u64 = 64 * 1024;
 
 #[cfg(test)]
 mod tests {
@@ -199,5 +250,53 @@ mod tests {
         let dir = std::env::temp_dir().join("tasks-desktop-no-such-config-dir");
         let cfg = load_file(&dir).expect("missing file is fine");
         assert!(cfg.vault.is_none() && cfg.extra_areas.is_empty());
+    }
+
+    fn areas(names: &[&str]) -> FileConfig {
+        FileConfig {
+            extra_areas: names.iter().map(|s| (*s).to_owned()).collect(),
+            ..FileConfig::default()
+        }
+    }
+
+    #[test]
+    fn plain_area_names_are_accepted() {
+        assert!(
+            areas(&["ALL", "nvim-config", "docmap-desktop", "migrate.nvim"])
+                .validate()
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn area_names_that_could_leave_the_vault_or_split_the_list_are_refused() {
+        for bad in [
+            "", "..", ".", "a/b", "a\\b", "a,b", "../x", ".hidden", "a:b", "a\nb", "trail.",
+            "C:\\x",
+        ] {
+            assert!(areas(&[bad]).validate().is_err(), "{bad:?} was accepted");
+        }
+    }
+
+    fn temp_config(name: &str, bytes: &[u8]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("tasks-desktop-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.json"), bytes).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_settings_file_with_a_bad_area_is_refused_on_load() {
+        let dir = temp_config("bad-area", br#"{"extra_areas":["../outside"]}"#);
+        assert!(matches!(load_file(&dir), Err(ConfigError::Invalid(..))));
+    }
+
+    #[test]
+    fn a_huge_settings_file_is_refused() {
+        let mut text = String::from("{\"extra_areas\":[");
+        text.push_str(&"\"a\",".repeat(40_000));
+        text.push_str("\"b\"]}");
+        let dir = temp_config("huge", text.as_bytes());
+        assert!(matches!(load_file(&dir), Err(ConfigError::Invalid(..))));
     }
 }
