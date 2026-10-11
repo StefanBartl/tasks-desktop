@@ -1,0 +1,13 @@
+[package]
+name = "app-core"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Tauri-free building blocks of the local app server: process, safe read, path guard, authn, SSE, registry"
+
+[lints]
+workspace = true
+
+[dependencies]

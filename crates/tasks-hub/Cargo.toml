@@ -1,0 +1,22 @@
+[package]
+name = "tasks-hub"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Local hub for tasks.nvim: engine trait, snapshot, queue, watch, routes"
+
+[lints]
+workspace = true
+
+[lib]
+name = "tasks_hub"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tasks-hub"
+path = "src/main.rs"
+
+[dependencies]
+app-core = { path = "../app-core" }
