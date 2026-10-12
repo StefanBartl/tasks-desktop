@@ -7,8 +7,10 @@
 //! the machine: it is a file next to `config.json`, `usage.json`, and the
 //! command `tasks-hub usage` that reads it.
 //!
-//! A visit begins with a stream that opens when none was open for ten
-//! minutes (a reload or a second tab is the same visit).
+//! A visit begins with a stream that opens when there was no sign of use
+//! for ten minutes (a reload or a second tab is the same visit). A tab that
+//! stays open for days is a visit each time its window gets the focus back
+//! after such a pause: the page asks for a rescan then, and that is the sign.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -36,8 +38,12 @@ struct State {
     days: BTreeMap<String, Day>,
     open: usize,
     segment_start: Option<Instant>,
-    last_close: Option<Instant>,
+    /// The last sign of use: a stream opened or ended, a window in focus.
+    last_activity: Option<Instant>,
 }
+
+/// The most days kept; older ones are dropped.
+const KEEP_DAYS: usize = 400;
 
 pub struct UsageLog {
     path: Option<PathBuf>,
@@ -108,7 +114,7 @@ impl UsageLog {
                 days,
                 open: 0,
                 segment_start: None,
-                last_close: None,
+                last_activity: None,
             }),
         }
     }
@@ -123,17 +129,36 @@ impl UsageLog {
         self.closed_at(Instant::now(), today());
     }
 
+    /// The window of the interface got the focus: somebody is there. A tab
+    /// that was left open counts as a new visit after a pause.
+    pub fn touched(&self) {
+        self.touched_at(Instant::now(), today());
+    }
+
+    fn touched_at(&self, now: Instant, day: String) {
+        let mut state = lock(&self.state);
+        let pause = state
+            .last_activity
+            .is_none_or(|t| now.saturating_duration_since(t) >= VISIT_GAP);
+        state.last_activity = Some(now);
+        if pause && state.open > 0 {
+            state.days.entry(day).or_default().visits += 1;
+            self.persist(&state);
+        }
+    }
+
     fn opened_at(&self, now: Instant, day: String) {
         let mut state = lock(&self.state);
         if state.open == 0 {
             let new_visit = state
-                .last_close
+                .last_activity
                 .is_none_or(|t| now.saturating_duration_since(t) >= VISIT_GAP);
             if new_visit {
                 state.days.entry(day).or_default().visits += 1;
             }
             state.segment_start = Some(now);
         }
+        state.last_activity = Some(now);
         state.open += 1;
         self.persist(&state);
     }
@@ -146,17 +171,18 @@ impl UsageLog {
                 let seconds = now.saturating_duration_since(start).as_secs();
                 state.days.entry(day).or_default().seconds += seconds;
             }
-            state.last_close = Some(now);
+            state.last_activity = Some(now);
             self.persist(&state);
         }
     }
 
     fn persist(&self, state: &State) {
         let Some(path) = &self.path else { return };
-        let file = File {
-            schema: 1,
-            days: state.days.clone(),
-        };
+        let mut days = state.days.clone();
+        while days.len() > KEEP_DAYS {
+            days.pop_first();
+        }
+        let file = File { schema: 1, days };
         let Ok(text) = serde_json::to_string_pretty(&file) else {
             return;
         };
@@ -246,6 +272,60 @@ mod tests {
         let day = days.get("2026-10-12").unwrap();
         assert_eq!(day.visits, 1);
         assert_eq!(day.seconds, 120 + 60);
+    }
+
+    #[test]
+    fn a_tab_left_open_is_a_visit_when_it_is_looked_at_again() {
+        let log = UsageLog::open(None);
+        let t0 = Instant::now();
+        log.opened_at(t0, "2026-10-12".into());
+        // The window is focused again a minute later: nothing new.
+        log.touched_at(t0 + Duration::from_secs(60), "2026-10-12".into());
+        // The next morning, the same tab, the stream still open.
+        let day = Duration::from_secs(20 * 3600);
+        log.touched_at(t0 + day, "2026-10-13".into());
+        // Focused again two minutes later: the same visit.
+        log.touched_at(t0 + day + Duration::from_secs(120), "2026-10-13".into());
+        let days = lock(&log.state).days.clone();
+        assert_eq!(days.get("2026-10-12").unwrap().visits, 1);
+        assert_eq!(days.get("2026-10-13").unwrap().visits, 1);
+    }
+
+    #[test]
+    fn a_focus_without_a_stream_is_not_a_visit() {
+        let log = UsageLog::open(None);
+        log.touched_at(Instant::now(), "2026-10-12".into());
+        assert!(lock(&log.state).days.is_empty());
+    }
+
+    #[test]
+    fn only_the_last_days_are_kept() {
+        let dir =
+            std::env::temp_dir().join(format!("tasks-desktop-usage-keep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("usage.json");
+        let log = UsageLog::open(Some(path.clone()));
+        {
+            let mut state = lock(&log.state);
+            for i in 0..(KEEP_DAYS + 30) {
+                let key = day_key(i64::try_from(i).unwrap() + 19_000);
+                state.days.insert(
+                    key,
+                    Day {
+                        visits: 1,
+                        seconds: 0,
+                    },
+                );
+            }
+        }
+        let t0 = Instant::now();
+        log.opened_at(t0, day_key(19_000 + 500));
+        assert_eq!(read_days(&path).len(), KEEP_DAYS);
+        // The oldest were dropped from the file, the newest are there.
+        assert!(!read_days(&path).contains_key(&day_key(19_000)));
+        assert!(read_days(&path).contains_key(&day_key(19_000 + 429)));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

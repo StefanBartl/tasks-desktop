@@ -241,8 +241,9 @@ in the page (WCAG 2.1.4).
 
 To answer whether the interface is used, the hub keeps `usage.json` next to
 `config.json`: per day (UTC) the number of visits and the minutes an event
-stream was open. No task, area, title, token or time of day is in it, and it
-is never sent anywhere; `tasks-hub usage` prints it and deleting the file
+stream was open (a tab that stays open counts again each time its window
+gets the focus back after a pause of ten minutes). No task, area, title,
+token or time of day is in it, and it is never sent anywhere; `tasks-hub usage` prints it and deleting the file
 resets it. `tasks-hub open --launch` passes the browser only the hub's own
 link (`http://127.0.0.1:<port>/#pair=<hex>`, checked) and nothing else.
 

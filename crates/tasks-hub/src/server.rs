@@ -1210,6 +1210,10 @@ async fn rescan(State(st): State<Arc<Shared>>) -> Response {
         return engine_unavailable(&st);
     }
     st.store.request_rescan();
+    // The page asks for this when its window gets the focus back.
+    if let Some(usage) = &st.usage {
+        usage.touched();
+    }
     (StatusCode::ACCEPTED, axum::Json(json!({ "ok": true }))).into_response()
 }
 

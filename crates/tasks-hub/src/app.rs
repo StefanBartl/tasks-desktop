@@ -376,28 +376,50 @@ pub fn usage(days: u32) -> Result<String, String> {
     ))
 }
 
+/// Is this the link `open` prints: the loopback address, a port, `/#pair=` and
+/// hex, and nothing else a program could take as an option or a path?
+#[must_use]
+pub fn is_own_link(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("http://127.0.0.1:") else {
+        return false;
+    };
+    let Some((port, code)) = rest.split_once("/#pair=") else {
+        return false;
+    };
+    !port.is_empty()
+        && port.len() <= 5
+        && port.bytes().all(|b| b.is_ascii_digit())
+        && !code.is_empty()
+        && code.len() <= 128
+        && code.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 /// Open a link of `open` in the default browser. The link is the hub's own
 /// (`http://127.0.0.1:<port>/#pair=<hex>`), and nothing else is passed.
 ///
 /// # Errors
 ///
-/// The program that opens links could not be started.
+/// The link is not the hub's own, or the program that opens links could not
+/// be started.
 pub fn launch(url: &str) -> Result<(), String> {
-    let plain = url.starts_with("http://127.0.0.1:")
-        && url.bytes().all(|b| {
-            b.is_ascii_alphanumeric() || matches!(b, b':' | b'/' | b'.' | b'#' | b'=' | b'-')
-        });
-    if !plain {
+    if !is_own_link(url) {
         return Err("the link is not the hub's own: not opened".to_owned());
     }
+    // An absolute program: a bare name would be looked for along a PATH that
+    // may hold a folder of somebody else's.
     let mut command = if cfg!(windows) {
-        let mut c = std::process::Command::new("rundll32");
+        let root = std::env::var_os("SystemRoot")
+            .or_else(|| std::env::var_os("windir"))
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .ok_or("no Windows folder: the link is not opened")?;
+        let mut c = std::process::Command::new(root.join("System32").join("rundll32.exe"));
         c.arg("url.dll,FileProtocolHandler");
         c
     } else if cfg!(target_os = "macos") {
-        std::process::Command::new("open")
+        std::process::Command::new("/usr/bin/open")
     } else {
-        std::process::Command::new("xdg-open")
+        std::process::Command::new("/usr/bin/xdg-open")
     };
     command
         .arg(url)
@@ -485,6 +507,29 @@ pub async fn areas(command: AreasCommand) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_the_hubs_own_link_is_opened() {
+        assert!(super::is_own_link(
+            "http://127.0.0.1:17615/#pair=00ff00ff00ff00ff00ff00ff00ff00ff"
+        ));
+        for bad in [
+            "",
+            "https://127.0.0.1:17615/#pair=ab",
+            "http://localhost:17615/#pair=ab",
+            "http://127.0.0.1:17615/#pair=",
+            "http://127.0.0.1:17615/#pair=ab cd",
+            "http://127.0.0.1:17615/#pair=ab&x=1",
+            "http://127.0.0.1:17615/path#pair=ab",
+            "http://127.0.0.1:1/../#pair=ab",
+            "http://127.0.0.1:17615@evil.example/#pair=ab",
+            "--help",
+            "file:///C:/Windows/System32/calc.exe",
+            "http://127.0.0.1:17615/#pair=zz",
+        ] {
+            assert!(!super::is_own_link(bad), "{bad:?}");
+        }
+    }
+
     use super::*;
 
     #[test]
