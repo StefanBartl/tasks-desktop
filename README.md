@@ -30,6 +30,10 @@ tasks-hub start [--open]               run the hub in the background (no window;
                                       in the config folder); --open also opens the browser
 tasks-hub stop                        stop the hub that runs in the background
 tasks-hub autostart on|off|status     start the hub with your login (Windows)
+tasks-hub install [--autostart] [--shortcut]
+                                      copy the program to a fixed place (%LOCALAPPDATA%	asks-desktopin),
+                                      so a build in the repository does not fight the running hub
+                                      for the file; --autostart and --shortcut register that copy
 tasks-hub open [--launch]             print a one-time pairing link for the running hub
                                       (--launch also opens it in the default browser)
 tasks-hub usage [--days=14]           on how many of the last days the interface was opened
