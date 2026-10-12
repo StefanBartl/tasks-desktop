@@ -35,9 +35,12 @@ tasks-hub serve [--port 1024-65535]   run the hub until Ctrl-C
 tasks-hub start [--open]               run the hub in the background (no window; log: hub.log
                                       in the config folder); --open also opens the browser
 tasks-hub stop                        stop the hub that runs in the background
-tasks-hub autostart on|off|status     start the hub with your login (Windows)
+tasks-hub autostart on|off|status     start the hub with your login (Windows: Run key;
+                                      Linux: autostart entry; macOS: launch agent)
 tasks-hub install [--autostart] [--shortcut]
-                                      copy the program to a fixed place (%LOCALAPPDATA%	asks-desktopin),
+                                      copy the program to a fixed place (Windows:
+                                      %LOCALAPPDATA%\tasks-desktop\bin; elsewhere:
+                                      tasks-desktop/bin in $XDG_DATA_HOME or ~/.local/share),
                                       so a build in the repository does not fight the running hub
                                       for the file; --autostart and --shortcut register that copy
                                       (Windows: registry and desktop link; Linux: an autostart
