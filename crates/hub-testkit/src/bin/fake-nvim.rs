@@ -320,6 +320,58 @@ fn respond(method: &str, raw: &[u8], started: u64) -> Value {
             "next" => {
                 doc["echoed"] = params.clone();
             }
+            "done_preview" => {
+                let id = params.get("id").and_then(Value::as_str).unwrap_or("");
+                doc["id"] = json!(id);
+                doc["confirm"] = json!("confirm-fake");
+            }
+            "ops" => {
+                // Every operation `changed` the task it names, and a real
+                // run moves `<vault>/.fake-n` on, as a write moves the vault.
+                let dry = params.get("dry_run").and_then(Value::as_bool) == Some(true);
+                let ops = params
+                    .get("ops")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
+                let results: Vec<Value> = ops
+                    .iter()
+                    .enumerate()
+                    .map(|(i, op)| {
+                        let id = op
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .unwrap_or("alpha.nvim/new");
+                        json!({
+                            "n": i + 1,
+                            "op": op.get("op").cloned().unwrap_or(Value::Null),
+                            "id": id,
+                            "ok": true,
+                            "outcome": if dry { "would_change" } else { "changed" },
+                            "changed_ids": if dry { json!([]) } else { json!([id]) },
+                        })
+                    })
+                    .collect();
+                // Only a vault that keeps a state moves: a test that has none
+                // must not leave a file behind (a vault may be the temp dir).
+                if !dry {
+                    let vault = std::env::var("TASKS_VAULT").unwrap_or_default();
+                    let file = std::path::Path::new(&vault).join(".fake-n");
+                    if let Some(n) = std::fs::read_to_string(&file)
+                        .ok()
+                        .and_then(|t| t.trim().parse::<u64>().ok())
+                    {
+                        let _ = std::fs::write(&file, (n + 1).to_string());
+                    }
+                }
+                doc["digest"] = json!("sha256:0000000000000001");
+                doc["dry_run"] = json!(dry);
+                doc["ok"] = json!(true);
+                doc["results"] = json!(results);
+                if let Some(id) = params.get("client_op_id") {
+                    doc["client_op_id"] = id.clone();
+                }
+            }
             _ => {}
         }
     }

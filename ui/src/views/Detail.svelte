@@ -17,6 +17,9 @@
   const blocks = $derived(raw ? [] : parseMarkdown(body));
   const byId = $derived(new Map(app.tasks.map((x) => [x.id, x] as const)));
 
+  const STATUSES = ['doing', 'decision', 'blocked', 'open', 'parked'] as const;
+  const ACTORS = ['me', 'cdx', 'pair'] as const;
+
   const unknown = '?';
   function show(value: string | number | undefined): string {
     return value === undefined ? unknown : String(value);
@@ -46,6 +49,56 @@
     {/if}
 
     {#if task.summary}<p>{markHidden(task.summary)}</p>{/if}
+
+    <div class="edit" role="group" aria-label={t('detail.edit')}>
+      <label>
+        <span>{t('field.status')}</span>
+        <select
+          value={task.status ?? ''}
+          disabled={app.saving}
+          onchange={(e) => void app.setField(task.id, 'status', e.currentTarget.value)}
+        >
+          {#each STATUSES as s (s)}
+            <option value={s}>{labelOf(app.lang, 'status', s)}</option>
+          {/each}
+        </select>
+      </label>
+      <label>
+        <span>{t('field.prio')}</span>
+        <select
+          value={task.prio === undefined ? '' : String(task.prio)}
+          disabled={app.saving}
+          onchange={(e) =>
+            void app.setField(
+              task.id,
+              'prio',
+              e.currentTarget.value === '' ? null : Number(e.currentTarget.value),
+            )}
+        >
+          <option value="">–</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+        </select>
+      </label>
+      <label>
+        <span>{t('field.actor')}</span>
+        <select
+          value={task.actor ?? ''}
+          disabled={app.saving}
+          onchange={(e) =>
+            void app.setField(task.id, 'actor', e.currentTarget.value === '' ? null : e.currentTarget.value)}
+        >
+          <option value="">–</option>
+          {#each ACTORS as a (a)}
+            <option value={a}>{labelOf(app.lang, 'actor', a)}</option>
+          {/each}
+        </select>
+      </label>
+      <button type="button" class="finish" disabled={app.saving} onclick={() => void app.startFinish(task.id)}
+        >{t('done.button')}</button
+      >
+    </div>
 
     <h3>{t('detail.props')}</h3>
     <dl>
@@ -138,6 +191,35 @@
 </aside>
 
 <style>
+  .edit {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: end;
+    margin: 0.5rem 0 0.75rem;
+  }
+  .edit label {
+    display: grid;
+    gap: 0.15rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .edit select,
+  .edit .finish {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.9rem;
+  }
+  .edit .finish {
+    cursor: pointer;
+  }
+  .edit :disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
   .detail {
     background: var(--surface);
     border: 1px solid var(--border);
