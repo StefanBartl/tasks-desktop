@@ -4,10 +4,11 @@ A local web UI and desktop app for [tasks.nvim](https://github.com/StefanBartl/t
 see the vault at a glance, create and move tasks, plans and a dashboard,
 in the browser first and later as a small native app.
 
-**Status: pre-alpha, P2 (hub core and read-only UI) in progress.** The hub
-starts, pairs a browser, serves the vault's snapshot, tasks, next and areas
-and tells open streams when the vault changed. There is no user interface
-yet. Nothing here is released.
+**Status: pre-alpha, P2 (hub core and read-only UI) is built.** The hub
+serves the vault's snapshot, tasks, next and areas, searches the text of the
+tasks, tells open streams when the vault changed and ships a read-only
+interface in the browser. Writing and the native shell are not there yet.
+Nothing here is released.
 
 ## Principles
 
