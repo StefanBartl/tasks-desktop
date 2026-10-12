@@ -100,6 +100,12 @@ export class App {
   shortAreas = $state(true);
   /** A write is under way: the controls wait. */
   saving = $state(false);
+  /**
+   * How many writes have ended. A control that shows a value the person chose
+   * is drawn again from the model after each one: a change that was not made
+   * (a conflict, a refusal) must not leave the control showing it.
+   */
+  writes = $state(0);
   toast = $state.raw<Toast | null>(null);
   /** The capture dialog is open. */
   capturing = $state(false);
@@ -145,6 +151,11 @@ export class App {
 
   get areaNames(): string[] {
     return [...new Set(this.tasks.map((t) => t.area))];
+  }
+
+  /** Every area of the vault, also one that has no open task (a task may be put there). */
+  get allAreaNames(): string[] {
+    return [...new Set([...this.hubAreas.map((a) => a.name), ...this.areaNames])];
   }
 
   get selected(): TaskEntry | null {
@@ -202,6 +213,7 @@ export class App {
         const code = failed.error?.code ?? 'failed';
         if (code === 'conflict') this.say('error', 'write.conflict');
         else if (code === 'not_found') this.say('error', 'write.not_found');
+        else if (code === 'exists') this.say('error', 'write.exists');
         else if (code === 'invalid_argument' || code === 'forbidden') {
           this.say('error', 'write.invalid', { message: failed.error?.message ?? code });
         } else this.say('error', 'write.failed', { code });
@@ -227,6 +239,7 @@ export class App {
       return null;
     } finally {
       this.saving = false;
+      this.writes += 1;
     }
   }
 

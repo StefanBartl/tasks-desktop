@@ -50,6 +50,7 @@
 
     {#if task.summary}<p>{markHidden(task.summary)}</p>{/if}
 
+    {#key app.writes}
     <div class="edit" role="group" aria-label={t('detail.edit')}>
       <label>
         <span>{t('field.status')}</span>
@@ -99,6 +100,7 @@
         >{t('done.button')}</button
       >
     </div>
+    {/key}
 
     <h3>{t('detail.props')}</h3>
     <dl>

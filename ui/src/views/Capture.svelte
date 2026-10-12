@@ -16,8 +16,8 @@
   let busy = $state(false);
 
   const areas = $derived(
-    [...app.areaNames]
-      .map((name) => ({ name, label: app.shortAreas ? areaLabel(name, app.areaNames) : name }))
+    [...app.allAreaNames]
+      .map((name) => ({ name, label: app.shortAreas ? areaLabel(name, app.allAreaNames) : name }))
       .sort((a, b) => a.label.localeCompare(b.label)),
   );
 
