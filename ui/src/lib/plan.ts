@@ -30,6 +30,11 @@ export function stagesOf(tasks: readonly TaskEntry[], plan: string | null = null
     .map(([stage, list]) => ({ stage, tasks: list }));
 }
 
+/** The plan that stays chosen: `choice` while the vault still has it, else `''` (every task). */
+export function chosenPlan(plans: readonly Snapshot['plans'][number][], choice: string): string {
+  return plans.some((p) => p.id === choice) ? choice : '';
+}
+
 /** The ids of the critical path, for marking. */
 export function criticalIds(plan: Snapshot['plan'] | undefined): Set<string> {
   return new Set(plan?.critical_path.path ?? []);
