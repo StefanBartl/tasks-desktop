@@ -5,6 +5,7 @@
   import Today from './views/Today.svelte';
   import ListView from './views/ListView.svelte';
   import MenuBar, { type Menu } from './views/MenuBar.svelte';
+  import PlanView from './views/PlanView.svelte';
   import Capture from './views/Capture.svelte';
   import DoneDialog from './views/DoneDialog.svelte';
   import Toast from './views/Toast.svelte';
@@ -72,6 +73,11 @@
       }
       if (event.key === 'l') {
         app.setView('list');
+        event.preventDefault();
+        return;
+      }
+      if (event.key === 'p') {
+        app.setView('plan');
         event.preventDefault();
         return;
       }
@@ -151,6 +157,12 @@
             label: t('nav.list'),
             checked: app.view === 'list',
             onselect: () => app.setView('list'),
+          },
+          {
+            kind: 'radio',
+            label: t('nav.plan'),
+            checked: app.view === 'plan',
+            onselect: () => app.setView('plan'),
           },
           { kind: 'separator' },
           {
@@ -262,9 +274,13 @@
         {#if (app.snapshot?.incomplete.length ?? 0) > 0}
           <p class="banner" role="alert">{t('data.incomplete')}</p>
         {/if}
-        <h1 class="sr-only">{app.view === 'today' ? t('nav.today') : t('nav.list')}</h1>
+        <h1 class="sr-only">
+          {app.view === 'today' ? t('nav.today') : app.view === 'plan' ? t('nav.plan') : t('nav.list')}
+        </h1>
         {#if app.view === 'today'}
           <Today {app} />
+        {:else if app.view === 'plan'}
+          <PlanView {app} />
         {:else}
           <ListView {app} bind:searchBox />
         {/if}
