@@ -38,9 +38,9 @@ describe('filter', () => {
     expect(toggled(['a', 'b'], 'a')).toEqual(['b']);
   });
   it('leaves the wkdbook prefix out of an area name unless it would clash', () => {
-    const all = ['lib.nvim', 'wkdbook-tasks.nvim', 'WKDBook-Tricentis', 'wkdbook-lib.nvim'];
+    const all = ['lib.nvim', 'wkdbook-tasks.nvim', 'WKDBook-Acme', 'wkdbook-lib.nvim'];
     expect(areaLabel('wkdbook-tasks.nvim', all)).toBe('tasks.nvim');
-    expect(areaLabel('WKDBook-Tricentis', all)).toBe('Tricentis');
+    expect(areaLabel('WKDBook-Acme', all)).toBe('Acme');
     expect(areaLabel('wkdbook-lib.nvim', all)).toBe('wkdbook-lib.nvim');
     expect(areaLabel('lib.nvim', all)).toBe('lib.nvim');
   });
