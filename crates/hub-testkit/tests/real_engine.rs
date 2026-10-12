@@ -318,11 +318,15 @@ async fn engines_on(vault: &Path) -> Option<(CliEngine, CliEngine)> {
     }
 }
 
-/// The document without the moment it was made.
+/// The document without what belongs to the run and not to the vault: the
+/// moment it was made, and the engine (its commit is looked up by a process of
+/// git and is "unknown" when that is too slow on a loaded machine). The
+/// contract leaves both out of the digest as well.
 fn steady(text: &str) -> Value {
     let mut doc: Value = serde_json::from_str(text).unwrap();
     if let Some(map) = doc.as_object_mut() {
         map.remove("generated_at");
+        map.remove("engine");
     }
     doc
 }
