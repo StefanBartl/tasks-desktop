@@ -24,6 +24,11 @@ describe('plan', () => {
     expect(stages[2]?.tasks.map((t) => t.id)).toEqual(['a/loop', 'a/bare']);
   });
 
+  it('keeps the first stage, which the engine numbers 0, apart from no stage', () => {
+    const stages = stagesOf([task('a/zero', at(0)), task('a/none')]);
+    expect(stages.map((s) => s.stage)).toEqual([0, null]);
+  });
+
   it('narrows to one plan', () => {
     expect(stagesOf(list, 'a/p').flatMap((s) => s.tasks.map((t) => t.id))).toEqual([
       'a/also-first',

@@ -7,7 +7,7 @@
 //! port says the instance of `hub.json`: a stale file never makes `stop` kill
 //! a process that merely got the same number.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -248,13 +248,15 @@ fn system_program(name: &str) -> Result<PathBuf, String> {
 pub fn autostart(what: Autostart) -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| format!("own program not found: {e}"))?;
     let env = Env::from_process();
-    // The login entry is what a packaged app redirects the most.
-    let warning = app::config_folder(&env)
-        .ok()
-        .and_then(|dir| private_storage_warning(&env, &dir))
-        .map(|w| format!("{w}\n"))
-        .unwrap_or_default();
-    autostart_for(what, &exe).map(|text| format!("{warning}{text}"))
+    // The login entry is in the registry, which a packaged app redirects whatever
+    // the config folder is; the folder of AppData always exists to be probed.
+    if let Some(warning) = env
+        .path("LOCALAPPDATA")
+        .and_then(|local| private_storage_warning(&env, &local))
+    {
+        eprintln!("{warning}");
+    }
+    autostart_for(what, &exe)
 }
 
 /// [`autostart`] for the program at `exe` (what `install` registers).
@@ -363,11 +365,8 @@ fn strip_prefix_ignore_case(path: &Path, base: &Path) -> Option<PathBuf> {
     let mut rest = path.components();
     for part in base.components() {
         let own = rest.next()?;
-        if !own
-            .as_os_str()
-            .to_string_lossy()
-            .eq_ignore_ascii_case(&part.as_os_str().to_string_lossy())
-        {
+        let same = |c: Component| c.as_os_str().to_string_lossy().to_lowercase();
+        if same(own) != same(part) {
             return None;
         }
     }
@@ -481,8 +480,8 @@ pub async fn install(opts: InstallOptions) -> Result<String, String> {
     }
     out.push_str(&format!("installed: {}\n", target.display()));
     if let Some(warning) = private_storage_warning(&env, &dir) {
-        out.push_str(&warning);
-        out.push('\n');
+        // On stderr and at once: a later error must not take it away.
+        eprintln!("{warning}");
     }
 
     if opts.autostart {
@@ -507,7 +506,10 @@ pub async fn install(opts: InstallOptions) -> Result<String, String> {
 }
 
 fn autostart_is_on() -> bool {
-    matches!(autostart(Autostart::Status), Ok(text) if text.starts_with("on"))
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+    matches!(autostart_for(Autostart::Status, &exe), Ok(text) if text.starts_with("on"))
 }
 
 /// A link "Tasks" on the desktop that starts the hub and opens the page.
@@ -609,6 +611,14 @@ mod tests {
         assert_eq!(
             strip_prefix_ignore_case(&path, &base),
             Some(Path::new("x").join("y"))
+        );
+        // Not only ASCII: a name with an umlaut is the same in any case.
+        assert_eq!(
+            strip_prefix_ignore_case(
+                &Path::new("a").join("MÜLLER").join("x"),
+                &Path::new("a").join("müller")
+            ),
+            Some(PathBuf::from("x"))
         );
         assert_eq!(
             strip_prefix_ignore_case(&path, &Path::new("b").join("users")),

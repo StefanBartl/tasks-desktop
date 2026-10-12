@@ -560,7 +560,7 @@ test('the plan view shows the stages and the critical path, and opens a task', a
   await pair(page);
   await chooseView(page, 'View', 'Plan');
   await expect(page.getByRole('region', { name: 'Stages' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: /^Stage 1/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^Stage 0/ })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Critical path' })).toBeVisible();
   expect(await violations(page)).toEqual([]);
 

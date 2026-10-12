@@ -6,7 +6,7 @@
 import type { Snapshot, TaskEntry } from './contract';
 
 export interface Stage {
-  /** The stage number (1 is first); `null` for the tasks that sit in a cycle. */
+  /** The stage number as the engine counts it (0 is first); `null` for the tasks without one (in or behind a cycle, or not in a plan). */
   stage: number | null;
   tasks: TaskEntry[];
 }
