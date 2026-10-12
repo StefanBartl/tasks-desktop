@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use crate::app;
 use crate::config::Env;
+use crate::loginitems;
 
 /// The name of the value under the `Run` key of the registry.
 const RUN_VALUE: &str = "tasks-desktop";
@@ -253,11 +254,15 @@ pub fn autostart(what: Autostart) -> Result<String, String> {
 /// A text for the person at the terminal.
 pub fn autostart_for(what: Autostart, exe: &Path) -> Result<String, String> {
     if !cfg!(windows) {
-        return Err(
-            "autostart is only built for Windows so far (put `tasks-hub start` into the \
-             login items of your system)"
-                .to_owned(),
-        );
+        let platform = loginitems::Platform::current().ok_or(
+            "autostart is not built for this system (put `tasks-hub start` into its login items)",
+        )?;
+        let action = match what {
+            Autostart::On => loginitems::Action::On,
+            Autostart::Off => loginitems::Action::Off,
+            Autostart::Status => loginitems::Action::Status,
+        };
+        return loginitems::login_entry(platform, action, exe, &Env::from_process());
     }
     let reg = system_program("reg.exe")?;
     match what {
@@ -392,7 +397,7 @@ pub async fn install(opts: InstallOptions) -> Result<String, String> {
 
     if opts.autostart {
         out.push_str(&autostart_for(Autostart::On, &target)?);
-    } else if cfg!(windows) && autostart_is_on() {
+    } else if autostart_is_on() {
         // It was registered for another copy: point it here.
         out.push_str(&autostart_for(Autostart::On, &target)?);
     }
@@ -418,7 +423,9 @@ fn autostart_is_on() -> bool {
 /// A link "Tasks" on the desktop that starts the hub and opens the page.
 fn shortcut(exe: &Path) -> Result<String, String> {
     if !cfg!(windows) {
-        return Err("a desktop link is only built for Windows so far".to_owned());
+        let platform =
+            loginitems::Platform::current().ok_or("a launcher is not built for this system")?;
+        return loginitems::launcher(platform, exe, &Env::from_process());
     }
     let text = exe.to_string_lossy();
     if text.contains(['"', '\r', '\n']) {

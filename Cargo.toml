@@ -14,3 +14,8 @@ unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
+
+# The program `tasks-hub install` copies: small and quick to start.
+[profile.release]
+lto = "thin"
+strip = true
