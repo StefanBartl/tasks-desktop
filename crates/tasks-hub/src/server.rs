@@ -51,6 +51,7 @@ use tokio::task::JoinHandle;
 
 use crate::classes::{AreaPolicy, Shown};
 use crate::engine::{Engine, EngineError, Method as EngineMethod};
+use crate::search::{self, SearchIndex};
 use crate::store::{self, RefreshOptions, SnapshotStore, StoreOptions};
 use crate::ui::UiFiles;
 use crate::usage::UsageLog;
@@ -218,6 +219,7 @@ struct Shared {
     streams: Arc<StreamCounter>,
     ui: UiFiles,
     usage: Option<Arc<UsageLog>>,
+    search: Option<Arc<SearchIndex>>,
 }
 
 /// A started server.
@@ -227,6 +229,7 @@ pub struct RunningServer {
     stop: watch::Sender<bool>,
     task: JoinHandle<()>,
     refresher: Option<JoinHandle<()>>,
+    indexer: Option<JoinHandle<()>>,
     // Kept alive: the refresher ends when every sender of hints is gone, and
     // the timer must keep running even if the file watcher could not start.
     _hints: Option<mpsc::UnboundedSender<Hint>>,
@@ -237,6 +240,9 @@ impl Drop for RunningServer {
     fn drop(&mut self) {
         if let Some(r) = &self.refresher {
             r.abort();
+        }
+        if let Some(i) = &self.indexer {
+            i.abort();
         }
     }
 }
@@ -289,6 +295,11 @@ pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
             ..StoreOptions::default()
         },
     );
+    // The text of the tasks, for the search: kept by the hub, read by the engine.
+    let search = cfg.engine.clone().map(SearchIndex::new);
+    let indexer = search
+        .as_ref()
+        .map(|index| search::spawn_indexer(Arc::clone(index), &store));
     let shared = Arc::new(Shared {
         policy: HostPolicy::loopback(addr.port()),
         pairing: PairingStore::new(Arc::clone(&cfg.clock), cfg.pairing_ttl),
@@ -305,6 +316,7 @@ pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
         streams: Arc::new(StreamCounter::default()),
         ui: cfg.ui,
         usage: cfg.usage,
+        search: search.clone(),
     });
 
     // The watcher only says "look again"; the refresher does the looking.
@@ -331,6 +343,7 @@ pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
         stop,
         task,
         refresher,
+        indexer,
         _hints: hints,
         _watcher: watcher,
     })
@@ -347,6 +360,7 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/api/tasks/next", get(next))
         .route("/api/tasks/areas", get(areas))
         .route("/api/tasks/events", get(events))
+        .route("/api/tasks/search", get(search_route))
         .route("/api/tasks/rescan", post(rescan))
         .route(
             "/auth/exchange",
@@ -1201,6 +1215,58 @@ async fn events(
         HeaderValue::from_static("text/event-stream; charset=utf-8"),
     );
     response
+}
+
+/// `GET /api/tasks/search?q=<escaped text>&limit=<1..50>`: the tasks whose
+/// text holds every word of the query, best first, each with a piece of the
+/// text around the match (marks in UTF-16 units). The text comes from the
+/// index the hub keeps; while there is none, `status` says so.
+async fn search_route(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
+    let Some(index) = &st.search else {
+        return engine_unavailable(&st);
+    };
+    let (text, limit) = match search::parse_request(query.as_deref()) {
+        Ok(parsed) => parsed,
+        Err(why) => return error_body(StatusCode::BAD_REQUEST, "bad_query", why),
+    };
+    let query = match search::Query::parse(&text) {
+        Ok(q) => q,
+        Err(why) => return error_body(StatusCode::BAD_REQUEST, "bad_query", why),
+    };
+    let (status, tasks, outcome) = match index.status() {
+        search::Status::Ready { tasks } => ("ready", tasks, index.search(&query, limit)),
+        search::Status::Building => ("building", 0, None),
+        search::Status::Failed => ("failed", 0, None),
+    };
+    let hits: Vec<serde_json::Value> = outcome
+        .as_ref()
+        .map(|o| {
+            o.hits
+                .iter()
+                .map(|h| {
+                    json!({
+                        "id": h.id,
+                        "score": h.score,
+                        "snippet": {
+                            "text": h.snippet.text,
+                            "marks": h.snippet.marks,
+                            "more_before": h.snippet.more_before,
+                            "more_after": h.snippet.more_after,
+                        },
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let body = json!({
+        "schema": 1,
+        "kind": "hub.search",
+        "status": status,
+        "indexed": tasks,
+        "total": outcome.as_ref().map_or(0, |o| o.total),
+        "hits": hits,
+    });
+    json_response(StatusCode::OK, body.to_string(), None)
 }
 
 /// `POST /api/tasks/rescan`: a client that got the focus again asks for a

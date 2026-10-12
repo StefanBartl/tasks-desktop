@@ -70,6 +70,17 @@ class FakeHub {
     if (signal) this.taskSignals.push(signal);
     return { task: this.doc.tasks.find((t) => t.id === id), body: 'body', steps: [] } as never;
   }
+  searches: string[] = [];
+  searchStatus: 'ready' | 'building' = 'ready';
+  async search(query: string) {
+    this.searches.push(query);
+    return {
+      status: this.searchStatus,
+      indexed: 1,
+      total: 1,
+      hits: [{ id: 'pub/a', score: 1, snippet: { text: 'x needle y', marks: [[2, 8]] as [number, number][], more_before: false, more_after: false } }],
+    };
+  }
   async rescan() {
     this.rescans += 1;
   }
@@ -345,5 +356,48 @@ describe('App, the view', () => {
     // Anything else in the store is not a view.
     prefs.set('tasks-desktop.view', '<img src=x>');
     expect(make({ token: 't', prefs }).app.view).toBe('today');
+  });
+});
+
+describe('App, the text of the tasks', () => {
+  it('filters at once and searches the text a moment later, once', async () => {
+    const { app, hub } = make({ token: 't' });
+    await app.start(null);
+    app.setQuery('n');
+    app.setQuery('ne');
+    app.setQuery('nee');
+    expect(app.filter.query).toBe('nee');
+    // Not yet: the person is still typing.
+    expect(hub.searches).toEqual([]);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(hub.searches).toEqual(['nee']);
+    expect(app.textSearch?.result.hits[0]?.id).toBe('pub/a');
+    // Cleared: the result goes with it.
+    app.setQuery('');
+    expect(app.textSearch).toBeNull();
+    app.stop();
+  });
+
+  it('does not search the text for one letter', async () => {
+    const { app, hub } = make({ token: 't' });
+    await app.start(null);
+    app.setQuery('a');
+    await new Promise((r) => setTimeout(r, 350));
+    expect(hub.searches).toEqual([]);
+    app.stop();
+  });
+
+  it('asks again while the hub is still reading the texts', async () => {
+    const { app, hub } = make({ token: 't' });
+    await app.start(null);
+    hub.searchStatus = 'building';
+    app.setQuery('needle');
+    await new Promise((r) => setTimeout(r, 400));
+    expect(app.textSearch?.result.status).toBe('building');
+    hub.searchStatus = 'ready';
+    await new Promise((r) => setTimeout(r, 1800));
+    expect(app.textSearch?.result.status).toBe('ready');
+    expect(hub.searches.length).toBe(2);
+    app.stop();
   });
 });

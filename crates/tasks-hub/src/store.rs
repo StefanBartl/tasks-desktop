@@ -130,6 +130,9 @@ pub struct SnapshotStore {
     fetching: AsyncMutex<()>,
     seq: AtomicU64,
     events: broadcast::Sender<Arc<Change>>,
+    /// Receivers of `events` that belong to the hub itself (the search
+    /// index): they do not make a listener.
+    internal: std::sync::atomic::AtomicUsize,
     rescan: Notify,
 }
 
@@ -148,6 +151,7 @@ impl SnapshotStore {
             fetching: AsyncMutex::new(()),
             seq: AtomicU64::new(0),
             events,
+            internal: std::sync::atomic::AtomicUsize::new(0),
             rescan: Notify::new(),
         })
     }
@@ -161,7 +165,15 @@ impl SnapshotStore {
     /// Is any event stream open? Nobody to tell, nothing to scan for.
     #[must_use]
     pub fn has_listeners(&self) -> bool {
-        self.events.receiver_count() > 0
+        self.events.receiver_count() > self.internal.load(Ordering::Acquire)
+    }
+
+    /// A receiver for a part of the hub: what it follows does not make the
+    /// full scan run for nobody (see `has_listeners`).
+    #[must_use]
+    pub fn subscribe_quiet(&self) -> broadcast::Receiver<Arc<Change>> {
+        self.internal.fetch_add(1, Ordering::AcqRel);
+        self.events.subscribe()
     }
 
     fn cached(&self) -> Option<Arc<Cached>> {
@@ -264,10 +276,23 @@ impl SnapshotStore {
         *slot = Some(Arc::clone(&cached));
         drop(slot);
 
-        // The first snapshot is not a change; every later one is.
+        // The first snapshot is not a change of what a client holds (it
+        // reads before it listens), but a part of the hub that built
+        // something from the vault before it must know the vault is read:
+        // it is told "anything may differ", and compares the revision.
         if let Some(p) = previous {
             let change = diff(&p, &cached, cause);
             let _ = self.events.send(Arc::new(change));
+        } else {
+            let _ = self.events.send(Arc::new(Change {
+                seq: cached.seq,
+                rev: cached.rev.clone(),
+                cause,
+                changed: Vec::new(),
+                added: Vec::new(),
+                removed: Vec::new(),
+                truncated: true,
+            }));
         }
         cached
     }

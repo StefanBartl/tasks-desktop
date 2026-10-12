@@ -11,6 +11,7 @@ pub mod client;
 pub mod config;
 pub mod discovery;
 pub mod engine;
+pub mod search;
 pub mod server;
 pub mod store;
 pub mod ui;

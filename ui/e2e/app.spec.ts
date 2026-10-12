@@ -241,6 +241,29 @@ test('the rows come in frames and j keeps the selected row in view', async ({ pa
   await expect(page.locator('button.row').first()).toBeVisible();
 });
 
+test('a word that is only in the text of a task finds the task, with the place', async ({
+  page,
+}) => {
+  await pair(page);
+  await showList(page);
+  await page.getByPlaceholder('Search id and title').fill('tracker.invalid');
+  // The list holds nothing for it (no title or id has the word); the hub's
+  // index of the texts is built a moment after it starts.
+  const hit = page.locator('section.hits button.hit', { hasText: 'lib.nvim/xss-body-links' });
+  await expect(hit).toBeVisible({ timeout: 15_000 });
+  await expect(hit.locator('mark')).toContainText('tracker.invalid');
+  // Text only: the match is not an element of the attacker's.
+  await expect(page.locator('section.hits img, section.hits script, section.hits a')).toHaveCount(0);
+  // The hit opens the task.
+  await hit.click();
+  await expect(page.locator('aside.detail .id')).toHaveText('lib.nvim/xss-body-links');
+  // Nothing in the text either: said so.
+  await page.getByPlaceholder('Search id and title').fill('zzzqqqxxx');
+  await expect(page.getByText('Nothing in the texts either.')).toBeVisible({ timeout: 10_000 });
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
 test('a change in the vault arrives and the selection stays', async ({ page }) => {
   await pair(page);
   await showList(page);

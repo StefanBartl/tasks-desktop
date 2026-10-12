@@ -138,6 +138,52 @@ async fn the_snapshot_of_the_fixture_vault_is_complete() {
 }
 
 #[tokio::test]
+async fn the_bodies_are_one_state_with_the_snapshot_and_the_search_finds_them() {
+    let Some((engine, _)) = engine().await else {
+        return;
+    };
+    let snapshot = engine.call(Method::Snapshot, None).await.expect("snapshot");
+    let snapshot: Value = serde_json::from_str(&snapshot.text).unwrap();
+    let reply = engine
+        .call(Method::Bodies, Some(&json!({ "limit": 1000 })))
+        .await
+        .expect("bodies");
+    assert_eq!(reply.kind, "tasks.bodies");
+    let doc: Value = serde_json::from_str(&reply.text).unwrap();
+    // The same state as the snapshot: the text and the list belong together.
+    assert_eq!(doc["rev"], snapshot["rev"]);
+    assert_eq!(
+        doc["items"].as_array().unwrap().len(),
+        snapshot["counts"]["listed"].as_u64().unwrap() as usize
+    );
+    let alpha = doc["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["id"] == "lib.nvim/alpha")
+        .expect("alpha");
+    assert!(alpha["body"]
+        .as_str()
+        .unwrap()
+        .contains("The body of alpha."));
+    // The words are found where the hub's index looks for them.
+    let query = tasks_hub::search::Query::parse("body ALPHA").unwrap();
+    assert_eq!(query.tokens, ["body", "alpha"]);
+
+    // A named id, and one that is not there.
+    let named = engine
+        .call(
+            Method::Bodies,
+            Some(&json!({ "ids": ["lib.nvim/alpha", "nope.nvim/missing"] })),
+        )
+        .await
+        .expect("named");
+    let named: Value = serde_json::from_str(&named.text).unwrap();
+    assert_eq!(named["items"].as_array().unwrap().len(), 1);
+    assert_eq!(named["rev"], snapshot["rev"]);
+}
+
+#[tokio::test]
 async fn one_task_comes_back_with_its_body() {
     let Some((engine, _)) = engine().await else {
         return;

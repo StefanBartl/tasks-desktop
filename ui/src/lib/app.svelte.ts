@@ -1,7 +1,7 @@
 // The state of the page and what keeps it true: pairing, the held list, the
 // event stream and the detail of the selected task.
 
-import { ApiError, type Hub, type HubArea, type HubAreas } from './api';
+import { ApiError, type Hub, type HubArea, type HubAreas, type SearchResult } from './api';
 import { cacheableList, type ListStore } from './cache';
 import type { Next, Snapshot, TaskDocument, TaskEntry } from './contract';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
@@ -78,6 +78,8 @@ export class App {
   next = $state.raw<Next | null>(null);
   hubAreas = $state.raw<HubArea[]>([]);
   detail = $state.raw<Detail>({ state: 'none' });
+  /** What the hub found in the text of the tasks for the words in the filter. */
+  textSearch = $state.raw<{ query: string; result: SearchResult } | null>(null);
   /** When the list shown was saved, if it is from the cache and not yet confirmed. */
   cachedAt = $state<number | null>(null);
 
@@ -290,6 +292,8 @@ export class App {
   }
 
   private nextFor: string | null = null;
+  private searchTimer: ReturnType<typeof setTimeout> | undefined;
+  private searchAbort: AbortController | null = null;
   private detailAbort: AbortController | null = null;
   private areasRead: Promise<HubAreas> | null = null;
 
@@ -323,6 +327,41 @@ export class App {
     // The file changed under the open detail: read it again.
     if (this.detail.state === 'ok' && this.detail.doc.task.etag !== task.etag) {
       void this.loadDetail(task.id);
+    }
+  }
+
+  // ── the text of the tasks ─────────────────────────────────────────────
+
+  /** The words of the filter changed: the list filters at once, the text is searched a moment later. */
+  setQuery(text: string): void {
+    this.filter = { ...this.filter, query: text };
+    this.scheduleTextSearch(text, 0);
+  }
+
+  private scheduleTextSearch(text: string, attempt: number): void {
+    clearTimeout(this.searchTimer);
+    this.searchAbort?.abort();
+    const query = text.trim();
+    // Two letters are not a search of the text (the title and id filter is).
+    if (query.length < 2 || this.phase !== 'ready') {
+      this.textSearch = null;
+      return;
+    }
+    const wait = attempt === 0 ? 250 : 1500;
+    this.searchTimer = setTimeout(() => void this.runTextSearch(query, attempt), wait);
+  }
+
+  private async runTextSearch(query: string, attempt: number): Promise<void> {
+    const abort = new AbortController();
+    this.searchAbort = abort;
+    try {
+      const result = await this.env.hub.search(query, abort.signal);
+      if (abort.signal.aborted || this.filter.query.trim() !== query) return;
+      this.textSearch = { query, result };
+      // The hub reads the texts a moment after it starts: ask again.
+      if (result.status === 'building' && attempt < 8) this.scheduleTextSearch(query, attempt + 1);
+    } catch {
+      if (!abort.signal.aborted && this.filter.query.trim() === query) this.textSearch = null;
     }
   }
 

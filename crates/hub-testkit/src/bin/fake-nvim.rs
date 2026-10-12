@@ -164,6 +164,41 @@ fn main() {
                     doc["tasks"] = json!([{ "id": "alpha.nvim/one", "area": "alpha.nvim" }]);
                 }
             }
+            "bodies" => {
+                // The bodies follow `<vault>/.fake-n` like the snapshot: the
+                // task `t<i>` holds the word `needle<i>`.
+                let vault = std::env::var("TASKS_VAULT").unwrap_or_default();
+                let n: u64 = std::fs::read_to_string(std::path::Path::new(&vault).join(".fake-n"))
+                    .ok()
+                    .and_then(|t| t.trim().parse().ok())
+                    .unwrap_or(0);
+                let wanted: Option<Vec<String>> = params.get("ids").and_then(|v| {
+                    v.as_array().map(|a| {
+                        a.iter()
+                            .filter_map(|x| x.as_str().map(str::to_owned))
+                            .collect()
+                    })
+                });
+                let items: Vec<Value> = (0..=n)
+                    .map(|i| format!("alpha.nvim/t{i}"))
+                    .filter(|id| wanted.as_ref().is_none_or(|w| w.contains(id)))
+                    .map(|id| {
+                        let i = id.trim_start_matches("alpha.nvim/t").to_owned();
+                        json!({
+                            "id": id,
+                            "etag": format!("sha256:{:016x}", i.parse::<u64>().unwrap_or(0)),
+                            "body": format!("Text of task {i}.\nIt mentions needle{i} and a shared word zebra.\n"),
+                            "body_truncated": false,
+                        })
+                    })
+                    .collect();
+                doc["rev"] = json!(format!("rev:{n:06x}"));
+                doc["total"] = json!(items.len());
+                doc["offset"] = json!(0);
+                doc["limit"] = json!(1000);
+                doc["items"] = json!(items);
+                doc["incomplete"] = json!([]);
+            }
             "areas" => {
                 doc["areas"] = json!([
                     { "name": "alpha.nvim", "open": 1 },

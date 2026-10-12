@@ -237,6 +237,27 @@ not a white page. A stream that is silent for 45 seconds (three
 heartbeats) is cut and read again. Single-key shortcuts can be turned off
 in the page (WCAG 2.1.4).
 
+## Search in the text of the tasks
+
+The engine alone reads task files, so the texts come from it: the verb
+`bodies` of `tasks-export/1` hands over `{ id, etag, body }` of the open
+tasks (a body cut at 256 KiB and flagged, a page cut at 2 MiB). The hub keeps
+them in memory and searches them there; it opens no file and parses no
+frontmatter. `GET /api/tasks/search?q=<escaped>&limit=<1..50>` needs a
+session like every data route. The query is escaped text (`%XX` of UTF-8;
+control characters, more than 200 characters or 8 words, and less than 2
+characters are `400`), every word must be in a text, a text with the words
+in a row ranks first. A hit carries the id, a score and a piece of the text
+of at most 160 characters with the places of the words (in UTF-16 units),
+control characters in the piece are blanks. The interface draws the piece as
+text with `mark` elements; nothing of it is HTML.
+
+The index is built a moment after the hub starts and follows the changes the
+store reports (the ids that changed are asked for again; a big change builds
+it anew). While there is none, `status` says `building`. It is memory only
+and not written anywhere. It holds the text of every area, as the list does;
+what leaves the machine is decided by the data classes (nothing does).
+
 ## The usage count
 
 To answer whether the interface is used, the hub keeps `usage.json` next to

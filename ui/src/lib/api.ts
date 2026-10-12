@@ -31,6 +31,28 @@ export interface HubAreas {
   private: string[];
 }
 
+/** A piece of a task's text around a match; `marks` are `[start, end)` in UTF-16 units of `text`. */
+export interface SearchSnippet {
+  text: string;
+  marks: [number, number][];
+  more_before: boolean;
+  more_after: boolean;
+}
+
+export interface SearchHit {
+  id: string;
+  score: number;
+  snippet: SearchSnippet;
+}
+
+export interface SearchResult {
+  /** `building`: the hub has not read the texts yet; `failed`: it could not. */
+  status: 'ready' | 'building' | 'failed';
+  indexed: number;
+  total: number;
+  hits: SearchHit[];
+}
+
 export type SnapshotResult =
   | { kind: 'fresh'; doc: Snapshot; etag: string | null }
   | { kind: 'not_modified' };
@@ -130,6 +152,12 @@ export class Hub {
 
   areas(): Promise<HubAreas & Areas> {
     return this.json<HubAreas & Areas>('/api/tasks/areas');
+  }
+
+  /** The tasks whose text holds every word of `query` (the hub searches the text it keeps). */
+  search(query: string, signal?: AbortSignal): Promise<SearchResult> {
+    const path = `/api/tasks/search?q=${encodeURIComponent(query)}&limit=20`;
+    return this.json<SearchResult>(path, signal ? { signal } : undefined);
   }
 
   async rescan(): Promise<void> {

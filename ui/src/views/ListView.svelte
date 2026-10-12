@@ -2,6 +2,7 @@
   import type { App } from '../lib/app.svelte';
   import { translate, type Key } from '../lib/i18n';
   import Detail from './Detail.svelte';
+  import TextHits from './TextHits.svelte';
   import TaskRow from './TaskRow.svelte';
 
   let { app, searchBox = $bindable(null) }: { app: App; searchBox?: HTMLInputElement | null } =
@@ -57,7 +58,7 @@
         placeholder={t('list.search')}
         aria-label={t('list.search')}
         value={app.filter.query}
-        oninput={(e) => (app.filter = { ...app.filter, query: e.currentTarget.value })}
+        oninput={(e) => app.setQuery(e.currentTarget.value)}
       />
       <select
         aria-label={t('nav.areas')}
@@ -94,6 +95,7 @@
       {t('list.count', { shown: shown.length, total: app.tasks.length })}
       <span class="help">{t('list.help')}</span>
     </p>
+    <TextHits {app} />
     <div class="rows">
       {#each visible as task (task.file)}
         <TaskRow
