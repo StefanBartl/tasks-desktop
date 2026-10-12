@@ -34,6 +34,9 @@ tasks-hub install [--autostart] [--shortcut]
                                       copy the program to a fixed place (%LOCALAPPDATA%	asks-desktopin),
                                       so a build in the repository does not fight the running hub
                                       for the file; --autostart and --shortcut register that copy
+                                      (Windows: registry and desktop link; Linux: an autostart
+                                      entry and a launcher; macOS: a launch agent). Build with
+                                      `cargo build --release` first: 3.4 MB instead of 5.9 MB.
 tasks-hub open [--launch]             print a one-time pairing link for the running hub
                                       (--launch also opens it in the default browser)
 tasks-hub usage [--days=14]           on how many of the last days the interface was opened

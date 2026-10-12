@@ -1,0 +1,313 @@
+//! Start the hub with the login, and a launcher entry, on Linux and macOS:
+//! plain files in the places the desktops read. (Windows uses the registry,
+//! see `background`.)
+//!
+//! The functions take the platform and the environment as arguments so that
+//! the files can be tested on any system.
+
+use std::path::{Path, PathBuf};
+
+use crate::config::Env;
+
+/// The system whose files are written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Platform {
+    Linux,
+    Macos,
+}
+
+impl Platform {
+    /// The platform this program runs on, if it is one of these.
+    #[must_use]
+    pub fn current() -> Option<Self> {
+        match std::env::consts::OS {
+            "linux" => Some(Self::Linux),
+            "macos" => Some(Self::Macos),
+            _ => None,
+        }
+    }
+}
+
+/// What to do with the login entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    On,
+    Off,
+    Status,
+}
+
+/// The name of the entry files.
+const DESKTOP_FILE: &str = "tasks-desktop.desktop";
+const AGENT_FILE: &str = "dev.tasks-desktop.hub.plist";
+const AGENT_LABEL: &str = "dev.tasks-desktop.hub";
+
+/// A value of the `Exec` key: in double quotes, with the characters the
+/// desktop entry specification names escaped.
+fn exec_quote(text: &str) -> String {
+    let mut out = String::from("\"");
+    for c in text.chars() {
+        if matches!(c, '"' | '`' | '$' | '\\') {
+            out.push('\\');
+        }
+        // The `%` of a field code is doubled.
+        if c == '%' {
+            out.push('%');
+        }
+        out.push(c);
+    }
+    out.push('"');
+    out
+}
+
+/// A freedesktop entry that runs `exe` with `args`.
+#[must_use]
+pub fn desktop_entry(exe: &Path, args: &str, autostart: bool) -> String {
+    let mut text = format!(
+        "[Desktop Entry]\nType=Application\nName=Tasks\nComment=tasks-desktop: the task overview\n\
+         Exec={} {}\nTerminal=false\nCategories=Office;\n",
+        exec_quote(&exe.to_string_lossy()),
+        args
+    );
+    if autostart {
+        text.push_str("X-GNOME-Autostart-enabled=true\n");
+    }
+    text
+}
+
+fn xml_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// A launchd agent that runs `exe start` at login.
+#[must_use]
+pub fn launch_agent(exe: &Path) -> String {
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \
+         \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+         <plist version=\"1.0\">\n<dict>\n\
+         \t<key>Label</key>\n\t<string>{AGENT_LABEL}</string>\n\
+         \t<key>ProgramArguments</key>\n\t<array>\n\
+         \t\t<string>{}</string>\n\t\t<string>start</string>\n\t</array>\n\
+         \t<key>RunAtLoad</key>\n\t<true/>\n\
+         </dict>\n</plist>\n",
+        xml_escape(&exe.to_string_lossy())
+    )
+}
+
+fn home(env: &Env) -> Result<PathBuf, String> {
+    env.path("HOME")
+        .filter(|h| h.is_absolute())
+        .ok_or_else(|| "no HOME".to_owned())
+}
+
+/// The file of the login entry.
+fn login_file(platform: Platform, env: &Env) -> Result<PathBuf, String> {
+    match platform {
+        Platform::Linux => {
+            let base = match env.path("XDG_CONFIG_HOME").filter(|p| p.is_absolute()) {
+                Some(x) => x,
+                None => home(env)?.join(".config"),
+            };
+            Ok(base.join("autostart").join(DESKTOP_FILE))
+        }
+        Platform::Macos => Ok(home(env)?
+            .join("Library")
+            .join("LaunchAgents")
+            .join(AGENT_FILE)),
+    }
+}
+
+/// The file of the launcher entry (Linux only).
+fn launcher_file(env: &Env) -> Result<PathBuf, String> {
+    let base = match env.path("XDG_DATA_HOME").filter(|p| p.is_absolute()) {
+        Some(x) => x,
+        None => home(env)?.join(".local").join("share"),
+    };
+    Ok(base.join("applications").join(DESKTOP_FILE))
+}
+
+fn write(path: &Path, text: &str) -> Result<(), String> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    }
+    // Beside, then over: a cut-short write leaves the old file.
+    let part = path.with_extension("part");
+    std::fs::write(&part, text).map_err(|e| format!("cannot write {}: {e}", part.display()))?;
+    std::fs::rename(&part, path).map_err(|e| {
+        let _ = std::fs::remove_file(&part);
+        format!("cannot write {}: {e}", path.display())
+    })
+}
+
+/// Switch the login entry for `exe`; returns what to print.
+///
+/// # Errors
+///
+/// A text for the person at the terminal.
+pub fn login_entry(
+    platform: Platform,
+    action: Action,
+    exe: &Path,
+    env: &Env,
+) -> Result<String, String> {
+    let file = login_file(platform, env)?;
+    match action {
+        Action::On => {
+            let text = match platform {
+                Platform::Linux => desktop_entry(exe, "start", true),
+                Platform::Macos => launch_agent(exe),
+            };
+            write(&file, &text)?;
+            Ok(format!(
+                "the hub starts with your login: {} (entry {})\n",
+                exe.display(),
+                file.display()
+            ))
+        }
+        Action::Off => {
+            match std::fs::remove_file(&file) {
+                Ok(()) => {}
+                // Nothing there is what was asked for.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(format!("cannot remove {}: {e}", file.display())),
+            }
+            Ok("the hub does not start with your login\n".to_owned())
+        }
+        Action::Status => {
+            if file.is_file() {
+                Ok(format!("on: {}\n", file.display()))
+            } else {
+                Ok("off\n".to_owned())
+            }
+        }
+    }
+}
+
+/// A launcher entry "Tasks" that starts the hub and opens the page.
+///
+/// # Errors
+///
+/// A text for the person at the terminal.
+pub fn launcher(platform: Platform, exe: &Path, env: &Env) -> Result<String, String> {
+    match platform {
+        Platform::Linux => {
+            let file = launcher_file(env)?;
+            write(&file, &desktop_entry(exe, "start --open", false))?;
+            Ok(format!("a launcher \"Tasks\" is in {}\n", file.display()))
+        }
+        Platform::Macos => Err(
+            "a launcher for macOS is not built: open the program from the install folder"
+                .to_owned(),
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("tasks-desktop-login-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn the_exec_value_is_quoted_and_escaped() {
+        assert_eq!(exec_quote("/home/a b/tasks-hub"), "\"/home/a b/tasks-hub\"");
+        assert_eq!(
+            exec_quote("/x/a\"b$c`d\\e%f"),
+            "\"/x/a\\\"b\\$c\\`d\\\\e%%f\""
+        );
+    }
+
+    #[test]
+    fn a_linux_login_entry_is_written_read_and_removed() {
+        let home = temp("linux");
+        let env = Env::from_pairs([("HOME", home.as_os_str().to_owned())]);
+        let exe = Path::new("/opt/tasks desk/tasks-hub");
+        assert_eq!(
+            login_entry(Platform::Linux, Action::Status, exe, &env).unwrap(),
+            "off\n"
+        );
+        let said = login_entry(Platform::Linux, Action::On, exe, &env).unwrap();
+        assert!(said.contains("starts with your login"), "{said}");
+        let file = home.join(".config").join("autostart").join(DESKTOP_FILE);
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(
+            text.contains("Exec=\"/opt/tasks desk/tasks-hub\" start\n"),
+            "{text}"
+        );
+        assert!(text.contains("Terminal=false"));
+        assert!(login_entry(Platform::Linux, Action::Status, exe, &env)
+            .unwrap()
+            .starts_with("on"));
+        login_entry(Platform::Linux, Action::Off, exe, &env).unwrap();
+        assert!(!file.exists());
+        // Off again is not an error.
+        login_entry(Platform::Linux, Action::Off, exe, &env).unwrap();
+    }
+
+    #[test]
+    fn xdg_config_home_wins_over_home() {
+        let home = temp("xdg-home");
+        let cfg = temp("xdg-cfg");
+        let env = Env::from_pairs([
+            ("HOME", home.as_os_str().to_owned()),
+            ("XDG_CONFIG_HOME", cfg.as_os_str().to_owned()),
+        ]);
+        login_entry(Platform::Linux, Action::On, Path::new("/x/tasks-hub"), &env).unwrap();
+        assert!(cfg.join("autostart").join(DESKTOP_FILE).is_file());
+        assert!(!home.join(".config").exists());
+    }
+
+    #[test]
+    fn a_macos_agent_runs_start_at_load() {
+        let home = temp("mac");
+        let env = Env::from_pairs([("HOME", home.as_os_str().to_owned())]);
+        login_entry(
+            Platform::Macos,
+            Action::On,
+            Path::new("/Applications/T & C/tasks-hub"),
+            &env,
+        )
+        .unwrap();
+        let file = home.join("Library").join("LaunchAgents").join(AGENT_FILE);
+        let text = std::fs::read_to_string(file).unwrap();
+        assert!(
+            text.contains("<string>/Applications/T &amp; C/tasks-hub</string>"),
+            "{text}"
+        );
+        assert!(text.contains("<string>start</string>"));
+        assert!(text.contains("<key>RunAtLoad</key>"));
+    }
+
+    #[test]
+    fn the_launcher_opens_the_page() {
+        let home = temp("launcher");
+        let env = Env::from_pairs([("HOME", home.as_os_str().to_owned())]);
+        launcher(Platform::Linux, Path::new("/x/tasks-hub"), &env).unwrap();
+        let text = std::fs::read_to_string(
+            home.join(".local")
+                .join("share")
+                .join("applications")
+                .join(DESKTOP_FILE),
+        )
+        .unwrap();
+        assert!(text.contains("Exec=\"/x/tasks-hub\" start --open"));
+        assert!(!text.contains("X-GNOME-Autostart"));
+        assert!(launcher(Platform::Macos, Path::new("/x"), &env).is_err());
+    }
+
+    #[test]
+    fn without_a_home_nothing_is_written() {
+        let env = Env::from_pairs([("PATH", "x")]);
+        assert!(login_entry(Platform::Linux, Action::On, Path::new("/x"), &env).is_err());
+    }
+}
