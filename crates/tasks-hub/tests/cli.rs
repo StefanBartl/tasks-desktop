@@ -447,3 +447,64 @@ fn start_runs_the_hub_in_the_background_and_stop_ends_it() {
     let none = command(&config).arg("stop").output().unwrap();
     assert!(String::from_utf8_lossy(&none.stdout).contains("no hub is running"));
 }
+
+#[test]
+fn install_copies_the_program_and_brings_a_running_hub_back_from_there() {
+    let config = temp_dir("install");
+    let bin = temp_dir("install-bin");
+    let port = free_port();
+    let _guard = Background(config.clone());
+    let with_dir = |cmd: &mut Command| {
+        cmd.env("TASKS_DESKTOP_INSTALL_DIR", &bin);
+    };
+
+    // Without a hub: the program is copied, and it runs from there.
+    let mut first = command(&config);
+    with_dir(&mut first);
+    let out = first.arg("install").output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let name = binary().file_name().unwrap().to_owned();
+    let installed = bin.join(&name);
+    assert!(
+        installed.is_file(),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    let version = Command::new(&installed).arg("--version").output().unwrap();
+    assert!(String::from_utf8_lossy(&version.stdout).contains("tasks-hub"));
+    assert!(!bin.join(format!("{}.new", name.to_string_lossy())).exists());
+
+    // With a hub: it is stopped, the program is replaced, the hub is back.
+    let started = command(&config)
+        .env("TASKS_DESKTOP_PORT", port.to_string())
+        .arg("start")
+        .output()
+        .unwrap();
+    assert!(started.status.success());
+    let before = std::fs::read_to_string(config.join("hub.json")).unwrap();
+    let mut second = command(&config);
+    with_dir(&mut second);
+    second.env("TASKS_DESKTOP_PORT", port.to_string());
+    let out = second.arg("install").output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(
+        out.status.success(),
+        "{text}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(text.contains("is stopped"), "{text}");
+    assert!(text.contains("runs in the background"), "{text}");
+    let after = std::fs::read_to_string(config.join("hub.json")).unwrap();
+    assert_ne!(before, after, "a new hub: another instance");
+
+    // A flag that is none is a usage error.
+    let bad = command(&config)
+        .args(["install", "--nope"])
+        .output()
+        .unwrap();
+    assert!(!bad.status.success());
+}

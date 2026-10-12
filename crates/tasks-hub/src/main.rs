@@ -1,7 +1,7 @@
 //! `tasks-hub serve | open | --version`
 
 use tasks_hub::app::{self, AreasCommand, ServeOptions};
-use tasks_hub::background::{self, Autostart};
+use tasks_hub::background::{self, Autostart, InstallOptions};
 
 const USAGE: &str = "usage:
   tasks-hub serve [--port <1024-65535>]   run the hub until Ctrl-C
@@ -9,6 +9,9 @@ const USAGE: &str = "usage:
                                           the config folder); --open also opens the browser
   tasks-hub stop                          stop the hub that runs in the background
   tasks-hub autostart on|off|status       start the hub with your login (Windows)
+  tasks-hub install [--autostart] [--shortcut]
+                                          copy this program to a fixed place (a build
+                                          then does not fight the running hub for the file)
   tasks-hub open [--launch]               print a one-time pairing link for the running hub
                                           (--launch also opens it in the default browser)
   tasks-hub usage [--days=14]             on how many of the last days the interface was
@@ -88,6 +91,22 @@ async fn main() {
                     }
                 }
                 Err(e) => Err(e),
+            }
+        }
+        Some("install") => {
+            let mut opts = InstallOptions::default();
+            let mut bad = false;
+            for arg in &args[1..] {
+                match arg.as_str() {
+                    "--autostart" => opts.autostart = true,
+                    "--shortcut" => opts.shortcut = true,
+                    _ => bad = true,
+                }
+            }
+            if bad {
+                Err(USAGE.to_owned())
+            } else {
+                background::install(opts).await.map(|t| print!("{t}"))
             }
         }
         Some("stop") if args.len() == 1 => background::stop().await.map(|t| print!("{t}")),

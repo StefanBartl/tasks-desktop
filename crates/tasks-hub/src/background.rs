@@ -231,6 +231,16 @@ fn system_program(name: &str) -> Result<PathBuf, String> {
 ///
 /// A text for the person at the terminal.
 pub fn autostart(what: Autostart) -> Result<String, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("own program not found: {e}"))?;
+    autostart_for(what, &exe)
+}
+
+/// [`autostart`] for the program at `exe` (what `install` registers).
+///
+/// # Errors
+///
+/// A text for the person at the terminal.
+pub fn autostart_for(what: Autostart, exe: &Path) -> Result<String, String> {
     if !cfg!(windows) {
         return Err(
             "autostart is only built for Windows so far (put `tasks-hub start` into the \
@@ -241,10 +251,9 @@ pub fn autostart(what: Autostart) -> Result<String, String> {
     let reg = system_program("reg.exe")?;
     match what {
         Autostart::On => {
-            let exe = std::env::current_exe().map_err(|e| format!("own program not found: {e}"))?;
             let ok = Command::new(reg)
                 .args(["add", RUN_KEY, "/v", RUN_VALUE, "/t", "REG_SZ", "/d"])
-                .arg(run_command(&exe))
+                .arg(run_command(exe))
                 .arg("/f")
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
@@ -254,7 +263,7 @@ pub fn autostart(what: Autostart) -> Result<String, String> {
             if ok {
                 Ok(format!(
                     "the hub starts with your login: {}\n",
-                    run_command(&exe)
+                    run_command(exe)
                 ))
             } else {
                 Err("the entry could not be written".to_owned())
@@ -288,6 +297,137 @@ pub fn autostart(what: Autostart) -> Result<String, String> {
                 Ok("off\n".to_owned())
             }
         }
+    }
+}
+
+/// Where `install` puts the program: a folder of this user that is not
+/// roaming (the settings are; a program is not).
+fn install_dir(env: &Env) -> Result<PathBuf, String> {
+    if let Some(dir) = env.path("TASKS_DESKTOP_INSTALL_DIR") {
+        return Ok(dir);
+    }
+    let base = if cfg!(windows) {
+        env.path("LOCALAPPDATA")
+            .ok_or("no LOCALAPPDATA: set TASKS_DESKTOP_INSTALL_DIR")?
+    } else if let Some(x) = env.path("XDG_DATA_HOME") {
+        x
+    } else {
+        env.path("HOME")
+            .map(|h| h.join(".local").join("share"))
+            .ok_or("no HOME: set TASKS_DESKTOP_INSTALL_DIR")?
+    };
+    Ok(base.join("tasks-desktop").join("bin"))
+}
+
+/// What `install` was asked for.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct InstallOptions {
+    /// Register the installed program with the login of the user.
+    pub autostart: bool,
+    /// Put a link "Tasks" on the desktop (Windows).
+    pub shortcut: bool,
+}
+
+/// Copy this program to a fixed place, so that a build in the repository
+/// does not fight the running hub for the file, and start the hub from there
+/// again when one was running.
+///
+/// # Errors
+///
+/// A text for the person at the terminal.
+pub async fn install(opts: InstallOptions) -> Result<String, String> {
+    let env = Env::from_process();
+    let dir = install_dir(&env)?;
+    let from = std::env::current_exe().map_err(|e| format!("own program not found: {e}"))?;
+    let name = from
+        .file_name()
+        .ok_or("the program has no file name")?
+        .to_owned();
+    let target = dir.join(&name);
+    let mut out = String::new();
+
+    // A program that is the one being installed (run from the install
+    // folder) has nothing to copy.
+    let same = std::fs::canonicalize(&from).ok() == std::fs::canonicalize(&target).ok();
+    let config = app::config_folder(&env)?;
+    let was_running = app::running_hub(&config).await.is_some();
+    if !same {
+        if was_running {
+            out.push_str(&stop().await?);
+        }
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+        // Copy beside, then move over: a copy that is cut short never
+        // replaces a program that works.
+        let part = dir.join(format!("{}.new", name.to_string_lossy()));
+        std::fs::copy(&from, &part)
+            .map_err(|e| format!("cannot copy to {}: {e}", part.display()))?;
+        std::fs::rename(&part, &target).map_err(|e| {
+            let _ = std::fs::remove_file(&part);
+            format!(
+                "cannot replace {} (is a hub running from it? `tasks-hub stop`): {e}",
+                target.display()
+            )
+        })?;
+    }
+    out.push_str(&format!("installed: {}\n", target.display()));
+
+    if opts.autostart {
+        out.push_str(&autostart_for(Autostart::On, &target)?);
+    } else if cfg!(windows) && autostart_is_on() {
+        // It was registered for another copy: point it here.
+        out.push_str(&autostart_for(Autostart::On, &target)?);
+    }
+    if opts.shortcut {
+        out.push_str(&shortcut(&target)?);
+    }
+    if was_running && !same {
+        // The hub comes back from the installed program.
+        let started = Command::new(&target)
+            .arg("start")
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|e| format!("the installed program did not start: {e}"))?;
+        out.push_str(&String::from_utf8_lossy(&started.stdout));
+    }
+    Ok(out)
+}
+
+fn autostart_is_on() -> bool {
+    matches!(autostart(Autostart::Status), Ok(text) if text.starts_with("on"))
+}
+
+/// A link "Tasks" on the desktop that starts the hub and opens the page.
+fn shortcut(exe: &Path) -> Result<String, String> {
+    if !cfg!(windows) {
+        return Err("a desktop link is only built for Windows so far".to_owned());
+    }
+    let text = exe.to_string_lossy();
+    if text.contains(['"', '\r', '\n']) {
+        return Err("the path of the program cannot be put in a link".to_owned());
+    }
+    let script = format!(
+        "Set link = CreateObject(\"WScript.Shell\").CreateShortcut(\
+CreateObject(\"WScript.Shell\").SpecialFolders(\"Desktop\") & \"\\Tasks.lnk\")\r\n\
+link.TargetPath = \"{text}\"\r\n\
+link.Arguments = \"start --open\"\r\n\
+link.WindowStyle = 7\r\n\
+link.Description = \"tasks-desktop: start the hub and open the page\"\r\n\
+link.Save\r\n"
+    );
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!("tasks-desktop-link-{}.vbs", std::process::id()));
+    std::fs::write(&path, script).map_err(|e| format!("cannot write a script: {e}"))?;
+    let ok = Command::new(system_program("wscript.exe")?)
+        .args(["//B", "//Nologo"])
+        .arg(&path)
+        .status()
+        .is_ok_and(|s| s.success());
+    let _ = std::fs::remove_file(&path);
+    if ok {
+        Ok("a link \"Tasks\" is on the desktop\n".to_owned())
+    } else {
+        Err("the desktop link could not be made".to_owned())
     }
 }
 
