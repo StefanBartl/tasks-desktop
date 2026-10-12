@@ -60,3 +60,21 @@ jobs:
       # No crate version younger than a week (a hijacked release is caught
       # within hours, usually; see tools/check-lock-age.py).
       - run: python tools/check-lock-age.py --min-days 7
+
+  ui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      # The lockfile is the truth; the age and trust policy are in
+      # ui/pnpm-workspace.yaml.
+      - run: npm install --global pnpm@10.29.2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm audit --audit-level high

@@ -54,10 +54,27 @@ crates/hub-testkit/ a fake Neovim and the tests that need a process or a socket
 e2e/fixture/vault   synthetic vault (no real data), made by tools/make-fixture-vault.lua
 docs/SECURITY.md    what the server checks, and what it does not
 engine.lock         the tasks.nvim and lib.nvim commits this is built against
+ui/                 the browser interface (Svelte 5, Vite, TypeScript)
 ```
 
-The UI (Svelte 5), the Tauri shell and the browser tests are added by the
-phases P2 to P7; the plan lives in the maintainer's notes.
+The Tauri shell and the browser tests are added by the phases P2 to P7; the
+plan lives in the maintainer's notes.
+
+### The interface
+
+```
+cd ui
+pnpm install --frozen-lockfile
+pnpm build        # ui/dist
+pnpm check && pnpm test
+```
+
+The hub serves `ui/dist` (found next to the binary, in `ui/dist` of the
+repository, or in `TASKS_HUB_UI_DIR`) at `/`; without a build it shows a
+placeholder. The interface lists the vault in the engine's own order (it
+never sorts), shows a task with its steps and its text (as text only),
+follows the hub's event stream and asks for a scan when the window gets the
+focus back. German and English, light and dark.
 
 ## Build
 

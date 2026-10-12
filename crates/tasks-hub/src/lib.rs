@@ -13,6 +13,7 @@ pub mod discovery;
 pub mod engine;
 pub mod server;
 pub mod store;
+pub mod ui;
 pub mod watch;
 
 /// Version of this hub, as reported by `hello`.

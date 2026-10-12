@@ -71,6 +71,7 @@ async fn hub(engine: Option<Arc<dyn Engine>>, status: HubStatus) -> Hub {
         status,
         engine,
         policy: policy(),
+        ui: tasks_hub::ui::UiFiles::none(),
         watch: None,
     };
     let server = start(cfg).await.unwrap();

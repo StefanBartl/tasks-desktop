@@ -194,6 +194,26 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
     }
     let status = state.status.clone();
 
+    // The built interface: `TASKS_HUB_UI_DIR`, else next to the binary or in
+    // the repository's `ui/dist`. Without one the hub shows a placeholder.
+    let ui_setting = env.path("TASKS_HUB_UI_DIR");
+    let ui = match crate::ui::find_dir(
+        ui_setting.as_deref(),
+        std::env::current_exe().ok().as_deref(),
+    ) {
+        Some(dir) => match crate::ui::UiFiles::load(&dir) {
+            Ok(files) => files,
+            Err(e) => {
+                eprintln!(
+                    "note: the interface in {} cannot be used: {e}",
+                    dir.display()
+                );
+                crate::ui::UiFiles::none()
+            }
+        },
+        None => crate::ui::UiFiles::none(),
+    };
+
     let control = Secret::generate(TOKEN_BYTES).map_err(|e| e.to_string())?;
     let instance = Secret::generate(CODE_BYTES).map_err(|e| e.to_string())?;
     let make_cfg = |port: u16| ServerConfig {
@@ -215,6 +235,7 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
             vault,
             refresh: RefreshOptions::default(),
         }),
+        ui: ui.clone(),
     };
     // The port is part of the origin, so the wanted one is tried first. When
     // it is taken the server still starts, on another port, and says so:

@@ -132,6 +132,7 @@ async fn an_edit_of_a_task_file_reaches_the_stream_within_two_seconds() {
         },
         engine: Some(engine),
         policy: Arc::new(AreaPolicy::default()),
+        ui: tasks_hub::ui::UiFiles::none(),
         watch: Some(WatchConfig {
             vault: vault.clone(),
             refresh: RefreshOptions::default(),

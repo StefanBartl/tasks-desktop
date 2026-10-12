@@ -178,6 +178,28 @@ has no class.
 The consumers of these rules (another panel, a cloud runner, the client
 cache) do not exist yet; the rules are in place and tested for them.
 
+## The interface
+
+The page and its files are read once at start into a table keyed by the
+name that is asked for (`index.html`, `assets/<plain name>`); a request is
+answered from the table or is a `404`, so no path is built or opened per
+request. Only `.html`, `.js`, `.css`, `.json`, `.svg`, `.png`, `.ico` and
+`.woff2` are taken, each up to 4 MiB. The page has `script-src`, `style-src`,
+`img-src` and `connect-src` of `'self'` only (the strict policy with Trusted
+Types is package 6), no inline script, no inline style.
+
+In the browser the pairing code is taken out of the address bar before
+anything else runs; the session token lives in `sessionStorage` of the tab,
+so it ends with the tab and is not shared. The event stream is read with
+`fetch` (an `EventSource` cannot send the header). Text of the vault (titles,
+summaries, bodies, steps) is only ever put into the page as text, never as
+HTML; invisible and direction-changing characters are shown as `⟦U+XXXX⟧`.
+
+The client cache (IndexedDB) holds the list of tasks of areas that are
+`public` or `internal` and nothing else: a `private` area, an area with no
+class and every id of such a task in the edges of the kept ones are left
+out. With no class list at all nothing is cached.
+
 ## What this does not protect against
 
 * **Another process of the same user.** It can read `control.secret`, or
@@ -198,10 +220,11 @@ cache) do not exist yet; the rules are in place and tested for them.
   cross-site script in the page would own the session. The strict
   Content-Security-Policy and Trusted Types of the interface are the answer;
   they are not in place yet.
-* **Untrusted task files.** There is no route that returns task data yet.
-  When there is, the interface must render titles and bodies as text, and
-  data classes (`areas.json`) must keep private areas out of every response
-  that leaves the hub.
+* **Untrusted task files.** The data routes return titles and bodies as the
+  engine read them. The interface shows them as text only; a client that
+  renders them as HTML is on its own. Data classes (`areas.json`) decide
+  what may leave the hub or reach the client cache; the local interface
+  shows every area, as it is the same person's data.
 * **Writes cut short.** A write that ends without an answer is reported as
   an unknown outcome. The hub kills only the engine process on a time-out,
   not the processes it started.

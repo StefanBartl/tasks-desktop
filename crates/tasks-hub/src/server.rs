@@ -52,6 +52,7 @@ use tokio::task::JoinHandle;
 use crate::classes::{AreaPolicy, Shown};
 use crate::engine::{Engine, EngineError, Method as EngineMethod};
 use crate::store::{self, RefreshOptions, SnapshotStore, StoreOptions};
+use crate::ui::UiFiles;
 use crate::watch::{self as fswatch, Hint};
 
 /// The name the hub gives itself in `hello` and in `hub.json`.
@@ -141,6 +142,8 @@ pub struct ServerConfig {
     /// Watch the vault for changes. `None`: the snapshot is only replaced by
     /// its age and by a request for a rescan (what tests without a vault do).
     pub watch: Option<WatchConfig>,
+    /// The built interface, served at `/` and `/assets/`. None: a placeholder.
+    pub ui: UiFiles,
 }
 
 /// What to watch and how patiently.
@@ -210,6 +213,7 @@ struct Shared {
     classes: Arc<AreaPolicy>,
     store: Arc<SnapshotStore>,
     streams: Arc<StreamCounter>,
+    ui: UiFiles,
 }
 
 /// A started server.
@@ -295,6 +299,7 @@ pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
         classes: cfg.policy,
         store: Arc::clone(&store),
         streams: Arc::new(StreamCounter::default()),
+        ui: cfg.ui,
     });
 
     // The watcher only says "look again"; the refresher does the looking.
@@ -330,6 +335,7 @@ fn router(shared: Arc<Shared>) -> Router {
     Router::new()
         .route("/", get(shell))
         .route("/index.html", get(shell))
+        .route("/assets/{name}", get(shell))
         .route("/api/tasks/hello", get(hello))
         .route("/api/tasks/snapshot", get(snapshot))
         .route("/api/tasks/task", get(task))
@@ -422,6 +428,7 @@ enum Class {
 fn classify(path: &str) -> Class {
     match path {
         "/" | "/index.html" => Class::Shell,
+        p if p.starts_with("/assets/") => Class::Shell,
         "/api/tasks/hello" => Class::Hello,
         "/auth/exchange" => Class::Exchange,
         "/api/control/pair" => Class::ControlPair,
@@ -660,8 +667,9 @@ fn set_security_headers(response: &mut Response, class: Class) {
         h.insert(
             header::CONTENT_SECURITY_POLICY,
             HeaderValue::from_static(
-                "default-src 'self'; base-uri 'none'; object-src 'none'; \
-                 frame-ancestors 'none'; form-action 'none'",
+                "default-src 'self'; script-src 'self'; style-src 'self'; \
+                 img-src 'self'; connect-src 'self'; base-uri 'none'; \
+                 object-src 'none'; frame-ancestors 'none'; form-action 'none'",
             ),
         );
     }
@@ -669,10 +677,20 @@ fn set_security_headers(response: &mut Response, class: Class) {
 
 // ── routes ──────────────────────────────────────────────────────────────────
 
-async fn shell() -> Response {
-    let html = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
-<title>tasks-desktop</title></head><body><p>tasks-desktop hub is running. \
-The interface is not built yet.</p></body></html>";
+async fn shell(State(st): State<Arc<Shared>>, uri: axum::http::Uri) -> Response {
+    if let Some(file) = st.ui.get(uri.path()) {
+        return (
+            [(header::CONTENT_TYPE, file.content_type)],
+            Body::from(file.bytes.clone()),
+        )
+            .into_response();
+    }
+    // Under /assets/ only what the build holds; the page itself is the
+    // placeholder until an interface is there.
+    if uri.path().starts_with("/assets/") || st.ui.has_index() {
+        return error_body(StatusCode::NOT_FOUND, "not_found", "no such file");
+    }
+    let html = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>tasks-desktop</title></head><body><p>tasks-desktop hub is running. The interface is not built yet.</p></body></html>";
     (
         [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
         Body::from(html),
