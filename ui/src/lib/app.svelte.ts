@@ -116,6 +116,8 @@ export class App {
   finishing = $state.raw<{ id: string; preview: DonePreview } | null>(null);
   private opCount = 0;
   selectedId = $state<string | null>(null);
+  /** The plan the plan view is narrowed to ('': every task); kept when the view is left. */
+  planChoice = $state('');
 
   tasks = $state.raw<TaskEntry[]>([]);
   snapshot = $state.raw<Snapshot | null>(null);
@@ -295,8 +297,7 @@ export class App {
     const created = result?.results.find((r) => r.ok && r.outcome === 'created')?.id;
     this.capturing = false;
     if (created) {
-      this.select(created);
-      this.setView('list');
+      this.reveal(created);
     }
   }
 
@@ -344,6 +345,20 @@ export class App {
   /** Take every chosen area, status and actor and the search words away. */
   resetFilter(): void {
     this.filter = { ...emptyFilter, areas: [], statuses: [], actors: [] };
+    // The text search belongs to the words that are gone.
+    this.scheduleTextSearch('', 0);
+  }
+
+  /**
+   * Show a task in the list with its detail: a filter that hides it is taken
+   * away first, or the detail would stand without its row.
+   */
+  reveal(id: string): void {
+    if (this.tasks.some((t) => t.id === id) && !this.shown.some((t) => t.id === id)) {
+      this.resetFilter();
+    }
+    this.select(id);
+    this.setView('list');
   }
 
   hideTile(tile: Tile): void {

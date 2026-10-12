@@ -223,6 +223,24 @@ describe('App', () => {
     app.stop();
   });
 
+  it('reveals a task a filter hides: the filter and its text search go, the list is shown', async () => {
+    const { app, hub } = make({ token: 't' });
+    hub.doc = snapshot([task('pub/a', { status: 'open' }), task('pub/b')], 'rev:1');
+    await app.start(null);
+    app.setQuery('zzz');
+    expect(app.shown.length).toBe(0);
+    app.setView('today');
+    app.reveal('pub/b');
+    expect(app.filter.query).toBe('');
+    expect(app.textSearch).toBeNull();
+    expect(app.selectedId).toBe('pub/b');
+    expect(app.view).toBe('list');
+    // Nothing hides it: the filter stays as it is.
+    app.filter = { ...app.filter, statuses: ['open'] };
+    app.reveal('pub/a');
+    expect(app.filter.statuses).toEqual(['open']);
+    app.stop();
+  });
   it('drops the session and the data when the hub says it is gone', async () => {
     const { app, hub, session } = make({ token: 't' });
     await app.start(null);

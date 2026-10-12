@@ -35,8 +35,7 @@
   });
 
   function open(id: string): void {
-    app.select(id);
-    app.setView('list');
+    app.reveal(id);
   }
 
   function why(brief: TaskBrief): string {

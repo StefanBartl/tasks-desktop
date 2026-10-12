@@ -51,3 +51,22 @@ export function phaseCounts(
     .map(([phase, n]) => ({ phase, n }));
   return [...named, ...unnamed];
 }
+
+/** What the plan warns about, narrowed to the tasks of one plan (`null`: all of it). */
+export function warningsOf(
+  plan: Snapshot['plan'] | undefined,
+  tasks: readonly TaskEntry[],
+  planId: string | null,
+): Pick<Snapshot['plan'], 'cycles' | 'conflict_groups' | 'warnings'> {
+  if (!plan) return { cycles: [], conflict_groups: [], warnings: [] };
+  if (planId === null) {
+    return { cycles: plan.cycles, conflict_groups: plan.conflict_groups, warnings: plan.warnings };
+  }
+  const members = new Set(tasks.filter((t) => t.plan === planId).map((t) => t.id));
+  return {
+    cycles: plan.cycles.filter((c) => c.some((id) => members.has(id))),
+    conflict_groups: plan.conflict_groups.filter((g) => g.ids.some((id) => members.has(id))),
+    // A warning that names no task is about the vault: it stays.
+    warnings: plan.warnings.filter((w) => w.id === undefined || members.has(w.id)),
+  };
+}

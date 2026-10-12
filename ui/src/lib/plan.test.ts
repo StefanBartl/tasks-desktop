@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { criticalIds, phaseCounts, stagesOf } from './plan';
+import { criticalIds, phaseCounts, stagesOf, warningsOf } from './plan';
 import { task } from './fixtures';
 import type { Snapshot } from './contract';
 
@@ -57,5 +57,28 @@ describe('plan', () => {
       { phase: 'extra', n: 1 },
     ]);
     expect(phaseCounts(tasks, undefined)).toEqual([]);
+  });
+
+  it('narrows the warnings to one plan and keeps those of the vault', () => {
+    const plan = {
+      cycles: [['a/p-1', 'a/p-2'], ['a/other']],
+      conflict_groups: [
+        { stage: 0, file: 'x.lua', ids: ['a/p-1', 'a/other'] },
+        { stage: 1, file: 'y.lua', ids: ['a/other'] },
+      ],
+      warnings: [
+        { code: 'c1', id: 'a/p-1', msg: 'm' },
+        { code: 'c2', id: 'a/other', msg: 'm' },
+        { code: 'c3', msg: 'm' },
+      ],
+    } as unknown as Snapshot['plan'];
+    const tasks = [task('a/p-1', { plan: 'a/p' }), task('a/p-2', { plan: 'a/p' }), task('a/other')];
+    const all = warningsOf(plan, tasks, null);
+    expect(all.warnings.length).toBe(3);
+    const mine = warningsOf(plan, tasks, 'a/p');
+    expect(mine.cycles).toEqual([['a/p-1', 'a/p-2']]);
+    expect(mine.conflict_groups.map((g) => g.file)).toEqual(['x.lua']);
+    expect(mine.warnings.map((w) => w.code)).toEqual(['c1', 'c3']);
+    expect(warningsOf(undefined, tasks, 'a/p').warnings).toEqual([]);
   });
 });
