@@ -51,6 +51,11 @@
     border-bottom: 1px solid var(--border);
     cursor: pointer;
   }
+  /* A row far off the screen is not laid out or painted. */
+  .row {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 2.2rem;
+  }
   .row:hover {
     background: var(--surface-2);
   }

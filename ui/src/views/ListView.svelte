@@ -14,6 +14,32 @@
   const actors = ['me', 'cdx', 'pair'] as const;
   const shown = $derived(app.shown);
 
+  // The first rows are drawn at once and the rest in the frames after: a
+  // list of six hundred rows is not one block of work between the click and
+  // the first row (measured: about 150 ms).
+  const FIRST = 60;
+  const STEP = 200;
+  let limit = $state(FIRST);
+  const visible = $derived(shown.slice(0, limit));
+  $effect(() => {
+    if (limit >= shown.length) return;
+    const frame = requestAnimationFrame(() => {
+      limit = Math.min(shown.length, limit + STEP);
+    });
+    return () => cancelAnimationFrame(frame);
+  });
+
+  // The row that j and k moved to stays in view.
+  $effect(() => {
+    if (app.selectedId === null) return;
+    const frame = requestAnimationFrame(() => {
+      document
+        .querySelector('.rows [aria-current="true"]')
+        ?.scrollIntoView({ block: 'nearest' });
+    });
+    return () => cancelAnimationFrame(frame);
+  });
+
   function pick(value: string): string | null {
     return value === '' ? null : value;
   }
@@ -66,7 +92,7 @@
       <span class="help">{t('list.help')}</span>
     </p>
     <div class="rows">
-      {#each shown as task (task.file)}
+      {#each visible as task (task.file)}
         <TaskRow
           {task}
           lang={app.lang}

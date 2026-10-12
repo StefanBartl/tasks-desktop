@@ -65,7 +65,9 @@ class FakeHub {
     this.nextCalls += 1;
     return { alternatives: [], cdx: [], incomplete: [] };
   }
-  async task(id: string): Promise<TaskDocument> {
+  taskSignals: AbortSignal[] = [];
+  async task(id: string, signal?: AbortSignal): Promise<TaskDocument> {
+    if (signal) this.taskSignals.push(signal);
     return { task: this.doc.tasks.find((t) => t.id === id), body: 'body', steps: [] } as never;
   }
   async rescan() {
@@ -73,7 +75,10 @@ class FakeHub {
   }
 }
 
-function make(overrides: { token?: string; cached?: CachedList | null } = {}) {
+function make(
+  overrides: { token?: string; cached?: CachedList | null; prefs?: Map<string, string> } = {},
+) {
+  const prefs = overrides.prefs ?? new Map<string, string>();
   const hub = new FakeHub();
   const saved: CachedList[] = [];
   let cleared = 0;
@@ -92,7 +97,10 @@ function make(overrides: { token?: string; cached?: CachedList | null } = {}) {
       setItem: (k, v) => void session.set(k, v),
       removeItem: (k) => void session.delete(k),
     },
-    prefs: { getItem: () => null, setItem: () => {} },
+    prefs: {
+      getItem: (k) => prefs.get(k) ?? null,
+      setItem: (k, v) => void prefs.set(k, v),
+    },
     preferredLanguages: ['de'],
     now: () => 1000,
     // The stream is not under test here: it is refused, and the loop stops
@@ -102,7 +110,7 @@ function make(overrides: { token?: string; cached?: CachedList | null } = {}) {
       await new Promise((r) => setTimeout(r, 1));
     },
   };
-  return { app: new App(env), hub, saved, session, cleared: () => cleared };
+  return { app: new App(env), hub, saved, session, prefs, cleared: () => cleared };
 }
 
 describe('App', () => {
@@ -290,5 +298,52 @@ describe('App, cache and hub', () => {
     expect(app.phase).toBe('ready');
     release();
     app.stop();
+  });
+});
+
+describe('App, reading one task at a time', () => {
+  it('drops the request of a task that was passed on the way', async () => {
+    const { app, hub } = make({ token: 't' });
+    hub.doc = snapshot([task('pub/a'), task('pub/b'), task('pub/c')], 'rev:1');
+    await app.start(null);
+    app.select('pub/a');
+    app.select('pub/b');
+    app.select('pub/c');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(hub.taskSignals.map((signal) => signal.aborted)).toEqual([true, true, false]);
+    expect(app.detail.state).toBe('ok');
+    app.stop();
+  });
+
+  it('is not a failure when a read was dropped', async () => {
+    const { app, hub } = make({ token: 't' });
+    hub.doc = snapshot([task('pub/a'), task('pub/b')], 'rev:1');
+    hub.task = async (_id: string, signal?: AbortSignal) => {
+      await new Promise((r) => setTimeout(r, 20));
+      if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
+      return { task: hub.doc.tasks[0], body: '', steps: [] } as never;
+    };
+    await app.start(null);
+    app.select('pub/a');
+    app.select('pub/b');
+    app.select(null);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(app.detail.state).toBe('none');
+    app.stop();
+  });
+});
+
+describe('App, the view', () => {
+  it('opens on the view it was left on', async () => {
+    const prefs = new Map<string, string>();
+    const first = make({ token: 't', prefs });
+    expect(first.app.view).toBe('today');
+    first.app.setView('list');
+    expect(prefs.get('tasks-desktop.view')).toBe('list');
+    const second = make({ token: 't', prefs });
+    expect(second.app.view).toBe('list');
+    // Anything else in the store is not a view.
+    prefs.set('tasks-desktop.view', '<img src=x>');
+    expect(make({ token: 't', prefs }).app.view).toBe('today');
   });
 });

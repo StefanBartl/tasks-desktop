@@ -93,6 +93,8 @@ export class App {
     const theme = safe(() => env.prefs.getItem('tasks-desktop.theme'));
     this.theme = theme === 'light' || theme === 'dark' ? theme : 'auto';
     this.shortcuts = safe(() => env.prefs.getItem('tasks-desktop.shortcuts')) !== 'off';
+    // The page opens on the view it was left on.
+    this.view = safe(() => env.prefs.getItem('tasks-desktop.view')) === 'list' ? 'list' : 'today';
   }
 
   // ── derived ───────────────────────────────────────────────────────────
@@ -288,6 +290,7 @@ export class App {
   }
 
   private nextFor: string | null = null;
+  private detailAbort: AbortController | null = null;
   private areasRead: Promise<HubAreas> | null = null;
 
   /** The next task, read when the list it belongs to is not the one held. */
@@ -304,6 +307,7 @@ export class App {
 
   setView(view: View): void {
     this.view = view;
+    safe(() => this.env.prefs.setItem('tasks-desktop.view', view));
     if (view === 'today' && this.phase === 'ready') void this.loadNext();
   }
 
@@ -327,6 +331,7 @@ export class App {
   select(id: string | null): void {
     this.selectedId = id;
     if (id === null) {
+      this.detailAbort?.abort();
       this.detail = { state: 'none' };
       return;
     }
@@ -343,11 +348,18 @@ export class App {
     if (!(this.detail.state === 'ok' && this.detail.id === id)) {
       this.detail = { state: 'loading', id };
     }
+    // Each task is a Neovim process of the hub. A task that was passed on the
+    // way (j j j j) is not read: its request is dropped, and so is its read.
+    this.detailAbort?.abort();
+    const abort = new AbortController();
+    this.detailAbort = abort;
     try {
-      const doc = await this.env.hub.task(id);
+      const doc = await this.env.hub.task(id, abort.signal);
       if (this.selectedId === id) this.detail = { state: 'ok', id, doc };
     } catch {
-      if (this.selectedId === id) this.detail = { state: 'failed', id };
+      if (!abort.signal.aborted && this.selectedId === id) {
+        this.detail = { state: 'failed', id };
+      }
     }
   }
 

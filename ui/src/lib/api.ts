@@ -118,8 +118,10 @@ export class Hub {
     return { kind: 'fresh', doc: (await response.json()) as Snapshot, etag: tag };
   }
 
-  task(id: string): Promise<TaskDocument> {
-    return this.json<TaskDocument>(`/api/tasks/task?id=${encodeURIComponent(id).replace(/%2F/gi, '/')}`);
+  /** One task with its body. A `signal` that aborts drops the request: the hub then never starts the read. */
+  task(id: string, signal?: AbortSignal): Promise<TaskDocument> {
+    const path = `/api/tasks/task?id=${encodeURIComponent(id).replace(/%2F/gi, '/')}`;
+    return this.json<TaskDocument>(path, signal ? { signal } : undefined);
   }
 
   next(): Promise<Next> {
