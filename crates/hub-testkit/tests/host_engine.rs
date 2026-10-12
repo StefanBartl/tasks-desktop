@@ -218,3 +218,36 @@ async fn a_host_that_was_killed_from_outside_is_replaced_without_an_error() {
     assert_eq!(starts(&dir), 2);
     assert_ne!(pid(&dir), first);
 }
+
+#[tokio::test]
+async fn a_host_is_replaced_when_the_engines_files_change() {
+    let dir = vault("stale-code");
+    let host = CliEngine::with_host_checked(
+        config(&dir, Duration::from_secs(10)),
+        Duration::from_millis(50),
+    );
+    host.call(Method::Hello, None).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    host.call(Method::Hello, None).await.unwrap();
+    assert_eq!(starts(&dir), 1, "nothing changed: the same host");
+
+    // A file of the engine's code appears, as after a `git pull`.
+    std::fs::create_dir_all(dir.join("lua")).unwrap();
+    std::fs::write(dir.join("lua").join("changed.lua"), "return {}").unwrap();
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    let first = pid(&dir);
+    host.call(Method::Hello, None).await.unwrap();
+    assert_eq!(starts(&dir), 2, "the changed code got a new host");
+    assert!(wait_gone(first).await, "the old host is gone");
+
+    // And again when a file is rewritten.
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    std::fs::write(
+        dir.join("lua").join("changed.lua"),
+        "return { more = true }",
+    )
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    host.call(Method::Hello, None).await.unwrap();
+    assert_eq!(starts(&dir), 3);
+}

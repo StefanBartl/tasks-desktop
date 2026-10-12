@@ -15,6 +15,8 @@
   const waiting = $derived(waitingForMe(app.tasks).slice(0, 8));
   const empty = $derived(next?.empty);
   const shown = (tile: Tile) => !app.hiddenTiles.includes(tile);
+  // The counts need the snapshot; without them there is no block to keep room for.
+  const showOverview = $derived(shown('counts') && snapshot !== null);
 
   const tiles = $derived.by(() => {
     if (!snapshot) return [];
@@ -40,16 +42,8 @@
   }
 </script>
 
-<div class="today">
-  {#if app.hiddenTiles.length > 0}
-    <p class="restore">
-      <button type="button" class="link" onclick={() => app.showTiles()}
-        >{t('today.hidden', { n: app.hiddenTiles.length })}</button
-      >
-    </p>
-  {/if}
-
-  {#if shown('counts') && tiles.length > 0}
+<div class="today" class:solo={!showOverview}>
+  {#if showOverview}
     <aside class="card overview" aria-label={t('today.overview')}>
       <header>
         <h2 class="eyebrow">{t('today.overview')}</h2>
@@ -73,6 +67,13 @@
   {/if}
 
   <div class="main">
+    {#if app.hiddenTiles.length > 0}
+      <p class="restore">
+        <button type="button" class="link" onclick={() => app.showTiles()}
+          >{t('today.hidden', { n: app.hiddenTiles.length })}</button
+        >
+      </p>
+    {/if}
     {#if shown('next')}
       <section class="card next" aria-label={t('today.next')}>
         <header>
@@ -188,14 +189,16 @@
   .today {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 18rem;
-    grid-template-areas:
-      'restore restore'
-      'main overview';
+    grid-template-areas: 'main overview';
     gap: 1rem;
     align-items: start;
   }
+  /* Without the overview the blocks take the whole width. */
+  .today.solo {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'main';
+  }
   .restore {
-    grid-area: restore;
     margin: 0;
   }
   .overview {
@@ -213,7 +216,6 @@
     .today {
       grid-template-columns: minmax(0, 1fr);
       grid-template-areas:
-        'restore'
         'overview'
         'main';
     }
