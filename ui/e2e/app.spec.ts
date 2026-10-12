@@ -572,3 +572,35 @@ test('the plan view shows the stages and the critical path, and opens a task', a
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('the plan view narrows to the chosen plan and keeps the choice', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await chooseView(page, 'View', 'Plan');
+  const stages = page.getByRole('region', { name: 'Stages' });
+  const cycle = page.getByText('lib.nvim/cyc-a', { exact: false });
+  const hint = page.getByText(/the phase counts are those of the chosen plan/);
+  const select = page.getByRole('combobox', { name: 'Plan' });
+
+  // Every task: the cycle of two tasks outside any plan is warned of, and no hint.
+  await expect(select).toHaveValue('');
+  await expect(cycle.first()).toBeVisible();
+  await expect(stages.getByRole('button', { name: 'Cycle A' })).toBeVisible();
+  await expect(hint).toHaveCount(0);
+
+  // One plan: its tasks and phases only, the warnings of other tasks go, and the
+  // hint says which numbers stay those of the whole vault.
+  await select.selectOption('lib.nvim/the-plan');
+  await expect(stages.getByRole('button', { name: 'Zeta builds' })).toBeVisible();
+  await expect(stages.getByRole('button', { name: 'Cycle A' })).toHaveCount(0);
+  await expect(cycle).toHaveCount(0);
+  await expect(hint).toBeVisible();
+  expect(await violations(page)).toEqual([]);
+
+  // The choice is kept when the view is left and come back to.
+  await chooseView(page, 'View', 'List');
+  await chooseView(page, 'View', 'Plan');
+  await expect(select).toHaveValue('lib.nvim/the-plan');
+  await expect(stages.getByRole('button', { name: 'Cycle A' })).toHaveCount(0);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+

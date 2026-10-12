@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { criticalIds, phaseCounts, stagesOf, warningsOf } from './plan';
+import { chosenPlan, criticalIds, phaseCounts, stagesOf, warningsOf } from './plan';
 import { task } from './fixtures';
 import type { Snapshot } from './contract';
 
@@ -35,6 +35,16 @@ describe('plan', () => {
       'a/second',
     ]);
     expect(stagesOf(list, 'a/none')).toEqual([]);
+  });
+
+  it('keeps a chosen plan while the vault has it and drops it when it is gone', () => {
+    const plans = [{ id: 'a/p' }, { id: 'a/q' }] as unknown as Snapshot['plans'];
+    expect(chosenPlan(plans, 'a/q')).toBe('a/q');
+    // A plan that vanished (a change of the vault) is no longer chosen.
+    expect(chosenPlan(plans, 'a/gone')).toBe('');
+    expect(chosenPlan([], 'a/p')).toBe('');
+    // Nothing chosen stays nothing.
+    expect(chosenPlan(plans, '')).toBe('');
   });
 
   it('names the critical path', () => {

@@ -21,7 +21,8 @@ const en = {
   'plan.stages': 'Stages',
   'plan.stage': 'Stage {n}',
   'plan.no_stage': 'Without a stage',
-  'plan.whole_vault': 'The numbers and the critical path are those of the whole vault.',
+  'plan.whole_vault':
+    'The state counts, the estimate and the critical path are those of the whole vault; the phase counts are those of the chosen plan.',
   'plan.on_path': 'critical path',
   'plan.empty': 'No task is in this plan.',
   'nav.areas': 'Areas',
@@ -234,7 +235,8 @@ const de: Record<Key, string> = {
   'plan.stages': 'Stufen',
   'plan.stage': 'Stufe {n}',
   'plan.no_stage': 'Ohne Stufe',
-  'plan.whole_vault': 'Zahlen und kritischer Pfad gelten für den ganzen Vault.',
+  'plan.whole_vault':
+    'Zustandszahlen, Schätzung und kritischer Pfad gelten für den ganzen Vault; die Phasenzahlen für den gewählten Plan.',
   'plan.on_path': 'kritischer Pfad',
   'plan.empty': 'In diesem Plan liegt kein Task.',
   'nav.areas': 'Bereiche',

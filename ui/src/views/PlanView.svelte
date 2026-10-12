@@ -3,7 +3,7 @@
   // the rest up (the critical path) and what the plan warns about.
   import type { App } from '../lib/app.svelte';
   import { formatNumber, labelOf, translate, type Key } from '../lib/i18n';
-  import { criticalIds, phaseCounts, stagesOf, warningsOf } from '../lib/plan';
+  import { chosenPlan, criticalIds, phaseCounts, stagesOf, warningsOf } from '../lib/plan';
   import { markHidden } from '../lib/text';
 
   let { app }: { app: App } = $props();
@@ -13,7 +13,7 @@
   const snapshot = $derived(app.snapshot);
   const plans = $derived(snapshot?.plans ?? []);
   // A plan that is gone (a change of the vault) is not kept chosen.
-  const planId = $derived(plans.some((p) => p.id === app.planChoice) ? app.planChoice : '');
+  const planId = $derived(chosenPlan(plans, app.planChoice));
   const stages = $derived(stagesOf(app.tasks, planId === '' ? null : planId));
   const critical = $derived(criticalIds(snapshot?.plan));
   const phases = $derived(
