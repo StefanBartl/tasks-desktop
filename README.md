@@ -109,7 +109,11 @@ read once at start.
 ```
 pnpm e2e          # the browser tests: needs target/debug/tasks-hub, the engine
                   # (TASKS_ENGINE_DIR, LIB_NVIM_DIR) and Chrome; nothing is downloaded
-``` The interface lists the vault in the engine's own order (it
+```
+
+The interface can create a task (`c`, or the Project menu), change status,
+priority and who in the detail, undo that, and finish a task after a preview of
+what it does; the engine makes every change. The interface lists the vault in the engine's own order (it
 never sorts), shows a task with its steps and its text (as text only),
 follows the hub's event stream and asks for a scan when the window gets the
 focus back. German and English, light and dark.

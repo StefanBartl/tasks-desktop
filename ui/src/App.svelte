@@ -5,6 +5,9 @@
   import Today from './views/Today.svelte';
   import ListView from './views/ListView.svelte';
   import MenuBar, { type Menu } from './views/MenuBar.svelte';
+  import Capture from './views/Capture.svelte';
+  import DoneDialog from './views/DoneDialog.svelte';
+  import Toast from './views/Toast.svelte';
 
   let { app, code }: { app: App; code: string | null } = $props();
 
@@ -76,6 +79,10 @@
       case 'g':
         setChord(true);
         break;
+      case 'c':
+        event.preventDefault();
+        app.openCapture();
+        break;
       case 'j':
         if (app.view === 'list') app.moveSelection(1);
         break;
@@ -113,6 +120,12 @@
         label: t('menu.project'),
         items: [
           ...(vault ? [{ kind: 'info' as const, label: t('menu.vault', { name: vault }) }] : []),
+          {
+            kind: 'action',
+            label: t('menu.capture'),
+            disabled: !ready,
+            onselect: () => app.openCapture(),
+          },
           {
             kind: 'action',
             label: t('menu.rescan'),
@@ -271,6 +284,11 @@
       {/snippet}
     </svelte:boundary>
   </main>
+  {#if app.phase === 'ready'}
+    <Capture {app} />
+    <DoneDialog {app} />
+  {/if}
+  <Toast {app} />
 </div>
 
 <style>

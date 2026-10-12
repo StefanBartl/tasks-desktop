@@ -3,10 +3,11 @@
 
 import { ApiError, type Hub, type HubArea, type HubAreas, type SearchResult } from './api';
 import { cacheableList, type ListStore } from './cache';
-import type { Next, Snapshot, TaskDocument, TaskEntry } from './contract';
+import type { DonePreview, Next, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
+import type { Op } from './api';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
 import { backoffSeconds, readStream, StreamRefused, type SseMessage } from './sse';
-import { detectLang, isLang, type Lang } from './i18n';
+import { detectLang, isLang, translate, type Key, type Lang } from './i18n';
 
 export type Phase = 'starting' | 'needs_pairing' | 'offline' | 'unavailable' | 'ready';
 export type Connection = 'live' | 'reconnecting' | 'offline';
@@ -15,6 +16,13 @@ export type Theme = 'auto' | 'light' | 'dark';
 /** The blocks of the Today view that a person may hide. */
 export const TILES = ['next', 'waiting', 'cdx', 'counts'] as const;
 export type Tile = (typeof TILES)[number];
+
+/** What the last write did, in one line; `undo` is the way back, when there is one. */
+export interface Toast {
+  kind: 'ok' | 'error';
+  text: string;
+  undo?: Op[];
+}
 
 export type Detail =
   | { state: 'none' }
@@ -90,6 +98,14 @@ export class App {
   hiddenTiles = $state<Tile[]>([]);
   /** Area names without the prefix `wkdbook-` where that is unambiguous. */
   shortAreas = $state(true);
+  /** A write is under way: the controls wait. */
+  saving = $state(false);
+  toast = $state.raw<Toast | null>(null);
+  /** The capture dialog is open. */
+  capturing = $state(false);
+  /** The task that is being finished, with what the engine says that does. */
+  finishing = $state.raw<{ id: string; preview: DonePreview } | null>(null);
+  private opCount = 0;
   selectedId = $state<string | null>(null);
 
   tasks = $state.raw<TaskEntry[]>([]);
@@ -145,6 +161,146 @@ export class App {
   setShortcuts(on: boolean): void {
     this.shortcuts = on;
     safe(() => this.env.prefs.setItem('tasks-desktop.shortcuts', on ? 'on' : 'off'));
+  }
+
+  // ── writing ───────────────────────────────────────────────────────────
+
+  private opId(): string {
+    this.opCount += 1;
+    return `ui-${this.env.now().toString(36)}-${this.opCount}`;
+  }
+
+  private say(kind: Toast['kind'], key: string, params: Record<string, string | number> = {}, undo?: Op[]): void {
+    const text = translate(this.lang, key as Key, params);
+    this.toast = { kind, text, ...(undo ? { undo } : {}) };
+  }
+
+  dismissToast(): void {
+    this.toast = null;
+  }
+
+  openCapture(): void {
+    if (this.phase === 'ready') this.capturing = true;
+  }
+
+  closeCapture(): void {
+    this.capturing = false;
+  }
+
+  /**
+   * Send operations and say what came of them. A part that failed is told per
+   * operation; whatever the answer, the list is read again, so the page
+   * never stands on a state it guessed.
+   */
+  async write(ops: Op[], opts: { undoable?: boolean } = {}): Promise<Result | null> {
+    if (this.saving || this.phase !== 'ready') return null;
+    this.saving = true;
+    try {
+      const result = await this.env.hub.ops({ client_op_id: this.opId(), ops });
+      const failed = result.results.find((r) => !r.ok);
+      if (failed) {
+        const code = failed.error?.code ?? 'failed';
+        if (code === 'conflict') this.say('error', 'write.conflict');
+        else if (code === 'not_found') this.say('error', 'write.not_found');
+        else if (code === 'invalid_argument' || code === 'forbidden') {
+          this.say('error', 'write.invalid', { message: failed.error?.message ?? code });
+        } else this.say('error', 'write.failed', { code });
+      } else {
+        const undo = opts.undoable === false ? undefined : this.inverseOf(result);
+        this.say('ok', 'write.saved', {}, undo);
+      }
+      await this.refresh();
+      return result;
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'outcome_unknown') {
+        this.say('error', 'write.unknown');
+      } else if (error instanceof ApiError && error.status === 409) {
+        this.say('error', 'write.conflict');
+      } else if (error instanceof ApiError && error.status === 400) {
+        this.say('error', 'write.invalid', { message: error.message });
+      } else {
+        this.say('error', 'write.failed', {
+          code: error instanceof ApiError ? error.code : 'offline',
+        });
+      }
+      await this.refresh();
+      return null;
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  /** The operations that take back what `result` did (only when every entry has one). */
+  private inverseOf(result: Result): Op[] | undefined {
+    const inverses: Op[] = [];
+    for (const entry of result.results) {
+      if (entry.outcome === 'unchanged') continue;
+      const inv = entry.inverse;
+      if (!inv || inv.op !== 'set') return undefined;
+      inverses.push({
+        op: 'set',
+        id: inv.id,
+        patch: (inv.patch ?? {}) as Record<string, unknown>,
+        ...(inv.if_match ? { if_match: inv.if_match } : {}),
+      });
+    }
+    return inverses.length > 0 ? inverses.reverse() : undefined;
+  }
+
+  async undo(): Promise<void> {
+    const ops = this.toast?.undo;
+    if (!ops) return;
+    this.toast = null;
+    const result = await this.write(ops, { undoable: false });
+    if (result && result.ok) this.say('ok', 'write.undone');
+  }
+
+  /** Set one key of a task; `null` takes the key away. */
+  async setField(id: string, key: string, value: string | number | null): Promise<void> {
+    const task = this.tasks.find((t) => t.id === id);
+    if (!task) return;
+    await this.write([
+      { op: 'set', id, patch: { [key]: value }, ...(task.etag ? { if_match: task.etag } : {}) },
+    ]);
+  }
+
+  async createTask(area: string, title: string, fields: Record<string, unknown> = {}): Promise<void> {
+    const result = await this.write([
+      { op: 'new', area, title, ...(Object.keys(fields).length > 0 ? { fields } : {}) },
+    ], { undoable: false });
+    const created = result?.results.find((r) => r.ok && r.outcome === 'created')?.id;
+    this.capturing = false;
+    if (created) {
+      this.select(created);
+      this.setView('list');
+    }
+  }
+
+  async startFinish(id: string): Promise<void> {
+    if (this.saving || this.phase !== 'ready') return;
+    try {
+      const preview = await this.env.hub.donePreview(id);
+      if (preview.already) {
+        this.say('ok', 'done.already');
+        return;
+      }
+      this.finishing = { id, preview };
+    } catch (error) {
+      this.say('error', 'write.failed', { code: error instanceof ApiError ? error.code : 'offline' });
+    }
+  }
+
+  cancelFinish(): void {
+    this.finishing = null;
+  }
+
+  async confirmFinish(): Promise<void> {
+    const finishing = this.finishing;
+    if (!finishing?.preview.confirm) return;
+    this.finishing = null;
+    await this.write([{ op: 'done', id: finishing.id, confirm: finishing.preview.confirm }], {
+      undoable: false,
+    });
   }
 
   setShortAreas(on: boolean): void {

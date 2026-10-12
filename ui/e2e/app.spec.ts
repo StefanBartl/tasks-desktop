@@ -447,3 +447,42 @@ test('the menu bar opens with the keyboard, switches views, language and theme',
   await expect(page.getByRole('menuitemcheckbox', { name: 'Keys' })).toHaveAttribute('aria-checked', 'false');
   expect(await violations(page)).toEqual([]);
 });
+
+test('a task is created, changed, taken back and finished through the engine', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+
+  // Capture: the key opens the dialog, a title and an area are enough.
+  await page.keyboard.press('c');
+  const capture = page.getByRole('dialog', { name: 'New task' });
+  await expect(capture).toBeVisible();
+  await capture.getByLabel('Title').fill('Written by the browser test');
+  await capture.locator('select').first().selectOption('lib.nvim');
+  expect(await violations(page)).toEqual([]);
+  await capture.getByRole('button', { name: 'Create' }).click();
+  await expect(capture).toHaveCount(0);
+  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  await expect(page.locator('aside.detail .task-title')).toHaveText('Written by the browser test');
+  const id = (await page.locator('aside.detail .id').innerText()).trim();
+  expect(id).toMatch(/^lib\.nvim\//);
+
+  // A change with the version that was shown, and the way back.
+  await page.locator('aside.detail').getByLabel('Status').selectOption('doing');
+  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  await expect(page.locator('aside.detail').getByLabel('Status')).toHaveValue('doing');
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByRole('status').getByText('Undone.')).toBeVisible();
+  await expect(page.locator('aside.detail').getByLabel('Status')).toHaveValue('open');
+
+  // Finishing shows what it does and asks.
+  await page.locator('aside.detail').getByRole('button', { name: 'Finish ...' }).click();
+  const done = page.getByRole('dialog', { name: 'Finish this task?' });
+  await expect(done).toBeVisible();
+  await expect(done.getByText(id)).toBeVisible();
+  expect(await violations(page)).toEqual([]);
+  await done.getByRole('button', { name: 'Finish', exact: true }).click();
+  await expect(done).toHaveCount(0);
+  await expect(page.locator('button.row', { hasText: id })).toHaveCount(0);
+  expect(consoleProblems.get(page)).toEqual([]);
+});

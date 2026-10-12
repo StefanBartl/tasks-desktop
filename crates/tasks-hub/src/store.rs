@@ -180,11 +180,12 @@ impl SnapshotStore {
         lock(&self.state).clone()
     }
 
-    /// The snapshot that is held and young enough, without asking the engine
-    /// for one: for what only wants to know the state the hub stands in.
+    /// The snapshot the hub holds, of any age, without asking the engine for
+    /// one: for what only wants to know the state the hub stands in. (A
+    /// change replaces it; its age says nothing about whether it is true.)
     #[must_use]
-    pub fn held(&self) -> Option<Arc<Cached>> {
-        self.cached().filter(|c| self.fresh_enough(c))
+    pub fn latest(&self) -> Option<Arc<Cached>> {
+        self.cached()
     }
 
     fn fresh_enough(&self, c: &Cached) -> bool {

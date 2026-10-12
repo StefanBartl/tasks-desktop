@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { ApiError, type Hub, type HubArea } from './api';
+import { ApiError, type Hub, type HubArea, type OpsRequest } from './api';
 import { App, type Env } from './app.svelte';
 import type { CachedList, ListStore } from './cache';
-import type { Snapshot, TaskDocument, TaskEntry } from './contract';
+import type { DonePreview, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import { task } from './fixtures';
 
 function snapshot(tasks: TaskEntry[], rev = 'rev:1'): Snapshot {
@@ -83,6 +83,36 @@ class FakeHub {
   }
   async rescan() {
     this.rescans += 1;
+  }
+  sent: OpsRequest[] = [];
+  /** What the next write answers (an error to throw, or a result). */
+  next_ops: Result | ApiError | null = null;
+  previews = new Map<string, Partial<DonePreview>>();
+  async ops(request: OpsRequest): Promise<Result> {
+    this.sent.push(request);
+    const answer = this.next_ops;
+    this.next_ops = null;
+    if (answer instanceof ApiError) throw answer;
+    if (answer) return answer;
+    return {
+      kind: 'tasks.result',
+      ok: true,
+      dry_run: false,
+      results: request.ops.map((op, i) => ({
+        n: i + 1,
+        op: op.op,
+        id: op.op === 'new' ? 'pub/created' : op.id,
+        ok: true,
+        outcome: op.op === 'new' ? 'created' : 'changed',
+        changed_ids: [],
+        ...(op.op === 'set'
+          ? { inverse: { op: 'set', id: op.id, patch: { status: 'open' }, if_match: 'e2' } }
+          : {}),
+      })),
+    } as unknown as Result;
+  }
+  async donePreview(id: string): Promise<DonePreview> {
+    return { kind: 'tasks.donepreview', id, to: 'DONE/x.md', confirm: 'tok', ...this.previews.get(id) } as DonePreview;
   }
 }
 
@@ -399,5 +429,113 @@ describe('App, the text of the tasks', () => {
     expect(app.textSearch?.result.status).toBe('ready');
     expect(hub.searches.length).toBe(2);
     app.stop();
+  });
+});
+
+describe('writing', () => {
+  async function ready() {
+    const m = make({ token: 't' });
+    await m.app.start(null);
+    expect(m.app.phase).toBe('ready');
+    m.app.stop();
+    return m;
+  }
+
+  it('sets a key with the version of the file that was shown, and offers the way back', async () => {
+    const { app, hub } = await ready();
+    const reads = hub.snapshotCalls.length;
+    await app.setField('pub/a', 'status', 'doing');
+    expect(hub.sent).toHaveLength(1);
+    expect(hub.sent[0]?.ops).toEqual([
+      { op: 'set', id: 'pub/a', patch: { status: 'doing' }, if_match: 'e1' },
+    ]);
+    expect(hub.sent[0]?.client_op_id).toMatch(/^ui-/);
+    expect(app.toast?.kind).toBe('ok');
+    expect(app.toast?.undo).toEqual([
+      { op: 'set', id: 'pub/a', patch: { status: 'open' }, if_match: 'e2' },
+    ]);
+    // The list is read again after a write, whatever the answer says.
+    expect(hub.snapshotCalls.length).toBeGreaterThan(reads);
+    expect(app.saving).toBe(false);
+  });
+
+  it('sends the inverse on undo, once', async () => {
+    const { app, hub } = await ready();
+    await app.setField('pub/a', 'prio', 1);
+    await app.undo();
+    expect(hub.sent).toHaveLength(2);
+    expect(hub.sent[1]?.ops[0]).toMatchObject({ op: 'set', id: 'pub/a', patch: { status: 'open' } });
+    // Undoing is not undoable again.
+    expect(app.toast?.undo).toBeUndefined();
+  });
+
+  it('says a conflict and keeps nothing it guessed', async () => {
+    const { app, hub } = await ready();
+    hub.next_ops = {
+      kind: 'tasks.result',
+      ok: false,
+      dry_run: false,
+      results: [
+        {
+          n: 1,
+          op: 'set',
+          id: 'pub/a',
+          ok: false,
+          outcome: 'failed',
+          changed_ids: [],
+          error: { code: 'conflict', message: 'x', retryable: false },
+        },
+      ],
+    } as unknown as Result;
+    await app.setField('pub/a', 'status', 'doing');
+    expect(app.toast?.kind).toBe('error');
+    expect(app.toast?.undo).toBeUndefined();
+    expect(app.toast?.text).toMatch(/inzwischen|meanwhile/);
+  });
+
+  it('tells a write whose result is not known', async () => {
+    const { app, hub } = await ready();
+    hub.next_ops = new ApiError(502, 'outcome_unknown', 'x');
+    await app.setField('pub/a', 'status', 'doing');
+    expect(app.toast?.kind).toBe('error');
+    expect(app.toast?.text).toMatch(/nicht bekannt|not known/);
+  });
+
+  it('selects the task it created and closes the capture', async () => {
+    const { app, hub } = await ready();
+    app.openCapture();
+    expect(app.capturing).toBe(true);
+    await app.createTask('pub', 'A new thing', { prio: 2 });
+    expect(hub.sent[0]?.ops[0]).toEqual({ op: 'new', area: 'pub', title: 'A new thing', fields: { prio: 2 } });
+    expect(app.capturing).toBe(false);
+    expect(app.selectedId).toBe('pub/created');
+    expect(app.view).toBe('list');
+  });
+
+  it('finishes in two steps: the preview, then the token it gave', async () => {
+    const { app, hub } = await ready();
+    await app.startFinish('pub/a');
+    expect(app.finishing?.id).toBe('pub/a');
+    expect(hub.sent).toHaveLength(0);
+    await app.confirmFinish();
+    expect(hub.sent[0]?.ops).toEqual([{ op: 'done', id: 'pub/a', confirm: 'tok' }]);
+    expect(app.finishing).toBeNull();
+  });
+
+  it('does not ask again for a task that is finished already', async () => {
+    const { app, hub } = await ready();
+    hub.previews.set('pub/a', { already: true });
+    await app.startFinish('pub/a');
+    expect(app.finishing).toBeNull();
+    expect(app.toast?.kind).toBe('ok');
+    expect(hub.sent).toHaveLength(0);
+  });
+
+  it('does nothing before the page is ready', async () => {
+    const { app, hub } = make({ token: 't' });
+    await app.setField('pub/a', 'status', 'doing');
+    expect(hub.sent).toHaveLength(0);
+    app.openCapture();
+    expect(app.capturing).toBe(false);
   });
 });

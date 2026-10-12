@@ -225,6 +225,9 @@ struct Shared {
 
 /// The most task documents kept.
 const DETAILS_KEPT: usize = 64;
+/// How long one is believed even when no change was seen: the watcher is the
+/// way a change is noticed, and this bounds the harm of a notice that was lost.
+const DETAILS_TTL: Duration = Duration::from_secs(30);
 
 /// The documents of `task` the hub has answered for one state of the vault.
 /// A document holds the blockers in both directions, so it is true for the
@@ -233,7 +236,7 @@ const DETAILS_KEPT: usize = 64;
 #[derive(Default)]
 struct Details {
     rev: Option<String>,
-    docs: HashMap<String, Bytes>,
+    docs: HashMap<String, (std::time::Instant, Bytes)>,
     order: std::collections::VecDeque<String>,
 }
 
@@ -242,7 +245,10 @@ impl Details {
         if self.rev.as_deref() != Some(rev) {
             return None;
         }
-        self.docs.get(id).cloned()
+        self.docs
+            .get(id)
+            .filter(|(at, _)| at.elapsed() < DETAILS_TTL)
+            .map(|(_, doc)| doc.clone())
     }
 
     fn put(&mut self, rev: &str, id: &str, doc: Bytes) {
@@ -251,7 +257,8 @@ impl Details {
             self.docs.clear();
             self.order.clear();
         }
-        if self.docs.insert(id.to_owned(), doc).is_none() {
+        let entry = (std::time::Instant::now(), doc);
+        if self.docs.insert(id.to_owned(), entry).is_none() {
             self.order.push_back(id.to_owned());
             while self.order.len() > DETAILS_KEPT {
                 if let Some(old) = self.order.pop_front() {
@@ -403,6 +410,8 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/api/tasks/events", get(events))
         .route("/api/tasks/search", get(search_route))
         .route("/api/tasks/rescan", post(rescan))
+        .route("/api/tasks/done_preview", get(done_preview))
+        .route("/api/tasks/ops", post(ops))
         .route(
             "/auth/exchange",
             post(exchange).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
@@ -1062,9 +1071,9 @@ async fn task(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Respo
     };
     // The state of the vault the answer is for: the held snapshot's, so a
     // repeated look at a task costs no engine question. A hub that holds no
-    // young snapshot asks the engine and keeps nothing: this route never
-    // makes a full scan wait in front of a task.
-    let rev = st.store.held().and_then(|c| c.rev.clone());
+    // snapshot asks the engine and keeps nothing: this route never makes a
+    // full scan wait in front of a task.
+    let rev = st.store.latest().and_then(|c| c.rev.clone());
     if let Some(rev) = &rev {
         let hit = st.details.lock().ok().and_then(|mut d| d.get(rev, id));
         if let Some(doc) = hit {
@@ -1079,7 +1088,7 @@ async fn task(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Respo
             // still the held one after the read: a change that came in
             // meanwhile must not leave an old document under the new state.
             if let Some(rev) = &rev {
-                let now = st.store.held().and_then(|c| c.rev.clone());
+                let now = st.store.latest().and_then(|c| c.rev.clone());
                 let table = st.details.lock().ok().filter(|_| now.as_ref() == Some(rev));
                 if let Some(mut details) = table {
                     details.put(rev, id, Bytes::from(reply.text.clone()));
@@ -1336,6 +1345,123 @@ async fn search_route(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) 
         "hits": hits,
     });
     json_response(StatusCode::OK, body.to_string(), None)
+}
+
+/// The operations the page may ask for. `move_area` only as a dry run (the
+/// engine says so itself).
+const OPS_ALLOWED: [&str; 5] = ["set", "new", "reorder", "done", "move_area"];
+/// The fields of a request of `ops` (the engine checks the rest, strictly).
+const OPS_FIELDS: [&str; 4] = ["schema", "client_op_id", "dry_run", "ops"];
+/// The most operations in one request (the engine's limit).
+const OPS_MAX: usize = 100;
+
+/// The form and the size of a request of `ops`, before an engine process is
+/// asked: what is plainly not one is refused here, the rules of the tasks
+/// are the engine's. Returns the request to send on.
+fn check_ops_request(body: &[u8]) -> Result<serde_json::Value, String> {
+    let value: serde_json::Value =
+        serde_json::from_slice(body).map_err(|_| "the body is not JSON".to_owned())?;
+    let Some(map) = value.as_object() else {
+        return Err("the request must be a JSON object".to_owned());
+    };
+    if let Some(key) = map.keys().find(|k| !OPS_FIELDS.contains(&k.as_str())) {
+        return Err(format!("unknown field {key:.40} in the request"));
+    }
+    let Some(ops) = map.get("ops").and_then(serde_json::Value::as_array) else {
+        return Err("ops must be a list".to_owned());
+    };
+    if ops.is_empty() || ops.len() > OPS_MAX {
+        return Err(format!("ops holds 1 to {OPS_MAX} operations"));
+    }
+    for (i, op) in ops.iter().enumerate() {
+        let name = op
+            .get("op")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| format!("ops[{}] has no op", i + 1))?;
+        if !OPS_ALLOWED.contains(&name) {
+            return Err(format!("ops[{}]: unknown operation", i + 1));
+        }
+    }
+    if let Some(id) = map.get("client_op_id") {
+        let ok = id.as_str().is_some_and(|s| {
+            (1..=64).contains(&s.len())
+                && s.bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-'))
+        });
+        if !ok {
+            return Err("client_op_id is 1 to 64 letters, digits and . _ : -".to_owned());
+        }
+    }
+    if map.get("dry_run").is_some_and(|d| !d.is_boolean()) {
+        return Err("dry_run must be true or false".to_owned());
+    }
+    Ok(value)
+}
+
+/// `POST /api/tasks/ops`: changes, through the one door of the engine. The
+/// answer is the engine's `tasks.result`, with a part that failed told per
+/// operation (not all-or-nothing). A write that changed something is
+/// followed by a scan before the answer, so that the next read is the new
+/// state, and the open streams hear of it.
+async fn ops(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
+    let request = match check_ops_request(&body) {
+        Ok(r) => r,
+        Err(why) => return error_body(StatusCode::BAD_REQUEST, "bad_request", &why),
+    };
+    let dry_run = request.get("dry_run").and_then(serde_json::Value::as_bool) == Some(true);
+    let reply = match ask(&st, EngineMethod::Ops, Some(&request)).await {
+        Ok(reply) => reply,
+        Err(response) => {
+            // A write that ended without an answer may have been carried out:
+            // look again, so the page does not stand on an old state.
+            st.store.request_rescan();
+            return response;
+        }
+    };
+    if !dry_run {
+        let wrote = serde_json::from_str::<serde_json::Value>(&reply.text)
+            .ok()
+            .and_then(|d| {
+                d.get("results")
+                    .and_then(serde_json::Value::as_array)
+                    .map(|a| {
+                        a.iter().any(|e| {
+                            e.get("changed_ids")
+                                .and_then(serde_json::Value::as_array)
+                                .is_some_and(|ids| !ids.is_empty())
+                        })
+                    })
+            })
+            // A document this hub cannot read for it: scan anyway.
+            .unwrap_or(true);
+        if wrote {
+            let _ = st.store.refresh("ops").await;
+        }
+        if let Some(usage) = &st.usage {
+            usage.touched();
+        }
+    }
+    json_response(StatusCode::OK, reply.text, None)
+}
+
+/// `GET /api/tasks/done_preview?id=`: what finishing a task would do, and
+/// the token that `done` needs for exactly that version of the file.
+async fn done_preview(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
+    let params = match parse_query(query.as_deref(), &["id"]) {
+        Ok(p) => p,
+        Err(why) => return error_body(StatusCode::BAD_REQUEST, "bad_query", why),
+    };
+    let Some(id) = params.get("id").filter(|id| valid_task_id(id)) else {
+        return error_body(
+            StatusCode::BAD_REQUEST,
+            "bad_id",
+            "id must be <area>/<slug>",
+        );
+    };
+    match ask(&st, EngineMethod::DonePreview, Some(&json!({ "id": id }))).await {
+        Ok(reply) => json_response(StatusCode::OK, reply.text, None),
+        Err(response) => response,
+    }
 }
 
 /// `POST /api/tasks/rescan`: a client that got the focus again asks for a

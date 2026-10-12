@@ -242,6 +242,32 @@ not a white page. A stream that is silent for 45 seconds (three
 heartbeats) is cut and read again. Single-key shortcuts can be turned off
 in the page (WCAG 2.1.4).
 
+## Writing (`POST /api/tasks/ops`)
+
+The page may change tasks; the engine stays the only writer and the only
+holder of the rules. The route:
+
+* needs the session, an `Origin` the hub knows, `application/json` and
+  passes the rate limit of mutations like every other POST;
+* checks the **form** before an engine process is asked: a JSON object with
+  `ops` (1 to 100 entries, each with a known `op`), at most the fields
+  `schema`, `client_op_id`, `dry_run`, `ops`, a plain `client_op_id`. What
+  is plainly not a request is `400 bad_request` and never reaches the engine;
+  the rules of the tasks (keys, values, relations, limits, control characters,
+  links) are the engine's and its refusals come back as they are;
+* does not stop at a part that failed: the answer is the engine's
+  `tasks.result`, one entry per operation, never "ok" for a part;
+* scans before it answers when something changed, so the next read is the new
+  state and the open streams hear of it; a write that ended without an answer
+  is `502 outcome_unknown` and also starts a scan;
+* finishes only with the token of `GET /api/tasks/done_preview` for the version
+  of the file that was shown (the engine checks it under the file lock);
+* counts as a use of the interface (`usage`), like a rescan.
+
+A change is made with the `etag` the page has (`if_match`): a task that
+changed meanwhile is a `conflict`, nothing is overwritten, and the page reads
+again. The undo of the page is the `inverse` operation the engine returns.
+
 ## Search in the text of the tasks
 
 The engine alone reads task files, so the texts come from it: the verb

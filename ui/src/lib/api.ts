@@ -1,6 +1,6 @@
 // The hub's routes, as typed calls. Only the shapes the UI needs.
 
-import type { Areas, Next, Snapshot, TaskDocument } from './contract';
+import type { Areas, DonePreview, Next, Result, Snapshot, TaskDocument } from './contract';
 
 export class ApiError extends Error {
   constructor(
@@ -10,6 +10,18 @@ export class ApiError extends Error {
   ) {
     super(message);
   }
+}
+
+/** One operation of a write. The engine checks the rules; the form is the page's. */
+export type Op =
+  | { op: 'set'; id: string; patch: Record<string, unknown>; if_match?: string }
+  | { op: 'new'; area: string; title: string; fields?: Record<string, unknown> }
+  | { op: 'done'; id: string; confirm: string };
+
+export interface OpsRequest {
+  client_op_id: string;
+  dry_run?: boolean;
+  ops: Op[];
 }
 
 export interface Hello {
@@ -160,6 +172,23 @@ export class Hub {
   search(query: string, signal?: AbortSignal): Promise<SearchResult> {
     const path = `/api/tasks/search?q=${encodeURIComponent(query)}&limit=20`;
     return this.json<SearchResult>(path, signal ? { signal } : undefined);
+  }
+
+  /** Changes, through the one door of the engine. The answer says per operation what happened. */
+  async ops(request: OpsRequest): Promise<Result> {
+    const response = await this.request('/api/tasks/ops', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) throw await failure(response);
+    return (await response.json()) as Result;
+  }
+
+  /** What finishing a task would do, and the token `done` needs. */
+  donePreview(id: string): Promise<DonePreview> {
+    const path = `/api/tasks/done_preview?id=${encodeURIComponent(id).replace(/%2F/gi, '/')}`;
+    return this.json<DonePreview>(path);
   }
 
   async rescan(): Promise<void> {
