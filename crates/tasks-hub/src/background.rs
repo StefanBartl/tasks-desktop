@@ -240,7 +240,8 @@ fn system_program(name: &str) -> Result<PathBuf, String> {
     Ok(root.join("System32").join(name))
 }
 
-/// Start the hub with the login of the user (Windows: the `Run` key).
+/// Start the hub with the login of the user (Windows: the `Run` key; Linux: an
+/// autostart entry; macOS: a launch agent).
 ///
 /// # Errors
 ///
@@ -298,13 +299,19 @@ pub fn autostart_for(what: Autostart, exe: &Path) -> Result<String, String> {
             }
         }
         Autostart::Off => {
-            // A missing value is not an error: it is what was asked for.
-            let _ = Command::new(reg)
+            let deleted = Command::new(&reg)
                 .args(["delete", RUN_KEY, "/v", RUN_VALUE, "/f"])
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status()
-                .map_err(|e| format!("reg.exe did not run: {e}"))?;
+                .map_err(|e| format!("reg.exe did not run: {e}"))?
+                .success();
+            // A missing value is not an error: it is what was asked for. One that
+            // is still there is (a policy or an ACL on the key). `reg delete` exits
+            // the same for both, so the key is asked.
+            if !deleted && login_value_present(&reg)? {
+                return Err("the entry could not be removed".to_owned());
+            }
             Ok("the hub does not start with your login\n".to_owned())
         }
         Autostart::Status => {
@@ -326,6 +333,17 @@ pub fn autostart_for(what: Autostart, exe: &Path) -> Result<String, String> {
             }
         }
     }
+}
+
+/// Whether the `Run` key holds the value of the hub (`reg query` finds it).
+fn login_value_present(reg: &Path) -> Result<bool, String> {
+    Command::new(reg)
+        .args(["query", RUN_KEY, "/v", RUN_VALUE])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .map_err(|e| format!("reg.exe did not run: {e}"))
 }
 
 /// Windows keeps what a *packaged* app (an MSIX, like the Claude app) and its
@@ -431,14 +449,31 @@ pub struct InstallOptions {
     pub shortcut: bool,
 }
 
+/// With this variable set, `install` leaves an existing login entry alone
+/// (it does not point it at the installed copy). The tests of the program set
+/// it: the entry of the machine they run on is not theirs to change.
+const NO_LOGIN_SYNC: &str = "TASKS_DESKTOP_NO_LOGIN_SYNC";
+
 /// Copy this program to a fixed place, so that a build in the repository
 /// does not fight the running hub for the file, and start the hub from there
 /// again when one was running.
 ///
 /// # Errors
 ///
-/// A text for the person at the terminal.
+/// A text for the person at the terminal. What was done before it is printed
+/// (the caller prints a text only when all went well).
 pub async fn install(opts: InstallOptions) -> Result<String, String> {
+    let mut out = String::new();
+    match install_steps(opts, &mut out).await {
+        Ok(()) => Ok(out),
+        Err(e) => {
+            print!("{out}");
+            Err(e)
+        }
+    }
+}
+
+async fn install_steps(opts: InstallOptions, out: &mut String) -> Result<(), String> {
     let env = Env::from_process();
     let dir = install_dir(&env)?;
     let from = std::env::current_exe().map_err(|e| format!("own program not found: {e}"))?;
@@ -447,7 +482,6 @@ pub async fn install(opts: InstallOptions) -> Result<String, String> {
         .ok_or("the program has no file name")?
         .to_owned();
     let target = dir.join(&name);
-    let mut out = String::new();
 
     // A program that is the one being installed (run from the install
     // folder) has nothing to copy.
@@ -458,49 +492,86 @@ pub async fn install(opts: InstallOptions) -> Result<String, String> {
     let config = app::config_folder(&env)?;
     let was_running = app::running_hub(&config).await.is_some();
     if !same {
-        if was_running {
-            out.push_str(&stop().await?);
-        }
         std::fs::create_dir_all(&dir)
             .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
         // Copy beside, then move over: a copy that is cut short never
-        // replaces a program that works.
+        // replaces a program that works. The hub runs until the move: nothing
+        // before it needs it stopped.
         let part = dir.join(format!("{}.new", name.to_string_lossy()));
-        std::fs::copy(&from, &part)
-            .map_err(|e| format!("cannot copy to {}: {e}", part.display()))?;
-        std::fs::rename(&part, &target).map_err(|e| {
+        if let Err(e) = std::fs::copy(&from, &part) {
             let _ = std::fs::remove_file(&part);
-            format!(
-                "cannot replace {} (is a hub running from it? `tasks-hub stop`): {e}",
-                target.display()
-            )
-        })?;
+            return Err(format!("cannot copy to {}: {e}", part.display()));
+        }
+        if was_running {
+            match stop().await {
+                Ok(text) => out.push_str(&text),
+                Err(e) => {
+                    let _ = std::fs::remove_file(&part);
+                    return Err(e);
+                }
+            }
+        }
+        if let Err(e) = std::fs::rename(&part, &target) {
+            let _ = std::fs::remove_file(&part);
+            // A hub that was stopped for this is not left down: it comes back
+            // from the old installed program, or from this one.
+            let hint = if was_running {
+                ""
+            } else {
+                " (is a hub running from it? `tasks-hub stop`)"
+            };
+            let mut message = format!("cannot replace {}{hint}: {e}", target.display());
+            if was_running {
+                let back = if target.is_file() {
+                    start_from(&target)
+                } else {
+                    start().await
+                };
+                match back {
+                    Ok(text) => out.push_str(&text),
+                    Err(e) => message.push_str(&format!("; the hub is down: {e}")),
+                }
+            }
+            return Err(message);
+        }
     }
     out.push_str(&format!("installed: {}\n", target.display()));
     if let Some(warning) = private_storage_warning(&env, &dir) {
         // On stderr and at once: a later error must not take it away.
         eprintln!("{warning}");
     }
+    if was_running && !same {
+        // The hub comes back from the installed program, before the steps that
+        // do not need it: one of them failing must not leave it down.
+        out.push_str(&start_from(&target)?);
+    }
 
     if opts.autostart {
         out.push_str(&autostart_for(Autostart::On, &target)?);
-    } else if autostart_is_on() {
+    } else if env.get(NO_LOGIN_SYNC).is_none() && autostart_is_on() {
         // It was registered for another copy: point it here.
         out.push_str(&autostart_for(Autostart::On, &target)?);
     }
     if opts.shortcut {
         out.push_str(&shortcut(&target)?);
     }
-    if was_running && !same {
-        // The hub comes back from the installed program.
-        let started = Command::new(&target)
-            .arg("start")
-            .stdin(Stdio::null())
-            .output()
-            .map_err(|e| format!("the installed program did not start: {e}"))?;
-        out.push_str(&String::from_utf8_lossy(&started.stdout));
+    Ok(())
+}
+
+/// Run `<program> start` and return what it printed. Its complaint (on
+/// stderr, a warning included) goes to the terminal as it is.
+fn start_from(program: &Path) -> Result<String, String> {
+    let started = Command::new(program)
+        .arg("start")
+        .stdin(Stdio::null())
+        .stderr(Stdio::inherit())
+        .output()
+        .map_err(|e| format!("the installed program did not start: {e}"))?;
+    if started.status.success() {
+        Ok(String::from_utf8_lossy(&started.stdout).into_owned())
+    } else {
+        Err("the hub did not come back from the installed program (see above)".to_owned())
     }
-    Ok(out)
 }
 
 fn autostart_is_on() -> bool {
@@ -622,6 +693,51 @@ mod tests {
             strip_prefix_ignore_case(&path, &Path::new("b").join("users")),
             None
         );
+        // The base itself: nothing is left (the folder of AppData that
+        // `autostart` probes).
+        assert_eq!(strip_prefix_ignore_case(&base, &base), Some(PathBuf::new()));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_packaged_app_is_noticed_in_the_local_and_the_roaming_store() {
+        let base = std::env::temp_dir().join(format!("tasks-desktop-warn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let local = base.join("Local");
+        let config = base.join("Roaming").join("tasks-desktop");
+        std::fs::create_dir_all(&local).unwrap();
+        std::fs::create_dir_all(&config).unwrap();
+        let env = Env::from_pairs([
+            ("LOCALAPPDATA", local.clone()),
+            ("APPDATA", base.join("Roaming")),
+        ]);
+        let probe = format!(".probe-{}", std::process::id());
+
+        // No package holds the probe: no warning (and no probe is left behind).
+        assert_eq!(private_storage_warning(&env, &local), None);
+        assert_eq!(private_storage_warning(&env, &config), None);
+        assert!(!local.join(&probe).exists());
+
+        // The folder of AppData itself (what `autostart` probes: the rest is
+        // empty) is looked for in the Local store of the package.
+        let store = local.join("Packages").join("P_one").join("LocalCache");
+        std::fs::create_dir_all(store.join("Local")).unwrap();
+        std::fs::write(store.join("Local").join(&probe), b"").unwrap();
+        let warning = private_storage_warning(&env, &local).unwrap();
+        assert!(warning.contains("P_one"), "{warning}");
+        assert!(!local.join(&probe).exists());
+
+        // A folder below the roaming AppData in the Roaming store.
+        let store = local.join("Packages").join("Q_two").join("LocalCache");
+        std::fs::create_dir_all(store.join("Roaming").join("tasks-desktop")).unwrap();
+        std::fs::write(
+            store.join("Roaming").join("tasks-desktop").join(&probe),
+            b"",
+        )
+        .unwrap();
+        let warning = private_storage_warning(&env, &config).unwrap();
+        assert!(warning.contains("Q_two"), "{warning}");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
