@@ -49,6 +49,8 @@ export interface SearchResult {
   /** `building`: the hub has not read the texts yet; `failed`: it could not. */
   status: 'ready' | 'building' | 'failed';
   indexed: number;
+  /** The texts did not all fit: some tasks are not searched. */
+  partial?: boolean;
   total: number;
   hits: SearchHit[];
 }

@@ -179,9 +179,25 @@ fn main() {
                             .collect()
                     })
                 });
-                let items: Vec<Value> = (0..=n)
+                let page_size: usize =
+                    std::fs::read_to_string(std::path::Path::new(&vault).join(".fake-bodies-page"))
+                        .ok()
+                        .and_then(|t| t.trim().parse().ok())
+                        .unwrap_or(1000);
+                let offset = params
+                    .get("offset")
+                    .and_then(Value::as_u64)
+                    .and_then(|o| usize::try_from(o).ok())
+                    .unwrap_or(0);
+                let chosen: Vec<String> = (0..=n)
                     .map(|i| format!("alpha.nvim/t{i}"))
                     .filter(|id| wanted.as_ref().is_none_or(|w| w.contains(id)))
+                    .collect();
+                let total = chosen.len();
+                let items: Vec<Value> = chosen
+                    .into_iter()
+                    .skip(offset)
+                    .take(page_size)
                     .map(|id| {
                         let i = id.trim_start_matches("alpha.nvim/t").to_owned();
                         json!({
@@ -193,8 +209,11 @@ fn main() {
                     })
                     .collect();
                 doc["rev"] = json!(format!("rev:{n:06x}"));
-                doc["total"] = json!(items.len());
-                doc["offset"] = json!(0);
+                doc["total"] = json!(total);
+                if offset + items.len() < total {
+                    doc["next_offset"] = json!(offset + items.len());
+                }
+                doc["offset"] = json!(offset);
                 doc["limit"] = json!(1000);
                 doc["items"] = json!(items);
                 doc["incomplete"] = json!([]);

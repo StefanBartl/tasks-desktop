@@ -209,6 +209,31 @@ async fn the_index_follows_a_change_of_the_vault() {
 }
 
 #[tokio::test]
+async fn a_change_of_many_tasks_is_read_over_the_pages_of_the_engine() {
+    let r = rig("pages").await;
+    // The engine ends a page after two tasks.
+    std::fs::write(r.vault.join(".fake-bodies-page"), "2").unwrap();
+    until_ready(&r).await;
+    std::fs::write(r.vault.join(".fake-n"), "9").unwrap();
+    touch(&r.vault, "many.md");
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let (_, doc) = search(&r, "q=needle9").await;
+        if doc["total"] == 1 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the last task was not found: {doc}"
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    // All of the seven new ones are in, not only the first page of them.
+    let (_, all) = search(&r, "q=zebra").await;
+    assert_eq!(all["total"], 10, "{all}");
+}
+
+#[tokio::test]
 async fn a_bad_query_is_refused_and_a_session_is_needed() {
     let r = rig("bad").await;
     for q in [

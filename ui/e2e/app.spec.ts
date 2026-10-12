@@ -257,6 +257,13 @@ test('a word that is only in the text of a task finds the task, with the place',
   // The hit opens the task.
   await hit.click();
   await expect(page.locator('aside.detail .id')).toHaveText('lib.nvim/xss-body-links');
+  // The area that was chosen holds for the text as well.
+  await page.getByPlaceholder('Search id and title').fill('tracker.invalid');
+  await expect(hit).toBeVisible();
+  await page.getByLabel('Area').selectOption('cascade.nvim');
+  await expect(hit).toHaveCount(0);
+  await page.getByLabel('Area').selectOption('');
+  await expect(hit).toBeVisible();
   // Nothing in the text either: said so.
   await page.getByPlaceholder('Search id and title').fill('zzzqqqxxx');
   await expect(page.getByText('Nothing in the texts either.')).toBeVisible({ timeout: 10_000 });

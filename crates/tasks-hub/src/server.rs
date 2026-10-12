@@ -1233,10 +1233,12 @@ async fn search_route(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) 
         Ok(q) => q,
         Err(why) => return error_body(StatusCode::BAD_REQUEST, "bad_query", why),
     };
-    let (status, tasks, outcome) = match index.status() {
-        search::Status::Ready { tasks } => ("ready", tasks, index.search(&query, limit)),
-        search::Status::Building => ("building", 0, None),
-        search::Status::Failed => ("failed", 0, None),
+    let (status, tasks, partial, outcome) = match index.status() {
+        search::Status::Ready { tasks, partial } => {
+            ("ready", tasks, partial, index.search(&query, limit))
+        }
+        search::Status::Building => ("building", 0, false, None),
+        search::Status::Failed => ("failed", 0, false, None),
     };
     let hits: Vec<serde_json::Value> = outcome
         .as_ref()
@@ -1263,6 +1265,7 @@ async fn search_route(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) 
         "kind": "hub.search",
         "status": status,
         "indexed": tasks,
+        "partial": partial,
         "total": outcome.as_ref().map_or(0, |o| o.total),
         "hits": hits,
     });

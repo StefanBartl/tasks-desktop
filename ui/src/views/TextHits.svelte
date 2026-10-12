@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { App } from '../lib/app.svelte';
   import { translate, type Key } from '../lib/i18n';
+  import { matches } from '../lib/filter';
   import { pieces } from '../lib/marks';
   import { markHidden } from '../lib/text';
 
@@ -13,11 +14,21 @@
   const byId = $derived(new Map(app.tasks.map((x) => [x.id, x] as const)));
   // What the list already shows by its title or id is not said twice.
   const inList = $derived(new Set(app.shown.map((x) => x.id)));
-  const hits = $derived((search?.result.hits ?? []).filter((h) => !inList.has(h.id)));
+  // The area, status and actor the person chose hold for the text as well; a
+  // task the list does not have cannot be opened, so it is not offered.
+  const hits = $derived(
+    (search?.result.hits ?? []).filter((h) => {
+      const task = byId.get(h.id);
+      return !!task && !inList.has(h.id) && matches(task, { ...app.filter, query: '' });
+    }),
+  );
 </script>
 
 {#if search}
   <section class="hits" aria-label={t('search.in_text', { n: hits.length })}>
+    {#if search.result.partial}
+      <p class="note" role="status">{t('search.partial')}</p>
+    {/if}
     {#if search.result.status === 'building'}
       <p class="note" role="status">{t('search.building')}</p>
     {:else if search.result.status === 'failed'}

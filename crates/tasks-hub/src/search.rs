@@ -32,6 +32,11 @@ const MAX_PAGES: usize = 50;
 const INCREMENTAL_MAX: usize = 50;
 /// Tries when the vault changes while the pages are read.
 const BUILD_TRIES: usize = 3;
+/// The most text the index holds (the bodies, once; the folded copy is as
+/// large again). Beyond it the rest is not indexed and the answer says so.
+pub const MAX_INDEX_BYTES: usize = 64 * 1024 * 1024;
+/// Pages followed for the named ids of a change.
+const MAX_ID_PAGES: usize = 20;
 /// The wait before the first build, so that the first screen is not queued
 /// behind it.
 const FIRST_BUILD_DELAY: Duration = Duration::from_secs(2);
@@ -82,6 +87,8 @@ impl Entry {
 struct Corpus {
     rev: Option<String>,
     entries: Vec<Entry>,
+    /// Not every text is in: the limit was reached.
+    partial: bool,
 }
 
 /// Lowercase, one character for one (the first of its lowercase form).
@@ -249,6 +256,7 @@ pub enum Status {
     Building,
     Ready {
         tasks: usize,
+        partial: bool,
     },
     /// The last build failed; the next change tries again.
     Failed,
@@ -262,14 +270,22 @@ struct State {
 
 pub struct SearchIndex {
     engine: Arc<dyn Engine>,
+    max_bytes: usize,
     state: Mutex<State>,
 }
 
 impl SearchIndex {
     #[must_use]
     pub fn new(engine: Arc<dyn Engine>) -> Arc<Self> {
+        Self::with_limit(engine, MAX_INDEX_BYTES)
+    }
+
+    /// An index that holds at most `max_bytes` of text.
+    #[must_use]
+    pub fn with_limit(engine: Arc<dyn Engine>, max_bytes: usize) -> Arc<Self> {
         Arc::new(Self {
             engine,
+            max_bytes,
             state: Mutex::new(State {
                 corpus: None,
                 building: false,
@@ -284,6 +300,7 @@ impl SearchIndex {
         match (&state.corpus, state.failed) {
             (Some(c), _) => Status::Ready {
                 tasks: c.entries.len(),
+                partial: c.partial,
             },
             (None, true) => Status::Failed,
             (None, false) => Status::Building,
@@ -361,6 +378,7 @@ impl SearchIndex {
             let mut entries: Vec<Entry> = Vec::new();
             let mut rev: Option<String> = None;
             let mut offset = 0u64;
+            let mut bytes = 0usize;
             for _ in 0..MAX_PAGES {
                 let page = self
                     .page(&json!({ "offset": offset, "limit": PAGE }))
@@ -370,10 +388,26 @@ impl SearchIndex {
                     continue 'tries;
                 }
                 rev = page.rev;
-                entries.extend(page.items.into_iter().map(Entry::new));
+                for item in page.items {
+                    bytes += item.body.len();
+                    if bytes > self.max_bytes {
+                        return Ok(Corpus {
+                            rev,
+                            entries,
+                            partial: true,
+                        });
+                    }
+                    entries.push(Entry::new(item));
+                }
                 match page.next_offset {
                     Some(next) if next > offset => offset = next,
-                    _ => return Ok(Corpus { rev, entries }),
+                    _ => {
+                        return Ok(Corpus {
+                            rev,
+                            entries,
+                            partial: false,
+                        })
+                    }
                 }
             }
             return Err("the bodies did not end".to_owned());
@@ -405,22 +439,36 @@ impl SearchIndex {
         if wanted.is_empty() && change.removed.is_empty() {
             return;
         }
-        let fetched = if wanted.is_empty() {
-            Ok(Page {
-                rev: current.rev.clone(),
-                items: Vec::new(),
-                next_offset: None,
-            })
-        } else {
-            self.page(&json!({ "ids": wanted })).await
+        // The named ids, a page at a time: a page ends at the bytes it may
+        // hold, and what it names beyond that comes on the next one.
+        let mut fetched = Page {
+            rev: current.rev.clone(),
+            items: Vec::new(),
+            next_offset: None,
         };
-        let page = match fetched {
-            Ok(p) => p,
-            Err(e) => {
-                eprintln!("search index: {e}");
-                return;
+        if !wanted.is_empty() {
+            let mut offset = 0u64;
+            for _ in 0..MAX_ID_PAGES {
+                match self
+                    .page(&json!({ "ids": wanted, "offset": offset, "limit": PAGE }))
+                    .await
+                {
+                    Ok(p) => {
+                        fetched.rev = p.rev;
+                        fetched.items.extend(p.items);
+                        match p.next_offset {
+                            Some(next) if next > offset => offset = next,
+                            _ => break,
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("search index: {e}");
+                        return;
+                    }
+                }
             }
-        };
+        }
+        let page = fetched;
         let gone = |id: &str| {
             change.removed.iter().any(|r| r == id) || change.changed.iter().any(|c| c == id)
         };
@@ -435,11 +483,21 @@ impl SearchIndex {
                 });
             }
         }
-        entries.extend(page.items.into_iter().map(Entry::new));
+        let mut bytes: usize = entries.iter().map(|e| e.body.len()).sum();
+        let mut partial = current.partial;
+        for item in page.items {
+            bytes += item.body.len();
+            if bytes > self.max_bytes {
+                partial = true;
+                continue;
+            }
+            entries.push(Entry::new(item));
+        }
         let mut state = lock(&self.state);
         state.corpus = Some(Arc::new(Corpus {
             rev: page.rev,
             entries,
+            partial,
         }));
         state.failed = false;
     }
@@ -540,7 +598,11 @@ mod tests {
     }
 
     fn corpus(entries: Vec<Entry>) -> Arc<Corpus> {
-        Arc::new(Corpus { rev: None, entries })
+        Arc::new(Corpus {
+            rev: None,
+            entries,
+            partial: false,
+        })
     }
 
     fn run(entries: Vec<Entry>, q: &str) -> Outcome {
@@ -560,6 +622,118 @@ mod tests {
         ) -> crate::engine::CallFuture<'a> {
             Box::pin(async { Err(crate::engine::EngineError::Spawn("no engine".to_owned())) })
         }
+    }
+
+    /// Answers each call with the next of the given documents.
+    struct Scripted(Mutex<Vec<String>>);
+    impl Engine for Scripted {
+        fn call<'a>(
+            &'a self,
+            _method: Method,
+            _params: Option<&'a serde_json::Value>,
+        ) -> crate::engine::CallFuture<'a> {
+            let text = {
+                let mut left = lock(&self.0);
+                if left.is_empty() {
+                    String::from("{}")
+                } else {
+                    left.remove(0)
+                }
+            };
+            Box::pin(async move {
+                Ok(crate::engine::Reply {
+                    kind: "tasks.bodies".to_owned(),
+                    text,
+                })
+            })
+        }
+    }
+
+    fn page(rev: &str, ids: &[(&str, usize)], next: Option<u64>) -> String {
+        let items: Vec<serde_json::Value> = ids
+            .iter()
+            .map(|(id, size)| json!({ "id": id, "etag": "sha256:0", "body": "x".repeat(*size) }))
+            .collect();
+        json!({ "rev": rev, "items": items, "next_offset": next }).to_string()
+    }
+
+    #[tokio::test]
+    async fn pages_are_followed_and_one_state_is_required() {
+        let engine = Arc::new(Scripted(Mutex::new(vec![
+            page("rev:1", &[("a/one", 3), ("a/two", 3)], Some(2)),
+            page("rev:1", &[("a/three", 3)], None),
+        ])));
+        let index = SearchIndex::new(engine);
+        index.build().await.unwrap();
+        assert_eq!(
+            index.status(),
+            Status::Ready {
+                tasks: 3,
+                partial: false
+            }
+        );
+        // The vault changed between two pages: the reading starts over.
+        let engine = Arc::new(Scripted(Mutex::new(vec![
+            page("rev:1", &[("a/one", 3)], Some(1)),
+            page("rev:2", &[("a/two", 3)], None),
+            page("rev:2", &[("a/one", 3), ("a/two", 3)], None),
+        ])));
+        let index = SearchIndex::new(engine);
+        index.build().await.unwrap();
+        assert_eq!(
+            index.status(),
+            Status::Ready {
+                tasks: 2,
+                partial: false
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn text_beyond_the_limit_is_left_out_and_said() {
+        let engine = Arc::new(Scripted(Mutex::new(vec![page(
+            "rev:1",
+            &[("a/one", 100), ("a/two", 100), ("a/three", 100)],
+            None,
+        )])));
+        let index = SearchIndex::with_limit(engine, 250);
+        index.build().await.unwrap();
+        assert_eq!(
+            index.status(),
+            Status::Ready {
+                tasks: 2,
+                partial: true
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn the_named_ids_of_a_change_are_read_page_after_page() {
+        let engine = Arc::new(Scripted(Mutex::new(vec![
+            page("rev:1", &[("a/one", 3)], None),
+            // Two pages for the ids that changed.
+            page("rev:2", &[("a/two", 3)], Some(1)),
+            page("rev:2", &[("a/three", 3)], None),
+        ])));
+        let index = SearchIndex::new(engine);
+        index.build().await.unwrap();
+        let change = Change {
+            seq: 2,
+            rev: Some("rev:2".to_owned()),
+            cause: "fs",
+            changed: vec![],
+            added: vec!["a/two".to_owned(), "a/three".to_owned()],
+            removed: vec![],
+            truncated: false,
+        };
+        index.apply(&change).await;
+        assert_eq!(
+            index.status(),
+            Status::Ready {
+                tasks: 3,
+                partial: false
+            }
+        );
     }
 
     #[test]
