@@ -1071,14 +1071,14 @@ async fn task(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Respo
     }
     match ask(&st, EngineMethod::Task, Some(&json!({ "id": id }))).await {
         Ok(reply) => {
-            // Kept only when the engine made it for the state we hold: a
-            // document of another state would be served for the wrong one.
+            // The document names its own `rev`, which is not the snapshot's
+            // (it is made over the task and what it touches), so the state is
+            // the one of the held snapshot. Kept only when that snapshot is
+            // still the held one after the read: a change that came in
+            // meanwhile must not leave an old document under the new state.
             if let Some(rev) = &rev {
-                let made_for = serde_json::from_str::<RevOnly>(&reply.text)
-                    .ok()
-                    .and_then(|d| d.rev);
-                let same_state = made_for.as_deref() == Some(rev.as_str());
-                let table = st.details.lock().ok().filter(|_| same_state);
+                let now = st.store.current().await.ok().and_then(|c| c.rev.clone());
+                let table = st.details.lock().ok().filter(|_| now.as_ref() == Some(rev));
                 if let Some(mut details) = table {
                     details.put(rev, id, Bytes::from(reply.text.clone()));
                 }
@@ -1087,11 +1087,6 @@ async fn task(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Respo
         }
         Err(response) => response,
     }
-}
-
-#[derive(Deserialize)]
-struct RevOnly {
-    rev: Option<String>,
 }
 
 async fn next(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {

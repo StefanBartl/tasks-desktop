@@ -312,7 +312,8 @@ fn respond(method: &str, raw: &[u8], started: u64) -> Value {
                             .ok()
                             .and_then(|t| t.trim().parse::<u64>().ok())
                     {
-                        doc["rev"] = json!(format!("rev:{n:06x}"));
+                        // Another form than the snapshot's, as the engine's is.
+                        doc["rev"] = json!(format!("rev:t{n:05x}"));
                     }
                 }
             }
