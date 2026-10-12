@@ -10,6 +10,12 @@ tasks, tells open streams when the vault changed and ships a read-only
 interface in the browser. Writing and the native shell are not there yet.
 Nothing here is released.
 
+> **Run `install`, `start` and `autostart` in a normal terminal.** A packaged
+> app (the Claude desktop app is an MSIX) and its child processes get what
+> they write below `AppData`, and into the registry, redirected into the app's
+> private store: the program, the settings and the login entry would exist for
+> that app and be missing for you. The commands say so when they notice it.
+
 ## Principles
 
 - **The engine is the only writer.** The hub never parses or formats

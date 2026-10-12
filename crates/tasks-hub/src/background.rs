@@ -63,6 +63,9 @@ pub async fn start() -> Result<String, String> {
         ));
     }
     std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create the config folder: {e}"))?;
+    if let Some(warning) = private_storage_warning(&env, &dir) {
+        eprintln!("{warning}");
+    }
     let exe = std::env::current_exe().map_err(|e| format!("own program not found: {e}"))?;
     // The log is created (and cut when it is large) before the hub writes.
     drop(log_file(&dir)?);
@@ -316,6 +319,63 @@ pub fn autostart_for(what: Autostart, exe: &Path) -> Result<String, String> {
     }
 }
 
+/// Windows keeps what a *packaged* app (an MSIX, like the Claude app) and its
+/// child processes write below `AppData`, and into the registry, in a private
+/// store of that app. A terminal of the user does not see any of it: the
+/// program, the settings and the login entry would be there for the app and
+/// missing for the person. Nothing in the environment says so, so a probe
+/// file is written and looked for in the stores of the packages.
+///
+/// Returns the folder of the package that holds the probe.
+fn private_storage_of(env: &Env, dir: &Path) -> Option<PathBuf> {
+    if !cfg!(windows) {
+        return None;
+    }
+    let local = env.path("LOCALAPPDATA")?;
+    let roaming = env.path("APPDATA");
+    let (kind, rel) = if let Ok(rel) = dir.strip_prefix(&local) {
+        ("Local", rel.to_path_buf())
+    } else if let Some(Ok(rel)) = roaming.as_deref().map(|r| dir.strip_prefix(r)) {
+        ("Roaming", rel.to_path_buf())
+    } else {
+        return None;
+    };
+    let name = format!(".probe-{}", std::process::id());
+    let probe = dir.join(&name);
+    std::fs::write(&probe, b"").ok()?;
+    let found = find_in_packages(&local, kind, &rel, &name);
+    let _ = std::fs::remove_file(&probe);
+    found
+}
+
+/// The package whose private store holds `<kind>/<rel>/<name>`.
+fn find_in_packages(local: &Path, kind: &str, rel: &Path, name: &str) -> Option<PathBuf> {
+    std::fs::read_dir(local.join("Packages"))
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .find(|pkg| {
+            pkg.join("LocalCache")
+                .join(kind)
+                .join(rel)
+                .join(name)
+                .exists()
+        })
+}
+
+/// A line to put in front of the person when this program runs inside a
+/// packaged app.
+fn private_storage_warning(env: &Env, dir: &Path) -> Option<String> {
+    let package = private_storage_of(env, dir)?;
+    Some(format!(
+        "warning: this program runs inside a packaged app ({}). What it writes below AppData \
+         and into the registry (the program, the settings, the login entry) stays in that \
+         app's private storage, and a terminal of your own does not see it. Run this command \
+         in a normal terminal.",
+        package.display()
+    ))
+}
+
 /// Where `install` puts the program: a folder of this user that is not
 /// roaming (the settings are; a program is not).
 fn install_dir(env: &Env) -> Result<PathBuf, String> {
@@ -394,6 +454,10 @@ pub async fn install(opts: InstallOptions) -> Result<String, String> {
         })?;
     }
     out.push_str(&format!("installed: {}\n", target.display()));
+    if let Some(warning) = private_storage_warning(&env, &dir) {
+        out.push_str(&warning);
+        out.push('\n');
+    }
 
     if opts.autostart {
         out.push_str(&autostart_for(Autostart::On, &target)?);
@@ -488,6 +552,27 @@ mod tests {
             String::from_utf16(&units).unwrap(),
             "\"C:\\Users\\Müller\\h.exe\""
         );
+    }
+
+    #[test]
+    fn a_probe_is_found_in_the_store_of_a_package_and_only_there() {
+        let base = std::env::temp_dir().join(format!("tasks-desktop-pkg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let rel = Path::new("tasks-desktop");
+        let store = base
+            .join("Packages")
+            .join("Some_pkg")
+            .join("LocalCache")
+            .join("Roaming")
+            .join(rel);
+        std::fs::create_dir_all(&store).unwrap();
+        std::fs::create_dir_all(base.join("Packages").join("Other_pkg")).unwrap();
+        assert_eq!(find_in_packages(&base, "Roaming", rel, ".probe-1"), None);
+        std::fs::write(store.join(".probe-1"), b"").unwrap();
+        let found = find_in_packages(&base, "Roaming", rel, ".probe-1").unwrap();
+        assert!(found.ends_with("Some_pkg"));
+        // Another kind of store is not this one.
+        assert_eq!(find_in_packages(&base, "Local", rel, ".probe-1"), None);
     }
 
     #[test]
