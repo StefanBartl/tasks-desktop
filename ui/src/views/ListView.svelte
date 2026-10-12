@@ -29,9 +29,12 @@
     return () => cancelAnimationFrame(frame);
   });
 
-  // The row that j and k moved to stays in view.
+  // The row that j and k moved to stays in view. The rows come in frames:
+  // a selected row that is not drawn yet is scrolled to when it is (the
+  // count of the rows that are drawn is read here for that).
   $effect(() => {
     if (app.selectedId === null) return;
+    void visible.length;
     const frame = requestAnimationFrame(() => {
       document
         .querySelector('.rows [aria-current="true"]')

@@ -217,6 +217,30 @@ test('markup in titles, bodies and fields stays text, in every field', async ({ 
   expect(await violations(page)).toEqual([]);
 });
 
+test('the rows come in frames and j keeps the selected row in view', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  const total = Number(
+    ((await page.locator('.count').innerText()).match(/of (\d+)/) ?? [])[1] ?? 0,
+  );
+  // Every row is there a moment after the first ones.
+  await expect.poll(() => page.locator('button.row').count()).toBe(total);
+
+  // A long way down with the key, the selected row is on the screen.
+  for (let i = 0; i < 17; i++) await page.keyboard.press('j');
+  const selected = page.locator('button.row[aria-current="true"]');
+  await expect(selected).toBeVisible();
+  const inView = await selected.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const rows = el.closest('.rows')?.getBoundingClientRect();
+    return !!rows && box.top >= rows.top - 1 && box.bottom <= rows.bottom + 1;
+  });
+  expect(inView).toBe(true);
+  // The view is remembered: a reload opens on the list.
+  await page.reload();
+  await expect(page.locator('button.row').first()).toBeVisible();
+});
+
 test('a change in the vault arrives and the selection stays', async ({ page }) => {
   await pair(page);
   await showList(page);

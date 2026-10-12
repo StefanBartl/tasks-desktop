@@ -56,6 +56,11 @@
     content-visibility: auto;
     contain-intrinsic-size: auto 2.2rem;
   }
+  /* Inside the box: the list clips what is outside it, and the ring would
+     show on two sides only. */
+  .row:focus-visible {
+    outline-offset: -2px;
+  }
   .row:hover {
     background: var(--surface-2);
   }

@@ -51,6 +51,25 @@ fn main() {
     };
     let fake = params.get("fake").cloned().unwrap_or(Value::Null);
 
+    // `<vault>/.fake-task-ms` makes a `task` read take that long, and every
+    // such read is counted in `<vault>/.fake-task-calls` when it starts: a
+    // test that cannot put a `fake` into the request (the routes build their
+    // own) can still see which reads ran.
+    if method == "task" {
+        let vault = std::env::var("TASKS_VAULT").unwrap_or_default();
+        let base = std::path::Path::new(&vault);
+        if let Ok(text) = std::fs::read_to_string(base.join(".fake-task-ms")) {
+            use std::io::Write as _;
+            if let Ok(mut calls) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(base.join(".fake-task-calls"))
+            {
+                let _ = writeln!(calls, "task");
+            }
+            std::thread::sleep(Duration::from_millis(text.trim().parse().unwrap_or(0)));
+        }
+    }
     if let Some(ms) = fake.get("sleep_ms").and_then(Value::as_u64) {
         std::thread::sleep(Duration::from_millis(ms));
     }

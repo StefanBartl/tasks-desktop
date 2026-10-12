@@ -31,7 +31,7 @@
 
   function open(id: string): void {
     app.select(id);
-    app.view = 'list';
+    app.setView('list');
   }
 
   function why(brief: TaskBrief): string {
