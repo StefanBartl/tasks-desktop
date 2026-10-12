@@ -8,6 +8,7 @@ import type { Op } from './api';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
 import { backoffSeconds, readStream, StreamRefused, type SseMessage } from './sse';
 import { detectLang, isLang, translate, type Key, type Lang } from './i18n';
+import { localToday } from './remind';
 
 export type Phase = 'starting' | 'needs_pairing' | 'offline' | 'unavailable' | 'ready';
 export type Connection = 'live' | 'reconnecting' | 'offline';
@@ -98,6 +99,8 @@ export class App {
   hiddenTiles = $state<Tile[]>([]);
   /** Area names without the prefix `wkdbook-` where that is unambiguous. */
   shortAreas = $state(true);
+  /** The day of the reader, `YYYY-MM-DD`; renewed when the window is looked at again. */
+  today = $state(localToday());
   /** A write is under way: the controls wait. */
   saving = $state(false);
   /**
@@ -266,6 +269,13 @@ export class App {
     this.toast = null;
     const result = await this.write(ops, { undoable: false });
     if (result && result.ok) this.say('ok', 'write.undone');
+  }
+
+  /** Take a reminder away (an open task or a finished one); `etag` is the version of the file that was shown. */
+  async clearReminder(id: string, etag?: string): Promise<void> {
+    await this.write([
+      { op: 'set', id, patch: { remind: null }, ...(etag ? { if_match: etag } : {}) },
+    ]);
   }
 
   /** Set one key of a task; `null` takes the key away. */
@@ -631,6 +641,8 @@ export class App {
 
   /** Ask for a scan: the window got the focus back. */
   async focused(): Promise<void> {
+    // A page that stood open over midnight: a reminder may be due since.
+    this.today = localToday();
     if (this.phase !== 'ready' || !this.env.hub.hasToken) return;
     try {
       await this.env.hub.rescan();

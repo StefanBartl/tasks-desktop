@@ -2,7 +2,19 @@
 // stores the date; whether it is due is for the reader to say (a digest does
 // not change with the day), so it is said here, from the day of the person.
 
-import type { TaskEntry } from './contract';
+import type { Snapshot, TaskEntry } from './contract';
+
+/** A finished task with a reminder, as the snapshot lists it. */
+export type DoneReminder = NonNullable<Snapshot['reminders']>[number];
+
+/** One line of the card: an open task, or a finished one (it is not in the list of tasks). */
+export interface DueItem {
+  id: string;
+  title: string;
+  remind: string;
+  etag?: string;
+  finished: boolean;
+}
 
 /** Today as `YYYY-MM-DD` in the local time of the reader (the engine's `today` is local too). */
 export function localToday(now: Date = new Date()): string {
@@ -28,6 +40,38 @@ export function dueTasks(tasks: readonly TaskEntry[], today: string): TaskEntry[
       return byDate !== 0 ? byDate : a.index - b.index;
     })
     .map(({ task }) => task);
+}
+
+/**
+ * What is due: the open tasks and the finished ones, the oldest date first. A
+ * finished task is not in the list of tasks, and a reminder is most often set
+ * when a task is finished, so the snapshot lists those on their own.
+ */
+export function dueItems(
+  tasks: readonly TaskEntry[],
+  finished: readonly DoneReminder[] | undefined,
+  today: string,
+): DueItem[] {
+  const open: DueItem[] = dueTasks(tasks, today).map((t) => ({
+    id: t.id,
+    title: t.title,
+    remind: t.remind ?? '',
+    ...(t.etag ? { etag: t.etag } : {}),
+    finished: false,
+  }));
+  const done: DueItem[] = (finished ?? [])
+    .filter((r) => isDue(r.remind, today))
+    .map((r) => ({
+      id: r.id,
+      title: r.title,
+      remind: r.remind,
+      ...(r.etag ? { etag: r.etag } : {}),
+      finished: true,
+    }));
+  return [...open, ...done]
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => a.item.remind.localeCompare(b.item.remind) || a.index - b.index)
+    .map(({ item }) => item);
 }
 
 /** What the page offers: the words the engine reads (`+3d`, `+2w`). */

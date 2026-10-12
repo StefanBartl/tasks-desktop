@@ -2,7 +2,7 @@
   import type { App, Tile } from '../lib/app.svelte';
   import type { TaskBrief } from '../lib/contract';
   import { waitingForMe } from '../lib/filter';
-  import { dueTasks, localToday } from '../lib/remind';
+  import { dueItems } from '../lib/remind';
   import { labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
 
@@ -15,7 +15,7 @@
   const snapshot = $derived(app.snapshot);
   const waiting = $derived(waitingForMe(app.tasks).slice(0, 8));
   const empty = $derived(next?.empty);
-  const reminders = $derived(dueTasks(app.tasks, localToday()));
+  const reminders = $derived(dueItems(app.tasks, snapshot?.reminders, app.today));
   const shown = (tile: Tile) => !app.hiddenTiles.includes(tile);
   // The counts need the snapshot; without them there is no block to keep room for.
   const showOverview = $derived(shown('counts') && snapshot !== null);
@@ -171,12 +171,28 @@
           >
         </header>
         <ul class="plain">
-          {#each reminders.slice(0, 8) as task, i (`${task.id}:${i}`)}
+          {#each reminders.slice(0, 8) as item, i (`${item.id}:${i}`)}
             <li>
-              <button type="button" class="link" onclick={() => open(task.id)}
-                >{markHidden(task.title)}</button
+              {#if item.finished}
+                <span>{markHidden(item.title)}</span>
+              {:else}
+                <button type="button" class="link" onclick={() => open(item.id)}
+                  >{markHidden(item.title)}</button
+                >
+              {/if}
+              <span class="muted"
+                ><code>{item.id}</code> · {item.remind}{item.finished
+                  ? ` · ${t('remind.finished')}`
+                  : ''}</span
               >
-              <span class="muted"><code>{task.id}</code> · {task.remind}</span>
+              <button
+                type="button"
+                class="clear"
+                disabled={app.saving}
+                aria-label={`${t('remind.clear')}: ${item.id}`}
+                title={t('remind.clear')}
+                onclick={() => void app.clearReminder(item.id, item.etag)}>×</button
+              >
             </li>
           {/each}
         </ul>
@@ -309,6 +325,18 @@
     display: flex;
     gap: 0.5rem;
     flex-wrap: wrap;
+  }
+  .clear {
+    background: none;
+    border: 0;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0 0.3rem;
+    border-radius: var(--radius);
+  }
+  .clear:hover {
+    color: var(--text);
+    background: var(--surface-2);
   }
   .link {
     background: none;

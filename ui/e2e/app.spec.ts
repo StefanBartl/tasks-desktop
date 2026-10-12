@@ -514,3 +514,38 @@ test('a reminder set on a task comes back on the Today page when it is due', asy
   await expect(page.getByRole('region', { name: 'To look at again' })).toHaveCount(0);
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('a finished task with a reminder comes back on Today and the reminder can be removed', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+
+  await page.keyboard.press('c');
+  const capture = page.getByRole('dialog', { name: 'New task' });
+  await capture.getByLabel('Title').fill('Shipped, look at the result');
+  await capture.locator('select').first().selectOption('lib.nvim');
+  await capture.getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  const id = (await page.locator('aside.detail .id').innerText()).trim();
+
+  // Finish it and ask to be reminded: the task leaves the list, the reminder does not.
+  await page.locator('aside.detail').getByRole('button', { name: 'Finish ...' }).click();
+  const done = page.getByRole('dialog', { name: 'Finish this task?' });
+  await done.getByLabel('Remind me about the result').selectOption('+0d');
+  await done.getByRole('button', { name: 'Finish', exact: true }).click();
+  await expect(done).toHaveCount(0);
+  await expect(page.locator('button.row', { hasText: id })).toHaveCount(0);
+
+  await chooseView(page, 'View', 'Today');
+  const card = page.getByRole('region', { name: 'To look at again' });
+  await expect(card.getByText(id)).toBeVisible();
+  await expect(card.getByText('finished')).toBeVisible();
+  expect(await violations(page)).toEqual([]);
+
+  // Removing it takes the line away and leaves the finished task alone.
+  await card.getByRole('button', { name: new RegExp(`Remove the reminder: ${id}`) }).click();
+  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'To look at again' })).toHaveCount(0);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+

@@ -107,6 +107,7 @@
         <TaskRow
           {task}
           lang={app.lang}
+          today={app.today}
           selected={task.id === app.selectedId}
           onselect={(id) => app.select(id)}
         />
