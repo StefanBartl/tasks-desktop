@@ -8,7 +8,8 @@ const USAGE: &str = "usage:
   tasks-hub start [--open]                run the hub in the background (no window; log in
                                           the config folder); --open also opens the browser
   tasks-hub stop                          stop the hub that runs in the background
-  tasks-hub autostart on|off|status       start the hub with your login (Windows)
+  tasks-hub autostart on|off|status       start the hub with your login (Windows: Run key;
+                                          Linux: autostart entry; macOS: launch agent)
   tasks-hub install [--autostart] [--shortcut]
                                           copy this program to a fixed place (a build
                                           then does not fight the running hub for the file)
