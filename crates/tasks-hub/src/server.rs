@@ -220,6 +220,46 @@ struct Shared {
     ui: UiFiles,
     usage: Option<Arc<UsageLog>>,
     search: Option<Arc<SearchIndex>>,
+    details: StdMutex<Details>,
+}
+
+/// The most task documents kept.
+const DETAILS_KEPT: usize = 64;
+
+/// The documents of `task` the hub has answered for one state of the vault.
+/// A document holds the blockers in both directions, so it is true for the
+/// `rev` it was made for and for no other: a change of the vault empties
+/// the whole table.
+#[derive(Default)]
+struct Details {
+    rev: Option<String>,
+    docs: HashMap<String, Bytes>,
+    order: std::collections::VecDeque<String>,
+}
+
+impl Details {
+    fn get(&mut self, rev: &str, id: &str) -> Option<Bytes> {
+        if self.rev.as_deref() != Some(rev) {
+            return None;
+        }
+        self.docs.get(id).cloned()
+    }
+
+    fn put(&mut self, rev: &str, id: &str, doc: Bytes) {
+        if self.rev.as_deref() != Some(rev) {
+            self.rev = Some(rev.to_owned());
+            self.docs.clear();
+            self.order.clear();
+        }
+        if self.docs.insert(id.to_owned(), doc).is_none() {
+            self.order.push_back(id.to_owned());
+            while self.order.len() > DETAILS_KEPT {
+                if let Some(old) = self.order.pop_front() {
+                    self.docs.remove(&old);
+                }
+            }
+        }
+    }
 }
 
 /// A started server.
@@ -317,6 +357,7 @@ pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
         ui: cfg.ui,
         usage: cfg.usage,
         search: search.clone(),
+        details: StdMutex::new(Details::default()),
     });
 
     // The watcher only says "look again"; the refresher does the looking.
@@ -1019,10 +1060,38 @@ async fn task(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Respo
             "id must be <area>/<slug>",
         );
     };
+    // The state of the vault the answer is for: from the held snapshot, so a
+    // repeated look at a task costs no engine question.
+    let rev = st.store.current().await.ok().and_then(|c| c.rev.clone());
+    if let Some(rev) = &rev {
+        let hit = st.details.lock().ok().and_then(|mut d| d.get(rev, id));
+        if let Some(doc) = hit {
+            return json_response(StatusCode::OK, doc, None);
+        }
+    }
     match ask(&st, EngineMethod::Task, Some(&json!({ "id": id }))).await {
-        Ok(reply) => json_response(StatusCode::OK, reply.text, None),
+        Ok(reply) => {
+            // Kept only when the engine made it for the state we hold: a
+            // document of another state would be served for the wrong one.
+            if let Some(rev) = &rev {
+                let made_for = serde_json::from_str::<RevOnly>(&reply.text)
+                    .ok()
+                    .and_then(|d| d.rev);
+                let same_state = made_for.as_deref() == Some(rev.as_str());
+                let table = st.details.lock().ok().filter(|_| same_state);
+                if let Some(mut details) = table {
+                    details.put(rev, id, Bytes::from(reply.text.clone()));
+                }
+            }
+            json_response(StatusCode::OK, reply.text, None)
+        }
         Err(response) => response,
     }
+}
+
+#[derive(Deserialize)]
+struct RevOnly {
+    rev: Option<String>,
 }
 
 async fn next(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {

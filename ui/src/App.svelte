@@ -4,6 +4,7 @@
   import { ago, dictionaries, translate, type Key } from './lib/i18n';
   import Today from './views/Today.svelte';
   import ListView from './views/ListView.svelte';
+  import MenuBar, { type Menu } from './views/MenuBar.svelte';
 
   let { app, code }: { app: App; code: string | null } = $props();
 
@@ -96,6 +97,105 @@
   });
 
   const age = $derived(app.cachedAt === null ? '' : ago(app.lang, Date.now() - app.cachedAt));
+
+  // The menu bar of the page (the native shell shows the same entries).
+  const menus = $derived.by((): Menu[] => {
+    const ready = app.phase === 'ready';
+    const vault = app.snapshot?.vault?.id;
+    return [
+      {
+        id: 'project',
+        label: t('menu.project'),
+        items: [
+          ...(vault ? [{ kind: 'info' as const, label: t('menu.vault', { name: vault }) }] : []),
+          {
+            kind: 'action',
+            label: t('menu.rescan'),
+            disabled: !ready,
+            onselect: () => void app.focused(),
+          },
+          { kind: 'action', label: t('menu.reload'), onselect: () => window.location.reload() },
+        ],
+      },
+      {
+        id: 'view',
+        label: t('menu.view'),
+        items: [
+          {
+            kind: 'radio',
+            label: t('nav.today'),
+            checked: app.view === 'today',
+            onselect: () => app.setView('today'),
+          },
+          {
+            kind: 'radio',
+            label: t('nav.list'),
+            checked: app.view === 'list',
+            onselect: () => app.setView('list'),
+          },
+          { kind: 'separator' },
+          {
+            kind: 'action',
+            label: t('menu.show_tiles', { n: app.hiddenTiles.length }),
+            disabled: app.hiddenTiles.length === 0,
+            onselect: () => app.showTiles(),
+          },
+          {
+            kind: 'action',
+            label: t('menu.reset_filter'),
+            disabled: !ready,
+            onselect: () => app.resetFilter(),
+          },
+        ],
+      },
+      {
+        id: 'settings',
+        label: t('menu.settings'),
+        items: [
+          {
+            kind: 'check',
+            label: t('shortcuts.label'),
+            checked: app.shortcuts,
+            onselect: () => app.setShortcuts(!app.shortcuts),
+          },
+          {
+            kind: 'check',
+            label: t('menu.short_areas'),
+            checked: app.shortAreas,
+            onselect: () => app.setShortAreas(!app.shortAreas),
+          },
+        ],
+      },
+      {
+        id: 'language',
+        label: t('lang.label'),
+        items: [
+          {
+            kind: 'radio',
+            label: 'Deutsch',
+            checked: app.lang === 'de',
+            onselect: () => app.setLang('de'),
+          },
+          {
+            kind: 'radio',
+            label: 'English',
+            checked: app.lang === 'en',
+            onselect: () => app.setLang('en'),
+          },
+        ],
+      },
+      {
+        id: 'theme',
+        label: t('theme.label'),
+        items: (['auto', 'light', 'dark'] as const).map((value) => ({
+          kind: 'radio' as const,
+          label: t(`theme.${value}` as Key),
+          checked: app.theme === value,
+          onselect: () => app.setTheme(value),
+        })),
+      },
+    ];
+  });
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -103,62 +203,13 @@
 <div class="shell">
   <header class="bar">
     <strong class="brand">{t('app.title')}</strong>
-    {#if app.phase === 'ready'}
-      <nav aria-label={t('nav.views')}>
-        <button
-          type="button"
-          class="tab"
-          aria-current={app.view === 'today' ? 'page' : undefined}
-          onclick={() => app.setView('today')}>{t('nav.today')}</button
-        >
-        <button
-          type="button"
-          class="tab"
-          aria-current={app.view === 'list' ? 'page' : undefined}
-          onclick={() => app.setView('list')}>{t('nav.list')}</button
-        >
-      </nav>
-    {/if}
+    <MenuBar {menus} label={t('menu.label')} />
     <span class="spacer"></span>
     {#if app.phase === 'ready'}
       <span class="conn conn-{app.connection}" role="status">
         {app.cachedAt !== null ? t('conn.cached') : t(`conn.${app.connection}` as Key)}
       </span>
     {/if}
-    <label class="pref">
-      <span class="sr-only">{t('shortcuts.label')}</span>
-      <select
-        value={app.shortcuts ? 'on' : 'off'}
-        onchange={(e) => app.setShortcuts(e.currentTarget.value === 'on')}
-      >
-        <option value="on">{t('shortcuts.on')}</option>
-        <option value="off">{t('shortcuts.off')}</option>
-      </select>
-    </label>
-    <label class="pref">
-      <span class="sr-only">{t('lang.label')}</span>
-      <select
-        value={app.lang}
-        onchange={(e) => app.setLang(e.currentTarget.value === 'de' ? 'de' : 'en')}
-      >
-        <option value="de">DE</option>
-        <option value="en">EN</option>
-      </select>
-    </label>
-    <label class="pref">
-      <span class="sr-only">{t('theme.label')}</span>
-      <select
-        value={app.theme}
-        onchange={(e) => {
-          const v = e.currentTarget.value;
-          app.setTheme(v === 'light' || v === 'dark' ? v : 'auto');
-        }}
-      >
-        <option value="auto">{t('theme.auto')}</option>
-        <option value="light">{t('theme.light')}</option>
-        <option value="dark">{t('theme.dark')}</option>
-      </select>
-    </label>
   </header>
 
   <main>
@@ -235,23 +286,6 @@
   .brand {
     letter-spacing: 0.02em;
   }
-  nav {
-    display: flex;
-    gap: 0.25rem;
-  }
-  .tab {
-    background: none;
-    border: 1px solid transparent;
-    border-radius: var(--radius);
-    padding: 0.25rem 0.75rem;
-    cursor: pointer;
-    color: var(--muted);
-  }
-  .tab[aria-current='page'] {
-    color: var(--text);
-    background: var(--surface-2);
-    border-color: var(--border);
-  }
   .spacer {
     flex: 1;
   }
@@ -264,12 +298,6 @@
   }
   .conn-offline {
     color: var(--bad);
-  }
-  .pref select {
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 0.2rem 0.4rem;
   }
   main {
     flex: 1;
