@@ -7,8 +7,8 @@ import { pairingLink } from './hub';
 
 test.use({ locale: 'en-US' });
 
-const state = (): { config: string; vault: string } =>
-  JSON.parse(readFileSync(STATE, 'utf8')) as { config: string; vault: string };
+const state = (): { config: string; vault: string; token: string } =>
+  JSON.parse(readFileSync(STATE, 'utf8')) as { config: string; vault: string; token: string };
 
 /** Everything the page reports about a policy it broke, from the start. */
 async function watchViolations(page: Page): Promise<void> {
@@ -25,10 +25,34 @@ async function violations(page: Page): Promise<string[]> {
   return page.evaluate(() => (window as unknown as { __violations: string[] }).__violations);
 }
 
+/** What the page wrote to the console: an error or a warning is a finding. */
+const consoleProblems = new WeakMap<Page, string[]>();
+
+/** The tab holds the session, as it does after the link was followed. */
 async function pair(page: Page): Promise<void> {
-  await watchViolations(page);
+  await prepare(page);
+  await page.addInitScript((token) => {
+    sessionStorage.setItem('tasks-desktop.session', token);
+  }, state().token);
+  await page.goto('/');
+  await expect(page.getByRole('navigation', { name: 'Views' })).toBeVisible();
+}
+
+/** The link of `tasks-hub open`, followed. Ten of these a minute at most. */
+async function pairByLink(page: Page): Promise<void> {
+  await prepare(page);
   await page.goto(pairingLink(state().config));
   await expect(page.getByRole('navigation', { name: 'Views' })).toBeVisible();
+}
+
+async function prepare(page: Page): Promise<void> {
+  const problems: string[] = [];
+  consoleProblems.set(page, problems);
+  page.on('console', (m) => {
+    if (m.type() === 'error' || m.type() === 'warning') problems.push(`${m.type()}: ${m.text()}`);
+  });
+  page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
+  await watchViolations(page);
 }
 
 async function showList(page: Page): Promise<void> {
@@ -38,7 +62,10 @@ async function showList(page: Page): Promise<void> {
 
 async function open(page: Page, id: string): Promise<void> {
   await page.locator('button.row', { hasText: id }).first().click();
-  await expect(page.locator('aside.detail .task-title')).toBeVisible();
+  // The detail of THIS task, read: the id is there and the reading is over.
+  await expect(page.locator('aside.detail .id')).toHaveText(id);
+  await expect(page.locator('aside.detail .muted', { hasText: /Reading the task/ })).toHaveCount(0);
+  await expect(page.locator('aside.detail .prose, aside.detail pre.body')).toBeVisible();
 }
 
 test('an unpaired page says how to pair, and has no violation', async ({ page }) => {
@@ -50,7 +77,7 @@ test('an unpaired page says how to pair, and has no violation', async ({ page })
 });
 
 test('the link pairs the tab, the code leaves the address bar, the list is there', async ({ page }) => {
-  await pair(page);
+  await pairByLink(page);
   expect(page.url()).toBe('http://127.0.0.1:17698/');
   expect(await page.evaluate(() => location.hash)).toBe('');
   await showList(page);
@@ -147,6 +174,49 @@ test('characters that hide or reverse text are shown', async ({ page }) => {
   await expect(page.locator('aside.detail .id')).toHaveText('lib.nvim/bidi-title');
 });
 
+test('the page writes nothing to the console, in any view', async ({ page }) => {
+  await pair(page);
+  await expect(page.getByText('Next task')).toBeVisible();
+  await showList(page);
+  for (const id of [
+    'lib.nvim/alpha',
+    'lib.nvim/xss-body-html',
+    'lib.nvim/xss-body-more',
+    'lib.nvim/xss-frontmatter',
+    'lib.nvim/wide-content',
+  ]) {
+    await open(page, id);
+  }
+  await page.getByRole('button', { name: 'Today', exact: true }).click();
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('markup in titles, bodies and fields stays text, in every field', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  for (const id of ['xss-body-more', 'xss-frontmatter']) {
+    await open(page, `lib.nvim/${id}`);
+    await expect(page.locator('main script, main img, main iframe, main form, main style')).toHaveCount(
+      0,
+    );
+  }
+  // The fields are text of the detail, not elements.
+  await open(page, 'lib.nvim/xss-frontmatter');
+  await expect(page.locator('aside.detail')).toContainText('<img src=x onerror=window.__xss=19>');
+  const hrefs = await page
+    .locator('aside.detail a')
+    .evaluateAll((as) => as.map((a) => a.getAttribute('href')));
+  expect(hrefs).toEqual([]);
+  await open(page, 'lib.nvim/xss-body-more');
+  const links = await page
+    .locator('aside.detail .prose a')
+    .evaluateAll((as) => as.map((a) => a.getAttribute('href')));
+  expect(links).toEqual(['https://example.org/auto']);
+  expect(await page.evaluate(() => (window as unknown as { __xss?: unknown }).__xss)).toBeUndefined();
+  expect(await violations(page)).toEqual([]);
+});
+
 test('a change in the vault arrives and the selection stays', async ({ page }) => {
   await pair(page);
   await showList(page);
@@ -197,6 +267,12 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(page.locator('aside.detail .prose')).toBeVisible();
     const list = await new AxeBuilder({ page }).analyze();
     expect(list.violations, JSON.stringify(list.violations, null, 1)).toEqual([]);
+
+    // Content that scrolls: a long code line and a wide table.
+    await open(page, 'lib.nvim/wide-content');
+    await expect(page.locator('aside.detail .prose table')).toBeVisible();
+    const wide = await new AxeBuilder({ page }).analyze();
+    expect(wide.violations, JSON.stringify(wide.violations, null, 1)).toEqual([]);
   });
 }
 

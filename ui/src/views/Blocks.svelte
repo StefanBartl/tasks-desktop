@@ -27,11 +27,14 @@
   {:else if block.t === 'quote'}
     <blockquote><Blocks blocks={block.children} /></blockquote>
   {:else if block.t === 'pre'}
-    <pre><code>{markHidden(block.text)}</code></pre>
+    <!-- A scrolling block is reached with the keyboard. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <pre tabindex="0"><code>{markHidden(block.text)}</code></pre>
   {:else if block.t === 'hr'}
     <hr />
   {:else if block.t === 'table'}
-    <div class="scroll">
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div class="scroll" tabindex="0">
       <table>
         {#if block.head.length > 0}
           <thead>

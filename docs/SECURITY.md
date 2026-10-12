@@ -206,8 +206,11 @@ The task text never reaches such a sink: the body of a task is read by
 markdown-it (`html: false`) into a tree and drawn as elements, so a
 sanitizer has nothing to miss. A link becomes a link only for `http:`,
 `https:` and `mailto:` (an allow-list; markdown-it's own refusal is the
-first wall), with `rel="noopener noreferrer nofollow"`; an image is its
-description as text and is never requested.
+first wall), with `rel="noopener noreferrer nofollow"` and the host it goes
+to written after it (the text of a link is the author's, the host is not);
+an image is its description as text and is never requested. A block that
+scrolls (a long code line, a wide table) can be reached with the keyboard.
+The browser tests also fail on any message the page writes to the console.
 
 In the browser the pairing code is taken out of the address bar before
 anything else runs; the session token lives in `sessionStorage` of the tab,

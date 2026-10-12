@@ -124,7 +124,8 @@
       <!-- The body is untrusted: it is read into a tree and drawn as
            elements; it never becomes an HTML string. -->
       {#if raw}
-        <pre class="body">{markHidden(body)}</pre>
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <pre class="body" tabindex="0">{markHidden(body)}</pre>
       {:else}
         <div class="body prose"><Blocks {blocks} /></div>
       {/if}

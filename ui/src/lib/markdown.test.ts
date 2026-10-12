@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseMarkdown, safeHref, type Block, type Inline } from './markdown';
+import { hostOf, parseMarkdown, safeHref, type Block, type Inline } from './markdown';
 
 /** Every link target and every kind of node in a tree. */
 function walk(blocks: Block[], out: { hrefs: (string | null)[]; kinds: Set<string> }): void {
@@ -53,6 +53,17 @@ describe('safeHref', () => {
     ]) {
       expect(safeHref(bad), bad).toBeNull();
     }
+  });
+});
+
+describe('hostOf', () => {
+  it('names where a link goes, so that its text cannot say otherwise', () => {
+    expect(hostOf('https://example.org:8443/a?b')).toBe('example.org:8443');
+    expect(hostOf('mailto:someone@example.org')).toBe('example.org');
+    const [p] = parseMarkdown('[https://bank.example](https://evil.example/login)');
+    expect(p?.t === 'p' && p.children[0]?.t === 'link' ? p.children[0].host : null).toBe(
+      'evil.example',
+    );
   });
 });
 

@@ -23,7 +23,7 @@
     {#if item.href}
       <a href={item.href} rel="noopener noreferrer nofollow" target="_blank"
         ><Inlines items={item.children} /></a
-      >
+      >{#if item.host}<span class="host"> ({item.host})</span>{/if}
     {:else}
       <Inlines items={item.children} />
     {/if}
@@ -42,7 +42,8 @@
     border-radius: 3px;
     padding: 0 0.25em;
   }
-  .alt {
+  .alt,
+  .host {
     color: var(--muted);
   }
 </style>

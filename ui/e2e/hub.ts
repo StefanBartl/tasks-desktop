@@ -3,7 +3,15 @@
 // Nothing of a real vault is ever used (concept 5.7).
 
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,7 +24,7 @@ export const ORIGIN = `http://127.0.0.1:${PORT}`;
 const exe = join(repo, 'target', 'debug', process.platform === 'win32' ? 'tasks-hub.exe' : 'tasks-hub');
 
 /** Titles and bodies an attacker could write into a vault. */
-export const HOSTILE: { slug: string; title: string; body: string }[] = [
+export const HOSTILE: { slug: string; title: string; body: string; front?: string[] }[] = [
   {
     slug: 'xss-title-img',
     title: '"><img src=x onerror=window.__xss=1>',
@@ -62,11 +70,72 @@ export const HOSTILE: { slug: string; title: string; body: string }[] = [
     ].join('\n'),
   },
   {
+    slug: 'xss-body-more',
+    title: '</title><script>window.__xss=13</script>{{7*7}} ${7*7}',
+    body: [
+      '[a](<javascript:window.__xss=14>)',
+      '',
+      '[b](&#x6A;avascript:window.__xss=15)',
+      '',
+      '[c](jav&#x09;ascript:window.__xss=16)',
+      '',
+      '![ref image][r]',
+      '',
+      '[r]: javascript:window.__xss=17',
+      '',
+      '<!-- <script>window.__xss=18</script> -->',
+      '',
+      '<style>body{display:none}</style>',
+      '',
+      '<form action="https://tracker.invalid/f"><input name=x></form>',
+      '',
+      '<https://example.org/auto>',
+    ].join('\n'),
+  },
+  {
+    slug: 'xss-frontmatter',
+    title: 'Markup in the fields around the title',
+    body: 'fields',
+    front: [
+      'plan: "<img src=x onerror=window.__xss=19>"',
+      'phase: "<svg onload=window.__xss=20>"',
+      'blocked_by: ["<img src=x onerror=window.__xss=21>", "lib.nvim/alpha"]',
+      'after: ["<script>window.__xss=22</script>"]',
+      'tags: ["<img src=x onerror=window.__xss=23>"]',
+      'refs: ["javascript:window.__xss=24", "<img src=x onerror=window.__xss=25>"]',
+    ],
+  },
+  {
+    slug: 'wide-content',
+    title: 'Long lines and a wide table',
+    body: [
+      '```',
+      'x'.repeat(400),
+      '```',
+      '',
+      '| ' + Array.from({ length: 30 }, (_, i) => `column-${i}`).join(' | ') + ' |',
+      '| ' + Array.from({ length: 30 }, () => '---').join(' | ') + ' |',
+      '| ' + Array.from({ length: 30 }, (_, i) => `value-${i}`).join(' | ') + ' |',
+      '',
+      'y'.repeat(600),
+    ].join('\n'),
+  },
+  {
     slug: 'bidi-title',
     title: 'Invoice ‮txt.exe‬ ​ready',
     body: 'a‮reversed',
   },
 ];
+
+/** Is the binary the one of the current build of the interface? */
+export async function assertFreshBinary(): Promise<void> {
+  const dist = join(repo, 'ui', 'dist', 'index.html');
+  if (!existsSync(dist)) throw new Error('ui/dist is not built: run `pnpm build` and `cargo build`');
+  const served = await (await fetch(`${ORIGIN}/`)).text();
+  if (served.trim() !== readFileSync(dist, 'utf8').trim()) {
+    throw new Error('the hub binary holds an older interface: run `cargo build` after `pnpm build`');
+  }
+}
 
 export interface Running {
   child: ChildProcess;
@@ -97,6 +166,7 @@ export function prepareVault(): { root: string; vault: string; config: string } 
         'effort: S',
         'created: 2026-01-01',
         'updated: 2026-01-01',
+        ...(h.front ?? []),
         '---',
         '',
         h.body,
@@ -138,6 +208,13 @@ export function env(config: string): NodeJS.ProcessEnv {
 }
 
 export async function startHub(): Promise<Running & { root: string }> {
+  // Something already answers on the port: those tests would run against
+  // another hub and another vault.
+  const taken = await fetch(`${ORIGIN}/api/tasks/hello`).then(
+    () => true,
+    () => false,
+  );
+  if (taken) throw new Error(`port ${PORT} is in use: stop the hub that runs there`);
   const { root, vault, config } = prepareVault();
   const child = spawn(exe, ['serve'], { env: env(config), stdio: 'ignore' });
   const deadline = Date.now() + 20_000;
@@ -157,6 +234,12 @@ export async function startHub(): Promise<Running & { root: string }> {
     }
     await new Promise((r) => setTimeout(r, 200));
   }
+  try {
+    await assertFreshBinary();
+  } catch (error) {
+    child.kill();
+    throw error;
+  }
   return {
     child,
     config,
@@ -171,6 +254,22 @@ export async function startHub(): Promise<Running & { root: string }> {
       }
     },
   };
+}
+
+/**
+ * A session token, got the way the page gets one. The hub allows ten
+ * exchanges a minute (that is the point of the limit), so the tests share one
+ * session and only the pairing tests go through a link.
+ */
+export async function sessionToken(config: string): Promise<string> {
+  const code = pairingLink(config).split('#pair=')[1] ?? '';
+  const response = await fetch(`${ORIGIN}/auth/exchange`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: ORIGIN },
+    body: JSON.stringify({ code }),
+  });
+  if (!response.ok) throw new Error(`exchange refused: ${response.status}`);
+  return ((await response.json()) as { token: string }).token;
 }
 
 /** A pairing link, as `tasks-hub open` prints it. */

@@ -13,7 +13,7 @@ export type Inline =
   | { t: 'code'; text: string }
   | { t: 'br' }
   | { t: 'em' | 'strong' | 'del'; children: Inline[] }
-  | { t: 'link'; href: string | null; children: Inline[] }
+  | { t: 'link'; href: string | null; host: string | null; children: Inline[] }
   | { t: 'image'; alt: string };
 
 export type Block =
@@ -35,6 +35,16 @@ const md = new MarkdownIt({ html: false, linkify: false, typographer: false, bre
 // Only these ever become a link. markdown-it already refuses `javascript:`
 // and the like; this is the second wall, and it is an allow-list.
 const LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
+
+/** The host a link goes to, for the person who reads the link text. */
+export function hostOf(href: string): string | null {
+  try {
+    const url = new URL(href);
+    return url.protocol === 'mailto:' ? url.pathname.split('@').pop() || null : url.host || null;
+  } catch {
+    return null;
+  }
+}
 
 export function safeHref(raw: string): string | null {
   const text = raw.trim();
@@ -208,7 +218,13 @@ function readInline(tokens: Tok[], c: { i: number }, close: string | null): Inli
         break;
       case 'link_open': {
         const href = tok.attrs?.find(([k]) => k === 'href')?.[1] ?? '';
-        out.push({ t: 'link', href: safeHref(href), children: readInline(tokens, c, 'link_close') });
+        const safe = safeHref(href);
+        out.push({
+          t: 'link',
+          href: safe,
+          host: safe === null ? null : hostOf(safe),
+          children: readInline(tokens, c, 'link_close'),
+        });
         break;
       }
       case 'image':
