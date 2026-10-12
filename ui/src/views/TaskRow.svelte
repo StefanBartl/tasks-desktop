@@ -2,6 +2,7 @@
   import type { TaskEntry } from '../lib/contract';
   import { labelOf, type Lang } from '../lib/i18n';
   import { markHidden } from '../lib/text';
+  import { isDue, localToday } from '../lib/remind';
 
   let {
     task,
@@ -14,6 +15,7 @@
   // A word this version does not know is shown as it is.
   const status = $derived(labelOf(lang, 'status', task.status));
   const state = $derived(task.readiness ? labelOf(lang, 'state', task.readiness.state) : null);
+  const due = $derived(isDue(task.remind, localToday()));
 </script>
 
 <button
@@ -27,6 +29,7 @@
   <span class="title">{markHidden(task.title)}</span>
   <span class="meta">
     {#if !task.valid}<span class="tag bad">!</span>{/if}
+    {#if due}<span class="tag due" title={task.remind}>⏰ {task.remind}</span>{/if}
     <span class="tag">{status}</span>
     {#if state && task.readiness?.state !== 'unknown'}<span class="tag soft">{state}</span>{/if}
     <span class="tag soft">{task.prio !== undefined ? `P${task.prio}` : '?'}</span>
@@ -85,6 +88,10 @@
     display: flex;
     gap: 0.3rem;
     white-space: nowrap;
+  }
+  .tag.due {
+    color: var(--warn);
+    border-color: var(--warn);
   }
   .tag {
     font-size: 0.75rem;

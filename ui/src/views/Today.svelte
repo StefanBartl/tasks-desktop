@@ -2,6 +2,7 @@
   import type { App, Tile } from '../lib/app.svelte';
   import type { TaskBrief } from '../lib/contract';
   import { waitingForMe } from '../lib/filter';
+  import { dueTasks, localToday } from '../lib/remind';
   import { labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
 
@@ -14,6 +15,7 @@
   const snapshot = $derived(app.snapshot);
   const waiting = $derived(waitingForMe(app.tasks).slice(0, 8));
   const empty = $derived(next?.empty);
+  const reminders = $derived(dueTasks(app.tasks, localToday()));
   const shown = (tile: Tile) => !app.hiddenTiles.includes(tile);
   // The counts need the snapshot; without them there is no block to keep room for.
   const showOverview = $derived(shown('counts') && snapshot !== null);
@@ -150,6 +152,31 @@
                 >{markHidden(task.title)}</button
               >
               <span class="muted"><code>{task.id}</code></span>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
+
+    {#if shown('remind') && reminders.length > 0}
+      <section class="card" aria-label={t('remind.title')}>
+        <header>
+          <h2 class="eyebrow">{t('remind.title')} ({reminders.length})</h2>
+          <button
+            type="button"
+            class="hide"
+            aria-label={t('today.hide')}
+            title={t('today.hide')}
+            onclick={() => app.hideTile('remind')}>×</button
+          >
+        </header>
+        <ul class="plain">
+          {#each reminders.slice(0, 8) as task, i (`${task.id}:${i}`)}
+            <li>
+              <button type="button" class="link" onclick={() => open(task.id)}
+                >{markHidden(task.title)}</button
+              >
+              <span class="muted"><code>{task.id}</code> · {task.remind}</span>
             </li>
           {/each}
         </ul>

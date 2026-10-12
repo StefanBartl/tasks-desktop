@@ -14,7 +14,7 @@ export type Connection = 'live' | 'reconnecting' | 'offline';
 export type View = 'today' | 'list';
 export type Theme = 'auto' | 'light' | 'dark';
 /** The blocks of the Today view that a person may hide. */
-export const TILES = ['next', 'waiting', 'cdx', 'counts'] as const;
+export const TILES = ['next', 'waiting', 'remind', 'cdx', 'counts'] as const;
 export type Tile = (typeof TILES)[number];
 
 /** What the last write did, in one line; `undo` is the way back, when there is one. */
@@ -307,13 +307,22 @@ export class App {
     this.finishing = null;
   }
 
-  async confirmFinish(): Promise<void> {
+  /** `remind` (`+7d`, a date) sets a reminder on the finished task. */
+  async confirmFinish(remind?: string): Promise<void> {
     const finishing = this.finishing;
     if (!finishing?.preview.confirm) return;
     this.finishing = null;
-    await this.write([{ op: 'done', id: finishing.id, confirm: finishing.preview.confirm }], {
-      undoable: false,
-    });
+    await this.write(
+      [
+        {
+          op: 'done',
+          id: finishing.id,
+          confirm: finishing.preview.confirm,
+          ...(remind ? { remind } : {}),
+        },
+      ],
+      { undoable: false },
+    );
   }
 
   setShortAreas(on: boolean): void {

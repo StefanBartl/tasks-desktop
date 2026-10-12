@@ -3,6 +3,7 @@
   import { formatNumber, labelOf, translate, type Key } from '../lib/i18n';
   import { parseMarkdown } from '../lib/markdown';
   import { hasHidden, markHidden } from '../lib/text';
+  import { REMIND_CHOICES } from '../lib/remind';
   import Blocks from './Blocks.svelte';
 
   let { app }: { app: App } = $props();
@@ -93,6 +94,25 @@
           <option value="">–</option>
           {#each ACTORS as a (a)}
             <option value={a}>{labelOf(app.lang, 'actor', a)}</option>
+          {/each}
+        </select>
+      </label>
+      <label>
+        <span>{t('remind.field')}</span>
+        <select
+          value={task.remind ?? ''}
+          disabled={app.saving}
+          onchange={(e) => {
+            const value = e.currentTarget.value;
+            if (value !== (task.remind ?? '')) void app.setField(task.id, 'remind', value === '' ? null : value);
+          }}
+        >
+          <option value="">{t('remind.none')}</option>
+          {#if task.remind}<option value={task.remind}>{task.remind}</option>{/if}
+          {#each REMIND_CHOICES as choice (choice)}
+            <option value={choice}
+              >{choice === '+0d' ? t('remind.today') : t('remind.in', { n: choice.slice(1, -1) })}</option
+            >
           {/each}
         </select>
       </label>
