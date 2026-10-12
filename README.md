@@ -26,6 +26,10 @@ Nothing here is released.
 
 ```
 tasks-hub serve [--port 1024-65535]   run the hub until Ctrl-C
+tasks-hub start [--open]               run the hub in the background (no window; log: hub.log
+                                      in the config folder); --open also opens the browser
+tasks-hub stop                        stop the hub that runs in the background
+tasks-hub autostart on|off|status     start the hub with your login (Windows)
 tasks-hub open [--launch]             print a one-time pairing link for the running hub
                                       (--launch also opens it in the default browser)
 tasks-hub usage [--days=14]           on how many of the last days the interface was opened
@@ -46,7 +50,12 @@ tasks-hub areas check                               fails while an area has no d
 Which areas may leave the hub is decided per device in `areas.json` in the
 config folder; an area with no entry counts as unclassified and is released
 for nothing. `propose --write` writes `areas.proposed.json` next to it; the
-hub reads only `areas.json`. See [docs/SECURITY.md](docs/SECURITY.md).
+hub reads only `areas.json`.
+
+To not decide area by area, `areas.json` may carry `"default": "internal"`
+(or `public`, `private`): the class of every area the file does not name.
+An entry still wins, so `"secret": {"class": "private"}` stays private. Without
+`default` an area with no entry is unclassified. See [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Layout
 

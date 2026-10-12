@@ -396,3 +396,54 @@ fn a_broken_areas_file_stops_the_hub_instead_of_classifying_nothing() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("areas.json"));
     assert!(!config.join("hub.json").exists());
 }
+
+/// Stops a hub that `start` left behind, also when the test fails.
+struct Background(PathBuf);
+
+impl Drop for Background {
+    fn drop(&mut self) {
+        let _ = command(&self.0).arg("stop").output();
+    }
+}
+
+#[test]
+fn start_runs_the_hub_in_the_background_and_stop_ends_it() {
+    let config = temp_dir("background");
+    let port = free_port();
+    let _guard = Background(config.clone());
+
+    let started = command(&config)
+        .env("TASKS_DESKTOP_PORT", port.to_string())
+        .arg("start")
+        .output()
+        .unwrap();
+    assert!(
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    let text = String::from_utf8_lossy(&started.stdout).into_owned();
+    assert!(text.contains("runs in the background"), "{text}");
+
+    // A second start finds the first one and starts nothing.
+    let again = command(&config).arg("start").output().unwrap();
+    assert!(again.status.success());
+    assert!(
+        String::from_utf8_lossy(&again.stdout).contains("already running"),
+        "{}",
+        String::from_utf8_lossy(&again.stdout)
+    );
+
+    // The log of the hub is in the config folder.
+    assert!(config.join("hub.log").is_file());
+
+    let stopped = command(&config).arg("stop").output().unwrap();
+    assert!(
+        stopped.status.success(),
+        "{}",
+        String::from_utf8_lossy(&stopped.stderr)
+    );
+    assert!(String::from_utf8_lossy(&stopped.stdout).contains("is stopped"));
+    let none = command(&config).arg("stop").output().unwrap();
+    assert!(String::from_utf8_lossy(&none.stdout).contains("no hub is running"));
+}

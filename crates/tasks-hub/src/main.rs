@@ -1,9 +1,14 @@
 //! `tasks-hub serve | open | --version`
 
 use tasks_hub::app::{self, AreasCommand, ServeOptions};
+use tasks_hub::background::{self, Autostart};
 
 const USAGE: &str = "usage:
   tasks-hub serve [--port <1024-65535>]   run the hub until Ctrl-C
+  tasks-hub start [--open]                run the hub in the background (no window; log in
+                                          the config folder); --open also opens the browser
+  tasks-hub stop                          stop the hub that runs in the background
+  tasks-hub autostart on|off|status       start the hub with your login (Windows)
   tasks-hub open [--launch]               print a one-time pairing link for the running hub
                                           (--launch also opens it in the default browser)
   tasks-hub usage [--days=14]             on how many of the last days the interface was
@@ -69,6 +74,31 @@ async fn main() {
             Ok(port) => app::serve(ServeOptions { port }).await,
             Err(e) => Err(e),
         },
+        Some("start") if args.len() == 1 || (args.len() == 2 && args[1] == "--open") => {
+            match background::start().await {
+                Ok(text) => {
+                    print!("{text}");
+                    if args.len() == 2 {
+                        match app::open().await {
+                            Ok(url) => app::launch(&url),
+                            Err(e) => Err(e),
+                        }
+                    } else {
+                        Ok(())
+                    }
+                }
+                Err(e) => Err(e),
+            }
+        }
+        Some("stop") if args.len() == 1 => background::stop().await.map(|t| print!("{t}")),
+        Some("autostart") if args.len() == 2 => match args[1].as_str() {
+            "on" => Ok(Autostart::On),
+            "off" => Ok(Autostart::Off),
+            "status" => Ok(Autostart::Status),
+            _ => Err(USAGE.to_owned()),
+        }
+        .and_then(background::autostart)
+        .map(|t| print!("{t}")),
         Some("open") if args.len() == 1 => app::open().await.map(|url| println!("{url}")),
         Some("open") if args.len() == 2 && args[1] == "--launch" => match app::open().await {
             Ok(url) => {

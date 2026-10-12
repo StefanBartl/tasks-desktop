@@ -27,6 +27,11 @@ pub struct ServeOptions {
 }
 
 /// The folder for `hub.json` and `control.secret`.
+/// The config folder, for the commands of the other modules.
+pub(crate) fn config_folder(env: &Env) -> Result<PathBuf, String> {
+    app_dir(env)
+}
+
 fn app_dir(env: &Env) -> Result<PathBuf, String> {
     config::config_dir(env).ok_or_else(|| {
         "no config folder: set TASKS_DESKTOP_CONFIG_DIR (APPDATA, XDG_CONFIG_HOME or HOME is missing)"
@@ -55,7 +60,7 @@ fn wanted_port(opts: &ServeOptions, file: &FileConfig, env: &Env) -> Result<u16,
 
 /// Is a hub of this app running according to `hub.json`? It is only
 /// believed when the process on that port says the same instance.
-async fn running_hub(dir: &std::path::Path) -> Option<HubRecord> {
+pub(crate) async fn running_hub(dir: &std::path::Path) -> Option<HubRecord> {
     let record = registry::read_record(dir).ok().flatten()?;
     if record.app != APP_NAME {
         return None;

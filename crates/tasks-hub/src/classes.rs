@@ -9,9 +9,14 @@
 //!
 //! ```json
 //! { "schema": 1,
+//!   "default": "internal",
 //!   "areas": { "lib.nvim": { "class": "internal", "repo": "lib.nvim" },
 //!              "secret-area": { "class": "private" } } }
 //! ```
+//!
+//! `default` is optional and is the owner's explicit choice of a class for
+//! every area the file does not name (a new area needs no decision then).
+//! Without it an area with no entry stays unclassified.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -73,6 +78,9 @@ pub struct Entry {
 #[serde(deny_unknown_fields)]
 struct File {
     schema: u32,
+    /// The class of an area that has no entry (the owner's explicit choice).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    default: Option<Class>,
     areas: BTreeMap<String, Entry>,
 }
 
@@ -88,6 +96,7 @@ const MAX_FILE_BYTES: u64 = 256 * 1024;
 #[derive(Debug, Clone, Default)]
 pub struct AreaPolicy {
     areas: BTreeMap<String, Entry>,
+    default: Option<Class>,
 }
 
 /// Why `areas.json` is not usable. The hub does not start with a file it
@@ -142,7 +151,18 @@ impl AreaPolicy {
                 return Err(format!("area {name:?}: repo {repo:?} is not a plain name"));
             }
         }
-        Ok(Self { areas })
+        Ok(Self {
+            areas,
+            default: None,
+        })
+    }
+
+    /// The class of an area the entries do not name. `None` keeps such an
+    /// area unclassified.
+    #[must_use]
+    pub fn with_default(mut self, default: Option<Class>) -> Self {
+        self.default = default;
+        self
     }
 
     /// Load `areas.json` from the config folder. No file is a policy in
@@ -176,13 +196,15 @@ impl AreaPolicy {
                 format!("schema {} is not {SCHEMA}", parsed.schema),
             ));
         }
-        Self::new(parsed.areas).map_err(|why| ClassesError::Invalid(file_path, why))
+        Self::new(parsed.areas)
+            .map(|p| p.with_default(parsed.default))
+            .map_err(|why| ClassesError::Invalid(file_path, why))
     }
 
     /// The class an area is shown with.
     #[must_use]
     pub fn shown(&self, area: &str) -> Shown {
-        match self.areas.get(area).map(|e| e.class) {
+        match self.areas.get(area).map(|e| e.class).or(self.default) {
             Some(Class::Public) => Shown::Public,
             Some(Class::Internal) => Shown::Internal,
             Some(Class::Private) => Shown::Private,
@@ -290,6 +312,7 @@ pub fn propose<'a>(
     AreaPolicy::new(map.clone())?;
     let file = File {
         schema: SCHEMA,
+        default: existing.default,
         areas: map,
     };
     serde_json::to_string_pretty(&file)
@@ -323,6 +346,22 @@ mod tests {
         let policy = AreaPolicy::load(&dir).unwrap();
         assert!(policy.is_empty());
         assert_eq!(policy.shown("anything"), Shown::Unclassified);
+    }
+
+    #[test]
+    fn a_default_class_covers_the_areas_without_an_entry() {
+        let text = r#"{"schema":1,"default":"internal",
+            "areas":{"secret-area":{"class":"private"}}}"#;
+        let policy = AreaPolicy::load(&temp("default", text)).unwrap();
+        assert_eq!(policy.shown("anything"), Shown::Internal);
+        assert!(policy.allows("anything", Use::ClientCache));
+        // An entry wins over the default, in both directions.
+        assert_eq!(policy.shown("secret-area"), Shown::Private);
+        assert!(!policy.allows("secret-area", Use::ClientCache));
+        assert!(policy.unclassified(["anything", "x"]).is_empty());
+        // A proposal keeps the choice.
+        let out = propose(["anything"], &[], &policy, &|_| false).unwrap();
+        assert!(out.contains("\"default\": \"internal\""), "{out}");
     }
 
     #[test]

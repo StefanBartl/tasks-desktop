@@ -260,9 +260,14 @@ test('a word that is only in the text of a task finds the task, with the place',
   // The area that was chosen holds for the text as well.
   await page.getByPlaceholder('Search id and title').fill('tracker.invalid');
   await expect(hit).toBeVisible();
-  await page.getByLabel('Area').selectOption('cascade.nvim');
+  await page.getByRole('button', { name: 'Areas' }).click();
+  await page.getByRole('checkbox', { name: 'cascade.nvim' }).check();
   await expect(hit).toHaveCount(0);
-  await page.getByLabel('Area').selectOption('');
+  // A second area added: any of them counts, so the hit of the first is back.
+  await page.getByRole('checkbox', { name: 'lib.nvim' }).check();
+  await expect(hit).toBeVisible();
+  await page.getByRole('button', { name: 'Clear selection' }).click();
+  await page.keyboard.press('Escape');
   await expect(hit).toBeVisible();
   // Nothing in the text either: said so.
   await page.getByPlaceholder('Search id and title').fill('zzzqqqxxx');
@@ -355,4 +360,38 @@ test('a key that is not part of the chord is left alone', async ({ page }) => {
   await page.keyboard.press('g');
   await page.keyboard.press('l');
   await expect(page.locator('button.row').first()).toBeVisible();
+});
+
+test('the overview is at the top right, tiles can be put away, choices combine', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await expect(page.getByText('Next task')).toBeVisible();
+
+  // The counts stand to the right of the work and in view without scrolling.
+  const overview = page.locator('aside.overview');
+  await expect(overview).toBeVisible();
+  const box = await overview.boundingBox();
+  const size = page.viewportSize();
+  expect(box && size && box.x > size.width / 2 && box.y < size.height / 2).toBe(true);
+
+  // A tile can be put away; it stays away after a reload.
+  await page.getByRole('button', { name: 'Hide this tile' }).first().click();
+  await expect(overview).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByText('Next task')).toBeVisible();
+  await expect(overview).toHaveCount(0);
+  await page.getByRole('button', { name: /Hidden tiles \(1\)/ }).click();
+  await expect(overview).toBeVisible();
+
+  // The name of a choice is the button, not an option of it.
+  await showList(page);
+  const status = page.getByRole('button', { name: 'Status', exact: true });
+  await status.click();
+  await expect(page.getByRole('checkbox', { name: 'Status' })).toHaveCount(0);
+  await page.getByRole('checkbox', { name: 'doing' }).check();
+  await page.getByRole('checkbox', { name: 'open', exact: true }).check();
+  await expect(page.getByRole('button', { name: 'Status: 2' })).toBeVisible();
+  expect(await violations(page)).toEqual([]);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('checkbox', { name: 'doing' })).toHaveCount(0);
 });
