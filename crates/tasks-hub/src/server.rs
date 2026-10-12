@@ -662,14 +662,29 @@ fn set_security_headers(response: &mut Response, class: Class) {
         HeaderValue::from_static("same-origin"),
     );
     if class == Class::Shell {
-        // The strict policy with Trusted Types comes with the UI (package 6);
-        // this is the floor that already holds for the placeholder page.
+        // Nothing is allowed that the page does not name. Scripts and styles
+        // come from this origin only (no inline), and a sink that takes a
+        // string as HTML or script (`innerHTML`, `eval`) is refused unless
+        // the one policy of the page made it: Svelte's own, which wraps
+        // nothing a task's text could reach (the body is drawn as elements).
         h.insert(
             header::CONTENT_SECURITY_POLICY,
             HeaderValue::from_static(
-                "default-src 'self'; script-src 'self'; style-src 'self'; \
+                "default-src 'none'; script-src 'self'; style-src 'self'; \
                  img-src 'self'; connect-src 'self'; base-uri 'none'; \
-                 object-src 'none'; frame-ancestors 'none'; form-action 'none'",
+                 object-src 'none'; frame-ancestors 'none'; form-action 'none'; \
+                 require-trusted-types-for 'script'; trusted-types svelte-trusted-html",
+            ),
+        );
+        h.insert(
+            HeaderName::from_static("cross-origin-opener-policy"),
+            HeaderValue::from_static("same-origin"),
+        );
+        h.insert(
+            HeaderName::from_static("permissions-policy"),
+            HeaderValue::from_static(
+                "camera=(), microphone=(), geolocation=(), payment=(), usb=(), \
+                 clipboard-read=(), clipboard-write=()",
             ),
         );
     }

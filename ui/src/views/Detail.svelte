@@ -1,7 +1,9 @@
 <script lang="ts">
   import type { App } from '../lib/app.svelte';
   import { formatNumber, labelOf, translate, type Key } from '../lib/i18n';
+  import { parseMarkdown } from '../lib/markdown';
   import { hasHidden, markHidden } from '../lib/text';
+  import Blocks from './Blocks.svelte';
 
   let { app }: { app: App } = $props();
 
@@ -11,6 +13,8 @@
   const task = $derived(app.selected);
   const detail = $derived(app.detail);
   const body = $derived(detail.state === 'ok' ? detail.doc.body : '');
+  let raw = $state(false);
+  const blocks = $derived(raw ? [] : parseMarkdown(body));
   const byId = $derived(new Map(app.tasks.map((x) => [x.id, x] as const)));
 
   const unknown = '?';
@@ -27,7 +31,7 @@
   {#if !task}
     <p class="muted">{t('detail.none')}</p>
   {:else}
-    <h1>{markHidden(task.title)}</h1>
+    <h2 class="task-title">{markHidden(task.title)}</h2>
     <p class="id"><code>{task.id}</code></p>
 
     {#if task.problems.length > 0 || !task.valid}
@@ -110,10 +114,20 @@
           {/each}
         </ul>
       {/if}
-      <h3>{t('detail.body')}</h3>
+      <h3>
+        {t('detail.body')}
+        <button type="button" class="switch" aria-pressed={raw} onclick={() => (raw = !raw)}
+          >{raw ? t('detail.view_rendered') : t('detail.view_raw')}</button
+        >
+      </h3>
       {#if hasHidden(body)}<p class="warn">{t('detail.invisible')}</p>{/if}
-      <!-- Text only: the body is untrusted and is never turned into HTML. -->
-      <pre class="body">{markHidden(body)}</pre>
+      <!-- The body is untrusted: it is read into a tree and drawn as
+           elements; it never becomes an HTML string. -->
+      {#if raw}
+        <pre class="body">{markHidden(body)}</pre>
+      {:else}
+        <div class="body prose"><Blocks {blocks} /></div>
+      {/if}
       {#if detail.doc.body_truncated}<p class="muted">{t('detail.body_truncated')}</p>{/if}
     {/if}
 
@@ -130,6 +144,9 @@
     padding: 1rem;
     overflow: auto;
     min-height: 0;
+  }
+  .task-title {
+    font-size: 1.25rem;
   }
   .id {
     margin: -0.25rem 0 0.75rem;
@@ -189,6 +206,21 @@
     padding: 0.75rem;
     max-height: 24rem;
     overflow: auto;
+  }
+  .switch {
+    margin-left: 0.5rem;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0 0.4rem;
+    cursor: pointer;
+    font-size: 0.75rem;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--muted);
+  }
+  .prose {
+    white-space: normal;
   }
   .file {
     overflow-wrap: anywhere;

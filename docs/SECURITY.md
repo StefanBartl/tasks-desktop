@@ -180,13 +180,34 @@ cache) do not exist yet; the rules are in place and tested for them.
 
 ## The interface
 
-The page and its files are read once at start into a table keyed by the
-name that is asked for (`index.html`, `assets/<plain name>`); a request is
-answered from the table or is a `404`, so no path is built or opened per
-request. Only `.html`, `.js`, `.css`, `.json`, `.svg`, `.png`, `.ico` and
-`.woff2` are taken, each up to 4 MiB. The page has `script-src`, `style-src`,
-`img-src` and `connect-src` of `'self'` only (the strict policy with Trusted
-Types is package 6), no inline script, no inline style.
+The page and its files are embedded in the binary (`build.rs`) into a table
+keyed by the name that is asked for (`index.html`, `assets/<plain name>`); a
+request is answered from the table or is a `404`, so no path is built or
+opened per request and no folder is searched for. Only `.html`, `.js`,
+`.css`, `.json`, `.svg`, `.png`, `.ico` and `.woff2` are taken, each up to
+4 MiB. `TASKS_HUB_UI_DIR` replaces the embedded files by a folder (a
+development setting).
+
+The page is sent with
+
+```
+default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self';
+connect-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none';
+form-action 'none'; require-trusted-types-for 'script';
+trusted-types svelte-trusted-html
+```
+
+and `Cross-Origin-Opener-Policy: same-origin` and a `Permissions-Policy` that
+turns off the device and clipboard features. There is no `unsafe-inline` and
+no `unsafe-eval`. A sink that takes a string as HTML or script
+(`innerHTML`, `insertAdjacentHTML`, `document.write`, `script.src`) throws
+unless Svelte's one policy made the value; the browser tests assert that.
+The task text never reaches such a sink: the body of a task is read by
+markdown-it (`html: false`) into a tree and drawn as elements, so a
+sanitizer has nothing to miss. A link becomes a link only for `http:`,
+`https:` and `mailto:` (an allow-list; markdown-it's own refusal is the
+first wall), with `rel="noopener noreferrer nofollow"`; an image is its
+description as text and is never requested.
 
 In the browser the pairing code is taken out of the address bar before
 anything else runs; the session token lives in `sessionStorage` of the tab,
@@ -229,10 +250,11 @@ in the page (WCAG 2.1.4).
 * **The terminal and the browser history.** The pairing link lives in the
   URL fragment; it ends up in the terminal that ran `tasks-hub open` and in
   the browser's history. That is why the code is single use and lives 60 s.
-* **A page script in the app's own origin.** Once the interface exists, a
-  cross-site script in the page would own the session. The strict
-  Content-Security-Policy and Trusted Types of the interface are the answer;
-  they are not in place yet.
+* **A page script in the app's own origin.** A script in the page would own
+  the session (the token is in `sessionStorage`). The policy above and the
+  absence of any HTML sink are the answer; a compromised npm package in the
+  bundle is not stopped by them. That is what the age rule of seven days,
+  the lockfile and the short list of dependencies are for.
 * **Untrusted task files.** The data routes return titles and bodies as the
   engine read them. The interface shows them as text only; a client that
   renders them as HTML is on its own. Data classes (`areas.json`) decide

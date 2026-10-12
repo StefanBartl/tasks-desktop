@@ -69,10 +69,16 @@ pnpm build        # ui/dist
 pnpm check && pnpm test
 ```
 
-The hub serves `ui/dist` at `/` (`TASKS_HUB_UI_DIR`, else `ui/` next to the
-binary, else the `ui/dist` of the repository the binary was built in) and
-reads it once at start: restart the hub after a build. Without a build it
-shows a placeholder. The interface lists the vault in the engine's own order (it
+The interface is part of the binary: `build.rs` embeds `ui/dist`, so build
+the interface first and the hub after (`pnpm build`, then `cargo build`). A
+hub built without `ui/dist` shows a placeholder page. For work on the
+interface `TASKS_HUB_UI_DIR=<folder>` serves a build from disk instead,
+read once at start.
+
+```
+pnpm e2e          # the browser tests: needs target/debug/tasks-hub, the engine
+                  # (TASKS_ENGINE_DIR, LIB_NVIM_DIR) and Chrome; nothing is downloaded
+``` The interface lists the vault in the engine's own order (it
 never sorts), shows a task with its steps and its text (as text only),
 follows the hub's event stream and asks for a scan when the window gets the
 focus back. German and English, light and dark.

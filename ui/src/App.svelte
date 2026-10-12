@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { App } from './lib/app.svelte';
-  import { ago, translate, type Key } from './lib/i18n';
+  import { ago, dictionaries, translate, type Key } from './lib/i18n';
   import Today from './views/Today.svelte';
   import ListView from './views/ListView.svelte';
 
@@ -87,6 +87,13 @@
         break;
     }
   }
+
+  // The code of the hub names what is missing; a code this page does not
+  // know gets the general words.
+  const setupKey = $derived.by(() => {
+    const code = app.problem ?? '';
+    return Object.hasOwn(dictionaries.en, `setup.${code}.title`) ? code : 'unknown';
+  });
 
   const age = $derived(app.cachedAt === null ? '' : ago(app.lang, Date.now() - app.cachedAt));
 </script>
@@ -174,8 +181,9 @@
         </section>
       {:else if app.phase === 'unavailable'}
         <section class="card centered">
-          <h1>{t('state.unavailable.title')}</h1>
-          <p>{t('state.unavailable.body')} <code>{app.problem}</code></p>
+          <h1>{t(`setup.${setupKey}.title` as Key)}</h1>
+          <p>{t(`setup.${setupKey}.body` as Key)}</p>
+          <p class="muted">{t('state.unavailable.body')} <code>{app.problem ?? '?'}</code></p>
         </section>
       {:else}
         {#if app.cachedAt !== null}
@@ -184,6 +192,7 @@
         {#if (app.snapshot?.incomplete.length ?? 0) > 0}
           <p class="banner" role="alert">{t('data.incomplete')}</p>
         {/if}
+        <h1 class="sr-only">{app.view === 'today' ? t('nav.today') : t('nav.list')}</h1>
         {#if app.view === 'today'}
           <Today {app} />
         {:else}
@@ -268,7 +277,8 @@
     overflow: auto;
     padding: 1rem;
   }
-  .note {
+  .note,
+  .muted {
     color: var(--muted);
   }
   .card {

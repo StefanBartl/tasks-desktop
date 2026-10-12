@@ -41,7 +41,7 @@
 
 <div class="today">
   <section class="card next" aria-label={t('today.next')}>
-    <h3>{t('today.next')}</h3>
+    <h2 class="eyebrow">{t('today.next')}</h2>
     {#if next?.task}
       <button type="button" class="big" onclick={() => open(next.task!.id)}>
         {markHidden(next.task.title)}
@@ -54,7 +54,7 @@
         {#if why(next.task)} · {why(next.task)}{/if}
       </p>
       {#if next.alternatives.length > 0}
-        <h3>{t('today.alternatives')}</h3>
+        <h2 class="eyebrow">{t('today.alternatives')}</h2>
         <ul class="plain">
           {#each next.alternatives as alt, i (`${alt.id}:${i}`)}
             <li>
@@ -87,7 +87,7 @@
   </section>
 
   <section class="card" aria-label={t('today.waiting')}>
-    <h3>{t('today.waiting')} ({waiting.length})</h3>
+    <h2 class="eyebrow">{t('today.waiting')} ({waiting.length})</h2>
     <ul class="plain">
       {#each waiting as task, i (`${task.id}:${i}`)}
         <li>
@@ -102,7 +102,7 @@
 
   {#if next && next.cdx.length > 0}
     <section class="card" aria-label={t('today.cdx')}>
-      <h3>{t('today.cdx')} ({next.cdx.length})</h3>
+      <h2 class="eyebrow">{t('today.cdx')} ({next.cdx.length})</h2>
       <ul class="plain">
         {#each next.cdx.slice(0, 8) as brief, i (`${brief.id}:${i}`)}
           <li>
@@ -153,6 +153,13 @@
     text-align: left;
     cursor: pointer;
     color: var(--accent);
+  }
+  .eyebrow {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 0.5em;
   }
   .id {
     margin: 0.2rem 0;

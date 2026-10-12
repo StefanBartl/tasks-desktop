@@ -1,19 +1,22 @@
 //! The files of the user interface, held in memory.
 //!
-//! The built UI (`ui/dist`) is read once at start into a table keyed by the
-//! name the page asks for. A request is answered from the table or not at
-//! all: no path is ever joined and opened per request, so there is nothing
-//! to traverse. Package 6 replaces the source of the table with the files
-//! embedded in the binary; the table stays.
+//! The built UI (`ui/dist`) is embedded in the binary by `build.rs`; for
+//! development `TASKS_HUB_UI_DIR` names a folder that is read once at start
+//! instead. Either way the files sit in a table keyed by the name the page
+//! asks for. A request is answered from the table or not at all: no path is
+//! ever joined and opened per request, so there is nothing to traverse, and
+//! there is no search for a folder that scripts could be planted in.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use axum::body::Bytes;
 
 /// The most one file may be, and all together.
 const MAX_FILE: u64 = 4 * 1024 * 1024;
 const MAX_TOTAL: u64 = 32 * 1024 * 1024;
+
+include!(concat!(env!("OUT_DIR"), "/ui_embedded.rs"));
 
 #[derive(Clone)]
 pub struct UiFile {
@@ -31,6 +34,25 @@ impl UiFiles {
     #[must_use]
     pub fn none() -> Self {
         Self::default()
+    }
+
+    /// The interface that is part of this binary (empty when the binary was
+    /// built without `ui/dist`).
+    #[must_use]
+    pub fn embedded() -> Self {
+        let files = EMBEDDED
+            .iter()
+            .map(|(key, content_type, bytes)| {
+                (
+                    (*key).to_owned(),
+                    UiFile {
+                        bytes: Bytes::from_static(bytes),
+                        content_type,
+                    },
+                )
+            })
+            .collect();
+        Self { files }
     }
 
     /// Is there a page to serve?
@@ -132,37 +154,10 @@ fn content_type(path: &Path) -> Option<&'static str> {
     })
 }
 
-/// Where a built interface may be: the setting, else next to the binary
-/// (`ui/`), else the `ui/dist` of the repository the binary was built in
-/// (`<repo>/target/<profile>/tasks-hub`, with a `Cargo.toml` in `<repo>`).
-///
-/// Scripts of this folder run in the origin that holds the session, so it is
-/// not looked for anywhere else: a binary in some `bin` folder must not pick
-/// up whatever `ui/dist` sits two levels above it.
-#[must_use]
-pub fn find_dir(setting: Option<&Path>, exe: Option<&Path>) -> Option<PathBuf> {
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Some(dir) = setting {
-        candidates.push(dir.to_path_buf());
-    }
-    if let Some(exe_dir) = exe.and_then(Path::parent) {
-        candidates.push(exe_dir.join("ui"));
-        let repo = exe_dir
-            .parent()
-            .filter(|target| target.file_name().is_some_and(|name| name == "target"))
-            .and_then(Path::parent)
-            .filter(|root| root.join("Cargo.toml").is_file());
-        if let Some(root) = repo {
-            candidates.push(root.join("ui").join("dist"));
-        }
-    }
-    candidates
-        .into_iter()
-        .find(|dir| dir.join("index.html").is_file())
-}
-
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     fn temp(name: &str) -> PathBuf {
@@ -218,31 +213,6 @@ mod tests {
         std::fs::write(dir.join("assets").join("big.js"), big).unwrap();
         assert!(UiFiles::load(&dir).is_err());
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn the_folder_is_looked_for_only_where_it_belongs() {
-        let root = temp("find");
-        let debug = root.join("target").join("debug");
-        std::fs::create_dir_all(&debug).unwrap();
-        std::fs::create_dir_all(root.join("ui").join("dist")).unwrap();
-        std::fs::write(root.join("ui").join("dist").join("index.html"), "x").unwrap();
-        let exe = debug.join("tasks-hub");
-        // No Cargo.toml: not the repository of the binary.
-        assert_eq!(find_dir(None, Some(&exe)), None);
-        std::fs::write(root.join("Cargo.toml"), "").unwrap();
-        assert_eq!(
-            find_dir(None, Some(&exe)),
-            Some(root.join("ui").join("dist"))
-        );
-        // A binary somewhere else does not reach up to find one.
-        let elsewhere = root.join("bin").join("deeper");
-        std::fs::create_dir_all(&elsewhere).unwrap();
-        assert_eq!(find_dir(None, Some(&elsewhere.join("tasks-hub"))), None);
-        // The setting wins.
-        let set = root.join("ui").join("dist");
-        assert_eq!(find_dir(Some(&set), None), Some(set.clone()));
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

@@ -59,6 +59,17 @@ async fn the_page_and_its_assets_are_served_with_the_page_headers() {
     let csp = page.header("content-security-policy").expect("a CSP");
     assert!(csp.contains("script-src 'self'"), "{csp}");
     assert!(csp.contains("frame-ancestors 'none'"), "{csp}");
+    assert!(csp.contains("default-src 'none'"), "{csp}");
+    assert!(csp.contains("require-trusted-types-for 'script'"), "{csp}");
+    assert!(csp.contains("trusted-types svelte-trusted-html"), "{csp}");
+    assert!(
+        !csp.contains("unsafe-inline") && !csp.contains("unsafe-eval"),
+        "{csp}"
+    );
+    assert_eq!(
+        page.header("cross-origin-opener-policy"),
+        Some("same-origin")
+    );
     assert_eq!(page.header("cache-control"), Some("no-store"));
 
     let js = client::request(port, "GET", "/assets/app-1.js", &[], "")
@@ -121,4 +132,29 @@ async fn without_an_interface_there_is_a_placeholder_and_no_assets() {
         .await
         .unwrap();
     assert_eq!(asset.status, 404);
+}
+
+#[test]
+fn the_interface_in_the_binary_is_the_build_there_is() {
+    let index = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("ui")
+        .join("dist")
+        .join("index.html");
+    let embedded = UiFiles::embedded();
+    assert_eq!(embedded.has_index(), index.is_file());
+    if embedded.has_index() {
+        let page = embedded.get("/").expect("the page");
+        assert!(page.content_type.starts_with("text/html"));
+        // The page names its scripts under /assets/, and they are there.
+        let html = String::from_utf8_lossy(&page.bytes).into_owned();
+        let src = html
+            .split("src=\"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .expect("a script");
+        let name = src.trim_start_matches("./");
+        assert!(embedded.get(&format!("/{name}")).is_some(), "{src}");
+    }
 }

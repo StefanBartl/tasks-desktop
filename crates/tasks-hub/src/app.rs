@@ -194,13 +194,9 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
     }
     let status = state.status.clone();
 
-    // The built interface: `TASKS_HUB_UI_DIR`, else next to the binary or in
-    // the repository's `ui/dist`. Without one the hub shows a placeholder.
-    let ui_setting = env.path("TASKS_HUB_UI_DIR");
-    let ui = match crate::ui::find_dir(
-        ui_setting.as_deref(),
-        std::env::current_exe().ok().as_deref(),
-    ) {
+    // The interface is part of the binary. `TASKS_HUB_UI_DIR` names a built
+    // folder to use instead (development: no rebuild of the binary).
+    let ui = match env.path("TASKS_HUB_UI_DIR") {
         Some(dir) => match crate::ui::UiFiles::load(&dir) {
             Ok(files) => files,
             Err(e) => {
@@ -208,10 +204,10 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
                     "note: the interface in {} cannot be used: {e}",
                     dir.display()
                 );
-                crate::ui::UiFiles::none()
+                crate::ui::UiFiles::embedded()
             }
         },
-        None => crate::ui::UiFiles::none(),
+        None => crate::ui::UiFiles::embedded(),
     };
 
     let control = Secret::generate(TOKEN_BYTES).map_err(|e| e.to_string())?;
