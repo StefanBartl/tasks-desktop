@@ -234,6 +234,15 @@ export async function startHub(): Promise<Running & { root: string }> {
     }
     await new Promise((r) => setTimeout(r, 200));
   }
+  // The port answers before `hub.json` is written, and `tasks-hub open` (the
+  // pairing of the tests) needs that file.
+  while (!existsSync(join(config, 'hub.json'))) {
+    if (Date.now() > deadline) {
+      child.kill();
+      throw new Error('the hub answers but wrote no hub.json');
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
   try {
     await assertFreshBinary();
   } catch (error) {
