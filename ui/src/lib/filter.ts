@@ -4,18 +4,24 @@
 import type { TaskEntry } from './contract';
 
 export interface Filter {
-  area: string | null;
-  status: string | null;
-  actor: string | null;
+  /** Tasks of any of these areas; none chosen means every area. */
+  areas: string[];
+  /** Any of these statuses. */
+  statuses: string[];
+  /** Any of these actors; `none` is a task nobody classified. */
+  actors: string[];
   query: string;
 }
 
-export const emptyFilter: Filter = { area: null, status: null, actor: null, query: '' };
+export const emptyFilter: Filter = { areas: [], statuses: [], actors: [], query: '' };
+
+/** A task with no `actor` is chosen by this word. */
+export const NO_ACTOR = 'none';
 
 export function matches(task: TaskEntry, filter: Filter): boolean {
-  if (filter.area !== null && task.area !== filter.area) return false;
-  if (filter.status !== null && task.status !== filter.status) return false;
-  if (filter.actor !== null && task.actor !== filter.actor) return false;
+  if (filter.areas.length > 0 && !filter.areas.includes(task.area)) return false;
+  if (filter.statuses.length > 0 && !filter.statuses.includes(task.status ?? '')) return false;
+  if (filter.actors.length > 0 && !filter.actors.includes(task.actor ?? NO_ACTOR)) return false;
   const query = filter.query.trim().toLowerCase();
   if (query !== '') {
     const hay = `${task.id} ${task.title}`.toLowerCase();
@@ -25,6 +31,23 @@ export function matches(task: TaskEntry, filter: Filter): boolean {
     }
   }
   return true;
+}
+
+/** Switch one value of a chosen list on or off. */
+export function toggled(list: readonly string[], value: string): string[] {
+  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
+}
+
+/**
+ * The name of an area as it is shown. A folder of the vault may carry the
+ * prefix `wkdbook-`; it is left out when that makes no second area look
+ * alike. The task ids keep the real name.
+ */
+export function areaLabel(name: string, all: readonly string[]): string {
+  const short = name.replace(/^wkdbook-/i, '');
+  if (short === '' || short === name) return name;
+  const taken = all.some((other) => other !== name && other.toLowerCase() === short.toLowerCase());
+  return taken ? name : short;
 }
 
 export function applyFilter(tasks: readonly TaskEntry[], filter: Filter): TaskEntry[] {

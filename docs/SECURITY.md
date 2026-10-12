@@ -160,6 +160,11 @@ area is released for nothing that leaves the hub.
 | `private` | no | no | no |
 | unclassified | no | no | no |
 
+The file may name a `"default"` class: the owner's explicit choice for every
+area it has no entry for (a new area then needs no decision, and an entry
+still wins). It is a per-device choice like the rest of the file and absent
+by default, so nothing is released that nobody said.
+
 The user always sees every area on this machine; `GET /api/tasks/areas`
 adds `data_class` to each and lists `unclassified` and `private`, so a new
 area shows up as a decision to make instead of a quiet default.

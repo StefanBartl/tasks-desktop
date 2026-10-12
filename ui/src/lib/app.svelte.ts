@@ -12,6 +12,9 @@ export type Phase = 'starting' | 'needs_pairing' | 'offline' | 'unavailable' | '
 export type Connection = 'live' | 'reconnecting' | 'offline';
 export type View = 'today' | 'list';
 export type Theme = 'auto' | 'light' | 'dark';
+/** The blocks of the Today view that a person may hide. */
+export const TILES = ['next', 'waiting', 'cdx', 'counts'] as const;
+export type Tile = (typeof TILES)[number];
 
 export type Detail =
   | { state: 'none' }
@@ -61,6 +64,18 @@ function safe<T>(work: () => T): T | null {
   }
 }
 
+/** The remembered hidden blocks; anything that is not a known block is dropped. */
+function parseTiles(text: string | null): Tile[] {
+  if (!text) return [];
+  try {
+    const value: unknown = JSON.parse(text);
+    if (!Array.isArray(value)) return [];
+    return TILES.filter((t) => value.includes(t));
+  } catch {
+    return [];
+  }
+}
+
 export class App {
   phase = $state<Phase>('starting');
   problem = $state<string | null>(null);
@@ -70,7 +85,9 @@ export class App {
   theme = $state<Theme>('auto');
   /** Single-key shortcuts; a person with assistive software may turn them off. */
   shortcuts = $state(true);
-  filter = $state<Filter>({ ...emptyFilter });
+  filter = $state<Filter>({ ...emptyFilter, areas: [], statuses: [], actors: [] });
+  /** Blocks of the Today view the person put away. */
+  hiddenTiles = $state<Tile[]>([]);
   selectedId = $state<string | null>(null);
 
   tasks = $state.raw<TaskEntry[]>([]);
@@ -95,6 +112,8 @@ export class App {
     const theme = safe(() => env.prefs.getItem('tasks-desktop.theme'));
     this.theme = theme === 'light' || theme === 'dark' ? theme : 'auto';
     this.shortcuts = safe(() => env.prefs.getItem('tasks-desktop.shortcuts')) !== 'off';
+    const hidden = safe(() => env.prefs.getItem('tasks-desktop.tiles-hidden'));
+    this.hiddenTiles = parseTiles(hidden);
     // The page opens on the view it was left on.
     this.view = safe(() => env.prefs.getItem('tasks-desktop.view')) === 'list' ? 'list' : 'today';
   }
@@ -123,6 +142,21 @@ export class App {
   setShortcuts(on: boolean): void {
     this.shortcuts = on;
     safe(() => this.env.prefs.setItem('tasks-desktop.shortcuts', on ? 'on' : 'off'));
+  }
+
+  hideTile(tile: Tile): void {
+    if (this.hiddenTiles.includes(tile)) return;
+    this.hiddenTiles = [...this.hiddenTiles, tile];
+    this.saveTiles();
+  }
+
+  showTiles(): void {
+    this.hiddenTiles = [];
+    this.saveTiles();
+  }
+
+  private saveTiles(): void {
+    safe(() => this.env.prefs.setItem('tasks-desktop.tiles-hidden', JSON.stringify(this.hiddenTiles)));
   }
 
   setTheme(theme: Theme): void {

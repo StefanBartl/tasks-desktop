@@ -6,6 +6,7 @@
 //! give way to a persistent host without touching the routes.
 
 pub mod app;
+pub mod background;
 pub mod classes;
 pub mod client;
 pub mod config;

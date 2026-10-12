@@ -4,6 +4,8 @@
   import Detail from './Detail.svelte';
   import TextHits from './TextHits.svelte';
   import TaskRow from './TaskRow.svelte';
+  import MultiSelect from './MultiSelect.svelte';
+  import { areaLabel } from '../lib/filter';
 
   let { app, searchBox = $bindable(null) }: { app: App; searchBox?: HTMLInputElement | null } =
     $props();
@@ -12,7 +14,16 @@
     translate(app.lang, key, params);
 
   const statuses = ['doing', 'decision', 'blocked', 'open', 'parked'] as const;
-  const actors = ['me', 'cdx', 'pair'] as const;
+  const actors = ['me', 'cdx', 'pair', 'none'] as const;
+  const areaOptions = $derived(
+    app.areaNames
+      .map((name) => ({
+        value: name,
+        label: areaLabel(name, app.areaNames),
+        title: name,
+      }))
+      .sort((x, y) => x.label.localeCompare(y.label)),
+  );
   const shown = $derived(app.shown);
 
   // The first rows are drawn at once and the rest in the frames after: a
@@ -44,9 +55,6 @@
     return () => cancelAnimationFrame(frame);
   });
 
-  function pick(value: string): string | null {
-    return value === '' ? null : value;
-  }
 </script>
 
 <div class="split">
@@ -60,36 +68,34 @@
         value={app.filter.query}
         oninput={(e) => app.setQuery(e.currentTarget.value)}
       />
-      <select
-        aria-label={t('nav.areas')}
-        value={app.filter.area ?? ''}
-        onchange={(e) => (app.filter = { ...app.filter, area: pick(e.currentTarget.value) })}
-      >
-        <option value="">{t('nav.all')}</option>
-        {#each app.areaNames as name (name)}
-          <option value={name}>{name}</option>
-        {/each}
-      </select>
-      <select
-        aria-label={t('list.filter.status')}
-        value={app.filter.status ?? ''}
-        onchange={(e) => (app.filter = { ...app.filter, status: pick(e.currentTarget.value) })}
-      >
-        <option value="">{t('list.filter.status')}</option>
-        {#each statuses as status (status)}
-          <option value={status}>{t(`status.${status}` as Key)}</option>
-        {/each}
-      </select>
-      <select
-        aria-label={t('list.filter.actor')}
-        value={app.filter.actor ?? ''}
-        onchange={(e) => (app.filter = { ...app.filter, actor: pick(e.currentTarget.value) })}
-      >
-        <option value="">{t('list.filter.actor')}</option>
-        {#each actors as actor (actor)}
-          <option value={actor}>{t(`actor.${actor}` as Key)}</option>
-        {/each}
-      </select>
+      <MultiSelect
+        label={t('nav.areas')}
+        options={areaOptions}
+        selected={app.filter.areas}
+        onchange={(areas) => (app.filter = { ...app.filter, areas })}
+        resetLabel={t('multi.reset')}
+        searchLabel={t('multi.search')}
+      />
+      <MultiSelect
+        label={t('list.filter.status')}
+        options={statuses.map((s) => ({ value: s, label: t(`status.${s}` as Key) }))}
+        selected={app.filter.statuses}
+        onchange={(statuses) => (app.filter = { ...app.filter, statuses })}
+        resetLabel={t('multi.reset')}
+        searchLabel={t('multi.search')}
+      />
+      <MultiSelect
+        label={t('list.filter.actor')}
+        options={actors.map((a) => ({
+          value: a,
+          label: t(`actor.${a}` as Key),
+          title: t(`actor.${a}.hint` as Key),
+        }))}
+        selected={app.filter.actors}
+        onchange={(actors) => (app.filter = { ...app.filter, actors })}
+        resetLabel={t('multi.reset')}
+        searchLabel={t('multi.search')}
+      />
     </div>
     <p class="count" role="status">
       {t('list.count', { shown: shown.length, total: app.tasks.length })}
@@ -144,8 +150,7 @@
     flex: 1;
     min-width: 10rem;
   }
-  .filters input,
-  .filters select {
+  .filters input {
     background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: var(--radius);
