@@ -312,6 +312,27 @@ own settings (`TASKS_VAULT`, `LIB_NVIM_DIR`, `TASKS_EXTRA_AREAS`). Every
 other `TASKS_*` switch is left out. The request goes in on stdin as printable
 ASCII; nothing the user typed is put on a command line.
 
+### The persistent engine process
+
+By default one `nvim -l scripts/tasks-host.lua` stays up and answers the
+questions as lines (`<id>	<method>	<params>`, answered by
+`<id>	<document>`). It gets the same environment as above, the same
+ASCII-only request and the same limits. What differs:
+
+* a host that cannot start, does not say `ready`, or fails three times in a
+  row is left alone for five minutes and the questions go the one-process
+  way again;
+* a **read** that loses its host is asked again by a process; a **write**
+  that was sent and not answered is an unknown outcome, never asked again;
+* a question that does not come back in time kills the host (and is a
+  time-out, or for a write an unknown outcome);
+* the host ends when its stdin ends, so a hub that is killed leaves no
+  engine process behind;
+* the answer of a question is checked against its id, so a late line can
+  never be taken for the answer of another question.
+
+`TASKS_HUB_ENGINE=process` turns the host off.
+
 ## Dependencies
 
 The tree is small (about 70 crates, of which the file watcher and its

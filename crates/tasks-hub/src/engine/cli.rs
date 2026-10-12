@@ -1,5 +1,8 @@
 //! `CliEngine`: one `nvim --headless -l scripts/tasks.lua call <method>`
-//! process per question (concept 3.5, stage P2).
+//! process per question (concept 3.5, stage P2), or, with
+//! [`CliEngine::with_host`], one persistent `scripts/tasks-host.lua` process
+//! that answers many questions (stage P8) and falls back to a process per
+//! question when it cannot.
 //!
 //! The rules that hold here, each with a test:
 //!
@@ -25,6 +28,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::{oneshot, Mutex};
 
+use super::host::{Failure, Host, HostSpec};
 use super::wire::ascii_json;
 use super::{child_env, CallFuture, Engine, EngineError, EngineRefusal, Method, Reply, SCHEMA};
 use crate::config::Env;
@@ -95,6 +99,8 @@ struct Inner {
     /// Questions that were accepted and are not finished: the one in flight
     /// and those that wait.
     pending: AtomicUsize,
+    /// The persistent process, when one is wanted and the engine has one.
+    host: Option<Host>,
 }
 
 /// A place in the queue. It is given back when the work is finished, not
@@ -205,6 +211,48 @@ impl Inner {
             lib_dir: self.cfg.lib_dir.as_deref(),
             extra_areas: &self.cfg.extra_areas,
         };
+        if let Some(host) = &self.host {
+            let params = stdin.as_deref().unwrap_or("");
+            match host.ask(method.as_str(), params, self.cfg.timeout).await {
+                Ok(text) => {
+                    let out = proc::Output {
+                        code: Some(0),
+                        stdout: text.into_bytes(),
+                        stderr: Vec::new(),
+                    };
+                    return match self.judge(method, out) {
+                        Err(e) if method == Method::Ops => Err(e.for_write()),
+                        other => other,
+                    };
+                }
+                // Nothing reached the host: the process way is safe for a
+                // read and for a write.
+                Err(Failure::Unavailable(_)) => {}
+                // The host ended with the question: a read is asked again, a
+                // write may have been carried out.
+                Err(Failure::Died(why)) if method != Method::Ops => {
+                    eprintln!("engine host: {} (asking again)", self.scrub(&why));
+                }
+                Err(Failure::Died(why)) => {
+                    return Err(EngineError::Process(self.scrub(&why)).for_write());
+                }
+                Err(Failure::Timeout) => {
+                    return Err(if method == Method::Ops {
+                        EngineError::Timeout.for_write()
+                    } else {
+                        EngineError::Timeout
+                    });
+                }
+                Err(Failure::TooLarge) => {
+                    let e = EngineError::Protocol("the answer is larger than the limit".to_owned());
+                    return Err(if method == Method::Ops {
+                        e.for_write()
+                    } else {
+                        e
+                    });
+                }
+            }
+        }
         let spec = proc::Spec {
             program: self.cfg.nvim.clone(),
             args: self.args(method, stdin.is_some()),
@@ -283,14 +331,67 @@ impl Inner {
 }
 
 impl CliEngine {
+    /// One process per question.
     #[must_use]
     pub fn new(cfg: CliEngineConfig) -> Self {
+        Self::build(cfg, false)
+    }
+
+    /// A persistent host process when the engine has `scripts/tasks-host.lua`,
+    /// a process per question when it has not or when the host fails.
+    #[must_use]
+    pub fn with_host(cfg: CliEngineConfig) -> Self {
+        Self::build(cfg, true)
+    }
+
+    fn build(cfg: CliEngineConfig, want_host: bool) -> Self {
+        let host = want_host
+            .then(|| host_script(&cfg))
+            .flatten()
+            .map(|script| {
+                let vars = EngineVars {
+                    vault: &cfg.vault,
+                    lib_dir: cfg.lib_dir.as_deref(),
+                    extra_areas: &cfg.extra_areas,
+                };
+                Host::new(HostSpec {
+                    program: cfg.nvim.clone(),
+                    args: ["--headless", "-u", "NONE", "-i", "NONE", "-n", "-l"]
+                        .iter()
+                        .map(OsString::from)
+                        .chain(std::iter::once(script.clone().into_os_string()))
+                        .collect(),
+                    env: child_env(&cfg.env, Some(&vars)),
+                    cwd: cfg
+                        .script
+                        .parent()
+                        .and_then(Path::parent)
+                        .map(Path::to_path_buf),
+                    max_reply_bytes: cfg.max_reply_bytes,
+                })
+            });
         Self {
             inner: Arc::new(Inner {
                 cfg,
                 gate: Mutex::new(()),
                 pending: AtomicUsize::new(0),
+                host,
             }),
+        }
+    }
+
+    /// Whether a persistent host process is running right now.
+    pub async fn host_running(&self) -> bool {
+        match &self.inner.host {
+            Some(host) => host.running().await,
+            None => false,
+        }
+    }
+
+    /// End the persistent host (the next question starts another).
+    pub async fn stop_host(&self) {
+        if let Some(host) = &self.inner.host {
+            host.stop().await;
         }
     }
 
@@ -354,6 +455,12 @@ impl CliEngine {
             })
         })
     }
+}
+
+/// `tasks-host.lua` next to `tasks.lua`, if the engine has it.
+fn host_script(cfg: &CliEngineConfig) -> Option<PathBuf> {
+    let script = cfg.script.with_file_name("tasks-host.lua");
+    script.is_file().then_some(script)
 }
 
 impl Engine for CliEngine {
