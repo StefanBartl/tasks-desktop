@@ -247,7 +247,14 @@ fn system_program(name: &str) -> Result<PathBuf, String> {
 /// A text for the person at the terminal.
 pub fn autostart(what: Autostart) -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| format!("own program not found: {e}"))?;
-    autostart_for(what, &exe)
+    let env = Env::from_process();
+    // The login entry is what a packaged app redirects the most.
+    let warning = app::config_folder(&env)
+        .ok()
+        .and_then(|dir| private_storage_warning(&env, &dir))
+        .map(|w| format!("{w}\n"))
+        .unwrap_or_default();
+    autostart_for(what, &exe).map(|text| format!("{warning}{text}"))
 }
 
 /// [`autostart`] for the program at `exe` (what `install` registers).
@@ -333,10 +340,13 @@ fn private_storage_of(env: &Env, dir: &Path) -> Option<PathBuf> {
     }
     let local = env.path("LOCALAPPDATA")?;
     let roaming = env.path("APPDATA");
-    let (kind, rel) = if let Ok(rel) = dir.strip_prefix(&local) {
-        ("Local", rel.to_path_buf())
-    } else if let Some(Ok(rel)) = roaming.as_deref().map(|r| dir.strip_prefix(r)) {
-        ("Roaming", rel.to_path_buf())
+    let (kind, rel) = if let Some(rel) = strip_prefix_ignore_case(dir, &local) {
+        ("Local", rel)
+    } else if let Some(rel) = roaming
+        .as_deref()
+        .and_then(|r| strip_prefix_ignore_case(dir, r))
+    {
+        ("Roaming", rel)
     } else {
         return None;
     };
@@ -346,6 +356,22 @@ fn private_storage_of(env: &Env, dir: &Path) -> Option<PathBuf> {
     let found = find_in_packages(&local, kind, &rel, &name);
     let _ = std::fs::remove_file(&probe);
     found
+}
+
+/// `path` below `base`, the way Windows compares names (case does not matter).
+fn strip_prefix_ignore_case(path: &Path, base: &Path) -> Option<PathBuf> {
+    let mut rest = path.components();
+    for part in base.components() {
+        let own = rest.next()?;
+        if !own
+            .as_os_str()
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&part.as_os_str().to_string_lossy())
+        {
+            return None;
+        }
+    }
+    Some(rest.as_path().to_path_buf())
 }
 
 /// The package whose private store holds `<kind>/<rel>/<name>`.
@@ -573,6 +599,21 @@ mod tests {
         assert!(found.ends_with("Some_pkg"));
         // Another kind of store is not this one.
         assert_eq!(find_in_packages(&base, "Local", rel, ".probe-1"), None);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_prefix_is_taken_off_whatever_the_case() {
+        let base = Path::new("a").join("Users").join("Me");
+        let path = Path::new("a").join("users").join("me").join("x").join("y");
+        assert_eq!(
+            strip_prefix_ignore_case(&path, &base),
+            Some(Path::new("x").join("y"))
+        );
+        assert_eq!(
+            strip_prefix_ignore_case(&path, &Path::new("b").join("users")),
+            None
+        );
     }
 
     #[test]
