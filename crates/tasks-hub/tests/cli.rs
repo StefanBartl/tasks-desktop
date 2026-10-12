@@ -508,3 +508,27 @@ fn install_copies_the_program_and_brings_a_running_hub_back_from_there() {
         .unwrap();
     assert!(!bad.status.success());
 }
+
+#[test]
+fn start_works_in_a_config_folder_with_a_non_ascii_name() {
+    // The script host reads the path of the program and the log from a
+    // script: a name with an umlaut must not turn into something else.
+    let base = temp_dir("umlaut-base");
+    let config = base.join("Müller äöü");
+    std::fs::create_dir_all(&config).unwrap();
+    let _guard = Background(config.clone());
+    let port = free_port();
+    let started = command(&config)
+        .env("TASKS_DESKTOP_PORT", port.to_string())
+        .arg("start")
+        .output()
+        .unwrap();
+    assert!(
+        started.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&started.stdout),
+        String::from_utf8_lossy(&started.stderr)
+    );
+    assert!(config.join("hub.log").is_file());
+    let _ = command(&config).arg("stop").output();
+}
