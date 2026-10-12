@@ -28,7 +28,14 @@
   const estimate = $derived(snapshot?.estimate);
   const titles = $derived(new Map(app.tasks.map((x) => [x.id, x.title] as const)));
 
+  // Chosen plan that is gone (a change of the vault): drop it, so the select agrees.
+  $effect(() => {
+    if (chosen !== '' && !plans.some((p) => p.id === chosen)) chosen = '';
+  });
+
   function open(id: string): void {
+    // A filter that hides the task would leave the detail without its row.
+    if (!app.shown.some((x) => x.id === id)) app.resetFilter();
     app.select(id);
     app.setView('list');
   }
@@ -58,15 +65,18 @@
           <select bind:value={chosen}>
             <option value="">{t('plan.all')}</option>
             {#each plans as p (p.id)}
-              <option value={p.id}>{p.title}</option>
+              <option value={p.id}>{markHidden(p.title)}</option>
             {/each}
           </select>
         </label>
       {/if}
       {#if phases.length > 0}
         <p class="phases">
-          {#each phases as ph (ph.phase)}<span class="chip soft">{ph.phase}: {ph.n}</span>{/each}
+          {#each phases as ph (ph.phase)}<span class="chip soft">{markHidden(ph.phase)}: {ph.n}</span>{/each}
         </p>
+      {/if}
+      {#if planId !== ''}
+        <p class="muted">{t('plan.whole_vault')}</p>
       {/if}
       {#if estimate}
         <p class="muted">
@@ -104,16 +114,16 @@
         <h2 class="eyebrow">{t('plan.warnings')}</h2>
         <ul class="plain">
           {#each cycles as cycle, i (i)}
-            <li>{t('plan.cycle')}: <code>{cycle.join(' → ')}</code></li>
+            <li>{t('plan.cycle')}: <code>{markHidden(cycle.join(' → '))}</code></li>
           {/each}
           {#each sameFile as group, i (i)}
             <li>
-              {t('plan.same_file', { stage: group.stage })}: <code>{group.file}</code>
-              ({group.ids.join(', ')})
+              {t('plan.same_file', { stage: group.stage })}: <code>{markHidden(group.file)}</code>
+              ({markHidden(group.ids.join(', '))})
             </li>
           {/each}
           {#each warnings as w, i (i)}
-            <li><code>{w.code}</code> {markHidden(w.msg)}</li>
+            <li><code>{markHidden(w.code)}</code> {markHidden(w.msg)}</li>
           {/each}
         </ul>
       </section>
@@ -142,7 +152,7 @@
                     <span class="tag soft">{labelOf(app.lang, 'state', task.readiness.state)}</span>
                   {/if}
                   <span class="tag soft">{task.prio !== undefined ? `P${task.prio}` : '?'}</span>
-                  {#if task.effort}<span class="tag soft">{task.effort}</span>{/if}
+                  {#if task.effort}<span class="tag soft">{markHidden(task.effort)}</span>{/if}
                 </span>
               </li>
             {/each}
