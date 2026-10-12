@@ -112,6 +112,7 @@ async fn rig(name: &str, timing: Timing) -> Rig {
         },
         engine: Some(engine),
         policy: Arc::new(AreaPolicy::default()),
+        usage: None,
         ui: tasks_hub::ui::UiFiles::none(),
         watch: Some(WatchConfig {
             vault: vault.clone(),

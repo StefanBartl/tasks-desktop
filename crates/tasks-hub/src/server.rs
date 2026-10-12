@@ -53,6 +53,7 @@ use crate::classes::{AreaPolicy, Shown};
 use crate::engine::{Engine, EngineError, Method as EngineMethod};
 use crate::store::{self, RefreshOptions, SnapshotStore, StoreOptions};
 use crate::ui::UiFiles;
+use crate::usage::UsageLog;
 use crate::watch::{self as fswatch, Hint};
 
 /// The name the hub gives itself in `hello` and in `hub.json`.
@@ -144,6 +145,8 @@ pub struct ServerConfig {
     pub watch: Option<WatchConfig>,
     /// The built interface, served at `/` and `/assets/`. None: a placeholder.
     pub ui: UiFiles,
+    /// How often the interface is used (counts per day), if kept.
+    pub usage: Option<Arc<UsageLog>>,
 }
 
 /// What to watch and how patiently.
@@ -214,6 +217,7 @@ struct Shared {
     store: Arc<SnapshotStore>,
     streams: Arc<StreamCounter>,
     ui: UiFiles,
+    usage: Option<Arc<UsageLog>>,
 }
 
 /// A started server.
@@ -300,6 +304,7 @@ pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
         store: Arc::clone(&store),
         streams: Arc::new(StreamCounter::default()),
         ui: cfg.ui,
+        usage: cfg.usage,
     });
 
     // The watcher only says "look again"; the refresher does the looking.
@@ -1081,6 +1086,26 @@ async fn areas(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Resp
     json_response(StatusCode::OK, body.to_string(), None)
 }
 
+/// One open event stream in the usage log; ends with the stream.
+struct VisitGuard(Option<Arc<UsageLog>>);
+
+impl VisitGuard {
+    fn new(log: Option<Arc<UsageLog>>) -> Self {
+        if let Some(log) = &log {
+            log.stream_opened();
+        }
+        Self(log)
+    }
+}
+
+impl Drop for VisitGuard {
+    fn drop(&mut self) {
+        if let Some(log) = &self.0 {
+            log.stream_closed();
+        }
+    }
+}
+
 /// The body of an event stream: what the task of the connection sends.
 struct EventStream {
     rx: mpsc::Receiver<Bytes>,
@@ -1130,8 +1155,11 @@ async fn events(
     let heartbeat = st.limits.heartbeat;
     let instance = st.instance.clone();
     let shared = Arc::clone(&st);
+    // The visit is counted while the stream lives, and ends with it.
+    let visit = VisitGuard::new(st.usage.clone());
     tokio::spawn(async move {
         let _guard = guard;
+        let _visit = visit;
         let hello = format!(
             "event: hello\ndata: {}\n\n",
             json!({ "rev": rev, "seq": seq, "instance": instance })

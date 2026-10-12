@@ -50,6 +50,7 @@ async fn a_request_that_is_dropped_while_it_waits_never_reaches_the_engine() {
         },
         engine: Some(engine),
         policy: Arc::new(AreaPolicy::default()),
+        usage: None,
         ui: tasks_hub::ui::UiFiles::none(),
         watch: None,
     })

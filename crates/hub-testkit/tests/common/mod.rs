@@ -98,6 +98,8 @@ impl Sse {
     }
 
     /// The next `tasks` event as JSON, skipping heartbeats.
+    // Shared by several test crates; not each of them reads changes.
+    #[allow(dead_code)]
     pub async fn next_change(&mut self, within: Duration) -> Option<Value> {
         let deadline = tokio::time::Instant::now() + within;
         loop {

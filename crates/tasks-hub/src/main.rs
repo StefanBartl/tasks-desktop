@@ -4,7 +4,10 @@ use tasks_hub::app::{self, AreasCommand, ServeOptions};
 
 const USAGE: &str = "usage:
   tasks-hub serve [--port <1024-65535>]   run the hub until Ctrl-C
-  tasks-hub open                          print a one-time pairing link for the running hub
+  tasks-hub open [--launch]               print a one-time pairing link for the running hub
+                                          (--launch also opens it in the default browser)
+  tasks-hub usage [--days=14]             on how many of the last days the interface was
+                                          opened (counts only, kept on this machine)
   tasks-hub areas propose [--private=a,b] [--write]
                                           propose a data class for every area (written, with
                                           --write, as areas.proposed.json: nothing is released
@@ -21,6 +24,18 @@ fn parse_port(args: &[String]) -> Result<Option<u16>, String> {
             .filter(|p| *p >= 1024)
             .map(Some)
             .ok_or_else(|| format!("--port must be a number from 1024 to 65535, not {value:?}")),
+        _ => Err(USAGE.to_owned()),
+    }
+}
+
+fn parse_days(args: &[String]) -> Result<u32, String> {
+    match args {
+        [] => Ok(14),
+        [flag] => flag
+            .strip_prefix("--days=")
+            .and_then(|n| n.parse::<u32>().ok())
+            .filter(|n| (1..=366).contains(n))
+            .ok_or_else(|| "--days is a number from 1 to 366".to_owned()),
         _ => Err(USAGE.to_owned()),
     }
 }
@@ -55,6 +70,17 @@ async fn main() {
             Err(e) => Err(e),
         },
         Some("open") if args.len() == 1 => app::open().await.map(|url| println!("{url}")),
+        Some("open") if args.len() == 2 && args[1] == "--launch" => match app::open().await {
+            Ok(url) => {
+                println!("{url}");
+                app::launch(&url)
+            }
+            Err(e) => Err(e),
+        },
+        Some("usage") => match parse_days(&args[1..]) {
+            Ok(days) => app::usage(days).map(|text| print!("{text}")),
+            Err(e) => Err(e),
+        },
         Some("areas") => match parse_areas(&args[1..]) {
             Ok(command) => app::areas(command).await.map(|text| print!("{text}")),
             Err(e) => Err(e),

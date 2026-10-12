@@ -45,6 +45,7 @@ impl Harness {
             instance: Secret::generate(CODE_BYTES).unwrap(),
             engine: None,
             policy: Arc::new(AreaPolicy::default()),
+            usage: None,
             ui: tasks_hub::ui::UiFiles::none(),
             watch: None,
             status: HubStatus {
@@ -873,6 +874,7 @@ async fn the_server_binds_loopback_only() {
         instance: Secret::generate(CODE_BYTES).unwrap(),
         engine: None,
         policy: Arc::new(AreaPolicy::default()),
+        usage: None,
         ui: tasks_hub::ui::UiFiles::none(),
         watch: None,
         status: HubStatus {

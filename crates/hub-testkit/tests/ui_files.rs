@@ -41,6 +41,7 @@ async fn hub(ui: UiFiles) -> RunningServer {
         engine: None,
         policy: Arc::new(AreaPolicy::default()),
         ui,
+        usage: None,
         watch: None,
     })
     .await

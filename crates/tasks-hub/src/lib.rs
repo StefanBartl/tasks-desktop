@@ -14,6 +14,7 @@ pub mod engine;
 pub mod server;
 pub mod store;
 pub mod ui;
+pub mod usage;
 pub mod watch;
 
 /// Version of this hub, as reported by `hello`.

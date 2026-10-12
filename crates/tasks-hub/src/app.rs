@@ -194,6 +194,9 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
     }
     let status = state.status.clone();
 
+    // Counts per day of how the interface is used (see `tasks-hub usage`).
+    let usage = Arc::new(crate::usage::UsageLog::open(Some(dir.join("usage.json"))));
+
     // The interface is part of the binary. `TASKS_HUB_UI_DIR` names a built
     // folder to use instead (development: no rebuild of the binary).
     let ui = match env.path("TASKS_HUB_UI_DIR") {
@@ -232,6 +235,7 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
             refresh: RefreshOptions::default(),
         }),
         ui: ui.clone(),
+        usage: Some(Arc::clone(&usage)),
     };
     // The port is part of the origin, so the wanted one is tried first. When
     // it is taken the server still starts, on another port, and says so:
@@ -351,6 +355,57 @@ pub enum AreasCommand {
 ///
 /// # Errors
 ///
+/// How often the interface was opened on each of the last `days` days: the
+/// answer to "is it used every day".
+///
+/// # Errors
+///
+/// No config folder.
+pub fn usage(days: u32) -> Result<String, String> {
+    let env = Env::from_process();
+    let dir = app_dir(&env)?;
+    let path = dir.join("usage.json");
+    if !path.is_file() {
+        return Ok("no usage yet (nothing was opened while a hub ran)\n".to_owned());
+    }
+    let counted = crate::usage::read_days(&path);
+    Ok(crate::usage::report(
+        &counted,
+        &crate::usage::today(),
+        days.clamp(1, 366),
+    ))
+}
+
+/// Open a link of `open` in the default browser. The link is the hub's own
+/// (`http://127.0.0.1:<port>/#pair=<hex>`), and nothing else is passed.
+///
+/// # Errors
+///
+/// The program that opens links could not be started.
+pub fn launch(url: &str) -> Result<(), String> {
+    let plain = url.starts_with("http://127.0.0.1:")
+        && url.bytes().all(|b| {
+            b.is_ascii_alphanumeric() || matches!(b, b':' | b'/' | b'.' | b'#' | b'=' | b'-')
+        });
+    if !plain {
+        return Err("the link is not the hub's own: not opened".to_owned());
+    }
+    let mut command = if cfg!(windows) {
+        let mut c = std::process::Command::new("rundll32");
+        c.arg("url.dll,FileProtocolHandler");
+        c
+    } else if cfg!(target_os = "macos") {
+        std::process::Command::new("open")
+    } else {
+        std::process::Command::new("xdg-open")
+    };
+    command
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("could not start the browser: {e}"))
+}
+
 /// A text for the person at the terminal. `Check` fails when an area has
 /// no data class, so a script can rely on the exit status.
 pub async fn areas(command: AreasCommand) -> Result<String, String> {

@@ -25,7 +25,9 @@ yet. Nothing here is released.
 
 ```
 tasks-hub serve [--port 1024-65535]   run the hub until Ctrl-C
-tasks-hub open                        print a one-time pairing link for the running hub
+tasks-hub open [--launch]             print a one-time pairing link for the running hub
+                                      (--launch also opens it in the default browser)
+tasks-hub usage [--days=14]           on how many of the last days the interface was opened
 ```
 
 The hub tries port 17615 first (the port is part of the origin, so it is
