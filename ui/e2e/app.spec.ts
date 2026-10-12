@@ -486,3 +486,31 @@ test('a task is created, changed, taken back and finished through the engine', a
   await expect(page.locator('button.row', { hasText: id })).toHaveCount(0);
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('a reminder set on a task comes back on the Today page when it is due', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  await open(page, 'lib.nvim/alpha');
+
+  // "Today" is a reminder that is due at once: the card lists the task.
+  await page.locator('aside.detail').getByLabel('Remind me').selectOption('+0d');
+  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  await expect(page.locator('button.row', { hasText: 'lib.nvim/alpha' }).locator('.tag.due')).toBeVisible();
+
+  await chooseView(page, 'View', 'Today');
+  const card = page.getByRole('region', { name: 'To look at again' });
+  await expect(card).toBeVisible();
+  await expect(card.getByText('lib.nvim/alpha')).toBeVisible();
+  expect(await violations(page)).toEqual([]);
+
+  // Taken away again: the card is gone.
+  await card.getByRole('button').first().click();
+  await showList(page);
+  await open(page, 'lib.nvim/alpha');
+  await page.locator('aside.detail').getByLabel('Remind me').selectOption('');
+  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  await chooseView(page, 'View', 'Today');
+  await expect(page.getByRole('region', { name: 'To look at again' })).toHaveCount(0);
+  expect(consoleProblems.get(page)).toEqual([]);
+});

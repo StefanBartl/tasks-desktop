@@ -112,8 +112,9 @@ pnpm e2e          # the browser tests: needs target/debug/tasks-hub, the engine
 ```
 
 The interface can create a task (`c`, or the Project menu), change status,
-priority and who in the detail, undo that, and finish a task after a preview of
-what it does; the engine makes every change. The interface lists the vault in the engine's own order (it
+priority and who in the detail, undo that, finish a task after a preview of
+what it does, and set a reminder (a date on which a task comes back on the
+Today page; also when finishing); the engine makes every change. The interface lists the vault in the engine's own order (it
 never sorts), shows a task with its steps and its text (as text only),
 follows the hub's event stream and asks for a scan when the window gets the
 focus back. German and English, light and dark.

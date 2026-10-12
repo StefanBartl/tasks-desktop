@@ -11,6 +11,7 @@
 
   let dialog: HTMLDialogElement | undefined = $state();
   let busy = $state(false);
+  let remind = $state('');
   const finishing = $derived(app.finishing);
   const title = $derived(
     finishing ? (app.tasks.find((x) => x.id === finishing.id)?.title ?? finishing.id) : '',
@@ -18,7 +19,10 @@
 
   $effect(() => {
     if (!dialog) return;
-    if (finishing && !dialog.open) dialog.showModal();
+    if (finishing && !dialog.open) {
+      remind = '';
+      dialog.showModal();
+    }
     if (!finishing && dialog.open) dialog.close();
   });
 
@@ -26,7 +30,7 @@
     if (busy) return;
     busy = true;
     try {
-      await app.confirmFinish();
+      await app.confirmFinish(remind === '' ? undefined : remind);
     } finally {
       busy = false;
     }
@@ -54,6 +58,16 @@
         </li>
       {/if}
     </ul>
+    <label class="remind">
+      <span>{t('remind.after_finish')}</span>
+      <select bind:value={remind}>
+        <option value="">{t('remind.none')}</option>
+        <option value="+3d">{t('remind.in', { n: 3 })}</option>
+        <option value="+7d">{t('remind.in', { n: 7 })}</option>
+        <option value="+14d">{t('remind.in', { n: 14 })}</option>
+        <option value="+30d">{t('remind.in', { n: 30 })}</option>
+      </select>
+    </label>
     <div class="actions">
       <button type="button" onclick={() => app.cancelFinish()}>{t('dialog.cancel')}</button>
       <button type="button" class="primary" disabled={busy} onclick={confirm}
@@ -90,6 +104,18 @@
   ul {
     margin: 0 0 1rem;
     padding-left: 1.2rem;
+  }
+  .remind {
+    display: grid;
+    gap: 0.2rem;
+    margin-bottom: 0.9rem;
+  }
+  .remind select {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.3rem 0.5rem;
   }
   .actions {
     display: flex;

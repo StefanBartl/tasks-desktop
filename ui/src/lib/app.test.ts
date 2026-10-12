@@ -572,6 +572,24 @@ describe('writing', () => {
     expect(app.toast?.text).toMatch(/schon|already/);
   });
 
+  it('sets and takes away a reminder through set, in the words the engine reads', async () => {
+    const { app, hub } = await ready();
+    await app.setField('pub/a', 'remind', '+7d');
+    expect(hub.sent[0]?.ops[0]).toMatchObject({ op: 'set', id: 'pub/a', patch: { remind: '+7d' } });
+    await app.setField('pub/a', 'remind', null);
+    expect(hub.sent[1]?.ops[0]).toMatchObject({ patch: { remind: null } });
+  });
+
+  it('finishes with a reminder when one is chosen, and without when not', async () => {
+    const { app, hub } = await ready();
+    await app.startFinish('pub/a');
+    await app.confirmFinish('+14d');
+    expect(hub.sent[0]?.ops).toEqual([{ op: 'done', id: 'pub/a', confirm: 'tok', remind: '+14d' }]);
+    await app.startFinish('pub/a');
+    await app.confirmFinish();
+    expect(hub.sent[1]?.ops).toEqual([{ op: 'done', id: 'pub/a', confirm: 'tok' }]);
+  });
+
   it('does nothing before the page is ready', async () => {
     const { app, hub } = make({ token: 't' });
     await app.setField('pub/a', 'status', 'doing');
