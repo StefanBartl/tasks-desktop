@@ -100,6 +100,17 @@ pub async fn start() -> Result<String, String> {
     ))
 }
 
+/// The bytes of a script for the script host: UTF-16 with a byte order
+/// mark, the one form it reads whatever the code page of the system is (a
+/// profile named `Müller` is a path in the script).
+fn vbs_bytes(text: &str) -> Vec<u8> {
+    let mut out = vec![0xFF, 0xFE];
+    for unit in text.encode_utf16() {
+        out.extend_from_slice(&unit.to_le_bytes());
+    }
+    out
+}
+
 /// The command line that runs the hub with its output in the log. `None`
 /// for a path `cmd.exe` would read as something else.
 fn hidden_command_line(exe: &Path, log: &Path) -> Option<String> {
@@ -141,7 +152,7 @@ fn spawn_hidden(exe: &Path, dir: &Path) -> bool {
         return false;
     };
     let script = dir.join("start-hub.vbs");
-    if std::fs::write(&script, script_text(&line)).is_err() {
+    if std::fs::write(&script, vbs_bytes(&script_text(&line))).is_err() {
         return false;
     }
     let ran = Command::new(host)
@@ -304,6 +315,10 @@ pub fn autostart_for(what: Autostart, exe: &Path) -> Result<String, String> {
 /// roaming (the settings are; a program is not).
 fn install_dir(env: &Env) -> Result<PathBuf, String> {
     if let Some(dir) = env.path("TASKS_DESKTOP_INSTALL_DIR") {
+        // A relative folder would mean whatever the working folder is.
+        if !dir.is_absolute() {
+            return Err("TASKS_DESKTOP_INSTALL_DIR must be an absolute path".to_owned());
+        }
         return Ok(dir);
     }
     let base = if cfg!(windows) {
@@ -348,7 +363,10 @@ pub async fn install(opts: InstallOptions) -> Result<String, String> {
 
     // A program that is the one being installed (run from the install
     // folder) has nothing to copy.
-    let same = std::fs::canonicalize(&from).ok() == std::fs::canonicalize(&target).ok();
+    let same = match (std::fs::canonicalize(&from), std::fs::canonicalize(&target)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    };
     let config = app::config_folder(&env)?;
     let was_running = app::running_hub(&config).await.is_some();
     if !same {
@@ -417,7 +435,7 @@ link.Save\r\n"
     );
     let dir = std::env::temp_dir();
     let path = dir.join(format!("tasks-desktop-link-{}.vbs", std::process::id()));
-    std::fs::write(&path, script).map_err(|e| format!("cannot write a script: {e}"))?;
+    std::fs::write(&path, vbs_bytes(&script)).map_err(|e| format!("cannot write a script: {e}"))?;
     let ok = Command::new(system_program("wscript.exe")?)
         .args(["//B", "//Nologo"])
         .arg(&path)
@@ -449,6 +467,20 @@ mod tests {
         assert!(script_text(&line).contains(r#"/c """"C:\Program"#));
         // A name `cmd.exe` would expand is not used.
         assert!(hidden_command_line(Path::new(r"C:\%X%\h.exe"), Path::new("l")).is_none());
+    }
+
+    #[test]
+    fn a_script_is_utf16_with_a_mark_so_a_non_ascii_path_survives() {
+        let bytes = vbs_bytes("\"C:\\Users\\Müller\\h.exe\"");
+        assert_eq!(&bytes[..2], &[0xFF, 0xFE]);
+        let units: Vec<u16> = bytes[2..]
+            .chunks(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        assert_eq!(
+            String::from_utf16(&units).unwrap(),
+            "\"C:\\Users\\Müller\\h.exe\""
+        );
     }
 
     #[test]
