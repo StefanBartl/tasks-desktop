@@ -88,6 +88,8 @@ export class App {
   filter = $state<Filter>({ ...emptyFilter, areas: [], statuses: [], actors: [] });
   /** Blocks of the Today view the person put away. */
   hiddenTiles = $state<Tile[]>([]);
+  /** Area names without the prefix `wkdbook-` where that is unambiguous. */
+  shortAreas = $state(true);
   selectedId = $state<string | null>(null);
 
   tasks = $state.raw<TaskEntry[]>([]);
@@ -112,6 +114,7 @@ export class App {
     const theme = safe(() => env.prefs.getItem('tasks-desktop.theme'));
     this.theme = theme === 'light' || theme === 'dark' ? theme : 'auto';
     this.shortcuts = safe(() => env.prefs.getItem('tasks-desktop.shortcuts')) !== 'off';
+    this.shortAreas = safe(() => env.prefs.getItem('tasks-desktop.short-areas')) !== 'off';
     const hidden = safe(() => env.prefs.getItem('tasks-desktop.tiles-hidden'));
     this.hiddenTiles = parseTiles(hidden);
     // The page opens on the view it was left on.
@@ -142,6 +145,16 @@ export class App {
   setShortcuts(on: boolean): void {
     this.shortcuts = on;
     safe(() => this.env.prefs.setItem('tasks-desktop.shortcuts', on ? 'on' : 'off'));
+  }
+
+  setShortAreas(on: boolean): void {
+    this.shortAreas = on;
+    safe(() => this.env.prefs.setItem('tasks-desktop.short-areas', on ? 'on' : 'off'));
+  }
+
+  /** Take every chosen area, status and actor and the search words away. */
+  resetFilter(): void {
+    this.filter = { ...emptyFilter, areas: [], statuses: [], actors: [] };
   }
 
   hideTile(tile: Tile): void {

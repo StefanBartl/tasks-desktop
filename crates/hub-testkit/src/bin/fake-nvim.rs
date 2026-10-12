@@ -304,6 +304,16 @@ fn respond(method: &str, raw: &[u8], started: u64) -> Value {
                 } else {
                     doc["task"] = json!({ "id": id });
                     doc["body"] = json!("");
+                    // The state the task was read in follows `<vault>/.fake-n`
+                    // like the snapshot, when a test keeps one.
+                    let vault = std::env::var("TASKS_VAULT").unwrap_or_default();
+                    if let Some(n) =
+                        std::fs::read_to_string(std::path::Path::new(&vault).join(".fake-n"))
+                            .ok()
+                            .and_then(|t| t.trim().parse::<u64>().ok())
+                    {
+                        doc["rev"] = json!(format!("rev:{n:06x}"));
+                    }
                 }
             }
             "next" => {

@@ -19,7 +19,7 @@
     app.areaNames
       .map((name) => ({
         value: name,
-        label: areaLabel(name, app.areaNames),
+        label: app.shortAreas ? areaLabel(name, app.areaNames) : name,
         title: name,
       }))
       .sort((x, y) => x.label.localeCompare(y.label)),

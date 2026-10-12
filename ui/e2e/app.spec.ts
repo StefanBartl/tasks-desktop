@@ -35,14 +35,14 @@ async function pair(page: Page): Promise<void> {
     sessionStorage.setItem('tasks-desktop.session', token);
   }, state().token);
   await page.goto('/');
-  await expect(page.getByRole('navigation', { name: 'Views' })).toBeVisible();
+  await expect(page.getByRole('menubar')).toBeVisible();
 }
 
 /** The link of `tasks-hub open`, followed. Ten of these a minute at most. */
 async function pairByLink(page: Page): Promise<void> {
   await prepare(page);
   await page.goto(pairingLink(state().config));
-  await expect(page.getByRole('navigation', { name: 'Views' })).toBeVisible();
+  await expect(page.getByRole('menubar')).toBeVisible();
 }
 
 async function prepare(page: Page): Promise<void> {
@@ -55,8 +55,15 @@ async function prepare(page: Page): Promise<void> {
   await watchViolations(page);
 }
 
+
+/** Choose a view in the menu bar (the labels are the page's own language). */
+async function chooseView(page: Page, menu: string, item: string): Promise<void> {
+  await page.getByRole('menuitem', { name: menu, exact: true }).click();
+  await page.getByRole('menuitemradio', { name: item, exact: true }).click();
+}
+
 async function showList(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'List', exact: true }).click();
+  await chooseView(page, 'View', 'List');
   await expect(page.locator('button.row').first()).toBeVisible();
 }
 
@@ -187,8 +194,8 @@ test('the page writes nothing to the console, in any view', async ({ page }) => 
   ]) {
     await open(page, id);
   }
-  await page.getByRole('button', { name: 'Today', exact: true }).click();
-  await page.getByRole('button', { name: 'List', exact: true }).click();
+  await chooseView(page, 'View', 'Today');
+  await chooseView(page, 'View', 'List');
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
@@ -303,7 +310,7 @@ test('the list comes from the cache before the hub answers', async ({ page }) =>
   });
   await page.reload();
   const started = Date.now();
-  await page.getByRole('button', { name: 'List', exact: true }).click({ timeout: 5000 });
+  await chooseView(page, 'View', 'List');
   await expect(page.locator('button.row').first()).toBeVisible({ timeout: 1400 });
   const seen = Date.now() - started;
   console.log(`first list after reload, hub 1500 ms late: ${seen} ms`);
@@ -337,15 +344,16 @@ for (const scheme of ['light', 'dark'] as const) {
 
 test('the German page has no violations either', async ({ page }) => {
   await pair(page);
-  await page.getByLabel('Language').selectOption('de');
-  await expect(page.getByRole('button', { name: 'Heute' })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Language' }).click();
+  await page.getByRole('menuitemradio', { name: 'Deutsch' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Ansicht' })).toBeVisible();
   await showListDe(page);
   const result = await new AxeBuilder({ page }).analyze();
   expect(result.violations, JSON.stringify(result.violations, null, 1)).toEqual([]);
 });
 
 async function showListDe(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Liste', exact: true }).click();
+  await chooseView(page, 'Ansicht', 'Liste');
   await expect(page.locator('button.row').first()).toBeVisible();
 }
 
@@ -394,4 +402,41 @@ test('the overview is at the top right, tiles can be put away, choices combine',
   expect(await violations(page)).toEqual([]);
   await page.keyboard.press('Escape');
   await expect(page.getByRole('checkbox', { name: 'doing' })).toHaveCount(0);
+});
+
+test('the menu bar opens with the keyboard, switches views, language and theme', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await expect(page.getByText('Next task')).toBeVisible();
+
+  // Down opens a menu and focuses its first item; Escape gives the focus back.
+  const view = page.getByRole('menuitem', { name: 'View' });
+  await view.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('menuitemradio', { name: 'Today' })).toBeFocused();
+  await expect(page.getByRole('menuitemradio', { name: 'Today' })).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.split')).toBeVisible();
+  await page.getByRole('menuitem', { name: 'View' }).focus();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await expect(view).toBeFocused();
+
+  // Left and Right walk the menus.
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('menuitem', { name: 'Settings' })).toBeFocused();
+
+  expect(await violations(page)).toEqual([]);
+  await page.getByRole('menuitem', { name: 'Theme' }).click();
+  await page.getByRole('menuitemradio', { name: 'Dark' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+
+  // Keys can be switched off from the settings menu.
+  await page.getByRole('menuitem', { name: 'Settings' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'Keys' }).click();
+  await page.getByRole('menuitem', { name: 'Settings' }).click();
+  await expect(page.getByRole('menuitemcheckbox', { name: 'Keys' })).toHaveAttribute('aria-checked', 'false');
+  expect(await violations(page)).toEqual([]);
 });
