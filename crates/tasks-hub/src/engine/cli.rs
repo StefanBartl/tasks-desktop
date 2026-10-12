@@ -334,17 +334,24 @@ impl CliEngine {
     /// One process per question.
     #[must_use]
     pub fn new(cfg: CliEngineConfig) -> Self {
-        Self::build(cfg, false)
+        Self::build(cfg, false, Duration::from_secs(5))
     }
 
     /// A persistent host process when the engine has `scripts/tasks-host.lua`,
     /// a process per question when it has not or when the host fails.
     #[must_use]
     pub fn with_host(cfg: CliEngineConfig) -> Self {
-        Self::build(cfg, true)
+        Self::build(cfg, true, Duration::from_secs(5))
     }
 
-    fn build(cfg: CliEngineConfig, want_host: bool) -> Self {
+    /// [`CliEngine::with_host`], with the time between two looks at the
+    /// engine's files (a change of them replaces the host).
+    #[must_use]
+    pub fn with_host_checked(cfg: CliEngineConfig, recheck: Duration) -> Self {
+        Self::build(cfg, true, recheck)
+    }
+
+    fn build(cfg: CliEngineConfig, want_host: bool, recheck: Duration) -> Self {
         let host = want_host
             .then(|| host_script(&cfg))
             .flatten()
@@ -368,6 +375,8 @@ impl CliEngine {
                         .and_then(Path::parent)
                         .map(Path::to_path_buf),
                     max_reply_bytes: cfg.max_reply_bytes,
+                    watch: watched_folders(&cfg),
+                    recheck,
                 })
             });
         Self {
@@ -455,6 +464,19 @@ impl CliEngine {
             })
         })
     }
+}
+
+/// The folders that hold the engine's Lua code: the engine's own and lib.nvim.
+fn watched_folders(cfg: &CliEngineConfig) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Some(engine) = cfg.script.parent().and_then(Path::parent) {
+        out.push(engine.join("lua"));
+        out.push(engine.join("scripts"));
+    }
+    if let Some(lib) = &cfg.lib_dir {
+        out.push(lib.join("lua"));
+    }
+    out
 }
 
 /// `tasks-host.lua` next to `tasks.lua`, if the engine has it.

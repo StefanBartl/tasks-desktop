@@ -326,6 +326,9 @@ ASCII-only request and the same limits. What differs:
   that was sent and not answered is an unknown outcome, never asked again;
 * a question that does not come back in time kills the host (and is a
   time-out, or for a write an unknown outcome);
+* a host keeps the Lua code it loaded: when a `.lua` file of the engine or
+  of lib.nvim changes (a `git pull`), the host is replaced before the next
+  question, so the hub never runs half old and half new code;
 * the host ends when its stdin ends, so a hub that is killed leaves no
   engine process behind;
 * the answer of a question is checked against its id, so a late line can
