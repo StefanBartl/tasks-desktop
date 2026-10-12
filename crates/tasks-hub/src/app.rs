@@ -121,7 +121,18 @@ async fn engine_state(file: &FileConfig, env: &Env) -> EngineState {
         Ok(setup) => setup,
         Err(problem) => return failed(problem.code(), problem.to_string()),
     };
-    let engine = CliEngine::new(CliEngineConfig::from_setup(&setup, env.clone()));
+    let cfg = CliEngineConfig::from_setup(&setup, env.clone());
+    // A persistent engine process answers in milliseconds where a process per
+    // question needs a second; `TASKS_HUB_ENGINE=process` asks for the
+    // one-process-per-question way (a bug hunt, an old engine).
+    let one_process = env
+        .get("TASKS_HUB_ENGINE")
+        .is_some_and(|v| v.to_string_lossy() == "process");
+    let engine = if one_process {
+        CliEngine::new(cfg)
+    } else {
+        CliEngine::with_host(cfg)
+    };
     match probe(&engine).await {
         // A vault without one area is nearly always the wrong folder: say it
         // instead of showing an empty list that looks like a working app.

@@ -269,3 +269,183 @@ async fn text_mode_hazards_reach_the_engine_intact() {
     let after = engine.call(Method::Snapshot, None).await.expect("snapshot");
     assert_eq!(count(&before.text), count(&after.text), "a dry run wrote");
 }
+
+// ── the persistent host against the real engine ──────────────────────────
+
+/// A copy of the fixture vault that a test may change.
+fn copy_vault(name: &str) -> PathBuf {
+    fn copy(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let target = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy(&entry.path(), &target);
+            } else {
+                std::fs::copy(entry.path(), &target).unwrap();
+            }
+        }
+    }
+    let to = std::env::temp_dir().join(format!(
+        "tasks-desktop-host-real-{name}-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&to);
+    copy(&fixture_vault(), &to);
+    to
+}
+
+async fn engines_on(vault: &Path) -> Option<(CliEngine, CliEngine)> {
+    let env = Env::from_process();
+    let file = FileConfig {
+        vault: Some(vault.to_path_buf()),
+        extra_areas: fixture_extra_areas(),
+        ..FileConfig::default()
+    };
+    match discover(&file, &env).await {
+        Ok(setup) => {
+            let cfg = CliEngineConfig::from_setup(&setup, env);
+            Some((CliEngine::with_host(cfg.clone()), CliEngine::new(cfg)))
+        }
+        Err(problem) => {
+            assert!(
+                std::env::var_os("TASKS_DESKTOP_REQUIRE_ENGINE").is_none(),
+                "the engine is required but not usable: {problem}"
+            );
+            eprintln!("skipped: {problem}");
+            None
+        }
+    }
+}
+
+/// The document without the moment it was made.
+fn steady(text: &str) -> Value {
+    let mut doc: Value = serde_json::from_str(text).unwrap();
+    if let Some(map) = doc.as_object_mut() {
+        map.remove("generated_at");
+    }
+    doc
+}
+
+#[tokio::test]
+async fn the_host_answers_with_the_documents_of_the_process_way() {
+    let vault = copy_vault("same");
+    let Some((host, process)) = engines_on(&vault).await else {
+        return;
+    };
+    let cases: Vec<(Method, Option<Value>)> = vec![
+        (Method::Hello, None),
+        (Method::Snapshot, None),
+        (Method::Areas, None),
+        (Method::List, Some(json!({ "limit": 20 }))),
+        (Method::Bodies, Some(json!({ "limit": 50 }))),
+        (Method::Next, Some(json!({ "n": 3 }))),
+        (Method::Task, Some(json!({ "id": "lib.nvim/alpha" }))),
+        (Method::Task, Some(json!({ "id": "lib.nvim/no-such-task" }))),
+    ];
+    for (method, params) in cases {
+        let a = host.call(method, params.as_ref()).await;
+        let b = process.call(method, params.as_ref()).await;
+        match (a, b) {
+            (Ok(a), Ok(b)) => assert_eq!(steady(&a.text), steady(&b.text), "{}", method.as_str()),
+            (Err(EngineError::Refused(a)), Err(EngineError::Refused(b))) => {
+                assert_eq!(steady(&a.text), steady(&b.text), "{}", method.as_str());
+            }
+            (a, b) => panic!("{}: {a:?} / {b:?}", method.as_str()),
+        }
+    }
+    assert!(host.host_running().await);
+}
+
+#[tokio::test]
+async fn the_host_never_answers_from_before_a_change_of_the_vault() {
+    let vault = copy_vault("fresh");
+    let Some((host, _)) = engines_on(&vault).await else {
+        return;
+    };
+    let before = host.call(Method::Snapshot, None).await.unwrap();
+    let before = steady(&before.text);
+    let task = vault
+        .join("lib.nvim")
+        .join("ROADMAP")
+        .join("tasks")
+        .join("beta.md");
+
+    // The same length at once after the first read (the case a cache keyed
+    // on size and time alone gets wrong): `prio: 2` becomes `prio: 3`.
+    let text = std::fs::read_to_string(&task).unwrap();
+    let changed = text.replacen("prio: 2", "prio: 3", 1);
+    assert_ne!(text, changed, "the fixture task has `prio: 2`");
+    assert_eq!(text.len(), changed.len());
+    std::fs::write(&task, &changed).unwrap();
+
+    let after = steady(&host.call(Method::Snapshot, None).await.unwrap().text);
+    assert_ne!(before["digest"], after["digest"], "the change was not seen");
+    assert_ne!(before["rev"], after["rev"]);
+    let id = "lib.nvim/beta";
+    let prio = |doc: &Value| {
+        doc["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["id"] == id)
+            .map(|t| t["prio"].clone())
+    };
+    assert_eq!(prio(&after), Some(json!(3)));
+    assert_ne!(prio(&before), prio(&after));
+
+    // A task that appears and one that goes.
+    let fresh = vault
+        .join("lib.nvim")
+        .join("ROADMAP")
+        .join("tasks")
+        .join("fresh-one.md");
+    std::fs::write(&fresh, "---\ntitle: Fresh one\nstatus: open\n---\nBody.\n").unwrap();
+    let with = steady(&host.call(Method::Snapshot, None).await.unwrap().text);
+    assert!(with["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|t| t["id"] == "lib.nvim/fresh-one"));
+    std::fs::remove_file(&fresh).unwrap();
+    let without = steady(&host.call(Method::Snapshot, None).await.unwrap().text);
+    assert!(!without["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|t| t["id"] == "lib.nvim/fresh-one"));
+}
+
+#[tokio::test]
+async fn a_write_through_the_host_is_seen_by_the_next_read() {
+    let vault = copy_vault("write");
+    let Some((host, process)) = engines_on(&vault).await else {
+        return;
+    };
+    let before = steady(&host.call(Method::Snapshot, None).await.unwrap().text);
+    let task = before["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["id"] == "lib.nvim/beta")
+        .unwrap()
+        .clone();
+    let request = json!({
+        "client_op_id": "host-test-1",
+        "ops": [{
+            "op": "set",
+            "id": "lib.nvim/beta",
+            "if_match": task["etag"],
+            "patch": { "prio": 3 }
+        }]
+    });
+    let done = host.call(Method::Ops, Some(&request)).await.unwrap();
+    let done = steady(&done.text);
+    assert_eq!(done["ok"], true, "{done}");
+
+    // Through the host and through a fresh process: the same new state.
+    let a = steady(&host.call(Method::Snapshot, None).await.unwrap().text);
+    let b = steady(&process.call(Method::Snapshot, None).await.unwrap().text);
+    assert_eq!(a, b);
+    assert_ne!(a["digest"], before["digest"]);
+}

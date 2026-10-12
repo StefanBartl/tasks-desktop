@@ -32,6 +32,10 @@ fn main() {
         println!("NVIM v0.12.2");
         return;
     }
+    if args.iter().any(|a| a.ends_with("tasks-host.lua")) {
+        host_loop();
+        return;
+    }
     let started = now_ms();
     let Some(call) = args.iter().position(|a| a == "call") else {
         eprintln!("fake-nvim: no call");
@@ -44,10 +48,75 @@ fn main() {
     if with_params {
         let _ = std::io::stdin().read_to_end(&mut raw);
     }
+    let doc = respond(&method, &raw, started);
+    let mut out = std::io::stdout().lock();
+    let _ = writeln!(out, "{doc}");
+}
+
+/// The persistent host: `nvim -l scripts/tasks-host.lua`. It says `ready`,
+/// then answers one line per request (`<id>\t<method>\t<params>`) with
+/// `<id>\t<document>`, until its stdin ends. A `fake.exit` in a request ends
+/// the process on the spot (a crash); `fake.hang` never answers.
+fn host_loop() {
+    use std::io::BufRead;
+    let vault = std::env::var("TASKS_VAULT").unwrap_or_default();
+    // `<vault>/.fake-host-starts` counts how often a host was started.
+    if let Ok(mut starts) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(std::path::Path::new(&vault).join(".fake-host-starts"))
+    {
+        let _ = writeln!(starts, "start");
+    }
+    // `<vault>/.fake-host-broken` makes the host fail before it is ready.
+    if std::path::Path::new(&vault)
+        .join(".fake-host-broken")
+        .exists()
+    {
+        eprintln!("fake host: broken");
+        std::process::exit(3);
+    }
+    // `<vault>/.fake-host-pid` names the host that was started last.
+    let _ = std::fs::write(
+        std::path::Path::new(&vault).join(".fake-host-pid"),
+        std::process::id().to_string(),
+    );
+    let mut out = std::io::stdout().lock();
+    let _ = writeln!(out, "ready\t1");
+    let _ = out.flush();
+    let stdin = std::io::stdin();
+    for line in stdin.lock().lines() {
+        let Ok(line) = line else { break };
+        let mut parts = line.splitn(3, '\t');
+        let (Some(id), Some(method), params) = (parts.next(), parts.next(), parts.next()) else {
+            continue;
+        };
+        let raw = params.unwrap_or("").as_bytes();
+        let fake = serde_json::from_slice::<Value>(raw)
+            .ok()
+            .and_then(|v| v.get("fake").cloned())
+            .unwrap_or(Value::Null);
+        // Only a host crashes or hangs on these (the process way, which the
+        // caller falls back to, answers the same request).
+        if fake.get("host_exit").is_some() {
+            eprintln!("fake host: crashed");
+            std::process::exit(5);
+        }
+        if fake.get("host_hang").is_some() {
+            std::thread::sleep(Duration::from_secs(3600));
+        }
+        let doc = respond(method, raw, now_ms());
+        let _ = writeln!(out, "{id}\t{doc}");
+        let _ = out.flush();
+    }
+}
+
+/// The answer of the fake engine to one request.
+fn respond(method: &str, raw: &[u8], started: u64) -> Value {
     let params: Value = if raw.is_empty() {
         Value::Null
     } else {
-        serde_json::from_slice(&raw).unwrap_or(Value::Null)
+        serde_json::from_slice(raw).unwrap_or(Value::Null)
     };
     let fake = params.get("fake").cloned().unwrap_or(Value::Null);
 
@@ -86,7 +155,7 @@ fn main() {
 
     let kind = fake.get("kind").and_then(Value::as_str).map_or_else(
         || {
-            Method::parse(&method)
+            Method::parse(method)
                 .map_or("tasks.unknown", Method::reply_kind)
                 .to_owned()
         },
@@ -121,7 +190,7 @@ fn main() {
     }
     // The documents the data routes are tested with.
     if fake.get("error").is_none() {
-        match method.as_str() {
+        match method {
             "snapshot" => {
                 // With `<vault>/.fake-n` the document follows that number, so a
                 // test can change "the vault" by writing a file; every call is
@@ -259,6 +328,5 @@ fn main() {
         doc["pad"] = json!("x".repeat(usize::try_from(n).unwrap_or(0)));
     }
 
-    let mut out = std::io::stdout().lock();
-    let _ = writeln!(out, "{doc}");
+    doc
 }

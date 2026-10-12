@@ -5,6 +5,7 @@
 //! checks its head (schema, kind) and passes the text on untouched.
 
 mod cli;
+mod host;
 mod wire;
 
 use std::ffi::OsString;
@@ -17,6 +18,7 @@ use serde_json::Value;
 use crate::config::Env;
 
 pub use cli::{CliEngine, CliEngineConfig, EngineVars};
+pub use host::Failure as HostFailure;
 pub use wire::ascii_json;
 
 /// The contract version this hub speaks.
