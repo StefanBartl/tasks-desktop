@@ -132,7 +132,8 @@ export class App {
   private etag: string | null = null;
   private stopped = false;
   private abort: AbortController | null = null;
-  private refreshing = false;
+  /** The read in progress (and the reads it repeats), if any. */
+  private loop: Promise<void> | null = null;
   private dirty = false;
 
   constructor(private readonly env: Env) {
@@ -471,22 +472,27 @@ export class App {
 
   /**
    * Read the list again. One at a time: a change that arrives while a read
-   * is running makes exactly one more read after it.
+   * is running makes exactly one more read after it. A caller that arrives
+   * then waits for that read too, so what it awaits is a list that is
+   * current (a write has just made a task that the read under way may not
+   * have seen).
    */
-  async refresh(): Promise<void> {
-    if (this.refreshing) {
+  refresh(): Promise<void> {
+    if (this.loop) {
       this.dirty = true;
-      return;
+      return this.loop;
     }
-    this.refreshing = true;
-    try {
-      do {
-        this.dirty = false;
-        await this.readOnce();
-      } while (this.dirty && !this.stopped);
-    } finally {
-      this.refreshing = false;
-    }
+    this.loop = (async () => {
+      try {
+        do {
+          this.dirty = false;
+          await this.readOnce();
+        } while (this.dirty && !this.stopped);
+      } finally {
+        this.loop = null;
+      }
+    })();
+    return this.loop;
   }
 
   private async readOnce(): Promise<void> {

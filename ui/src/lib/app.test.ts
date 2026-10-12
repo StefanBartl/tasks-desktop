@@ -227,7 +227,9 @@ describe('App', () => {
     const { app, hub } = make({ token: 't' });
     hub.doc = snapshot([task('pub/a', { status: 'open' }), task('pub/b')], 'rev:1');
     await app.start(null);
-    app.setQuery('zzz');
+    // The words of the filter and the result of their search, as the page holds them.
+    app.filter = { ...app.filter, query: 'zzz' };
+    app.textSearch = { query: 'zzz', result: { status: 'ready', indexed: 1, total: 1, hits: [] } };
     expect(app.shown.length).toBe(0);
     app.setView('today');
     app.reveal('pub/b');
@@ -235,12 +237,50 @@ describe('App', () => {
     expect(app.textSearch).toBeNull();
     expect(app.selectedId).toBe('pub/b');
     expect(app.view).toBe('list');
-    // Nothing hides it: the filter stays as it is.
-    app.filter = { ...app.filter, statuses: ['open'] };
-    app.reveal('pub/a');
-    expect(app.filter.statuses).toEqual(['open']);
     app.stop();
   });
+
+  it('does not search the text of words that a reveal took away', async () => {
+    const { app, hub } = make({ token: 't' });
+    hub.doc = snapshot([task('pub/a'), task('pub/b')], 'rev:1');
+    await app.start(null);
+    // The search of 'zzz' is armed (it starts a moment after the last key) ...
+    app.setQuery('zzz');
+    app.reveal('pub/b');
+    // ... and does not start: its words are gone.
+    await new Promise((r) => setTimeout(r, 400));
+    expect(hub.searches).toEqual([]);
+    expect(app.textSearch).toBeNull();
+    app.stop();
+  });
+
+  it('leaves the filter and the text search alone when nothing hides the task', async () => {
+    const { app, hub } = make({ token: 't' });
+    hub.doc = snapshot([task('pub/a', { status: 'open' }), task('pub/b')], 'rev:1');
+    await app.start(null);
+    app.filter = { ...app.filter, statuses: ['open'], query: 'pub/a' };
+    const found = { query: 'pub/a', result: { status: 'ready' as const, indexed: 1, total: 1, hits: [] } };
+    app.textSearch = found;
+    app.reveal('pub/a');
+    expect(app.filter.statuses).toEqual(['open']);
+    expect(app.filter.query).toBe('pub/a');
+    expect(app.textSearch).toBe(found);
+    expect(app.selectedId).toBe('pub/a');
+    app.stop();
+  });
+
+  it('selects an id it does not know and shows the list, and leaves the filter as it is', async () => {
+    const { app } = make({ token: 't' });
+    await app.start(null);
+    app.filter = { ...app.filter, statuses: ['doing'] };
+    app.setView('today');
+    app.reveal('pub/unknown');
+    expect(app.filter.statuses).toEqual(['doing']);
+    expect(app.selectedId).toBe('pub/unknown');
+    expect(app.view).toBe('list');
+    app.stop();
+  });
+
   it('drops the session and the data when the hub says it is gone', async () => {
     const { app, hub, session } = make({ token: 't' });
     await app.start(null);
@@ -528,6 +568,49 @@ describe('writing', () => {
     expect(app.capturing).toBe(false);
     expect(app.selectedId).toBe('pub/created');
     expect(app.view).toBe('list');
+  });
+
+  it('takes away a filter that hides the task it created', async () => {
+    const { app, hub } = await ready();
+    app.filter = { ...app.filter, statuses: ['doing'] };
+    // The list read after the write holds the new task; it has no status, so the filter hides it.
+    hub.doc = snapshot([task('pub/a', { status: 'doing' }), task('pub/created')], 'rev:2');
+    await app.createTask('pub', 'A new thing');
+    expect(app.tasks.map((t) => t.id)).toEqual(['pub/a', 'pub/created']);
+    expect(app.filter.statuses).toEqual([]);
+    expect(app.selectedId).toBe('pub/created');
+    expect(app.shown.map((t) => t.id)).toContain('pub/created');
+  });
+
+  it('knows the task it created although a read was running when the write was answered', async () => {
+    const { app, hub } = make({ token: 't' });
+    hub.doc = snapshot([task('pub/a', { status: 'doing' })], 'rev:1');
+    await app.start(null);
+    app.filter = { ...app.filter, statuses: ['doing'] };
+    // The event of the hub came first: a read is under way (it began before the
+    // file existed) and holds its answer back.
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const original = hub.snapshot.bind(hub);
+    let reads = 0;
+    hub.snapshot = async (etag: string | null) => {
+      reads += 1;
+      if (reads > 1) return original(etag);
+      const stale = hub.doc;
+      await gate;
+      return { kind: 'fresh' as const, doc: stale, etag: stale.digest ?? null };
+    };
+    const reading = app.refresh();
+    const creating = app.createTask('pub', 'A new thing');
+    await new Promise((r) => setTimeout(r, 5));
+    hub.doc = snapshot([task('pub/a', { status: 'doing' }), task('pub/created')], 'rev:2');
+    release();
+    await Promise.all([reading, creating]);
+    // The write returned when the list was current, not before.
+    expect(app.tasks.map((t) => t.id)).toEqual(['pub/a', 'pub/created']);
+    expect(app.filter.statuses).toEqual([]);
+    expect(app.selectedId).toBe('pub/created');
+    app.stop();
   });
 
   it('finishes in two steps: the preview, then the token it gave', async () => {
