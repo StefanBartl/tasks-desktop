@@ -118,6 +118,15 @@ async fn engine_state(file: &FileConfig, env: &Env) -> EngineState {
     };
     let engine = CliEngine::new(CliEngineConfig::from_setup(&setup, env.clone()));
     match probe(&engine).await {
+        // A vault without one area is nearly always the wrong folder: say it
+        // instead of showing an empty list that looks like a working app.
+        Ok(_) if matches!(area_names(&engine).await, Ok(names) if names.is_empty()) => failed(
+            "vault_empty",
+            format!(
+                "no area with ROADMAP/tasks or Backlog was found in {} (is this the right vault?)",
+                setup.vault.value.display()
+            ),
+        ),
         Ok(_) => EngineState {
             status: HubStatus {
                 engine_ready: true,
