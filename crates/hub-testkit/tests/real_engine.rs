@@ -449,3 +449,34 @@ async fn a_write_through_the_host_is_seen_by_the_next_read() {
     assert_eq!(a, b);
     assert_ne!(a["digest"], before["digest"]);
 }
+
+#[tokio::test]
+async fn a_patch_with_null_takes_a_key_away_through_the_host() {
+    let vault = copy_vault("null");
+    let Some((host, _)) = engines_on(&vault).await else {
+        return;
+    };
+    let before = steady(&host.call(Method::Snapshot, None).await.unwrap().text);
+    let find = |doc: &Value| {
+        doc["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["id"] == "lib.nvim/beta")
+            .cloned()
+            .unwrap()
+    };
+    let task = find(&before);
+    assert!(task["prio"].is_number(), "the fixture task has a prio");
+    // The page sends `null` for "no priority": the key must go, not become 0.
+    let request = json!({
+        "client_op_id": "null-1",
+        "ops": [{ "op": "set", "id": "lib.nvim/beta", "if_match": task["etag"], "patch": { "prio": null } }]
+    });
+    let done = steady(&host.call(Method::Ops, Some(&request)).await.unwrap().text);
+    assert_eq!(done["ok"], true, "{done}");
+    let after = find(&steady(
+        &host.call(Method::Snapshot, None).await.unwrap().text,
+    ));
+    assert!(after.get("prio").is_none_or(Value::is_null), "{after}");
+}

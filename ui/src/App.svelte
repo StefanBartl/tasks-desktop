@@ -42,8 +42,9 @@
         ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) ||
         // An open menu has its own keys; a letter there is not a shortcut of the
         // page. (The buttons of the bar are not it: after a choice the focus
-        // sits there and j and k are still the list's.)
-        target.closest('[role="menu"]') !== null)
+        // sits there and j and k are still the list's.) A dialog is modal: what
+        // is behind it is not reached by a key.
+        target.closest('[role="menu"], dialog') !== null)
     );
   }
 

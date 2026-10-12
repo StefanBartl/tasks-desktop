@@ -531,6 +531,47 @@ describe('writing', () => {
     expect(hub.sent).toHaveLength(0);
   });
 
+  it('counts every ended write, so a control is drawn from the model again', async () => {
+    const { app, hub } = await ready();
+    expect(app.writes).toBe(0);
+    hub.next_ops = new ApiError(409, 'conflict', 'x');
+    await app.setField('pub/a', 'status', 'doing');
+    expect(app.writes).toBe(1);
+    await app.setField('pub/a', 'status', 'doing');
+    expect(app.writes).toBe(2);
+  });
+
+  it('offers an area that has no open task for a new one', async () => {
+    const { app, hub } = make({ token: 't' });
+    hub.areaList = [
+      { name: 'pub', data_class: 'public' },
+      { name: 'empty.nvim', data_class: 'internal' },
+    ];
+    await app.start(null);
+    // The classes of the areas are read after the first list is shown.
+    for (let i = 0; i < 50 && app.hubAreas.length === 0; i += 1) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    app.stop();
+    expect(app.areaNames).toEqual(['pub']);
+    expect(app.allAreaNames.sort()).toEqual(['empty.nvim', 'pub']);
+  });
+
+  it('says that a name is taken', async () => {
+    const { app, hub } = await ready();
+    hub.next_ops = {
+      kind: 'tasks.result',
+      ok: false,
+      dry_run: false,
+      results: [
+        { n: 1, op: 'new', ok: false, outcome: 'failed', changed_ids: [], error: { code: 'exists', message: 'x', retryable: false } },
+      ],
+    } as unknown as Result;
+    await app.createTask('pub', 'Same', {});
+    expect(app.toast?.kind).toBe('error');
+    expect(app.toast?.text).toMatch(/schon|already/);
+  });
+
   it('does nothing before the page is ready', async () => {
     const { app, hub } = make({ token: 't' });
     await app.setField('pub/a', 'status', 'doing');
