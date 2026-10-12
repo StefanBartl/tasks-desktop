@@ -2,20 +2,26 @@
   import type { TaskEntry } from '../lib/contract';
   import { labelOf, type Lang } from '../lib/i18n';
   import { markHidden } from '../lib/text';
-  import { isDue, localToday } from '../lib/remind';
+  import { isDue } from '../lib/remind';
 
   let {
     task,
     lang,
+    today,
     selected = false,
     onselect,
-  }: { task: TaskEntry; lang: Lang; selected?: boolean; onselect: (id: string) => void } =
-    $props();
+  }: {
+    task: TaskEntry;
+    lang: Lang;
+    today: string;
+    selected?: boolean;
+    onselect: (id: string) => void;
+  } = $props();
 
   // A word this version does not know is shown as it is.
   const status = $derived(labelOf(lang, 'status', task.status));
   const state = $derived(task.readiness ? labelOf(lang, 'state', task.readiness.state) : null);
-  const due = $derived(isDue(task.remind, localToday()));
+  const due = $derived(isDue(task.remind, today));
 </script>
 
 <button

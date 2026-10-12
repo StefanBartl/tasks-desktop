@@ -62,6 +62,7 @@
       <span>{t('remind.after_finish')}</span>
       <select bind:value={remind}>
         <option value="">{t('remind.none')}</option>
+        <option value="+0d">{t('remind.today')}</option>
         <option value="+3d">{t('remind.in', { n: 3 })}</option>
         <option value="+7d">{t('remind.in', { n: 7 })}</option>
         <option value="+14d">{t('remind.in', { n: 14 })}</option>
