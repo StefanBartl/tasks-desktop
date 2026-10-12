@@ -38,6 +38,8 @@ fn command(config: &Path) -> Command {
     cmd.env("TASKS_DESKTOP_CONFIG_DIR", config)
         .env("TASKS_VAULT", fixture_vault())
         .env("TASKS_EXTRA_AREAS", "ALL")
+        // `install` must not re-point the login entry of the machine the tests run on.
+        .env("TASKS_DESKTOP_NO_LOGIN_SYNC", "1")
         .env_remove("TASKS_DESKTOP_PORT");
     cmd
 }
@@ -406,6 +408,16 @@ impl Drop for Background {
     }
 }
 
+/// Removes a folder when the test ends. Declared before a [`Background`], so
+/// that it goes after the hub: a program that runs cannot be deleted.
+struct RemoveDir(PathBuf);
+
+impl Drop for RemoveDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 #[test]
 fn start_runs_the_hub_in_the_background_and_stop_ends_it() {
     let config = temp_dir("background");
@@ -452,6 +464,7 @@ fn start_runs_the_hub_in_the_background_and_stop_ends_it() {
 fn install_copies_the_program_and_brings_a_running_hub_back_from_there() {
     let config = temp_dir("install");
     let bin = temp_dir("install-bin");
+    let _bin = RemoveDir(bin.clone());
     let port = free_port();
     let _guard = Background(config.clone());
     let with_dir = |cmd: &mut Command| {
@@ -507,6 +520,67 @@ fn install_copies_the_program_and_brings_a_running_hub_back_from_there() {
         .output()
         .unwrap();
     assert!(!bad.status.success());
+}
+
+#[test]
+fn install_fails_and_says_what_it_did_when_the_hub_does_not_come_back() {
+    let config = temp_dir("install-down");
+    let bin = temp_dir("install-down-bin");
+    let _bin = RemoveDir(bin.clone());
+    let _guard = Background(config.clone());
+    let _hub = start_hub(&config, free_port());
+    // The installed program cannot start a hub: its log is not a file.
+    std::fs::create_dir(config.join("hub.log")).unwrap();
+
+    let out = command(&config)
+        .env("TASKS_DESKTOP_INSTALL_DIR", &bin)
+        .arg("install")
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let err = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(!out.status.success(), "{text}{err}");
+    // What was done is told although it ends in an error ...
+    assert!(text.contains("is stopped"), "{text}{err}");
+    assert!(text.contains("installed:"), "{text}{err}");
+    // ... and so is what the installed program complained of.
+    assert!(err.contains("cannot write"), "{err}");
+    assert!(err.contains("did not come back"), "{err}");
+}
+
+#[test]
+fn install_starts_a_hub_again_that_it_stopped_when_the_program_cannot_be_replaced() {
+    let config = temp_dir("install-keep");
+    let bin = temp_dir("install-keep-bin");
+    let _bin = RemoveDir(bin.clone());
+    let port = free_port();
+    let _guard = Background(config.clone());
+    let _hub = start_hub(&config, free_port());
+    // A folder where the program goes: the move over it fails.
+    let name = binary().file_name().unwrap().to_owned();
+    std::fs::create_dir(bin.join(&name)).unwrap();
+
+    let out = command(&config)
+        .env("TASKS_DESKTOP_INSTALL_DIR", &bin)
+        .env("TASKS_DESKTOP_PORT", port.to_string())
+        .arg("install")
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let err = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(!out.status.success(), "{text}{err}");
+    assert!(err.contains("cannot replace"), "{err}");
+    // The hub was stopped by this very call: no hint to stop it.
+    assert!(!err.contains("is a hub running from it"), "{err}");
+    assert!(text.contains("is stopped"), "{text}{err}");
+    // It runs again, and no half copy is left beside the program.
+    assert!(text.contains("runs in the background"), "{text}{err}");
+    assert!(!bin.join(format!("{}.new", name.to_string_lossy())).exists());
+    let again = command(&config).arg("start").output().unwrap();
+    assert!(
+        String::from_utf8_lossy(&again.stdout).contains("already running"),
+        "{again:?}"
+    );
 }
 
 #[test]
