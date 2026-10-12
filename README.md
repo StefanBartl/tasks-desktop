@@ -111,7 +111,9 @@ pnpm e2e          # the browser tests: needs target/debug/tasks-hub, the engine
                   # (TASKS_ENGINE_DIR, LIB_NVIM_DIR) and Chrome; nothing is downloaded
 ```
 
-The interface can create a task (`c`, or the Project menu), change status,
+The Plan view (`g p`) groups the open tasks by stage, marks the critical path and
+shows what the plan warns about (cycles, tasks that name the same file); the
+engine did all the reckoning and the page only groups it. The interface can create a task (`c`, or the Project menu), change status,
 priority and who in the detail, undo that, finish a task after a preview of
 what it does, and set a reminder (a date on which a task comes back on the
 Today page; also when finishing); the engine makes every change. The interface lists the vault in the engine's own order (it

@@ -12,7 +12,7 @@ import { localToday } from './remind';
 
 export type Phase = 'starting' | 'needs_pairing' | 'offline' | 'unavailable' | 'ready';
 export type Connection = 'live' | 'reconnecting' | 'offline';
-export type View = 'today' | 'list';
+export type View = 'today' | 'list' | 'plan';
 export type Theme = 'auto' | 'light' | 'dark';
 /** The blocks of the Today view that a person may hide. */
 export const TILES = ['next', 'waiting', 'remind', 'cdx', 'counts'] as const;
@@ -143,7 +143,8 @@ export class App {
     const hidden = safe(() => env.prefs.getItem('tasks-desktop.tiles-hidden'));
     this.hiddenTiles = parseTiles(hidden);
     // The page opens on the view it was left on.
-    this.view = safe(() => env.prefs.getItem('tasks-desktop.view')) === 'list' ? 'list' : 'today';
+    const view = safe(() => env.prefs.getItem('tasks-desktop.view'));
+    this.view = view === 'list' || view === 'plan' ? view : 'today';
   }
 
   // ── derived ───────────────────────────────────────────────────────────

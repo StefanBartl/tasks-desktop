@@ -339,6 +339,12 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(page.locator('aside.detail .prose table')).toBeVisible();
     const wide = await new AxeBuilder({ page }).analyze();
     expect(wide.violations, JSON.stringify(wide.violations, null, 1)).toEqual([]);
+
+    // The plan view: stages, a path, tags in the accent colour.
+    await chooseView(page, 'View', 'Plan');
+    await expect(page.getByRole('region', { name: 'Stages' })).toBeVisible();
+    const plan = await new AxeBuilder({ page }).analyze();
+    expect(plan.violations, JSON.stringify(plan.violations, null, 1)).toEqual([]);
   });
 }
 
@@ -546,6 +552,23 @@ test('a finished task with a reminder comes back on Today and the reminder can b
   await card.getByRole('button', { name: new RegExp(`Remove the reminder: ${id}`) }).click();
   await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
   await expect(page.getByRole('region', { name: 'To look at again' })).toHaveCount(0);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('the plan view shows the stages and the critical path, and opens a task', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await chooseView(page, 'View', 'Plan');
+  await expect(page.getByRole('region', { name: 'Stages' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^Stage 1/ })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Critical path' })).toBeVisible();
+  expect(await violations(page)).toEqual([]);
+
+  // A task of a stage opens in the list, selected.
+  const first = page.getByRole('region', { name: 'Stages' }).getByRole('button').first();
+  const title = (await first.innerText()).trim();
+  await first.click();
+  await expect(page.locator('aside.detail .task-title')).toHaveText(title);
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
