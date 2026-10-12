@@ -960,6 +960,8 @@ fn engine_failure(error: EngineError) -> Response {
     }
 }
 
+// The error is the answer to send, as everywhere in this file: a response is large, and rare.
+#[allow(clippy::result_large_err)]
 async fn ask(
     st: &Shared,
     method: EngineMethod,

@@ -344,13 +344,11 @@ fn private_storage_of(env: &Env, dir: &Path) -> Option<PathBuf> {
     let roaming = env.path("APPDATA");
     let (kind, rel) = if let Some(rel) = strip_prefix_ignore_case(dir, &local) {
         ("Local", rel)
-    } else if let Some(rel) = roaming
-        .as_deref()
-        .and_then(|r| strip_prefix_ignore_case(dir, r))
-    {
-        ("Roaming", rel)
     } else {
-        return None;
+        let rel = roaming
+            .as_deref()
+            .and_then(|r| strip_prefix_ignore_case(dir, r))?;
+        ("Roaming", rel)
     };
     let name = format!(".probe-{}", std::process::id());
     let probe = dir.join(&name);
