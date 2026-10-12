@@ -35,7 +35,12 @@
   function typing(target: EventTarget | null): boolean {
     return (
       target instanceof HTMLElement &&
-      (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+      (target.isContentEditable ||
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) ||
+        // An open menu has its own keys; a letter there is not a shortcut of the
+        // page. (The buttons of the bar are not it: after a choice the focus
+        // sits there and j and k are still the list's.)
+        target.closest('[role="menu"]') !== null)
     );
   }
 

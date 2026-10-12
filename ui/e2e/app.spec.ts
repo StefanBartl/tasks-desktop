@@ -424,6 +424,13 @@ test('the menu bar opens with the keyboard, switches views, language and theme',
   await expect(page.getByRole('menu')).toHaveCount(0);
   await expect(view).toBeFocused();
 
+  // A menu that was opened with the mouse closes when the focus leaves the bar.
+  await page.getByRole('menuitem', { name: 'Project' }).click();
+  await expect(page.getByRole('menu')).toHaveCount(1);
+  await page.locator('main button').first().focus();
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await page.getByRole('menuitem', { name: 'View' }).focus();
+
   // Left and Right walk the menus.
   await page.keyboard.press('ArrowRight');
   await expect(page.getByRole('menuitem', { name: 'Settings' })).toBeFocused();

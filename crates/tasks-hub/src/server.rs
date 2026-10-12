@@ -1060,9 +1060,11 @@ async fn task(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Respo
             "id must be <area>/<slug>",
         );
     };
-    // The state of the vault the answer is for: from the held snapshot, so a
-    // repeated look at a task costs no engine question.
-    let rev = st.store.current().await.ok().and_then(|c| c.rev.clone());
+    // The state of the vault the answer is for: the held snapshot's, so a
+    // repeated look at a task costs no engine question. A hub that holds no
+    // young snapshot asks the engine and keeps nothing: this route never
+    // makes a full scan wait in front of a task.
+    let rev = st.store.held().and_then(|c| c.rev.clone());
     if let Some(rev) = &rev {
         let hit = st.details.lock().ok().and_then(|mut d| d.get(rev, id));
         if let Some(doc) = hit {
@@ -1077,7 +1079,7 @@ async fn task(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Respo
             // still the held one after the read: a change that came in
             // meanwhile must not leave an old document under the new state.
             if let Some(rev) = &rev {
-                let now = st.store.current().await.ok().and_then(|c| c.rev.clone());
+                let now = st.store.held().and_then(|c| c.rev.clone());
                 let table = st.details.lock().ok().filter(|_| now.as_ref() == Some(rev));
                 if let Some(mut details) = table {
                     details.put(rev, id, Bytes::from(reply.text.clone()));

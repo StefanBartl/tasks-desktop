@@ -153,6 +153,19 @@ async fn a_second_look_at_a_task_costs_no_engine_question_until_the_vault_change
     // Every `task` question is counted (and takes no time).
     std::fs::write(r.vault.join(".fake-task-ms"), "0").unwrap();
 
+    // The page has its list before it opens a task; the hub holds that state.
+    let auth = format!("Bearer {}", r.token);
+    let reply = client::request(
+        r.server.addr().port(),
+        "GET",
+        "/api/tasks/snapshot",
+        &[("Authorization", &auth)],
+        "",
+    )
+    .await
+    .unwrap();
+    assert_eq!(reply.status, 200);
+
     let (status, first) = task(&r, "alpha.nvim/t1").await;
     assert_eq!(status, 200, "{first}");
     assert_eq!(calls(&r.vault), 1);
@@ -177,4 +190,20 @@ async fn a_second_look_at_a_task_costs_no_engine_question_until_the_vault_change
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
     assert!(calls(&r.vault) >= 3, "asked again for the new state");
+}
+
+#[tokio::test]
+async fn a_hub_that_holds_no_snapshot_keeps_nothing_and_fetches_no_scan_for_a_task() {
+    let r = rig("cold").await;
+    std::fs::write(r.vault.join(".fake-task-ms"), "0").unwrap();
+    std::fs::write(r.vault.join(".fake-calls"), "").ok();
+    task(&r, "alpha.nvim/t1").await;
+    task(&r, "alpha.nvim/t1").await;
+    // Both looks went to the engine: there was no state to key them by.
+    assert_eq!(calls(&r.vault), 2);
+    // And asking for a task did not make the hub scan the whole vault.
+    let scans = std::fs::read_to_string(r.vault.join(".fake-calls"))
+        .map(|t| t.lines().count())
+        .unwrap_or(0);
+    assert_eq!(scans, 0, "no snapshot was fetched for a task");
 }
