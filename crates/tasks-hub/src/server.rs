@@ -1096,6 +1096,7 @@ async fn events(
     let (tx, rx) = mpsc::channel::<Bytes>(16);
     let heartbeat = st.limits.heartbeat;
     let instance = st.instance.clone();
+    let shared = Arc::clone(&st);
     tokio::spawn(async move {
         let _guard = guard;
         let hello = format!(
@@ -1121,6 +1122,13 @@ async fn events(
                 _ = ticker.tick() => ": ping\n\n".to_owned(),
                 () = tx.closed() => return,
             };
+            // The session was checked when the stream was opened. One that
+            // was closed since (the oldest is closed when newer ones open)
+            // takes its streams with it: no id goes to a token that is no
+            // longer one.
+            if !shared.sessions.check(&token) {
+                return;
+            }
             if tx.send(Bytes::from(message)).await.is_err() {
                 return;
             }

@@ -80,6 +80,23 @@ impl Sse {
         Some(text)
     }
 
+    /// Did the server end the stream within `within`? What it still sends
+    /// until then is read and dropped. The end of a chunked body is a chunk
+    /// of size zero.
+    // Shared by two test crates; not each of them ends a stream.
+    #[allow(dead_code)]
+    pub async fn ended(&mut self, within: Duration) -> bool {
+        let deadline = tokio::time::Instant::now() + within;
+        loop {
+            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match self.next(left).await {
+                Some(message) if message.is_empty() => return true,
+                Some(_) => {}
+                None => return false,
+            }
+        }
+    }
+
     /// The next `tasks` event as JSON, skipping heartbeats.
     pub async fn next_change(&mut self, within: Duration) -> Option<Value> {
         let deadline = tokio::time::Instant::now() + within;

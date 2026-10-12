@@ -7,7 +7,9 @@
 //! `TASKS_DESKTOP_REQUIRE_ENGINE=1` (as CI does) to make a missing engine a
 //! failure instead.
 
-use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use serde_json::{json, Value};
 use tasks_hub::config::{Env, FileConfig};
@@ -59,6 +61,53 @@ async fn engine() -> Option<(CliEngine, Setup)> {
         }
         Err(other) => panic!("the fixture vault is not usable: {other}"),
     }
+}
+
+/// Every file below `root`: its relative path, length and modification time.
+fn listing(root: &Path) -> BTreeMap<String, (u64, Option<SystemTime>)> {
+    fn walk(dir: &Path, root: &Path, out: &mut BTreeMap<String, (u64, Option<SystemTime>)>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            let meta = entry.metadata().unwrap();
+            if meta.is_dir() {
+                walk(&path, root, out);
+            } else {
+                let relative = path
+                    .strip_prefix(root)
+                    .unwrap()
+                    .display()
+                    .to_string()
+                    .replace('\\', "/");
+                out.insert(relative, (meta.len(), meta.modified().ok()));
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    walk(root, root, &mut out);
+    out
+}
+
+#[tokio::test]
+async fn a_read_leaves_the_vault_as_it_was() {
+    // The watcher wakes a scan when the vault changes. A scan that wrote
+    // into the vault would wake itself again and never rest.
+    let Some((engine, _)) = engine().await else {
+        return;
+    };
+    let vault = fixture_vault();
+    let before = listing(&vault);
+    assert!(!before.is_empty());
+    let task = json!({ "id": "lib.nvim/alpha" });
+    for (method, params) in [
+        (Method::Snapshot, None),
+        (Method::Areas, None),
+        (Method::Next, None),
+        (Method::Task, Some(&task)),
+    ] {
+        engine.call(method, params).await.expect("a read");
+    }
+    assert_eq!(listing(&vault), before, "a read changed the vault");
 }
 
 #[tokio::test]

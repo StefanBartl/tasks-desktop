@@ -34,6 +34,7 @@ struct Timing {
     interval: Duration,
     heartbeat: Duration,
     max_age: Option<Duration>,
+    sessions: usize,
 }
 
 impl Default for Timing {
@@ -43,6 +44,7 @@ impl Default for Timing {
             interval: Duration::from_secs(300),
             heartbeat: Duration::from_secs(15),
             max_age: None,
+            sessions: 16,
         }
     }
 }
@@ -97,6 +99,7 @@ async fn rig(name: &str, timing: Timing) -> Rig {
         limits: Limits {
             snapshot_max_age: timing.max_age,
             heartbeat: timing.heartbeat,
+            max_sessions: timing.sessions,
             ..Limits::default()
         },
         clock: Arc::new(ManualClock::new()),
@@ -278,6 +281,76 @@ async fn the_timer_catches_what_the_watcher_did_not_see() {
     let change = sse.next_change(WAIT).await.expect("an event");
     assert_eq!(change["cause"], "timer");
     assert_eq!(change["added"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn the_timer_does_not_scan_for_nobody() {
+    let r = rig(
+        "idle",
+        Timing {
+            interval: Duration::from_millis(200),
+            ..Timing::default()
+        },
+    )
+    .await;
+    // Several periods with no stream open: the vault is not scanned.
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    assert_eq!(calls(&r.vault), 0, "scanned with nobody listening");
+
+    // Once someone listens the net is back.
+    let mut sse = Sse::open(r.server.addr(), Some(&r.token)).await.unwrap();
+    let _hello = sse.next(WAIT).await.unwrap();
+    set_n(&r.vault, 2);
+    let change = sse.next_change(WAIT).await.expect("an event");
+    assert_eq!(change["cause"], "timer");
+}
+
+#[tokio::test]
+async fn a_folder_task_moved_as_a_whole_is_seen() {
+    let r = rig("folder-move", Timing::default()).await;
+    let a = r.vault.join("a.nvim");
+    let from = a.join("ROADMAP").join("tasks").join("folder-task");
+    let backlog = a.join("Backlog").join("TASKS");
+    std::fs::create_dir_all(&from).unwrap();
+    std::fs::create_dir_all(&backlog).unwrap();
+    std::fs::write(from.join("folder-task.md"), "---\ntitle: x\n---\n").unwrap();
+    // Let the scan of what was just made pass before the stream is opened.
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let mut sse = Sse::open(r.server.addr(), Some(&r.token)).await.unwrap();
+    let _hello = sse.next(WAIT).await.unwrap();
+
+    // What `done` does: the folder is renamed into the backlog. The system
+    // reports the folder, not the file in it; the timer is minutes away.
+    set_n(&r.vault, 1);
+    std::fs::rename(&from, backlog.join("folder-task")).unwrap();
+    let change = sse.next_change(WAIT).await.expect("an event");
+    assert_eq!(change["cause"], "fs");
+}
+
+#[tokio::test]
+async fn a_stream_ends_with_its_session() {
+    let r = rig(
+        "session",
+        Timing {
+            heartbeat: Duration::from_millis(200),
+            sessions: 2,
+            ..Timing::default()
+        },
+    )
+    .await;
+    let mut sse = Sse::open(r.server.addr(), Some(&r.token)).await.unwrap();
+    let _hello = sse.next(WAIT).await.unwrap();
+    // The session of the stream is the oldest; two newer ones close it.
+    let _second = session(&r).await;
+    let _third = session(&r).await;
+    assert!(
+        sse.ended(Duration::from_secs(3)).await,
+        "the stream outlived its session"
+    );
+    // The session that is still open is not touched.
+    let mut other = Sse::open(r.server.addr(), Some(&_third)).await.unwrap();
+    let _hello = other.next(WAIT).await.unwrap();
+    assert!(!other.ended(Duration::from_millis(700)).await);
 }
 
 #[tokio::test]

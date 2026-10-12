@@ -67,7 +67,9 @@ pub struct Cached {
     /// How many changes the hub has seen since it started.
     pub seq: u64,
     fetched: Instant,
-    ids: BTreeMap<String, Option<String>>,
+    /// Task id to etag. `None` when the document could not be read for ids:
+    /// a change is then told as "anything may differ", not as "all removed".
+    ids: Option<BTreeMap<String, Option<String>>>,
 }
 
 /// What a client of the event stream is told. Ids only, never a title.
@@ -75,7 +77,8 @@ pub struct Cached {
 pub struct Change {
     pub seq: u64,
     pub rev: Option<String>,
-    /// What woke the scan: `fs`, `timer`, `rescan` or `lost`.
+    /// What woke the scan: `fs`, `timer`, `rescan`, `lost`, or `fetch` (a
+    /// request found the held snapshot too old and read it again).
     pub cause: &'static str,
     pub changed: Vec<String>,
     pub added: Vec<String>,
@@ -155,6 +158,12 @@ impl SnapshotStore {
         self.engine.is_some()
     }
 
+    /// Is any event stream open? Nobody to tell, nothing to scan for.
+    #[must_use]
+    pub fn has_listeners(&self) -> bool {
+        self.events.receiver_count() > 0
+    }
+
     fn cached(&self) -> Option<Arc<Cached>> {
         lock(&self.state).clone()
     }
@@ -208,9 +217,14 @@ impl SnapshotStore {
             Some(l) => (
                 l.digest,
                 l.rev,
-                l.tasks.into_iter().map(|t| (t.id, t.etag)).collect(),
+                Some(
+                    l.tasks
+                        .into_iter()
+                        .map(|t| (t.id, t.etag))
+                        .collect::<BTreeMap<_, _>>(),
+                ),
             ),
-            None => (None, None, BTreeMap::new()),
+            None => (None, None, None),
         };
         let etag = digest.filter(|d| plain_digest(d));
 
@@ -305,18 +319,31 @@ fn has_transitional(lite: &Lite) -> bool {
 
 /// What differs between two snapshots, as ids.
 fn diff(old: &Cached, new: &Cached, cause: &'static str) -> Change {
+    let (Some(old_ids), Some(new_ids)) = (&old.ids, &new.ids) else {
+        // One of the two could not be read for ids: no list would be true.
+        // The event says so, and the client reads again, as it does anyway.
+        return Change {
+            seq: new.seq,
+            rev: new.rev.clone(),
+            cause,
+            changed: Vec::new(),
+            added: Vec::new(),
+            removed: Vec::new(),
+            truncated: true,
+        };
+    };
     let mut changed = Vec::new();
     let mut added = Vec::new();
     let mut removed = Vec::new();
-    for (id, etag) in &new.ids {
-        match old.ids.get(id) {
+    for (id, etag) in new_ids {
+        match old_ids.get(id) {
             None => added.push(id.clone()),
             Some(before) if before != etag => changed.push(id.clone()),
             Some(_) => {}
         }
     }
-    for id in old.ids.keys() {
-        if !new.ids.contains_key(id) {
+    for id in old_ids.keys() {
+        if !new_ids.contains_key(id) {
             removed.push(id.clone());
         }
     }
@@ -380,7 +407,18 @@ pub fn spawn_refresher(
                         if lost { "lost" } else { "fs" }
                     }
                 },
-                _ = ticker.tick() => "timer",
+                _ = ticker.tick() => {
+                    // The full scan is the net under lost events for the
+                    // streams that are open. With none open it costs a
+                    // Neovim process every period for nobody (a scan of a
+                    // real vault takes about a second); the held snapshot
+                    // has an age, and a request that finds it too old
+                    // reads the vault again.
+                    if !store.has_listeners() {
+                        continue;
+                    }
+                    "timer"
+                },
                 () = store.rescan.notified() => "rescan",
             };
             if let Err(e) = store.refresh(cause).await {
@@ -423,11 +461,26 @@ mod tests {
             rev: Some("rev:1".to_owned()),
             seq: 1,
             fetched: Instant::now(),
-            ids: ids
-                .iter()
-                .map(|(i, e)| ((*i).to_owned(), Some((*e).to_owned())))
-                .collect(),
+            ids: Some(
+                ids.iter()
+                    .map(|(i, e)| ((*i).to_owned(), Some((*e).to_owned())))
+                    .collect(),
+            ),
         }
+    }
+
+    #[test]
+    fn a_document_without_ids_is_not_all_removed() {
+        let old = cached(&[("a/x", "1"), ("a/y", "1")]);
+        let mut unreadable = cached(&[]);
+        unreadable.ids = None;
+        let c = diff(&old, &unreadable, "fs");
+        assert!(c.truncated);
+        assert!(c.changed.is_empty() && c.added.is_empty() && c.removed.is_empty());
+        // And back: the first readable document after it names nothing either.
+        let c = diff(&unreadable, &old, "fs");
+        assert!(c.truncated);
+        assert!(c.added.is_empty());
     }
 
     #[test]

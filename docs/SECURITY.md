@@ -95,7 +95,9 @@ thing, the data class of an area.
   added or removed (ids only: no title, no path), a heartbeat every 15
   seconds, and a `resync` for a client that was too slow. An event is a hint,
   not a diff: the client reads the snapshot again. There is no replay. A
-  session may hold four streams (`429` beyond that).
+  session may hold four streams (`429` beyond that). The session is looked
+  at again with every message: a stream ends with its session (the oldest
+  of the sixteen is closed when newer ones open), within one heartbeat.
 * `rescan` (POST) asks for a full scan now, for a client that got the focus
   back; many asks are one scan.
 * `task?id=<area>/<slug>`: the id is two plain names of letters, digits,
@@ -118,17 +120,32 @@ A file watcher (`notify`, the stable 8.x line) watches the vault and says
 only "something that matters changed"; what matters is decided by path:
 `.md` files in `ROADMAP/tasks` (folder tasks too), `ROADMAP/plans`,
 `Backlog/FEATURES` and `Backlog/TASKS`, and the entries of the vault root
-that are not hidden (a new area). Leftovers of tools (`*.tasks-tmp.*`,
-`*.frontmatter.*`, lock files, backups, swap files, Vim's `4913`, sync
-conflicts) and the folder events Windows adds for a changed folder do not
-count. After 300 ms of quiet there is **one** scan by the engine, however
-many files changed. A state that a tool is in the middle of changing (a
-duplicate id while a task is being finished, an unreadable file during an
-editor's save) is read once more after half a second before it is shown.
+that are folders and not hidden (a new area). A folder task is moved and
+renamed as a whole (`done`, `move_area`), and the system then reports the
+folder and not the files in it: so an entry directly in those folders counts
+when it is a folder, or when it is gone. Leftovers of tools
+(`*.tasks-tmp.*`, `*.frontmatter.*`, lock files, backups, swap files, Vim's
+`4913`, sync conflicts) and the folder events Windows adds for a changed
+folder do not count. After 300 ms of quiet there is **one** scan by the
+engine, however many files changed. A state that a tool is in the middle of
+changing (a duplicate id while a task is being finished, an unreadable file
+during an editor's save) is read once more after half a second before it is
+shown. The watcher asks the file system about a path only when the place of
+the path could matter at all: a vault that is a git repository makes
+hundreds of events under `.git`.
 
 Events can be lost: the watcher may drop some under a burst, and one that
-fails tells the hub to rescan. A full scan every 45 seconds is the net under
-that, so a change is never missed for longer.
+says so (an overflowing queue on Linux and macOS) or fails tells the hub to
+rescan. Windows drops them without saying. The net under that is a full scan
+every 45 seconds **while an event stream is open**: that is who would miss a
+change. With no stream open nothing is scanned for nobody (a scan of a real
+vault of 600 tasks takes about a second of Neovim); the held snapshot has an
+age (two minutes), and a request that finds it older reads the vault again.
+A client that comes back to the foreground asks for a rescan (`POST
+/api/tasks/rescan`) instead of trusting what it holds.
+
+A read by the engine writes nothing into the vault (a test holds that): a
+scan that did would wake itself again.
 
 ## Data classes (`areas.json`)
 
