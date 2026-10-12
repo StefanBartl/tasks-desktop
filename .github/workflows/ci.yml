@@ -48,6 +48,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
         with:
           components: rustfmt, clippy
+      # The types of the UI are the engine's, copied: a change of the
+      # contract that did not reach the UI fails here.
+      - name: UI contract types equal the engine's
+        shell: bash
+        run: cmp engine/tasks.nvim/schemas/tasks-export/1/tasks-export.d.ts ui/src/lib/contract.d.ts
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked

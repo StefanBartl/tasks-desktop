@@ -2,7 +2,7 @@
   import type { App } from '../lib/app.svelte';
   import type { TaskBrief } from '../lib/contract';
   import { waitingForMe } from '../lib/filter';
-  import { translate, type Key } from '../lib/i18n';
+  import { labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
 
   let { app }: { app: App } = $props();
@@ -40,10 +40,6 @@
 </script>
 
 <div class="today">
-  {#if next && next.incomplete.length > 0}
-    <p class="banner" role="alert">{t('today.incomplete')}</p>
-  {/if}
-
   <section class="card next" aria-label={t('today.next')}>
     <h3>{t('today.next')}</h3>
     {#if next?.task}
@@ -52,7 +48,7 @@
       </button>
       <p class="id"><code>{next.task.id}</code></p>
       <p class="muted">
-        {next.task.status ? t(`status.${next.task.status}` as Key) : '?'} ·
+        {labelOf(app.lang, 'status', next.task.status)} ·
         {next.task.prio !== undefined ? `P${next.task.prio}` : '?'} ·
         {next.task.effort ?? '?'}
         {#if why(next.task)} · {why(next.task)}{/if}
@@ -60,7 +56,7 @@
       {#if next.alternatives.length > 0}
         <h3>{t('today.alternatives')}</h3>
         <ul class="plain">
-          {#each next.alternatives as alt (alt.id)}
+          {#each next.alternatives as alt, i (`${alt.id}:${i}`)}
             <li>
               <button type="button" class="link" onclick={() => open(alt.id)}
                 >{markHidden(alt.title)}</button
@@ -93,7 +89,7 @@
   <section class="card" aria-label={t('today.waiting')}>
     <h3>{t('today.waiting')} ({waiting.length})</h3>
     <ul class="plain">
-      {#each waiting as task (task.id)}
+      {#each waiting as task, i (`${task.id}:${i}`)}
         <li>
           <button type="button" class="link" onclick={() => open(task.id)}
             >{markHidden(task.title)}</button
@@ -108,7 +104,7 @@
     <section class="card" aria-label={t('today.cdx')}>
       <h3>{t('today.cdx')} ({next.cdx.length})</h3>
       <ul class="plain">
-        {#each next.cdx.slice(0, 8) as brief (brief.id)}
+        {#each next.cdx.slice(0, 8) as brief, i (`${brief.id}:${i}`)}
           <li>
             <button type="button" class="link" onclick={() => open(brief.id)}
               >{markHidden(brief.title)}</button
@@ -121,7 +117,7 @@
   {/if}
 
   {#if tiles.length > 0}
-    <section class="tiles" aria-label="Counts">
+    <section class="tiles" aria-label={t('counts.label')}>
       {#each tiles as tile (tile.key)}
         <div class="tile">
           <span class="num">{tile.value}</span>
@@ -200,10 +196,5 @@
   .num {
     font-size: 1.5rem;
     font-weight: 600;
-  }
-  .banner {
-    grid-column: 1 / -1;
-    margin: 0;
-    color: var(--warn);
   }
 </style>

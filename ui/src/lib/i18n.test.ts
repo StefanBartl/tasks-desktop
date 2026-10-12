@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ago, detectLang, dictionaries, translate, type Key } from './i18n';
+import { ago, detectLang, dictionaries, labelOf, translate, type Key } from './i18n';
 
 describe('i18n', () => {
   it('has the same keys and the same placeholders in both languages', () => {
@@ -25,5 +25,15 @@ describe('i18n', () => {
     expect(ago('en', 10 * 60_000)).toBe('10 min');
     expect(ago('de', 5 * 3_600_000)).toBe('5 Std');
     expect(ago('en', 5 * 86_400_000)).toBe('5 d');
+  });
+});
+
+describe('labelOf', () => {
+  it('names a known word and shows an unknown one as it is', () => {
+    expect(labelOf('de', 'status', 'doing')).toBe('läuft');
+    expect(labelOf('en', 'state', 'a-new-state-of-the-engine')).toBe('a-new-state-of-the-engine');
+    expect(labelOf('en', 'status', undefined)).toBe('?');
+    // A word that happens to be a property of every object is not a key.
+    expect(labelOf('en', 'status', 'constructor')).toBe('constructor');
   });
 });

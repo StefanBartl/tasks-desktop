@@ -66,7 +66,7 @@
       <span class="help">{t('list.help')}</span>
     </p>
     <div class="rows">
-      {#each shown as task (task.id)}
+      {#each shown as task (task.file)}
         <TaskRow
           {task}
           lang={app.lang}

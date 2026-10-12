@@ -62,8 +62,15 @@ impl UiFiles {
                 return Ok(());
             };
             let meta = std::fs::metadata(path)?;
-            if !meta.is_file() || meta.len() > MAX_FILE {
+            if !meta.is_file() {
                 return Ok(());
+            }
+            // A build that was cut short is not served as if it were whole.
+            if meta.len() > MAX_FILE {
+                return Err(std::io::Error::other(format!(
+                    "{} is larger than {MAX_FILE} bytes",
+                    path.display()
+                )));
             }
             total += meta.len();
             if total > MAX_TOTAL {
@@ -126,7 +133,12 @@ fn content_type(path: &Path) -> Option<&'static str> {
 }
 
 /// Where a built interface may be: the setting, else next to the binary
-/// (`ui/`), else the repository's `ui/dist` when run from `target/<profile>`.
+/// (`ui/`), else the `ui/dist` of the repository the binary was built in
+/// (`<repo>/target/<profile>/tasks-hub`, with a `Cargo.toml` in `<repo>`).
+///
+/// Scripts of this folder run in the origin that holds the session, so it is
+/// not looked for anywhere else: a binary in some `bin` folder must not pick
+/// up whatever `ui/dist` sits two levels above it.
 #[must_use]
 pub fn find_dir(setting: Option<&Path>, exe: Option<&Path>) -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
@@ -135,7 +147,12 @@ pub fn find_dir(setting: Option<&Path>, exe: Option<&Path>) -> Option<PathBuf> {
     }
     if let Some(exe_dir) = exe.and_then(Path::parent) {
         candidates.push(exe_dir.join("ui"));
-        if let Some(root) = exe_dir.parent().and_then(Path::parent) {
+        let repo = exe_dir
+            .parent()
+            .filter(|target| target.file_name().is_some_and(|name| name == "target"))
+            .and_then(Path::parent)
+            .filter(|root| root.join("Cargo.toml").is_file());
+        if let Some(root) = repo {
             candidates.push(root.join("ui").join("dist"));
         }
     }
@@ -191,6 +208,41 @@ mod tests {
         assert!(UiFiles::load(&dir).is_err());
         assert!(!UiFiles::none().has_index());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_over_the_limit_is_an_error_not_a_hole() {
+        let dir = temp("big");
+        std::fs::write(dir.join("index.html"), "<html></html>").unwrap();
+        let big = vec![b'x'; usize::try_from(MAX_FILE).unwrap() + 1];
+        std::fs::write(dir.join("assets").join("big.js"), big).unwrap();
+        assert!(UiFiles::load(&dir).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_folder_is_looked_for_only_where_it_belongs() {
+        let root = temp("find");
+        let debug = root.join("target").join("debug");
+        std::fs::create_dir_all(&debug).unwrap();
+        std::fs::create_dir_all(root.join("ui").join("dist")).unwrap();
+        std::fs::write(root.join("ui").join("dist").join("index.html"), "x").unwrap();
+        let exe = debug.join("tasks-hub");
+        // No Cargo.toml: not the repository of the binary.
+        assert_eq!(find_dir(None, Some(&exe)), None);
+        std::fs::write(root.join("Cargo.toml"), "").unwrap();
+        assert_eq!(
+            find_dir(None, Some(&exe)),
+            Some(root.join("ui").join("dist"))
+        );
+        // A binary somewhere else does not reach up to find one.
+        let elsewhere = root.join("bin").join("deeper");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        assert_eq!(find_dir(None, Some(&elsewhere.join("tasks-hub"))), None);
+        // The setting wins.
+        let set = root.join("ui").join("dist");
+        assert_eq!(find_dir(Some(&set), None), Some(set.clone()));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

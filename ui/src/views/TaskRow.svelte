@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { TaskEntry } from '../lib/contract';
-  import { translate, type Key, type Lang } from '../lib/i18n';
+  import { labelOf, type Lang } from '../lib/i18n';
   import { markHidden } from '../lib/text';
 
   let {
@@ -11,10 +11,9 @@
   }: { task: TaskEntry; lang: Lang; selected?: boolean; onselect: (id: string) => void } =
     $props();
 
-  const status = $derived(task.status ? translate(lang, `status.${task.status}` as Key) : '?');
-  const state = $derived(
-    task.readiness ? translate(lang, `state.${task.readiness.state}` as Key) : null,
-  );
+  // A word this version does not know is shown as it is.
+  const status = $derived(labelOf(lang, 'status', task.status));
+  const state = $derived(task.readiness ? labelOf(lang, 'state', task.readiness.state) : null);
 </script>
 
 <button

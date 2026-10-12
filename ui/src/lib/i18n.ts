@@ -9,6 +9,17 @@ const en = {
   'nav.list': 'List',
   'nav.areas': 'Area',
   'nav.all': 'All areas',
+  'nav.views': 'Views',
+  'shortcuts.label': 'Keys',
+  'shortcuts.on': 'Keys on',
+  'shortcuts.off': 'Keys off',
+  'error.title': 'The page hit an error',
+  'error.body': 'Something in the data or in the page broke. Reload to try again.',
+  'error.reload': 'Reload',
+  'counts.label': 'Counts',
+  'step.done': 'done',
+  'step.dropped': 'dropped',
+  'step.open': 'open',
   'conn.live': 'live',
   'conn.reconnecting': 'reconnecting',
   'conn.offline': 'hub not reachable',
@@ -38,7 +49,7 @@ const en = {
   'today.empty.nothing_startable':
     'Nothing can be started. For you: {for_me}, waiting: {waiting}, blocked: {blocked_status}, parked: {parked}.',
   'today.empty.only_cdx': 'Only tasks for an AI session are ready.',
-  'today.incomplete': 'Some folders could not be read: the picture may be incomplete.',
+  'data.incomplete': 'Some folders could not be read: the picture may be incomplete.',
   'list.search': 'Search id and title',
   'list.count': '{shown} of {total}',
   'list.none': 'No task matches.',
@@ -108,6 +119,17 @@ const de: Record<Key, string> = {
   'nav.list': 'Liste',
   'nav.areas': 'Bereich',
   'nav.all': 'Alle Bereiche',
+  'nav.views': 'Ansichten',
+  'shortcuts.label': 'Tasten',
+  'shortcuts.on': 'Tasten an',
+  'shortcuts.off': 'Tasten aus',
+  'error.title': 'Die Seite ist auf einen Fehler gelaufen',
+  'error.body': 'Etwas in den Daten oder in der Seite ist kaputtgegangen. Neu laden versucht es erneut.',
+  'error.reload': 'Neu laden',
+  'counts.label': 'Zahlen',
+  'step.done': 'erledigt',
+  'step.dropped': 'verworfen',
+  'step.open': 'offen',
   'conn.live': 'live',
   'conn.reconnecting': 'verbindet neu',
   'conn.offline': 'Hub nicht erreichbar',
@@ -137,7 +159,7 @@ const de: Record<Key, string> = {
   'today.empty.nothing_startable':
     'Nichts ist startbar. Für dich: {for_me}, wartend: {waiting}, blockiert: {blocked_status}, geparkt: {parked}.',
   'today.empty.only_cdx': 'Startbar sind nur Tasks für eine KI-Sitzung.',
-  'today.incomplete': 'Einige Ordner ließen sich nicht lesen: das Bild kann unvollständig sein.',
+  'data.incomplete': 'Einige Ordner ließen sich nicht lesen: das Bild kann unvollständig sein.',
   'list.search': 'ID und Titel suchen',
   'list.count': '{shown} von {total}',
   'list.none': 'Kein Task passt.',
@@ -221,7 +243,9 @@ export function translate(
   key: Key,
   params: Record<string, string | number> = {},
 ): string {
-  const text = dictionaries[lang][key];
+  // A key that is not there (never from the code, which is typed) shows as
+  // itself rather than breaking the page.
+  const text = dictionaries[lang][key] ?? key;
   return text.replace(/\{(\w+)\}/g, (whole, name: string) => {
     const value = params[name];
     return value === undefined ? whole : String(value);
@@ -241,4 +265,15 @@ export function ago(lang: Lang, milliseconds: number): string {
 
 export function formatNumber(lang: Lang, value: number): string {
   return new Intl.NumberFormat(lang, { maximumFractionDigits: 2 }).format(value);
+}
+
+/**
+ * The word for a value the engine named (`status.doing`, `state.ready`). A
+ * value this version does not know shows as it is: the contract may grow
+ * a new word, and the page must not break on it.
+ */
+export function labelOf(lang: Lang, prefix: string, value: string | undefined): string {
+  if (value === undefined) return '?';
+  const key = `${prefix}.${value}`;
+  return Object.hasOwn(dictionaries[lang], key) ? translate(lang, key as Key) : value;
 }

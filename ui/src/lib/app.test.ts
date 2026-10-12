@@ -25,7 +25,10 @@ class FakeHub {
   engineReady = true;
   hubDown = false;
   exchanged: string[] = [];
+  exchangeFails = false;
   rescans = 0;
+  areasCalls = 0;
+  nextCalls = 0;
 
   setToken(t: string | null) {
     this.token = t;
@@ -45,17 +48,21 @@ class FakeHub {
   }
   async exchange(code: string) {
     this.exchanged.push(code);
+    if (this.exchangeFails) throw new ApiError(401, 'bad_code', 'x');
     return 'token-1';
   }
   async snapshot(etag: string | null) {
     this.snapshotCalls.push(etag);
     if (!this.token) throw new ApiError(401, 'unauthorized', 'x');
+    if (etag !== null && etag === this.doc.digest) return { kind: 'not_modified' as const };
     return { kind: 'fresh' as const, doc: this.doc, etag: this.doc.digest ?? null };
   }
   async areas() {
+    this.areasCalls += 1;
     return { areas: this.areaList, unclassified: [], private: [] };
   }
   async next() {
+    this.nextCalls += 1;
     return { alternatives: [], cdx: [], incomplete: [] };
   }
   async task(id: string): Promise<TaskDocument> {
@@ -130,8 +137,9 @@ describe('App', () => {
     };
     const { app, hub } = make({ token: 't', cached });
     await app.start(null);
-    // The conditional request carried the cached tag.
-    expect(hub.snapshotCalls[0]).toBe('old');
+    // The cache holds a part of the document: the first read is not
+    // conditional on its tag.
+    expect(hub.snapshotCalls[0]).toBeNull();
     expect(app.tasks.map((t) => t.id)).toEqual(['pub/a']);
     expect(app.cachedAt).toBeNull();
     app.stop();
@@ -146,6 +154,8 @@ describe('App', () => {
     ];
     await app.start(null);
     expect(app.tasks.length).toBe(2);
+    // The cache is written after the list is shown, once the classes are known.
+    await new Promise((r) => setTimeout(r, 10));
     expect(saved[0]?.tasks.map((t) => t.id)).toEqual(['pub/a']);
     app.stop();
   });
@@ -192,6 +202,93 @@ describe('App', () => {
     await app.start(null);
     await app.focused();
     expect(hub.rescans).toBe(1);
+    app.stop();
+  });
+});
+
+describe('App, cache and hub', () => {
+  it('does not let a not-modified answer leave the cached part standing for the list', async () => {
+    const cached: CachedList = {
+      vault: 'v',
+      rev: 'rev:1',
+      etag: 'rev:1',
+      savedAt: 5,
+      tasks: [task('pub/a', { etag: 'e1' })],
+    };
+    const { app, hub } = make({ token: 't', cached });
+    // The hub's document has one task more than the cache (a private one).
+    hub.doc = snapshot([task('pub/a', { etag: 'e1' }), task('priv/b', { etag: 'e2' })], 'rev:1');
+    await app.start(null);
+    expect(app.tasks.map((t) => t.id)).toEqual(['pub/a', 'priv/b']);
+    expect(app.snapshot).not.toBeNull();
+    // From now on the tag is sent, and the answer may be "not modified".
+    await app.refresh();
+    expect(hub.snapshotCalls.at(-1)).toBe('rev:1');
+    expect(app.tasks.length).toBe(2);
+    app.stop();
+  });
+
+  it('shows the cached list while the hub is not there', async () => {
+    const cached: CachedList = {
+      vault: 'v',
+      rev: null,
+      etag: null,
+      savedAt: 5,
+      tasks: [task('pub/old')],
+    };
+    const { app, hub } = make({ token: 't', cached });
+    hub.hubDown = true;
+    const started = app.start(null);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(app.phase).toBe('ready');
+    expect(app.cachedAt).toBe(5);
+    expect(app.tasks.map((t) => t.id)).toEqual(['pub/old']);
+    expect(app.connection).toBe('offline');
+    app.stop();
+    hub.hubDown = false;
+    await started;
+  });
+
+  it('keeps the session of the tab when the code of the link is no good', async () => {
+    const { app, hub } = make({ token: 'kept' });
+    hub.exchangeFails = true;
+    await app.start('ab'.repeat(16));
+    expect(app.phase).toBe('ready');
+    expect(hub.token).toBe('kept');
+    app.stop();
+  });
+
+  it('reads the classes once and the next task once for one list', async () => {
+    const { app, hub } = make({ token: 't' });
+    await app.start(null);
+    await new Promise((r) => setTimeout(r, 10));
+    await app.refresh();
+    await app.refresh();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(hub.areasCalls).toBe(1);
+    expect(hub.nextCalls).toBe(1);
+    // A changed list is a new question for `next`.
+    hub.doc = snapshot([task('pub/a', { etag: 'e2' })], 'rev:2');
+    await app.refresh();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(hub.nextCalls).toBe(2);
+    expect(hub.areasCalls).toBe(1);
+    app.stop();
+  });
+
+  it('shows the list before the classes and the next task are known', async () => {
+    const { app, hub } = make({ token: 't' });
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const original = hub.areas.bind(hub);
+    hub.areas = async () => {
+      await gate;
+      return original();
+    };
+    await app.start(null);
+    expect(app.tasks.length).toBe(1);
+    expect(app.phase).toBe('ready');
+    release();
     app.stop();
   });
 });

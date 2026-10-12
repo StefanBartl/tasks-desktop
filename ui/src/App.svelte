@@ -11,6 +11,7 @@
     translate(app.lang, key, params);
 
   let chord = $state(false);
+  let chordTimer: ReturnType<typeof setTimeout> | undefined;
   let searchBox = $state<HTMLInputElement | null>(null);
 
   onMount(() => {
@@ -19,6 +20,7 @@
     window.addEventListener('focus', onFocus);
     return () => {
       window.removeEventListener('focus', onFocus);
+      clearTimeout(chordTimer);
       app.stop();
     };
   });
@@ -36,19 +38,37 @@
     );
   }
 
+  const MODIFIERS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'AltGraph']);
+
+  function setChord(on: boolean): void {
+    chord = on;
+    clearTimeout(chordTimer);
+    // A `g` that nothing follows is forgotten.
+    if (on) chordTimer = setTimeout(() => (chord = false), 1500);
+  }
+
   function onKey(event: KeyboardEvent): void {
+    if (!app.shortcuts || app.phase !== 'ready') return;
     if (event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) return;
-    if (app.phase !== 'ready') return;
+    if (MODIFIERS.has(event.key)) return;
     if (chord) {
-      chord = false;
-      if (event.key === 'h') app.view = 'today';
-      if (event.key === 'l') app.view = 'list';
-      event.preventDefault();
-      return;
+      setChord(false);
+      // Only a key that is part of the chord is taken; Tab and the others
+      // keep doing what they do.
+      if (event.key === 'h') {
+        app.setView('today');
+        event.preventDefault();
+        return;
+      }
+      if (event.key === 'l') {
+        app.setView('list');
+        event.preventDefault();
+        return;
+      }
     }
     switch (event.key) {
       case 'g':
-        chord = true;
+        setChord(true);
         break;
       case 'j':
         if (app.view === 'list') app.moveSelection(1);
@@ -68,9 +88,7 @@
     }
   }
 
-  const age = $derived(
-    app.cachedAt === null ? '' : ago(app.lang, Date.now() - app.cachedAt),
-  );
+  const age = $derived(app.cachedAt === null ? '' : ago(app.lang, Date.now() - app.cachedAt));
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -79,18 +97,18 @@
   <header class="bar">
     <strong class="brand">{t('app.title')}</strong>
     {#if app.phase === 'ready'}
-      <nav aria-label="Views">
+      <nav aria-label={t('nav.views')}>
         <button
           type="button"
           class="tab"
           aria-current={app.view === 'today' ? 'page' : undefined}
-          onclick={() => (app.view = 'today')}>{t('nav.today')}</button
+          onclick={() => app.setView('today')}>{t('nav.today')}</button
         >
         <button
           type="button"
           class="tab"
           aria-current={app.view === 'list' ? 'page' : undefined}
-          onclick={() => (app.view = 'list')}>{t('nav.list')}</button
+          onclick={() => app.setView('list')}>{t('nav.list')}</button
         >
       </nav>
     {/if}
@@ -100,6 +118,16 @@
         {app.cachedAt !== null ? t('conn.cached') : t(`conn.${app.connection}` as Key)}
       </span>
     {/if}
+    <label class="pref">
+      <span class="sr-only">{t('shortcuts.label')}</span>
+      <select
+        value={app.shortcuts ? 'on' : 'off'}
+        onchange={(e) => app.setShortcuts(e.currentTarget.value === 'on')}
+      >
+        <option value="on">{t('shortcuts.on')}</option>
+        <option value="off">{t('shortcuts.off')}</option>
+      </select>
+    </label>
     <label class="pref">
       <span class="sr-only">{t('lang.label')}</span>
       <select
@@ -127,35 +155,56 @@
   </header>
 
   <main>
-    {#if app.phase === 'starting'}
-      <p class="note">{t('state.loading')}</p>
-    {:else if app.phase === 'needs_pairing'}
-      <section class="card centered">
-        <h1>{t('state.needs_pairing.title')}</h1>
-        <p>{t('state.needs_pairing.body')}</p>
-        <pre><code>tasks-hub open</code></pre>
-      </section>
-    {:else if app.phase === 'offline'}
-      <section class="card centered">
-        <h1>{t('state.offline.title')}</h1>
-        <p>{t('state.offline.body')}</p>
-        <pre><code>tasks-hub serve</code></pre>
-      </section>
-    {:else if app.phase === 'unavailable'}
-      <section class="card centered">
-        <h1>{t('state.unavailable.title')}</h1>
-        <p>{t('state.unavailable.body')} <code>{app.problem}</code></p>
-      </section>
-    {:else}
-      {#if app.cachedAt !== null}
-        <p class="banner">{t('state.stale', { age })}</p>
-      {/if}
-      {#if app.view === 'today'}
-        <Today {app} />
+    <!-- The data is somebody else's text: one task that breaks a view must
+         not take the whole page with it. -->
+    <svelte:boundary>
+      {#if app.phase === 'starting'}
+        <p class="note">{t('state.loading')}</p>
+      {:else if app.phase === 'needs_pairing'}
+        <section class="card centered">
+          <h1>{t('state.needs_pairing.title')}</h1>
+          <p>{t('state.needs_pairing.body')}</p>
+          <pre><code>tasks-hub open</code></pre>
+        </section>
+      {:else if app.phase === 'offline'}
+        <section class="card centered">
+          <h1>{t('state.offline.title')}</h1>
+          <p>{t('state.offline.body')}</p>
+          <pre><code>tasks-hub serve</code></pre>
+        </section>
+      {:else if app.phase === 'unavailable'}
+        <section class="card centered">
+          <h1>{t('state.unavailable.title')}</h1>
+          <p>{t('state.unavailable.body')} <code>{app.problem}</code></p>
+        </section>
       {:else}
-        <ListView {app} bind:searchBox />
+        {#if app.cachedAt !== null}
+          <p class="banner">{t('state.stale', { age })}</p>
+        {/if}
+        {#if (app.snapshot?.incomplete.length ?? 0) > 0}
+          <p class="banner" role="alert">{t('data.incomplete')}</p>
+        {/if}
+        {#if app.view === 'today'}
+          <Today {app} />
+        {:else}
+          <ListView {app} bind:searchBox />
+        {/if}
       {/if}
-    {/if}
+
+      {#snippet failed(_error, reset)}
+        <section class="card centered" role="alert">
+          <h1>{t('error.title')}</h1>
+          <p>{t('error.body')}</p>
+          <button
+            type="button"
+            onclick={() => {
+              reset();
+              window.location.reload();
+            }}>{t('error.reload')}</button
+          >
+        </section>
+      {/snippet}
+    </svelte:boundary>
   </main>
 </div>
 
@@ -172,6 +221,7 @@
     padding: 0.5rem 1rem;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
   }
   .brand {
     letter-spacing: 0.02em;

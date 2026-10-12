@@ -6,12 +6,19 @@ export interface SseMessage {
   data: string;
 }
 
+/** More than this without a message end is not a stream we understand. */
+export const MAX_BUFFER = 1024 * 1024;
+
 /** Feed it text as it arrives; it returns the messages that are complete. */
 export class SseParser {
   private buffer = '';
 
   push(text: string): SseMessage[] {
     this.buffer += text;
+    if (this.buffer.length > MAX_BUFFER) {
+      this.buffer = '';
+      throw new Error('event stream: a message without an end');
+    }
     const out: SseMessage[] = [];
     // A message ends with an empty line; line ends may be \n, \r\n or \r.
     for (;;) {
@@ -57,27 +64,50 @@ export async function readStream(
   token: string,
   handlers: StreamHandlers,
   signal: AbortSignal,
+  idleMs: number = IDLE_MS,
 ): Promise<void> {
-  const response = await fetchFn(url, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
-    cache: 'no-store',
-    signal,
-  });
-  if (!response.ok || !response.body) {
-    throw new StreamRefused(response.status);
-  }
-  handlers.onOpen();
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder('utf-8');
-  const parser = new SseParser();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) return;
-    for (const message of parser.push(decoder.decode(value, { stream: true }))) {
-      handlers.onMessage(message);
+  // The hub says it is alive every 15 seconds. A stream that says nothing for
+  // three times that is dead, whatever the socket believes (a sleeping
+  // machine does not close its connections): it is cut and read again.
+  const link = new AbortController();
+  const stop = () => link.abort();
+  signal.addEventListener('abort', stop, { once: true });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const watch = () => {
+    clearTimeout(timer);
+    timer = setTimeout(stop, idleMs);
+  };
+  try {
+    watch();
+    const response = await fetchFn(url, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
+      cache: 'no-store',
+      credentials: 'omit',
+      signal: link.signal,
+    });
+    if (!response.ok || !response.body) {
+      throw new StreamRefused(response.status);
     }
+    handlers.onOpen();
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    const parser = new SseParser();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      watch();
+      for (const message of parser.push(decoder.decode(value, { stream: true }))) {
+        handlers.onMessage(message);
+      }
+    }
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener('abort', stop);
   }
 }
+
+/** Three heartbeats of the hub. */
+export const IDLE_MS = 45_000;
 
 export class StreamRefused extends Error {
   constructor(readonly status: number) {

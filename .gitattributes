@@ -2,6 +2,12 @@
 *.rs text eol=lf
 *.toml text eol=lf
 *.lua text eol=lf
+*.ts text eol=lf
+*.svelte text eol=lf
+*.css text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.yaml text eol=lf
 *.yml text eol=lf
 
 # Last, so it wins over the rules above: the fixture vault is byte exact,

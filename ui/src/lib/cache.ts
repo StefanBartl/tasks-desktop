@@ -35,11 +35,19 @@ export function cacheableList(
   if (kept.length === 0) return null;
   const ids = new Set(kept.map((t) => t.id));
   const known = (list: readonly string[]) => list.filter((id) => ids.has(id));
+  // A ref is text as the author wrote it: it may name a task, or a path into
+  // an area that is left out. Such a ref is not kept.
+  const left = [...new Set(doc.tasks.map((t) => t.area))].filter(
+    (area) => !cacheableClass(classes.get(area)),
+  );
+  const refs = (list: readonly string[]) =>
+    list.filter((ref) => !left.some((area) => ref.includes(`${area}/`)));
   const tasks = kept.map((t) => {
     const copy: TaskEntry = {
       ...t,
       blocked_by: known(t.blocked_by),
       after: known(t.after),
+      refs: refs(t.refs),
     };
     if (t.readiness) {
       const { inversion: _inversion, same_file: _sameFile, ...rest } = t.readiness;

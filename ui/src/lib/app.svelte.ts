@@ -1,7 +1,7 @@
 // The state of the page and what keeps it true: pairing, the held list, the
 // event stream and the detail of the selected task.
 
-import { ApiError, type Hub, type HubArea } from './api';
+import { ApiError, type Hub, type HubArea, type HubAreas } from './api';
 import { cacheableList, type ListStore } from './cache';
 import type { Next, Snapshot, TaskDocument, TaskEntry } from './contract';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
@@ -36,6 +36,23 @@ export interface Env {
 
 const TOKEN_KEY = 'tasks-desktop.session';
 
+/** A promise that gives up after `ms` and says `null`. */
+function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(null);
+      },
+    );
+  });
+}
+
 function safe<T>(work: () => T): T | null {
   try {
     return work();
@@ -51,6 +68,8 @@ export class App {
   view = $state<View>('today');
   lang = $state<Lang>('en');
   theme = $state<Theme>('auto');
+  /** Single-key shortcuts; a person with assistive software may turn them off. */
+  shortcuts = $state(true);
   filter = $state<Filter>({ ...emptyFilter });
   selectedId = $state<string | null>(null);
 
@@ -73,6 +92,7 @@ export class App {
     this.lang = isLang(lang) ? lang : detectLang(env.preferredLanguages);
     const theme = safe(() => env.prefs.getItem('tasks-desktop.theme'));
     this.theme = theme === 'light' || theme === 'dark' ? theme : 'auto';
+    this.shortcuts = safe(() => env.prefs.getItem('tasks-desktop.shortcuts')) !== 'off';
   }
 
   // ── derived ───────────────────────────────────────────────────────────
@@ -96,6 +116,11 @@ export class App {
     safe(() => this.env.prefs.setItem('tasks-desktop.lang', lang));
   }
 
+  setShortcuts(on: boolean): void {
+    this.shortcuts = on;
+    safe(() => this.env.prefs.setItem('tasks-desktop.shortcuts', on ? 'on' : 'off'));
+  }
+
   setTheme(theme: Theme): void {
     this.theme = theme;
     safe(() => this.env.prefs.setItem('tasks-desktop.theme', theme));
@@ -107,6 +132,20 @@ export class App {
   async start(code: string | null): Promise<void> {
     this.stopped = false;
     this.phase = 'starting';
+    const stored = safe(() => this.env.session.getItem(TOKEN_KEY));
+
+    // The first picture comes from the cache, before the hub has answered
+    // (and when it does not). Only a tab that was paired shows one. A cache
+    // that does not answer in a moment is a miss.
+    if (stored) {
+      const cached = await within(this.env.cache.load(), 1500);
+      if (cached && this.tasks.length === 0) {
+        this.tasks = cached.tasks;
+        this.cachedAt = cached.savedAt;
+        this.phase = 'ready';
+      }
+    }
+
     for (;;) {
       try {
         const hello = await this.env.hub.hello();
@@ -119,37 +158,33 @@ export class App {
         }
         break;
       } catch {
-        this.phase = 'offline';
         this.connection = 'offline';
+        // A list from the cache stays on the screen: that is its use.
+        if (this.tasks.length === 0) this.phase = 'offline';
         await this.env.sleep(3000);
         if (this.stopped) return;
       }
     }
 
-    let token = safe(() => this.env.session.getItem(TOKEN_KEY));
+    let token = stored;
     if (code) {
       try {
-        token = await this.env.hub.exchange(code);
-        safe(() => this.env.session.setItem(TOKEN_KEY, token as string));
+        const fresh = await this.env.hub.exchange(code);
+        safe(() => this.env.session.setItem(TOKEN_KEY, fresh));
+        token = fresh;
       } catch {
-        token = null;
+        // A code that is spent or too old: the session of this tab, if it
+        // has one, is still good.
       }
     }
     if (!token) {
       this.phase = 'needs_pairing';
+      this.tasks = [];
+      this.cachedAt = null;
       return;
     }
     this.env.hub.setToken(token);
     this.env.hub.onUnauthorized = () => this.lostSession();
-
-    // The first picture comes from the cache, before the hub has answered.
-    const cached = await this.env.cache.load();
-    if (cached && this.tasks.length === 0) {
-      this.tasks = cached.tasks;
-      this.etag = cached.etag;
-      this.cachedAt = cached.savedAt;
-      this.phase = 'ready';
-    }
 
     await this.refresh();
     if (!this.env.hub.hasToken || this.stopped) return;
@@ -170,6 +205,8 @@ export class App {
     this.tasks = [];
     this.snapshot = null;
     this.next = null;
+    this.nextFor = null;
+    this.hubAreas = [];
     this.detail = { state: 'none' };
     this.cachedAt = null;
     this.etag = null;
@@ -200,21 +237,22 @@ export class App {
   private async readOnce(): Promise<void> {
     const hub = this.env.hub;
     try {
-      const [result, areas] = await Promise.all([hub.snapshot(this.etag), hub.areas()]);
-      this.hubAreas = areas.areas;
+      // A conditional request only when the whole document is held: the
+      // cache holds a part of it, and a "not modified" must not leave that
+      // part standing in for the list.
+      const result = await hub.snapshot(this.snapshot ? this.etag : null);
       if (result.kind === 'fresh') {
         this.snapshot = result.doc;
         this.tasks = result.doc.tasks;
         this.etag = result.etag;
-        const list = cacheableList(result.doc, result.etag, areas.areas, this.env.now());
-        if (list) void this.env.cache.save(list);
-        else void this.env.cache.clear();
       }
       this.cachedAt = null;
       this.phase = 'ready';
       if (this.connection === 'offline') this.connection = 'reconnecting';
-      this.next = await hub.next().catch(() => this.next);
       this.keepSelection();
+      // What is needed beside the list is read after it is shown: each of
+      // these is one more Neovim process of the hub.
+      void this.readBeside();
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) return;
       if (error instanceof ApiError && error.code === 'engine_unavailable') {
@@ -224,6 +262,49 @@ export class App {
       if (this.tasks.length === 0) this.phase = 'offline';
       this.connection = 'offline';
     }
+  }
+
+  /** The classes of the areas, the cache, and the next task. */
+  private async readBeside(): Promise<void> {
+    const doc = this.snapshot;
+    if (!doc) return;
+    try {
+      // The classes come from `areas.json`, read when the hub started: they
+      // are read once, and again when an area appears that was not there.
+      const known = new Set(this.hubAreas.map((a) => a.name));
+      if (this.hubAreas.length === 0 || doc.tasks.some((t) => !known.has(t.area))) {
+        this.areasRead ??= this.env.hub.areas().finally(() => {
+          this.areasRead = null;
+        });
+        this.hubAreas = (await this.areasRead).areas;
+      }
+      const list = cacheableList(doc, this.etag, this.hubAreas, this.env.now());
+      if (list) void this.env.cache.save(list);
+      else void this.env.cache.clear();
+    } catch {
+      // No classes, no cache: nothing is written.
+    }
+    if (this.view === 'today') await this.loadNext();
+  }
+
+  private nextFor: string | null = null;
+  private areasRead: Promise<HubAreas> | null = null;
+
+  /** The next task, read when the list it belongs to is not the one held. */
+  async loadNext(): Promise<void> {
+    const key = this.snapshot?.digest ?? null;
+    if (this.next !== null && key !== null && this.nextFor === key) return;
+    try {
+      this.next = await this.env.hub.next();
+      this.nextFor = key;
+    } catch {
+      // The old one stays.
+    }
+  }
+
+  setView(view: View): void {
+    this.view = view;
+    if (view === 'today' && this.phase === 'ready') void this.loadNext();
   }
 
   /** The selection stays on the task id; a task that is gone clears it. */

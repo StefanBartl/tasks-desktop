@@ -198,7 +198,20 @@ HTML; invisible and direction-changing characters are shown as `⟦U+XXXX⟧`.
 The client cache (IndexedDB) holds the list of tasks of areas that are
 `public` or `internal` and nothing else: a `private` area, an area with no
 class and every id of such a task in the edges of the kept ones are left
-out. With no class list at all nothing is cached.
+out, as is a `ref` that names a path in such an area. With no class list
+at all nothing is cached. The cache is shown first, also when the hub is
+not there, but only in a tab that holds a session; it is never used as an
+answer to "not modified", because it holds a part of the document.
+
+The folder of the interface is looked for in three places only (the
+setting, `ui/` next to the binary, the repository the binary was built
+in), because its scripts run where the session is. A file over 4 MiB or
+a build without `index.html` is an error and shows the placeholder.
+
+The page breaks soft: a task that cannot be drawn shows an error panel,
+not a white page. A stream that is silent for 45 seconds (three
+heartbeats) is cut and read again. Single-key shortcuts can be turned off
+in the page (WCAG 2.1.4).
 
 ## What this does not protect against
 

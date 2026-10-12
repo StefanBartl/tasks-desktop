@@ -69,9 +69,10 @@ pnpm build        # ui/dist
 pnpm check && pnpm test
 ```
 
-The hub serves `ui/dist` (found next to the binary, in `ui/dist` of the
-repository, or in `TASKS_HUB_UI_DIR`) at `/`; without a build it shows a
-placeholder. The interface lists the vault in the engine's own order (it
+The hub serves `ui/dist` at `/` (`TASKS_HUB_UI_DIR`, else `ui/` next to the
+binary, else the `ui/dist` of the repository the binary was built in) and
+reads it once at start: restart the hub after a build. Without a build it
+shows a placeholder. The interface lists the vault in the engine's own order (it
 never sorts), shows a task with its steps and its text (as text only),
 follows the hub's event stream and asks for a scan when the window gets the
 focus back. German and English, light and dark.

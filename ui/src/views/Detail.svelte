@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { App } from '../lib/app.svelte';
-  import { formatNumber, translate, type Key } from '../lib/i18n';
+  import { formatNumber, labelOf, translate, type Key } from '../lib/i18n';
   import { hasHidden, markHidden } from '../lib/text';
 
   let { app }: { app: App } = $props();
@@ -18,12 +18,12 @@
     return value === undefined ? unknown : String(value);
   }
   function statusOf(id: string): string {
-    const status = byId.get(id)?.status;
-    return status ? t(`status.${status}` as Key) : unknown;
+    return labelOf(app.lang, 'status', byId.get(id)?.status);
   }
+  const steps = $derived(detail.state === 'ok' ? (detail.doc.steps ?? []) : []);
 </script>
 
-<aside class="detail" aria-label={t('detail.props')} aria-live="polite">
+<aside class="detail" aria-label={t('detail.props')}>
   {#if !task}
     <p class="muted">{t('detail.none')}</p>
   {:else}
@@ -34,7 +34,7 @@
       <div class="problems" role="alert">
         <h3>{t('detail.problems')}</h3>
         <ul>
-          {#each task.problems as problem (problem.code + problem.msg)}
+          {#each task.problems as problem, i (i)}
             <li><code>{problem.code}</code> {markHidden(problem.msg)}</li>
           {/each}
         </ul>
@@ -46,9 +46,9 @@
     <h3>{t('detail.props')}</h3>
     <dl>
       <dt>{t('prop.status')}</dt>
-      <dd>{task.status ? t(`status.${task.status}` as Key) : unknown}</dd>
+      <dd>{labelOf(app.lang, 'status', task.status)}</dd>
       <dt>{t('prop.state')}</dt>
-      <dd>{task.readiness ? t(`state.${task.readiness.state}` as Key) : unknown}</dd>
+      <dd>{task.readiness ? labelOf(app.lang, 'state', task.readiness.state) : unknown}</dd>
       <dt>{t('prop.area')}</dt>
       <dd>{task.area}</dd>
       <dt>{t('prop.prio')}</dt>
@@ -60,7 +60,7 @@
       <dt>{t('prop.roi')}</dt>
       <dd>{task.roi === undefined ? unknown : formatNumber(app.lang, task.roi)}</dd>
       <dt>{t('prop.actor')}</dt>
-      <dd>{task.actor ? t(`actor.${task.actor}` as Key) : unknown}</dd>
+      <dd>{labelOf(app.lang, 'actor', task.actor)}</dd>
       {#if task.plan}
         <dt>{t('prop.plan')}</dt>
         <dd>{task.plan}{task.phase ? ` · ${task.phase}` : ''}</dd>
@@ -72,7 +72,7 @@
     {#if task.blocked_by.length > 0}
       <h3>{t('detail.waits_on')}</h3>
       <ul class="plain">
-        {#each task.blocked_by as id (id)}
+        {#each task.blocked_by as id, i (`${id}:${i}`)}
           <li>
             <button type="button" class="link" onclick={() => byId.has(id) && app.select(id)}
               ><code>{id}</code></button
@@ -85,7 +85,7 @@
     {#if task.after.length > 0}
       <h3>{t('detail.after')}</h3>
       <ul class="plain">
-        {#each task.after as id (id)}
+        {#each task.after as id, i (`${id}:${i}`)}
           <li><code>{id}</code> <span class="muted">{statusOf(id)}</span></li>
         {/each}
       </ul>
@@ -96,13 +96,15 @@
     {:else if detail.state === 'failed'}
       <p class="bad" role="alert">{t('detail.failed')}</p>
     {:else if detail.state === 'ok'}
-      {#if detail.doc.steps.length > 0}
+      {#if steps.length > 0}
         <h3>{t('detail.steps')}</h3>
         <ul class="plain">
-          {#each detail.doc.steps as step (step.n)}
+          {#each steps as step, i (i)}
             <li class:dropped={step.dropped}>
               <span aria-hidden="true">{step.ticked ? '☑' : step.dropped ? '⊘' : '☐'}</span>
-              <span class="sr-only">{step.ticked ? 'done' : step.dropped ? 'dropped' : 'open'}</span>
+              <span class="sr-only"
+                >{t(step.ticked ? 'step.done' : step.dropped ? 'step.dropped' : 'step.open')}</span
+              >
               {markHidden(step.text)}
             </li>
           {/each}

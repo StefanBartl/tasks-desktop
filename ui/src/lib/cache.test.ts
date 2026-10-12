@@ -59,3 +59,22 @@ describe('cacheableList', () => {
     expect(cacheableList(doc([task('pub/a')]), null, [], 5)).toBeNull();
   });
 });
+
+describe('cacheableList refs', () => {
+  it('drops a ref into an area that is left out', () => {
+    const list = cacheableList(
+      doc([
+        task('pub/a', {
+          refs: ['priv/ROADMAP/tasks/x.md', 'https://example.org/p', 'int/b', 'notes/new/readme.md'],
+        }),
+        task('int/b'),
+        task('priv/x'),
+        task('new/y'),
+      ]),
+      null,
+      areas,
+      5,
+    );
+    expect(list?.tasks[0]?.refs).toEqual(['https://example.org/p', 'int/b']);
+  });
+});
