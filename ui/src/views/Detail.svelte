@@ -153,7 +153,7 @@
       <ul class="plain">
         {#each task.blocked_by as id, i (`${id}:${i}`)}
           <li>
-            <button type="button" class="link" onclick={() => byId.has(id) && app.select(id)}
+            <button type="button" class="link" onclick={() => byId.has(id) && app.reveal(id)}
               ><code>{id}</code></button
             >
             <span class="muted">{statusOf(id)}</span>

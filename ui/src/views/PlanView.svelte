@@ -3,7 +3,7 @@
   // the rest up (the critical path) and what the plan warns about.
   import type { App } from '../lib/app.svelte';
   import { formatNumber, labelOf, translate, type Key } from '../lib/i18n';
-  import { criticalIds, phaseCounts, stagesOf } from '../lib/plan';
+  import { criticalIds, phaseCounts, stagesOf, warningsOf } from '../lib/plan';
   import { markHidden } from '../lib/text';
 
   let { app }: { app: App } = $props();
@@ -11,10 +11,9 @@
     translate(app.lang, key, params);
 
   const snapshot = $derived(app.snapshot);
-  let chosen = $state<string>('');
   const plans = $derived(snapshot?.plans ?? []);
   // A plan that is gone (a change of the vault) is not kept chosen.
-  const planId = $derived(plans.some((p) => p.id === chosen) ? chosen : '');
+  const planId = $derived(plans.some((p) => p.id === app.planChoice) ? app.planChoice : '');
   const stages = $derived(stagesOf(app.tasks, planId === '' ? null : planId));
   const critical = $derived(criticalIds(snapshot?.plan));
   const phases = $derived(
@@ -28,21 +27,19 @@
   const estimate = $derived(snapshot?.estimate);
   const titles = $derived(new Map(app.tasks.map((x) => [x.id, x.title] as const)));
 
-  // Chosen plan that is gone (a change of the vault): drop it, so the select agrees.
+  // A chosen plan that is gone (a change of the vault) is dropped, so the select agrees.
   $effect(() => {
-    if (chosen !== '' && !plans.some((p) => p.id === chosen)) chosen = '';
+    if (app.planChoice !== '' && planId === '') app.planChoice = '';
   });
 
   function open(id: string): void {
-    // A filter that hides the task would leave the detail without its row.
-    if (!app.shown.some((x) => x.id === id)) app.resetFilter();
-    app.select(id);
-    app.setView('list');
+    app.reveal(id);
   }
 
-  const warnings = $derived(snapshot?.plan.warnings ?? []);
-  const cycles = $derived(snapshot?.plan.cycles ?? []);
-  const sameFile = $derived(snapshot?.plan.conflict_groups ?? []);
+  const narrowed = $derived(warningsOf(snapshot?.plan, app.tasks, planId === '' ? null : planId));
+  const warnings = $derived(narrowed.warnings);
+  const cycles = $derived(narrowed.cycles);
+  const sameFile = $derived(narrowed.conflict_groups);
 </script>
 
 <div class="plan">
@@ -62,7 +59,7 @@
       {#if plans.length > 0}
         <label class="plan-select">
           <span>{t('plan.which')}</span>
-          <select bind:value={chosen}>
+          <select bind:value={app.planChoice}>
             <option value="">{t('plan.all')}</option>
             {#each plans as p (p.id)}
               <option value={p.id}>{markHidden(p.title)}</option>
