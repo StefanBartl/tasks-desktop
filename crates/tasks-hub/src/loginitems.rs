@@ -46,7 +46,12 @@ const AGENT_LABEL: &str = "dev.tasks-desktop.hub";
 fn exec_quote(text: &str) -> String {
     let mut out = String::from("\"");
     for c in text.chars() {
-        if matches!(c, '"' | '`' | '$' | '\\') {
+        // A backslash is escaped by the quoting rule and that escape again by
+        // the general rule for strings: four of them in the file.
+        if c == '\\' {
+            out.push_str("\\\\\\");
+        }
+        if matches!(c, '"' | '`' | '$') {
             out.push('\\');
         }
         // The `%` of a field code is doubled.
@@ -92,9 +97,19 @@ pub fn launch_agent(exe: &Path) -> String {
          \t<key>ProgramArguments</key>\n\t<array>\n\
          \t\t<string>{}</string>\n\t\t<string>start</string>\n\t</array>\n\
          \t<key>RunAtLoad</key>\n\t<true/>\n\
+         \t<key>AbandonProcessGroup</key>\n\t<true/>\n\
          </dict>\n</plist>\n",
         xml_escape(&exe.to_string_lossy())
     )
+}
+
+/// A path that can stand in one line of a desktop entry or in a plist: a line
+/// break or another control character would start a key of its own.
+fn plain_path(exe: &Path) -> Result<(), String> {
+    if exe.to_string_lossy().chars().any(char::is_control) {
+        return Err("the path of the program holds a control character".to_owned());
+    }
+    Ok(())
 }
 
 fn home(env: &Env) -> Result<PathBuf, String> {
@@ -154,6 +169,7 @@ pub fn login_entry(
     exe: &Path,
     env: &Env,
 ) -> Result<String, String> {
+    plain_path(exe)?;
     let file = login_file(platform, env)?;
     match action {
         Action::On => {
@@ -193,6 +209,7 @@ pub fn login_entry(
 ///
 /// A text for the person at the terminal.
 pub fn launcher(platform: Platform, exe: &Path, env: &Env) -> Result<String, String> {
+    plain_path(exe)?;
     match platform {
         Platform::Linux => {
             let file = launcher_file(env)?;
@@ -221,9 +238,10 @@ mod tests {
     #[test]
     fn the_exec_value_is_quoted_and_escaped() {
         assert_eq!(exec_quote("/home/a b/tasks-hub"), "\"/home/a b/tasks-hub\"");
+        // `\` is four backslashes in the file (quoting rule, then string rule).
         assert_eq!(
             exec_quote("/x/a\"b$c`d\\e%f"),
-            "\"/x/a\\\"b\\$c\\`d\\\\e%%f\""
+            "\"/x/a\\\"b\\$c\\`d\\\\\\\\e%%f\""
         );
     }
 
@@ -303,6 +321,16 @@ mod tests {
         assert!(text.contains("Exec=\"/x/tasks-hub\" start --open"));
         assert!(!text.contains("X-GNOME-Autostart"));
         assert!(launcher(Platform::Macos, Path::new("/x"), &env).is_err());
+    }
+
+    #[test]
+    fn a_path_with_a_line_break_is_refused() {
+        let home = temp("control");
+        let env = Env::from_pairs([("HOME", home.as_os_str().to_owned())]);
+        let bad = Path::new("/x/tasks-hub\nExec=/bin/evil");
+        assert!(login_entry(Platform::Linux, Action::On, bad, &env).is_err());
+        assert!(launcher(Platform::Linux, bad, &env).is_err());
+        assert!(!home.join(".config").exists());
     }
 
     #[test]

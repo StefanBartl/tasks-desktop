@@ -143,7 +143,18 @@
 
 <svelte:window onclick={onWindowClick} />
 
-<div class="menubar" role="menubar" aria-label={label} bind:this={root}>
+<!-- Focus that leaves the bar (Tab) closes the menu: it must not stay open behind. -->
+<div
+  class="menubar"
+  role="menubar"
+  tabindex="-1"
+  aria-label={label}
+  bind:this={root}
+  onfocusout={(e) => {
+    const to = e.relatedTarget;
+    if (openId !== null && root && !(to instanceof Node && root.contains(to))) close(false);
+  }}
+>
   {#each menus as menu (menu.id)}
     <div class="menu">
       <button
