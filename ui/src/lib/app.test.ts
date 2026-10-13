@@ -707,6 +707,34 @@ describe('writing', () => {
       expect(hub.sent).toHaveLength(2);
     });
 
+    it('tells a move that numbered the neighbours: more than one file was written', async () => {
+      const { app, hub } = await ready([open('pub/a', 'open|1', 'e1'), open('pub/b', 'open|1', 'e2')]);
+      hub.next_ops = {
+        kind: 'tasks.result',
+        ok: true,
+        dry_run: false,
+        results: [{ n: 1, op: 'reorder', id: 'pub/a', ok: true, outcome: 'changed', writes: 11, changed_ids: ['pub/a'] }],
+      } as unknown as Result;
+      await app.stepCard('pub/a', 1);
+      expect(app.toast?.text).toContain('11');
+      hub.next_ops = {
+        kind: 'tasks.result',
+        ok: true,
+        dry_run: false,
+        results: [{ n: 1, op: 'reorder', id: 'pub/a', ok: true, outcome: 'changed', writes: 1, changed_ids: ['pub/a'] }],
+      } as unknown as Result;
+      await app.stepCard('pub/a', 1);
+      expect(app.toast?.text).not.toContain('11');
+    });
+
+    it('does not move a card the filter hides', async () => {
+      const { app, hub } = await ready([open('pub/a', 'open|1', 'e1'), open('pub/b', 'open|1', 'e2')]);
+      app.filter = { ...app.filter, query: 'no such title anywhere' };
+      await app.stepCard('pub/a', 1);
+      await app.shiftColumn('pub/a', 1);
+      expect(hub.sent).toHaveLength(0);
+    });
+
     it('takes a reorder back with the reorder the engine named', async () => {
       const { app, hub } = await ready([open('pub/a', 'open|1', 'e1'), open('pub/b', 'open|1', 'e2')]);
       hub.next_ops = {

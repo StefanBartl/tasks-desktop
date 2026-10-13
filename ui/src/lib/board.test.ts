@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TaskEntry } from './contract';
-import { columnsOf, groupLabel, neighbourColumn, placeNear, placeOf, stepInGroup } from './board';
+import { columnsOf, groupLabel, neighbourColumn, placeNear, placeOf, runKey, stageOf, stepInGroup } from './board';
 
 const card = (id: string, status: string, group: string, etag = `e-${id}`) =>
   ({ id, status, group, etag }) as unknown as TaskEntry;
@@ -81,5 +81,30 @@ describe('small helpers', () => {
     expect(groupLabel('open|none')).toBe('none');
     expect(groupLabel('nopipe')).toBeNull();
     expect(groupLabel(undefined)).toBeNull();
+  });
+});
+
+describe('stages', () => {
+  const staged = (id: string, group: string, stage: number) =>
+    ({ id, status: 'open', group, etag: `e-${id}`, readiness: { state: 'ready', stage } }) as unknown as TaskEntry;
+  // As the engine lists them: stage 0 first, so A (P1), C (P2) and then B (P1, stage 1) share a priority across a border.
+  const column = [staged('a', 'open|1', 0), staged('c', 'open|2', 0), staged('b', 'open|1', 1), staged('d', 'open|1', 1)];
+
+  it('is another run for the same priority in another stage', () => {
+    expect(runKey(column[0] as TaskEntry)).not.toBe(runKey(column[2] as TaskEntry));
+    expect(runKey(column[2] as TaskEntry)).toBe(runKey(column[3] as TaskEntry));
+    expect(stageOf(column[2] as TaskEntry)).toBe(1);
+    expect(stageOf({ id: 'x' } as unknown as TaskEntry)).toBeNull();
+  });
+
+  it('does not place a card beside one of the same priority in another stage (the engine refuses it)', () => {
+    expect(placeNear(column, 'a', { id: 'b', place: 'after' })).toEqual({ kind: 'refused', reason: 'group' });
+    expect(placeNear(column, 'b', { id: 'd', place: 'after' })).toMatchObject({ kind: 'ok' });
+  });
+
+  it('steps inside the run of its stage only', () => {
+    expect(stepInGroup(column, 'a', 1)).toEqual({ kind: 'refused', reason: 'edge' });
+    expect(stepInGroup(column, 'b', 1)).toMatchObject({ kind: 'ok', op: { id: 'b', after: 'd' } });
+    expect(stepInGroup(column, 'd', -1)).toMatchObject({ kind: 'ok', op: { id: 'd', before: 'b' } });
   });
 });

@@ -125,8 +125,8 @@ tasks at once (`x` or the box marks, the choice in the bar is applied with a but
 and a filter that hides a task also takes its mark; one batch, each task with the version that
 was shown, so a task changed meanwhile fails alone), undo that, see the tasks as a board (a column for each status, the cards in the
 engine's order; a card is dragged to another column to set its status or among
-the cards of its priority to reorder, or moved with `J` `K` `H` `L`; the order
-holds inside one priority only, which the board says), make a plan with a wizard (a title and an area are enough; the engine names the
+the cards of its priority to reorder, or moved with `Shift` and `j` `k` `h` `l`; `g b` opens
+the board; the order holds inside one priority and one stage only, which the board says), make a plan with a wizard (a title and an area are enough; the engine names the
 plan in a dry run while you type, tells a name that is taken and refuses what is not a plan),
 finish a task after a preview of
 what it does, and set a reminder (a date on which a task comes back on the

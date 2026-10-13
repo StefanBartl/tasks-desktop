@@ -277,7 +277,10 @@ export class App {
         } else this.say('error', 'write.failed', { code }, undo);
       } else {
         const undo = opts.undoable === false ? undefined : this.inverseOf(result);
-        this.say('ok', 'write.saved', {}, undo);
+        // A reorder numbers the neighbours where the spot needs it: more than one file is told.
+        const files = result.results.reduce((n, r) => n + (r.writes ?? 0), 0);
+        if (files > 1) this.say('ok', 'write.saved_many', { n: files }, undo);
+        else this.say('ok', 'write.saved', {}, undo);
       }
       await this.refresh();
       return result;
@@ -447,7 +450,8 @@ export class App {
   /** `id` one place up or down inside its group (`K` and `J`). */
   async stepCard(id: string, dir: 1 | -1): Promise<void> {
     const task = this.tasks.find((t) => t.id === id);
-    if (!task || !isColumn(task.status)) return;
+    // A card the filter hides is not moved behind the person's back.
+    if (!task || !isColumn(task.status) || !this.shown.some((t) => t.id === id)) return;
     await this.moveCard(stepInGroup(this.board[task.status], id, dir));
   }
 
@@ -462,7 +466,7 @@ export class App {
   async shiftColumn(id: string, dir: 1 | -1): Promise<void> {
     const task = this.tasks.find((t) => t.id === id);
     const to = neighbourColumn(task?.status, dir);
-    if (task && to) await this.dropOnColumn(id, to);
+    if (task && to && this.shown.some((t) => t.id === id)) await this.dropOnColumn(id, to);
   }
 
   /** The selection to the next card of its column (`j`, `k`). */

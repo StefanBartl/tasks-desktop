@@ -21,7 +21,12 @@
 
   let dialog: HTMLDialogElement | undefined = $state();
   let form = $state<PlanForm>(emptyForm());
-  let preview = $state<PlanPreview | null>(null);
+  // The answer of the dry run, with the form it was asked for: an answer for an older form is none for this one.
+  let answer = $state<{ key: string; value: PlanPreview } | null>(null);
+  const formKey = $derived(JSON.stringify(form));
+  const preview = $derived<PlanPreview | null>(answer && answer.key === formKey ? answer.value : null);
+  // The areas the plan covers follow the area of the file until the person chooses them.
+  let areasTouched = $state(false);
   let busy = $state(false);
 
   const areas = $derived(
@@ -38,7 +43,8 @@
     if (app.planning && !dialog.open) {
       const area = app.filter.areas.length === 1 ? (app.filter.areas[0] ?? '') : (areas[0]?.value ?? '');
       form = emptyForm(area);
-      preview = null;
+      answer = null;
+      areasTouched = false;
       dialog.showModal();
     }
     if (!app.planning && dialog.open) dialog.close();
@@ -48,14 +54,12 @@
   $effect(() => {
     if (!app.planning) return;
     const snapshot = $state.snapshot(form) as PlanForm;
-    if (snapshot.title.trim() === '' || snapshot.area === '') {
-      preview = null;
-      return;
-    }
+    if (snapshot.title.trim() === '' || snapshot.area === '') return;
+    const key = JSON.stringify(snapshot);
     const abort = new AbortController();
     const timer = setTimeout(async () => {
-      const answer = await app.previewPlan(snapshot, abort.signal);
-      if (!abort.signal.aborted) preview = answer;
+      const value = await app.previewPlan(snapshot, abort.signal);
+      if (!abort.signal.aborted) answer = { key, value };
     }, 250);
     return () => {
       clearTimeout(timer);
@@ -65,7 +69,7 @@
 
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
-    if (busy || !canCreate(form, preview)) return;
+    if (busy || app.saving || !canCreate(form, preview)) return;
     busy = true;
     try {
       await app.createPlan($state.snapshot(form) as PlanForm);
@@ -85,7 +89,13 @@
     </label>
     <label>
       <span>{t('plan.new.area')}</span>
-      <select bind:value={form.area} required>
+      <select
+        bind:value={form.area}
+        required
+        onchange={() => {
+          if (!areasTouched) form.areas = form.area ? [form.area] : [];
+        }}
+      >
         {#each areas as a (a.value)}
           <option value={a.value} title={a.title}>{a.label}</option>
         {/each}
@@ -97,17 +107,21 @@
         label={t('plan.new.areas')}
         options={areas}
         selected={form.areas}
-        onchange={(next) => (form.areas = next)}
+        onchange={(next) => {
+          areasTouched = true;
+          form.areas = next;
+        }}
         resetLabel={t('multi.reset')}
         searchLabel={t('multi.search')}
       />
+      <small class="hint">{t('plan.new.areas_hint')}</small>
     </div>
     <label>
       <span>{t('plan.new.phases')} <small>({t('field.tags_hint')})</small></span>
       <input type="text" bind:value={form.phases} placeholder="design, build, ship" />
     </label>
     {#if phases.length > 0}
-      <p class="phases" aria-label={t('plan.new.order')}>
+      <p class="phases" role="group" aria-label={t('plan.new.order')}>
         {#each phases as phase, i (phase)}<span class="chip">{i + 1} {phase}</span>{/each}
       </p>
     {/if}
@@ -142,12 +156,14 @@
         {/if}
       {:else if preview?.kind === 'refused'}
         <span class="bad">{preview.message}</span>
+      {:else if preview?.kind === 'unknown' && form.title.trim() !== ''}
+        <span class="warn">{t('plan.new.unknown')}</span>
       {/if}
     </p>
 
     <div class="actions">
       <button type="button" onclick={() => app.closePlanWizard()}>{t('dialog.cancel')}</button>
-      <button type="submit" class="primary" disabled={busy || !canCreate(form, preview)}
+      <button type="submit" class="primary" disabled={busy || app.saving || !canCreate(form, preview)}
         >{t('capture.create')}</button
       >
     </div>
@@ -190,6 +206,9 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 0.35rem 0.5rem;
+  }
+  .hint {
+    color: var(--muted);
   }
   .phases {
     display: flex;

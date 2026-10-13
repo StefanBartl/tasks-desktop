@@ -64,8 +64,9 @@
 
   function onKey(event: KeyboardEvent): void {
     if (event.key === 'Escape' && open) {
-      // The page's own Escape (leave the selection) must not also fire.
+      // The page's own Escape (leave the selection) must not also fire, nor the dialog's own (it would close).
       event.stopPropagation();
+      event.preventDefault();
       close(true);
     }
   }

@@ -754,7 +754,7 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
 
   // J moves the selected card one place down inside its group, and the engine's order says so after a reload.
   await column('open').locator('.card').first().click();
-  await page.keyboard.press('J');
+  await page.keyboard.press('Shift+J');
   await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
   const moved = [first[1], first[0], first[2]];
   await expect.poll(() => titles('open')).toEqual(moved);
@@ -769,9 +769,9 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
 
   // K takes it back; at the edge of the group there is nowhere to go, and that is told.
   await column('open').locator('.card').nth(1).click();
-  await page.keyboard.press('K');
+  await page.keyboard.press('Shift+K');
   await expect.poll(() => titles('open')).toEqual(first);
-  await page.keyboard.press('K');
+  await page.keyboard.press('Shift+K');
   await expect(page.getByRole('status').getByText(/end of its priority group/)).toBeVisible();
 
   // Drag one card onto the lower half of another: the order changes by a reorder.
@@ -787,9 +787,9 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
 
   // H and L change the status of the selected card with the keys.
   await column('doing').locator('.card', { hasText: name }).click();
-  await page.keyboard.press('L');
+  await page.keyboard.press('Shift+L');
   await expect(column('decision').locator('.card', { hasText: name })).toHaveCount(1);
-  await page.keyboard.press('H');
+  await page.keyboard.press('Shift+H');
   await expect(column('doing').locator('.card', { hasText: name })).toHaveCount(1);
 
   // A card of another priority is another group: the engine orders inside a group only, so the move is refused.
@@ -879,6 +879,149 @@ test('the plan wizard names the plan with a dry run, refuses what the engine ref
 
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
+});
+
+/** Put a line into the frontmatter of a task file the page made (the way another tool would change it). */
+function addFrontmatter(slug: string, lines: string): void {
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
+  const text = readFileSync(file, 'utf8');
+  writeFileSync(file, text.replace(/^(status: .*)$/m, `$1\n${lines}`));
+}
+
+test('the board does not place a card beside one of its priority in another stage, which the engine would refuse', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  for (const n of ['a', 'b', 'c']) await capture(page, `Stage e2e ${n}`);
+  // a: P1, b: P1 and waits for a (the next stage), c: P2 - listed a, c, b: the two P1 cards are not neighbours.
+  addFrontmatter('stage-e2e-a', 'prio: 1');
+  addFrontmatter('stage-e2e-b', 'prio: 1\nblocked_by: [lib.nvim/stage-e2e-a]');
+  addFrontmatter('stage-e2e-c', 'prio: 2');
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Stage e2e');
+  await chooseView(page, 'View', 'Board');
+  const open = page.getByRole('region', { name: 'open', exact: true });
+  await expect(open.locator('.card .title')).toHaveText(['Stage e2e a', 'Stage e2e c', 'Stage e2e b']);
+  await expect(open.locator('.group')).toHaveCount(3);
+
+  let writes = 0;
+  await page.route('**/api/tasks/ops', async (route) => {
+    writes += 1;
+    await route.continue();
+  });
+  // Down from a would be "after b": another stage. The board says it is at the edge and asks the engine nothing.
+  await open.locator('.card', { hasText: 'Stage e2e a' }).click();
+  await page.keyboard.press('Shift+J');
+  await expect(page.getByRole('status').getByText(/end of its priority group/)).toBeVisible();
+  expect(writes).toBe(0);
+  await drag(page, open.locator('.card', { hasText: 'Stage e2e a' }), open.locator('.card', { hasText: 'Stage e2e b' }), 'lower');
+  await expect(page.getByRole('status').getByText(/holds inside one priority/)).toBeVisible();
+  expect(writes).toBe(0);
+  expect(await violations(page)).toEqual([]);
+});
+
+test('the board: a held key writes once, a card the filter hides is not moved, a drop on a card of another column sets the status', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  for (const n of ['uno', 'dos', 'tres']) await capture(page, `Keys e2e ${n}`);
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Keys e2e');
+  await expect(page.locator('.rows .line')).toHaveCount(3);
+  await chooseView(page, 'View', 'Board');
+  const column = (name: string) => page.getByRole('region', { name, exact: true });
+  const first = column('open').locator('.card').first();
+  const firstTitle = (await first.locator('.title').innerText()).trim();
+  const second = column('open').locator('.card').nth(1);
+  const secondTitle = (await second.locator('.title').innerText()).trim();
+  const thirdTitle = (await column('open').locator('.card').nth(2).locator('.title').innerText()).trim();
+
+  let writes = 0;
+  await page.route('**/api/tasks/ops', async (route) => {
+    writes += 1;
+    await route.continue();
+  });
+
+  // A held Shift+J is a repeat after the first press: one write, not a shuffle. The repeat comes after the first write
+  // is over, so it is the key's own guard that stops it and not the page being busy.
+  await first.click();
+  await page.keyboard.down('Shift');
+  await page.keyboard.down('J');
+  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  await expect(column('open').locator('.card').first()).toHaveAttribute('draggable', 'true');
+  await page.keyboard.down('J');
+  await page.keyboard.down('J');
+  await page.keyboard.up('J');
+  await page.keyboard.up('Shift');
+  await page.waitForTimeout(300);
+  expect(writes).toBe(1);
+  await expect.poll(() => column('open').locator('.card .title').allInnerTexts()).toEqual([secondTitle, firstTitle, thirdTitle]);
+
+  // A plain K (CapsLock gives 'K' without Shift) never writes, although the card could go up.
+  await page.keyboard.press('K');
+  await page.waitForTimeout(300);
+  expect(writes).toBe(1);
+
+  // Drop a card on a card of another column: its status is set; the order is the engine's.
+  await expect(column('open').locator('.card').first()).toHaveAttribute('draggable', 'true');
+  await drag(page, column('open').locator('.card', { hasText: firstTitle }), column('doing'));
+  await expect(column('doing').locator('.card', { hasText: firstTitle })).toHaveCount(1);
+  await expect(column('open').locator('.card', { hasText: secondTitle })).toHaveCount(1);
+  await expect(column('open').locator('.card', { hasText: secondTitle })).toHaveAttribute('draggable', 'true');
+  await drag(
+    page,
+    column('open').locator('.card', { hasText: secondTitle }),
+    column('doing').locator('.card', { hasText: firstTitle }),
+  );
+  await expect(column('doing').locator('.card', { hasText: secondTitle })).toHaveCount(1);
+  await expect(column('open').locator('.card')).toHaveCount(1);
+
+  // The filter hides the selected card: the keys do not move it behind the person's back.
+  await column('doing').locator('.card', { hasText: firstTitle }).click();
+  await chooseView(page, 'View', 'List');
+  await page.getByRole('searchbox', { name: /search/i }).first().fill(secondTitle);
+  await chooseView(page, 'View', 'Board');
+  await expect(column('doing').locator('.card')).toHaveCount(1);
+  const before = writes;
+  // The focus is on the page, not in the menu that was just used.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('Shift+L');
+  await page.keyboard.press('Shift+K');
+  await page.waitForTimeout(300);
+  expect(writes).toBe(before);
+});
+
+test('the plan wizard does not make a plan from a name the engine has not confirmed', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  const dialog = page.getByRole('dialog', { name: 'New plan' });
+  await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'New plan ...' }).click();
+  await dialog.getByLabel('Title', { exact: true }).fill('Stale one');
+  await dialog.getByLabel('Area of the plan file').selectOption('lib.nvim');
+  await expect(dialog.getByRole('status')).toHaveText('The plan will be lib.nvim/stale-one');
+  const create = dialog.getByRole('button', { name: 'Create' });
+  await expect(create).toBeEnabled();
+  // The title changes: the answer on the screen is for the old one, and Create waits for the new one.
+  await dialog.getByLabel('Title', { exact: true }).pressSequentially(' two');
+  await expect(create).toBeDisabled();
+  await expect(dialog.getByRole('status')).toHaveText('The plan will be lib.nvim/stale-one-two');
+  await expect(create).toBeEnabled();
+  // The areas the plan covers follow the file's area until they are chosen.
+  await dialog.getByLabel('Area of the plan file').selectOption('cascade.nvim');
+  await expect(dialog.getByRole('button', { name: /Areas the plan covers/ })).toContainText('cascade.nvim');
+  // Escape closes the popup of the areas and leaves the dialog and what was typed in it.
+  await dialog.getByRole('button', { name: /Areas the plan covers/ }).click();
+  await expect(dialog.getByRole('group', { name: 'Areas the plan covers' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog.getByRole('group', { name: 'Areas the plan covers' })).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel('Title', { exact: true })).toHaveValue('Stale one two');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
 });
 
 test('a reminder set on a task comes back on the Today page when it is due', async ({ page }) => {
