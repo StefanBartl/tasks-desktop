@@ -1,7 +1,7 @@
 //! `tasks-hub serve | open | --version`
 
 use tasks_hub::app::{self, AreasCommand, ServeOptions};
-use tasks_hub::background::{self, Autostart, InstallOptions};
+use tasks_hub::background::{self, Autostart, InstallOptions, UninstallOptions};
 
 const USAGE: &str = "usage:
   tasks-hub serve [--port <1024-65535>]   run the hub until Ctrl-C
@@ -13,6 +13,10 @@ const USAGE: &str = "usage:
   tasks-hub install [--autostart] [--shortcut]
                                           copy this program to a fixed place (a build
                                           then does not fight the running hub for the file)
+  tasks-hub uninstall [--purge-settings]
+                                          stop the hub, take away the login entry and the link;
+                                          --purge-settings also removes the settings (never the
+                                          vault); the program file is left for the script
   tasks-hub open [--launch]               print a one-time pairing link for the running hub
                                           (--launch also opens it in the default browser)
   tasks-hub usage [--days=14]             on how many of the last days the interface was
@@ -109,6 +113,14 @@ async fn main() {
             } else {
                 background::install(opts).await.map(|t| print!("{t}"))
             }
+        }
+        Some("uninstall")
+            if args.len() == 1 || (args.len() == 2 && args[1] == "--purge-settings") =>
+        {
+            let opts = UninstallOptions {
+                purge_settings: args.len() == 2,
+            };
+            background::uninstall(opts).await.map(|t| print!("{t}"))
         }
         Some("stop") if args.len() == 1 => background::stop().await.map(|t| print!("{t}")),
         Some("autostart") if args.len() == 2 => match args[1].as_str() {

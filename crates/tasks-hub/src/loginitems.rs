@@ -223,6 +223,28 @@ pub fn launcher(platform: Platform, exe: &Path, env: &Env) -> Result<String, Str
     }
 }
 
+/// Take the launcher entry away (nothing there is what was asked for).
+///
+/// # Errors
+///
+/// A text for the person at the terminal.
+pub fn remove_launcher(platform: Platform, env: &Env) -> Result<String, String> {
+    match platform {
+        Platform::Linux => {
+            let file = launcher_file(env)?;
+            match std::fs::remove_file(&file) {
+                Ok(()) => Ok(format!("the launcher {} is removed\n", file.display())),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    Ok("no launcher was there\n".to_owned())
+                }
+                Err(e) => Err(format!("cannot remove {}: {e}", file.display())),
+            }
+        }
+        // None is ever made for macOS.
+        Platform::Macos => Ok("no launcher was there\n".to_owned()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,6 +353,28 @@ mod tests {
         assert!(login_entry(Platform::Linux, Action::On, bad, &env).is_err());
         assert!(launcher(Platform::Linux, bad, &env).is_err());
         assert!(!home.join(".config").exists());
+    }
+
+    #[test]
+    fn the_launcher_is_taken_away_and_nothing_there_is_fine() {
+        let home = temp("unlauncher");
+        let env = Env::from_pairs([("HOME", home.as_os_str().to_owned())]);
+        let file = home
+            .join(".local")
+            .join("share")
+            .join("applications")
+            .join(DESKTOP_FILE);
+        launcher(Platform::Linux, Path::new("/x/tasks-hub"), &env).unwrap();
+        assert!(file.is_file());
+        let text = remove_launcher(Platform::Linux, &env).unwrap();
+        assert!(text.contains("is removed"), "{text}");
+        assert!(!file.exists());
+        assert!(remove_launcher(Platform::Linux, &env)
+            .unwrap()
+            .contains("no launcher"));
+        assert!(remove_launcher(Platform::Macos, &env)
+            .unwrap()
+            .contains("no launcher"));
     }
 
     #[test]
