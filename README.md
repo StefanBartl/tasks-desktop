@@ -49,6 +49,8 @@ tasks-hub install [--autostart] [--shortcut]
 tasks-hub uninstall [--purge-settings] stop the hub, take away the login entry and the link;
                                       --purge-settings also removes the settings (never the
                                       vault); the program file is left for scripts/uninstall.*
+                                      (it acts on the installation of this user, whichever copy
+                                      of the program you run it from: a build in target/ included)
 tasks-hub open [--launch]             print a one-time pairing link for the running hub
                                       (--launch also opens it in the default browser)
 tasks-hub usage [--days=14]           on how many of the last days the interface was opened

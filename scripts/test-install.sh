@@ -131,7 +131,25 @@ case "$(uname -s)" in
         ;;
 esac
 
-# 8. A folder that holds other files stays when the program goes.
+# 8. A program from before the uninstall command (it answers with its usage text) is stopped and its
+# login entry taken away the older way, and the script still removes it.
+mkdir -p "$TMP/bin"
+cat >"$TMP/bin/tasks-hub" <<'OLD'
+#!/bin/sh
+case "$1" in
+    --version) echo "tasks-hub 0.0.0-old" ;;
+    stop) echo "no hub is running" ;;
+    autostart) echo "the hub does not start with your login" ;;
+    *) echo "tasks-hub: usage:" >&2; echo "  tasks-hub serve [--port <1024-65535>]" >&2; exit 1 ;;
+esac
+OLD
+chmod +x "$TMP/bin/tasks-hub"
+rm -f "$TMP/bin/other.txt"
+runs "uninstall of a program that does not know the command" sh "$HERE/uninstall.sh"
+says "older than the uninstall command" "  it says what it did instead"
+check "  and the old program is gone" sh -c "! [ -e '$TMP/bin/tasks-hub' ]"
+
+# 9. A folder that holds other files stays when the program goes.
 mkdir -p "$TMP/bin"
 echo 'mine' >"$TMP/bin/other.txt"
 sh "$HERE/install.sh" --archive "$ARCHIVE" >"$TMP/out" 2>&1 || nope "install into a folder with other files"

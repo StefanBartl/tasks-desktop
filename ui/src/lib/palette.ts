@@ -155,9 +155,12 @@ export function paletteItems(
       if (bonus > 0) items.push({ kind: 'task', key: taskKey(task.id), label: task.title, hint: task.id, id: task.id, score: bonus });
       continue;
     }
-    const idScore = matchScore(task.id, words);
-    const titleScore = matchScore(task.title, words);
-    const best = Math.max(idScore ?? -1, titleScore ?? -1);
+    // The words may be split between the id and the title ("lib board"): the two together count as a third text.
+    const best = Math.max(
+      matchScore(task.id, words) ?? -1,
+      matchScore(task.title, words) ?? -1,
+      matchScore(`${task.id} ${task.title}`, words) ?? -1,
+    );
     if (best < 0) continue;
     items.push({ kind: 'task', key: taskKey(task.id), label: task.title, hint: task.id, id: task.id, score: best + bonus });
   }

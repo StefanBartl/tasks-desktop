@@ -123,6 +123,13 @@ describe('the list', () => {
     expect(paletteItems('readme', actions, tasks, {}, NOW).map((i) => i.key)).toEqual([taskKey('docs/readme')]);
   });
 
+  it('finds a task by words that are split between its id and its title', () => {
+    const split = [task('docs.nvim/fix-x', 'Write the changelog'), task('lib.nvim/other', 'Something else')];
+    expect(paletteItems('nvim changelog', [], split, {}, NOW).map((i) => i.key)).toEqual([taskKey('docs.nvim/fix-x')]);
+    // A word that is in neither text still finds nothing.
+    expect(paletteItems('nvim zzzz', [], split, {}, NOW)).toEqual([]);
+  });
+
   it('puts the tasks first when a task matches better than any action', () => {
     const items = paletteItems('board-undo', actions, tasks, {}, NOW);
     expect(items[0]?.kind).toBe('task');

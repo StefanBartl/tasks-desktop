@@ -1140,6 +1140,27 @@ describe('writing', () => {
       expect(hub.sent[1]?.ops[0]).toMatchObject({ op: 'set', id: 'pub/a', patch: { status: 'doing' } });
     });
 
+    it('does not drop an entry when the page is not connected, and tries again for a bulk tag change on the tags it has then', async () => {
+      const tagged = (id: string, etag: string, tags: string[]) => task(id, { etag, status: 'open', group: 'open|1', tags } as Partial<TaskEntry>);
+      const { app, hub } = await ready([tagged('pub/a', 'e1', ['x', 'y'])]);
+      app.toggleMark('pub/a');
+      hub.next_ops = refused('conflict');
+      await app.bulkSet({}, { add: ['n'], remove: ['y'] });
+      expect(app.conflicts).toHaveLength(1);
+      expect(app.conflicts[0]?.tags).toEqual({ add: ['n'], remove: ['y'] });
+      // Not connected: nothing is sent and the entry stays.
+      app.phase = 'offline';
+      await app.retryConflict(app.conflicts[0]?.key as string);
+      expect(hub.sent).toHaveLength(1);
+      expect(app.conflicts).toHaveLength(1);
+      // Connected again, and somebody added a tag meanwhile: the retry keeps it.
+      app.phase = 'ready';
+      hub.doc = snapshot([tagged('pub/a', 'e2', ['x', 'y', 'm'])], 'rev:2');
+      await app.refresh();
+      await app.retryConflict(app.conflicts[0]?.key as string);
+      expect(hub.sent[1]?.ops[0]).toMatchObject({ patch: { tags: ['x', 'm', 'n'] }, if_match: 'e2' });
+    });
+
     it('puts a change that is refused again back as one entry, and lets go of it on request', async () => {
       const { app, hub } = await ready();
       hub.next_ops = refused('conflict');

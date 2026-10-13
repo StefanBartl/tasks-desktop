@@ -15,24 +15,28 @@ a missing program is worse than a program that is still there): read the message
 .PARAMETER PurgeSettings
 Also remove the settings of the app (%APPDATA%\tasks-desktop, only the files the app makes).
 
+.PARAMETER AllowElevated
+Remove although the session is elevated (for a build machine).
+
 .EXAMPLE
 .\uninstall.ps1 -PurgeSettings
 #>
 [CmdletBinding()]
 param(
-    [switch] $PurgeSettings
+    [switch] $PurgeSettings,
+    [switch] $AllowElevated
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Stop-Uninstall([string] $Message) {
+function Exit-Uninstall([string] $Message) {
     throw "uninstall.ps1: $Message"
 }
 
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Stop-Uninstall 'do not run this elevated: it removes the installation of one user'
+if (-not $AllowElevated -and $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Exit-Uninstall 'do not run this elevated: it removes the installation of one user (-AllowElevated for a build machine)'
 }
 
 if ($env:TASKS_DESKTOP_INSTALL_DIR) {
@@ -49,9 +53,31 @@ if (-not (Test-Path -LiteralPath $program -PathType Leaf)) {
 
 $flags = @()
 if ($PurgeSettings) { $flags += '--purge-settings' }
-& $program uninstall @flags
-if ($LASTEXITCODE -ne 0) {
-    Stop-Uninstall "tasks-hub uninstall failed (see above): the program stays in $dir"
+# The program takes the system entries away itself (it knows where they are). A program from before
+# the command existed answers with its usage text: then the older commands do what they can. The
+# error preference is lowered for the call: its complaints on stderr are text to read here, not errors.
+$previous = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    $answer = (& $program uninstall @flags 2>&1 | Out-String)
+    $code = $LASTEXITCODE
+}
+finally {
+    $ErrorActionPreference = $previous
+}
+Write-Output $answer.TrimEnd()
+if ($code -ne 0) {
+    if ($answer -match 'usage:') {
+        Write-Output 'this program is older than the uninstall command: stopping it and taking away the login entry the older way'
+        & $program stop
+        if ($LASTEXITCODE -ne 0) { Exit-Uninstall "tasks-hub stop failed (see above): the program stays in $dir" }
+        & $program autostart off
+        if ($LASTEXITCODE -ne 0) { Exit-Uninstall "tasks-hub autostart off failed (see above): the program stays in $dir" }
+        Write-Output '(a link or launcher it made, and its settings, are not touched by an older program: delete them by hand)'
+    }
+    else {
+        Exit-Uninstall "tasks-hub uninstall failed (see above): the program stays in $dir"
+    }
 }
 
 # Only the files the installer puts there; a folder that holds anything else stays. A file that
