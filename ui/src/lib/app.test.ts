@@ -517,6 +517,18 @@ describe('writing', () => {
     expect(app.saving).toBe(false);
   });
 
+  it('sends a list for tags and a number for the value, and clears a field with null', async () => {
+    const { app, hub } = await ready();
+    await app.setField('pub/a', 'tags', ['ui', 'docs']);
+    await app.setField('pub/a', 'value', 4);
+    await app.setField('pub/a', 'effort', null);
+    expect(hub.sent.map((s) => s.ops[0])).toMatchObject([
+      { op: 'set', id: 'pub/a', patch: { tags: ['ui', 'docs'] } },
+      { op: 'set', id: 'pub/a', patch: { value: 4 } },
+      { op: 'set', id: 'pub/a', patch: { effort: null } },
+    ]);
+  });
+
   it('sends the inverse on undo, once', async () => {
     const { app, hub } = await ready();
     await app.setField('pub/a', 'prio', 1);
