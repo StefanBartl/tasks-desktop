@@ -333,6 +333,20 @@ export class App {
     for (const entry of result.results) {
       // An entry that failed changed nothing: it has no way back and needs none.
       if (!entry.ok || entry.outcome === 'unchanged') continue;
+      // A move that numbered neighbours: one set for each file written gives it its old `order` back (the inverse
+      // alone would only restore the place).
+      if (entry.restore && entry.restore.length > 0) {
+        for (const step of entry.restore) {
+          if (step.op !== 'set') return undefined;
+          inverses.push({
+            op: 'set',
+            id: step.id,
+            patch: (step.patch ?? {}) as Record<string, unknown>,
+            ...(step.if_match ? { if_match: step.if_match } : {}),
+          });
+        }
+        continue;
+      }
       const inv = entry.inverse;
       if (!inv) return undefined;
       if (inv.op === 'reorder') {
