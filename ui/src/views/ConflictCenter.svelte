@@ -78,7 +78,11 @@
         {:else}
           <table>
             <thead>
-              <tr><th></th><th>{t('conflicts.wanted')}</th><th>{t('conflicts.now')}</th></tr>
+              <tr>
+                <th scope="col"><span class="sr-only">{t('conflicts.field')}</span></th>
+                <th scope="col">{t('conflicts.wanted')}</th>
+                <th scope="col">{t('conflicts.now')}</th>
+              </tr>
             </thead>
             <tbody>
               {#each row.diff as d (d.key)}

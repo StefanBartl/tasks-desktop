@@ -25,6 +25,12 @@ async function violations(page: Page): Promise<string[]> {
   return page.evaluate(() => (window as unknown as { __violations: string[] }).__violations);
 }
 
+/** No accessibility violation on the page as it is now (axe; rule WEB-23). */
+async function expectAccessible(page: Page, what: string): Promise<void> {
+  const result = await new AxeBuilder({ page }).analyze();
+  expect(result.violations, `${what}: ${JSON.stringify(result.violations, null, 1)}`).toEqual([]);
+}
+
 /** What the page wrote to the console: an error or a warning is a finding. */
 const consoleProblems = new WeakMap<Page, string[]>();
 
@@ -378,6 +384,15 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(page.getByRole('region', { name: 'Stages' })).toBeVisible();
     const plan = await new AxeBuilder({ page }).analyze();
     expect(plan.violations, JSON.stringify(plan.violations, null, 1)).toEqual([]);
+
+    // The board, and the command palette over it.
+    await chooseView(page, 'View', 'Board');
+    await expect(page.getByRole('group', { name: 'Board' })).toBeVisible();
+    await expectAccessible(page, 'the board');
+    await page.keyboard.press('Control+k');
+    await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeVisible();
+    await expectAccessible(page, 'the command palette');
+    await page.keyboard.press('Escape');
   });
 }
 
@@ -389,6 +404,13 @@ test('the German page has no violations either', async ({ page }) => {
   await showListDe(page);
   const result = await new AxeBuilder({ page }).analyze();
   expect(result.violations, JSON.stringify(result.violations, null, 1)).toEqual([]);
+  await chooseView(page, 'Ansicht', 'Board');
+  await expect(page.getByRole('group', { name: 'Board' })).toBeVisible();
+  await expectAccessible(page, 'the board, German');
+  await page.keyboard.press('Control+k');
+  await expect(page.getByRole('dialog', { name: 'Befehlspalette' })).toBeVisible();
+  await expectAccessible(page, 'the command palette, German');
+  await page.keyboard.press('Escape');
 });
 
 async function showListDe(page: Page): Promise<void> {
@@ -817,6 +839,7 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
   await drag(page, column('open').locator('.card', { hasText: mover }), target, 'lower');
   const ask = page.getByRole('dialog', { name: 'Priority 1?' });
   await expect(ask).toBeVisible();
+  await expectAccessible(page, 'the priority dialog');
   await ask.getByRole('button', { name: 'Cancel' }).click();
   await expect(ask).toBeHidden();
   expect(writes).toBe(0);
@@ -1186,6 +1209,7 @@ test('the board: a card dropped on blocked asks for the blocker, a card dropped 
   const ask = page.getByRole('dialog', { name: 'Blocked by what?' });
   await drag(page, card('Block e2e 1'), column('blocked'));
   await expect(ask).toBeVisible();
+  await expectAccessible(page, 'the blocker dialog');
   await ask.getByRole('button', { name: 'Cancel' }).click();
   await expect(ask).toBeHidden();
   expect(writes).toBe(0);
@@ -1322,6 +1346,7 @@ test('the bulk bar sets effort, a reminder and tags, takes a tag off, and the fi
   await expect(page.locator('aside.detail').getByLabel(/Tags/)).toHaveValue('old, shared');
   await page.getByRole('button', { name: 'Mark all shown' }).click();
   const bar = page.getByRole('group', { name: 'Change the marked tasks' });
+  await expectAccessible(page, 'the bulk bar');
 
   // A tag the engine would refuse is told and nothing is sent.
   let writes = 0;
@@ -1382,6 +1407,7 @@ test('the command palette: Ctrl+K, an action by a few letters, a task by its wor
   await page.keyboard.press('Control+k');
   await expect(palette).toBeVisible();
   await expect(box).toBeFocused();
+  await expectAccessible(page, 'the command palette');
   expect(await violations(page)).toEqual([]);
   await page.keyboard.press('Escape');
   await expect(palette).toBeHidden();
@@ -1481,6 +1507,7 @@ test('the conflict center keeps a refused change, shows wanted and now, and trie
   const row = center.getByRole('row', { name: /Status/ });
   await expect(row).toContainText('parked');
   await expect(row).toContainText('open');
+  await expectAccessible(page, 'the conflict center');
   expect(await violations(page)).toEqual([]);
 
   // Try again: it is written on the version that is there, and the list is empty.
