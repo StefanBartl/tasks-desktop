@@ -89,6 +89,7 @@ fn ready() -> HubStatus {
     HubStatus {
         engine_ready: true,
         problem: None,
+        capabilities: Vec::new(),
     }
 }
 
@@ -171,6 +172,7 @@ async fn without_an_engine_the_data_routes_say_so_and_hello_still_answers() {
     let status = HubStatus {
         engine_ready: false,
         problem: Some("no_vault"),
+        capabilities: Vec::new(),
     };
     let h = hub(None, status).await;
     for path in [
@@ -192,6 +194,24 @@ async fn without_an_engine_the_data_routes_say_so_and_hello_still_answers() {
     let hello: Value = serde_json::from_str(&hello.body).unwrap();
     assert_eq!(hello["engine"]["ready"], false);
     assert_eq!(hello["engine"]["problem"], "no_vault");
+}
+
+#[tokio::test]
+async fn hello_tells_what_the_engine_can_do() {
+    let status = HubStatus {
+        engine_ready: true,
+        problem: None,
+        capabilities: vec!["hello".to_owned(), "reorder".to_owned()],
+    };
+    let h = hub(None, status).await;
+    let hello = client::request(port(&h), "GET", "/api/tasks/hello", &[], "")
+        .await
+        .unwrap();
+    let hello: Value = serde_json::from_str(&hello.body).unwrap();
+    assert_eq!(
+        hello["engine"]["capabilities"],
+        serde_json::json!(["hello", "reorder"])
+    );
 }
 
 #[tokio::test]

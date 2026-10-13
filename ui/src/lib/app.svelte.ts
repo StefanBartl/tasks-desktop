@@ -104,6 +104,8 @@ export class App {
   shortAreas = $state(true);
   /** The day of the reader, `YYYY-MM-DD`; renewed when the window is looked at again. */
   today = $state(localToday());
+  /** What the engine says it can do; `null` until it has answered (then nothing is held back). */
+  capabilities = $state.raw<string[] | null>(null);
   /** A write is under way: the controls wait. */
   saving = $state(false);
   /** Settles when the write under way has ended, its re-read included. */
@@ -214,8 +216,13 @@ export class App {
     this.capturing = false;
   }
 
+  /** Whether the engine can do `capability`; true while it has not said (the cached list is shown first). */
+  can(capability: string): boolean {
+    return this.capabilities === null || this.capabilities.includes(capability);
+  }
+
   openPlanWizard(): void {
-    if (this.phase === 'ready') this.planning = true;
+    if (this.phase === 'ready' && this.can('plan_new')) this.planning = true;
   }
 
   closePlanWizard(): void {
@@ -619,6 +626,9 @@ export class App {
     for (;;) {
       try {
         const hello = await this.env.hub.hello();
+        this.capabilities = hello.engine.capabilities;
+        // A board left open by an older engine would offer what it refuses.
+        if (this.view === 'board' && !this.can('reorder')) this.view = 'today';
         if (!hello.engine.ready) {
           this.problem = hello.engine.problem ?? 'unknown';
           this.phase = 'unavailable';
@@ -782,6 +792,8 @@ export class App {
   }
 
   setView(view: View): void {
+    // The board writes with `reorder`: an engine without it does not get one.
+    if (view === 'board' && !this.can('reorder')) return;
     this.view = view;
     safe(() => this.env.prefs.setItem('tasks-desktop.view', view));
     if (view === 'today' && this.phase === 'ready') void this.loadNext();

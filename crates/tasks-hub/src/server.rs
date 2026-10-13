@@ -122,6 +122,8 @@ impl Default for Limits {
 pub struct HubStatus {
     pub engine_ready: bool,
     pub problem: Option<&'static str>,
+    /// What the engine can do, so that the page offers only that.
+    pub capabilities: Vec<String>,
 }
 
 /// Everything the server needs to start.
@@ -790,7 +792,11 @@ async fn hello(State(st): State<Arc<Shared>>) -> Response {
         "app": APP_NAME,
         "version": crate::VERSION,
         "instance": st.instance,
-        "engine": { "ready": st.status.engine_ready, "problem": st.status.problem },
+        "engine": {
+            "ready": st.status.engine_ready,
+            "problem": st.status.problem,
+            "capabilities": st.status.capabilities,
+        },
         "capabilities": ["pairing"],
     });
     axum::Json(body).into_response()

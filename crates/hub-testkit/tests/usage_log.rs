@@ -46,6 +46,7 @@ async fn a_stream_is_a_visit_and_the_file_holds_counts_only() {
         status: HubStatus {
             engine_ready: true,
             problem: None,
+            capabilities: Vec::new(),
         },
         engine: Some(engine),
         policy: Arc::new(AreaPolicy::default()),

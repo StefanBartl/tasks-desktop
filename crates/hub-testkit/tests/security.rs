@@ -51,6 +51,7 @@ impl Harness {
             status: HubStatus {
                 engine_ready: true,
                 problem: None,
+                capabilities: Vec::new(),
             },
         };
         let server = start(cfg).await.expect("the server starts");
@@ -880,6 +881,7 @@ async fn the_server_binds_loopback_only() {
         status: HubStatus {
             engine_ready: false,
             problem: Some("no_vault"),
+            capabilities: Vec::new(),
         },
     };
     for bad in ["0.0.0.0:0", "[::]:0", "192.168.1.10:0", "10.0.0.1:0"] {

@@ -175,7 +175,7 @@
           {
             kind: 'action',
             label: t('plan.new.button'),
-            disabled: app.phase !== 'ready',
+            disabled: app.phase !== 'ready' || !app.can('plan_new'),
             onselect: () => app.openPlanWizard(),
           },
           {
@@ -206,6 +206,7 @@
           {
             kind: 'radio',
             label: t('nav.board'),
+            disabled: !app.can('reorder'),
             checked: app.view === 'board',
             onselect: () => app.setView('board'),
           },

@@ -112,6 +112,7 @@ async fn engine_state(file: &FileConfig, env: &Env) -> EngineState {
         status: HubStatus {
             engine_ready: false,
             problem: Some(code),
+            capabilities: Vec::new(),
         },
         engine: None,
         note: Some(note),
@@ -143,10 +144,11 @@ async fn engine_state(file: &FileConfig, env: &Env) -> EngineState {
                 setup.vault.value.display()
             ),
         ),
-        Ok(_) => EngineState {
+        Ok(info) => EngineState {
             status: HubStatus {
                 engine_ready: true,
                 problem: None,
+                capabilities: info.capabilities,
             },
             engine: Some(Arc::new(engine)),
             vault: Some(setup.vault.value.clone()),
