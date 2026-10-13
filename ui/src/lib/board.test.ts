@@ -76,17 +76,28 @@ describe('small helpers', () => {
     expect(placeOf(130, 100, 40)).toBe('after');
   });
 
-  it('shows the priority part of the group', () => {
-    expect(groupLabel('open|2')).toBe('2');
-    expect(groupLabel('open|none')).toBe('none');
-    expect(groupLabel('nopipe')).toBeNull();
-    expect(groupLabel(undefined)).toBeNull();
+  it('shows the priority the engine gives, never a part of the group key', () => {
+    const task = (group: string | undefined, eff_prio?: number) =>
+      ({ id: 'x', group, readiness: eff_prio === undefined ? { state: 'ready' } : { state: 'ready', eff_prio } }) as unknown as TaskEntry;
+    expect(groupLabel(task('open|2', 2))).toBe('2');
+    expect(groupLabel(task('open|-'))).toBe('-');
+    // a key in a form the page does not know says nothing: the number does
+    expect(groupLabel(task('3 | open', 4))).toBe('4');
+    expect(priorityOf(task('open|9', 4))).toBe(4);
+    expect(groupLabel(task(undefined, 2))).toBeNull();
+    expect(priorityOf({ id: 'x' } as unknown as TaskEntry)).toBeNull();
   });
 });
 
 describe('stages', () => {
   const staged = (id: string, group: string, stage: number) =>
-    ({ id, status: 'open', group, etag: `e-${id}`, readiness: { state: 'ready', stage } }) as unknown as TaskEntry;
+    ({
+      id,
+      status: 'open',
+      group,
+      etag: `e-${id}`,
+      readiness: { state: 'ready', stage, ...(/\|(\d+)$/.test(group) ? { eff_prio: Number(group.split('|')[1]) } : {}) },
+    }) as unknown as TaskEntry;
   // As the engine lists them: stage 0 first, so A (P1), C (P2) and then B (P1, stage 1) share a priority across a border.
   const column = [staged('a', 'open|1', 0), staged('c', 'open|2', 0), staged('b', 'open|1', 1), staged('d', 'open|1', 1)];
 
@@ -116,9 +127,8 @@ describe('stages', () => {
     });
     // Beside a card without a priority there is none to set; another stage is another run.
     expect(placeNear(list, 'a', { id: 'e', place: 'after' })).toEqual({ kind: 'refused', reason: 'group' });
-    expect(priorityOf('open|2')).toBe(2);
-    expect(priorityOf('open|-')).toBeNull();
-    expect(priorityOf(undefined)).toBeNull();
+    // An engine that does not promise the number is not read as "no priority": nothing is carried along.
+    expect(placeNear(list, 'a', { id: 'c', place: 'after' }, false)).toEqual({ kind: 'refused', reason: 'group' });
   });
 
   it('steps inside the run of its stage only', () => {
