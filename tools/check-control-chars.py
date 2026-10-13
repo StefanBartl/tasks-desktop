@@ -62,6 +62,11 @@ def tracked_files():
     return [p.decode("utf-8", "surrogateescape") for p in out.split(b"\0") if p]
 
 
+def name_problems(path):
+    """The code points of the bad characters in a file name (the path as git lists it)."""
+    return [ord(match.group()) for match in BAD.finditer(path)]
+
+
 def problems(path, data):
     """The (line, code point) pairs of the bad characters of one file's bytes."""
     if b"\0" in data:
@@ -90,6 +95,10 @@ def main():
     for path in tracked_files():
         if path in skip:
             continue
+        for code in name_problems(path):
+            bad += 1
+            # repr: the name itself must not act on the terminal.
+            print(f"{path!r}: the name holds U+{code:04X}")
         try:
             with open(path, "rb") as handle:
                 data = handle.read()

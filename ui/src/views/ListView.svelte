@@ -8,6 +8,7 @@
   import { areaLabel } from '../lib/filter';
   import { untrack } from 'svelte';
   import { EFFORT_SIZES, badTag, parseTags } from '../lib/fields';
+  import { isApplyKey } from '../lib/bulk';
   import { REMIND_CHOICES } from '../lib/remind';
 
   let { app, searchBox = $bindable(null) }: { app: App; searchBox?: HTMLInputElement | null } =
@@ -66,7 +67,8 @@
   }
 
   function applyOnEnter(event: KeyboardEvent): void {
-    if (event.key !== 'Enter' || app.saving || !chosen) return;
+    // An Enter that ends the composition of an input method is not the person asking to apply.
+    if (!isApplyKey(event) || app.saving || !chosen) return;
     event.preventDefault();
     void applyDraft();
   }
