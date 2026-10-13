@@ -1,0 +1,125 @@
+<#
+.SYNOPSIS
+Test scripts/install.ps1 and scripts/uninstall.ps1 against a built tasks-hub.exe.
+
+.DESCRIPTION
+Everything happens in a temporary folder: the install folder and the settings folder are set
+there, the login entry and the link of this machine are left alone (TASKS_DESKTOP_NO_LOGIN_SYNC),
+and nothing is downloaded (-Archive). Exit 0 when all checks pass.
+
+.PARAMETER Program
+Path to the tasks-hub.exe under test.
+#>
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)] [string] $Program
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$Program = (Resolve-Path -LiteralPath $Program).Path
+$here = $PSScriptRoot
+$tmp = Join-Path ([IO.Path]::GetTempPath()) ('tasks-desktop-test-install-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $tmp | Out-Null
+
+$saved = @{}
+foreach ($name in 'TASKS_DESKTOP_INSTALL_DIR', 'TASKS_DESKTOP_CONFIG_DIR', 'TASKS_DESKTOP_NO_LOGIN_SYNC') {
+    $saved[$name] = [Environment]::GetEnvironmentVariable($name)
+}
+$env:TASKS_DESKTOP_INSTALL_DIR = Join-Path $tmp 'bin'
+$env:TASKS_DESKTOP_CONFIG_DIR = Join-Path $tmp 'cfg'
+$env:TASKS_DESKTOP_NO_LOGIN_SYNC = '1'
+
+$script:failures = 0
+function Write-Check([bool] $Passed, [string] $Name) {
+    if ($Passed) { Write-Output "ok   $Name" }
+    else { Write-Output "FAIL $Name"; $script:failures++ }
+}
+
+# Run a script in a child PowerShell (its exit and its output are the answer, not ours).
+function Invoke-Script([string] $Script, [string[]] $Arguments) {
+    $shell = (Get-Process -Id $PID).Path
+    $output = & $shell -NoProfile -NonInteractive -File (Join-Path $here $Script) @Arguments 2>&1 | Out-String
+    return [pscustomobject]@{ Code = $LASTEXITCODE; Text = $output }
+}
+
+try {
+    $stage = Join-Path $tmp 'release\stage'
+    New-Item -ItemType Directory -Path $stage -Force | Out-Null
+    Copy-Item -LiteralPath $Program -Destination (Join-Path $stage 'tasks-hub.exe')
+    $archive = Join-Path $tmp 'release\tasks-hub-0.0.0-test.zip'
+    Compress-Archive -Path (Join-Path $stage 'tasks-hub.exe') -DestinationPath $archive
+    $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+    Set-Content -LiteralPath (Join-Path $tmp 'release\SHA256SUMS') -Value "$hash  tasks-hub-0.0.0-test.zip" -Encoding ascii
+    $bin = $env:TASKS_DESKTOP_INSTALL_DIR
+    $exe = Join-Path $bin 'tasks-hub.exe'
+
+    # 1. No checksum, no install; a wrong one, no install.
+    Copy-Item -LiteralPath $archive -Destination (Join-Path $tmp 'loose.zip')
+    $r = Invoke-Script 'install.ps1' @('-Archive', (Join-Path $tmp 'loose.zip'))
+    Write-Check ($r.Code -ne 0 -and $r.Text -match 'no checksum') 'an archive without a checksum is refused, and says why'
+    $r = Invoke-Script 'install.ps1' @('-Archive', $archive, '-Sha256', ('0' * 64))
+    Write-Check ($r.Code -ne 0 -and $r.Text -match 'does not match') 'a wrong checksum is refused, and says why'
+    $r = Invoke-Script 'install.ps1' @('-Archive', (Join-Path $tmp 'loose.zip'), '-Sums', (Join-Path $tmp 'release\SHA256SUMS'))
+    Write-Check ($r.Code -ne 0 -and $r.Text -match 'not listed') 'a file that is not listed is refused'
+    Write-Check (-not (Test-Path -LiteralPath $bin)) 'nothing was installed by any of them'
+
+    # 2. A good archive installs, with the sums beside it.
+    $r = Invoke-Script 'install.ps1' @('-Archive', $archive)
+    Write-Check ($r.Code -eq 0) 'install from an archive'
+    if ($r.Code -ne 0) { Write-Output $r.Text }
+    Write-Check (Test-Path -LiteralPath $exe -PathType Leaf) 'the program is in the install folder'
+    $version = (& $exe --version)
+    Write-Check ($LASTEXITCODE -eq 0 -and $version -match 'tasks-hub') 'it runs'
+    Write-Check (-not (Test-Path -LiteralPath "$exe.new")) 'no .new file is left'
+
+    # 3. Again: it is found and repaired, not installed beside.
+    $r = Invoke-Script 'install.ps1' @('-Archive', $archive)
+    Write-Check ($r.Code -eq 0 -and $r.Text -match 'repairing') 'install again repairs'
+    Write-Check (@(Get-ChildItem -LiteralPath $bin).Count -eq 1) 'still one program'
+
+    # 4. Uninstall keeps the settings.
+    New-Item -ItemType Directory -Path $env:TASKS_DESKTOP_CONFIG_DIR -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $env:TASKS_DESKTOP_CONFIG_DIR 'config.json') -Value '{}'
+    Set-Content -LiteralPath (Join-Path $env:TASKS_DESKTOP_CONFIG_DIR 'notes.txt') -Value 'mine'
+    $r = Invoke-Script 'uninstall.ps1' @()
+    Write-Check ($r.Code -eq 0) 'uninstall'
+    if ($r.Code -ne 0) { Write-Output $r.Text }
+    Write-Check (-not (Test-Path -LiteralPath $exe)) 'the program is gone'
+    Write-Check (-not (Test-Path -LiteralPath $bin)) 'the install folder is gone'
+    Write-Check (Test-Path -LiteralPath (Join-Path $env:TASKS_DESKTOP_CONFIG_DIR 'config.json')) 'the settings stay'
+
+    # 5. Uninstall twice is not an error.
+    $r = Invoke-Script 'uninstall.ps1' @()
+    Write-Check ($r.Code -eq 0 -and $r.Text -match 'nothing to remove') 'uninstall again says there is nothing to remove'
+
+    # 6. -PurgeSettings removes the files of the app and nothing else.
+    $r = Invoke-Script 'install.ps1' @('-Archive', $archive)
+    Write-Check ($r.Code -eq 0) 'install before the purge'
+    $r = Invoke-Script 'uninstall.ps1' @('-PurgeSettings')
+    Write-Check ($r.Code -eq 0) 'uninstall -PurgeSettings'
+    Write-Check (-not (Test-Path -LiteralPath (Join-Path $env:TASKS_DESKTOP_CONFIG_DIR 'config.json'))) 'the settings file is gone'
+    Write-Check (Test-Path -LiteralPath (Join-Path $env:TASKS_DESKTOP_CONFIG_DIR 'notes.txt')) 'a file that is not the app''s stays'
+
+    # 7. A folder that holds other files stays when the program goes.
+    New-Item -ItemType Directory -Path $bin -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $bin 'other.txt') -Value 'mine'
+    $r = Invoke-Script 'install.ps1' @('-Archive', $archive)
+    $r = Invoke-Script 'uninstall.ps1' @()
+    Write-Check (Test-Path -LiteralPath (Join-Path $bin 'other.txt')) 'the other file and so the folder stay'
+}
+finally {
+    foreach ($name in $saved.Keys) {
+        [Environment]::SetEnvironmentVariable($name, $saved[$name])
+    }
+    Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+if ($script:failures -ne 0) {
+    Write-Output ''
+    Write-Output "$($script:failures) check(s) failed"
+    exit 1
+}
+Write-Output ''
+Write-Output 'all checks passed'

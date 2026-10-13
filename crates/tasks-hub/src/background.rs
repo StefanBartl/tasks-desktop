@@ -8,7 +8,9 @@
 //! a process that merely got the same number.
 
 use std::ffi::OsString;
+use std::future::Future;
 use std::path::{Component, Path, PathBuf};
+use std::pin::Pin;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -606,6 +608,145 @@ fn autostart_is_on() -> bool {
     matches!(autostart_for(Autostart::Status, &exe), Ok(text) if text.starts_with("on"))
 }
 
+/// What `uninstall` was asked for.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UninstallOptions {
+    /// Also remove the settings of the app in the config folder (never the vault).
+    pub purge_settings: bool,
+}
+
+/// The files this app keeps in the config folder: nothing else is ever removed there.
+const SETTINGS_FILES: [&str; 7] = [
+    "config.json",
+    "areas.json",
+    "areas.proposed.json",
+    "usage.json",
+    "hub.json",
+    "control.secret",
+    "hub.log",
+];
+
+/// Remove the files of the app from the config folder, and the folder when nothing else is in it.
+fn purge_settings(dir: &Path) -> Result<String, String> {
+    let mut removed = Vec::new();
+    for name in SETTINGS_FILES {
+        let file = dir.join(name);
+        match std::fs::remove_file(&file) {
+            Ok(()) => removed.push(name),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("cannot remove {}: {e}", file.display())),
+        }
+    }
+    let mut text = if removed.is_empty() {
+        format!("no settings were in {}\n", dir.display())
+    } else {
+        format!(
+            "settings removed from {}: {}\n",
+            dir.display(),
+            removed.join(", ")
+        )
+    };
+    // `remove_dir` takes an empty folder only: a folder with other files stays.
+    match std::fs::remove_dir(dir) {
+        Ok(()) => text.push_str("the settings folder is removed\n"),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => text.push_str("the settings folder holds other files and stays\n"),
+    }
+    Ok(text)
+}
+
+/// Take the integration of the program with the system away: stop the hub, the login entry, the
+/// link or launcher, and (when asked) the settings. The program file itself is left: it is the
+/// one that runs, and a running program cannot delete itself on every system; the scripts
+/// `scripts/uninstall.*` remove the install folder after this program has ended. The vault and
+/// the tasks are never touched.
+///
+/// # Errors
+///
+/// A text for the person at the terminal. Every step is tried; the steps that failed are named
+/// together at the end (what went right is printed first).
+pub fn uninstall(
+    opts: UninstallOptions,
+) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send>> {
+    // On the heap, and made here: the future of the steps is large, and in a debug build a large
+    // future that is made in the `match` of `main` takes room in the stack of the main thread for
+    // every command (it overflowed it, `serve` included).
+    Box::pin(uninstall_steps(opts))
+}
+
+async fn uninstall_steps(opts: UninstallOptions) -> Result<String, String> {
+    let env = Env::from_process();
+    let mut out = String::new();
+    let mut failed: Vec<String> = Vec::new();
+    let mut step = |result: Result<String, String>, out: &mut String| match result {
+        Ok(text) => out.push_str(&text),
+        Err(e) => failed.push(e),
+    };
+
+    step(stop().await, &mut out);
+    let exe = std::env::current_exe().map_err(|e| format!("own program not found: {e}"))?;
+    if env.get(NO_LOGIN_SYNC).is_some() {
+        // The tests of the program: the login entry and the link of the machine are not theirs.
+        out.push_str("the login entry and the link are left alone (TASKS_DESKTOP_NO_LOGIN_SYNC)\n");
+    } else {
+        step(autostart(Autostart::Off), &mut out);
+        step(remove_shortcut(&env), &mut out);
+    }
+    if opts.purge_settings {
+        match app::config_folder(&env) {
+            Ok(dir) => step(purge_settings(&dir), &mut out),
+            Err(e) => failed.push(e),
+        }
+    } else if let Ok(dir) = app::config_folder(&env) {
+        out.push_str(&format!(
+            "your settings stay in {} (`uninstall --purge-settings` removes them)\n",
+            dir.display()
+        ));
+    }
+    out.push_str(&format!(
+        "the program file is left at {}: delete it (scripts/uninstall does)\n",
+        exe.display()
+    ));
+    if failed.is_empty() {
+        Ok(out)
+    } else {
+        print!("{out}");
+        Err(failed.join("; "))
+    }
+}
+
+/// Take the link "Tasks" of the desktop away (Windows), or the launcher (Linux).
+fn remove_shortcut(env: &Env) -> Result<String, String> {
+    if !cfg!(windows) {
+        let Some(platform) = loginitems::Platform::current() else {
+            return Ok(String::new());
+        };
+        return loginitems::remove_launcher(platform, env);
+    }
+    // Only a link of that name whose target is this program: a link of the person's own
+    // that happens to be called "Tasks" is not ours to delete.
+    let script = "Set shell = CreateObject(\"WScript.Shell\")\r\n\
+Set fso = CreateObject(\"Scripting.FileSystemObject\")\r\n\
+path = shell.SpecialFolders(\"Desktop\") & \"\\Tasks.lnk\"\r\n\
+If fso.FileExists(path) Then\r\n\
+  If LCase(Right(shell.CreateShortcut(path).TargetPath, 13)) = \"tasks-hub.exe\" Then fso.DeleteFile path, True\r\n\
+End If\r\n";
+    let path =
+        std::env::temp_dir().join(format!("tasks-desktop-unlink-{}.vbs", std::process::id()));
+    std::fs::write(&path, vbs_bytes(script)).map_err(|e| format!("cannot write a script: {e}"))?;
+    let ok = Command::new(system_program("wscript.exe")?)
+        .args(["//B", "//Nologo"])
+        .arg(&path)
+        .status()
+        .is_ok_and(|s| s.success());
+    let _ = std::fs::remove_file(&path);
+    if ok {
+        Ok("the link \"Tasks\" is not on the desktop (any that was ours is removed)\n".to_owned())
+    } else {
+        Err("the link on the desktop could not be checked".to_owned())
+    }
+}
+
 /// A link "Tasks" on the desktop that starts the hub and opens the page.
 fn shortcut(exe: &Path) -> Result<String, String> {
     if !cfg!(windows) {
@@ -769,6 +910,46 @@ mod tests {
     fn the_registered_command_quotes_the_program() {
         let cmd = run_command(Path::new(r"C:\Program Files\tasks\tasks-hub.exe"));
         assert_eq!(cmd, r#""C:\Program Files\tasks\tasks-hub.exe" start"#);
+    }
+
+    fn settings_dir(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("tasks-desktop-purge-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn purging_removes_the_files_of_the_app_and_the_folder_when_it_is_empty() {
+        let dir = settings_dir("empty");
+        for name in SETTINGS_FILES {
+            std::fs::write(dir.join(name), "x").unwrap();
+        }
+        let text = purge_settings(&dir).unwrap();
+        assert!(
+            text.contains("config.json") && text.contains("usage.json"),
+            "{text}"
+        );
+        assert!(text.contains("folder is removed"), "{text}");
+        assert!(!dir.exists());
+        // Nothing there at all: told, and no error.
+        assert!(purge_settings(&dir).unwrap().contains("no settings"));
+    }
+
+    #[test]
+    fn purging_leaves_a_file_that_is_not_the_apps_and_so_the_folder() {
+        let dir = settings_dir("other");
+        std::fs::write(dir.join("config.json"), "x").unwrap();
+        std::fs::write(dir.join("notes.txt"), "mine").unwrap();
+        let text = purge_settings(&dir).unwrap();
+        assert!(text.contains("holds other files"), "{text}");
+        assert!(!dir.join("config.json").exists());
+        assert_eq!(
+            std::fs::read_to_string(dir.join("notes.txt")).unwrap(),
+            "mine"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A registry that holds one value in memory and says what it was asked.

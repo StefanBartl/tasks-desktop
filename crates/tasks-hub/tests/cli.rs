@@ -523,6 +523,59 @@ fn install_copies_the_program_and_brings_a_running_hub_back_from_there() {
 }
 
 #[test]
+fn uninstall_stops_the_hub_keeps_the_settings_unless_asked_and_leaves_the_program() {
+    let config = temp_dir("uninstall");
+    let port = free_port();
+    let _guard = Background(config.clone());
+    std::fs::write(config.join("config.json"), "{}").unwrap();
+    std::fs::write(config.join("usage.json"), "{}").unwrap();
+    std::fs::write(config.join("notes.txt"), "mine").unwrap();
+    let started = command(&config)
+        .env("TASKS_DESKTOP_PORT", port.to_string())
+        .arg("start")
+        .output()
+        .unwrap();
+    assert!(started.status.success());
+    assert!(config.join("hub.json").is_file());
+
+    // Without a flag: the hub is stopped, the settings stay, the program is named.
+    let out = command(&config).arg("uninstall").output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(
+        out.status.success(),
+        "{text}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(text.contains("is stopped"), "{text}");
+    assert!(text.contains("your settings stay"), "{text}");
+    assert!(text.contains("the program file is left"), "{text}");
+    assert!(config.join("config.json").is_file());
+    assert!(!config.join("hub.json").exists());
+    assert!(binary().is_file(), "the program that ran is not deleted");
+
+    // With the flag: the files of the app go, a file that is not ours and the folder stay.
+    let out = command(&config)
+        .args(["uninstall", "--purge-settings"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(out.status.success(), "{text}");
+    assert!(text.contains("settings removed"), "{text}");
+    assert!(!config.join("config.json").exists() && !config.join("usage.json").exists());
+    assert_eq!(
+        std::fs::read_to_string(config.join("notes.txt")).unwrap(),
+        "mine"
+    );
+
+    // A flag that is none is a usage error.
+    let bad = command(&config)
+        .args(["uninstall", "--nope"])
+        .output()
+        .unwrap();
+    assert!(!bad.status.success());
+}
+
+#[test]
 fn install_fails_and_says_what_it_did_when_the_hub_does_not_come_back() {
     let config = temp_dir("install-down");
     let bin = temp_dir("install-down-bin");

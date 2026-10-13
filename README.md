@@ -46,10 +46,42 @@ tasks-hub install [--autostart] [--shortcut]
                                       (Windows: registry and desktop link; Linux: an autostart
                                       entry and a launcher; macOS: a launch agent). Build with
                                       `cargo build --release` first: 3.4 MB instead of 5.9 MB.
+tasks-hub uninstall [--purge-settings] stop the hub, take away the login entry and the link;
+                                      --purge-settings also removes the settings (never the
+                                      vault); the program file is left for scripts/uninstall.*
 tasks-hub open [--launch]             print a one-time pairing link for the running hub
                                       (--launch also opens it in the default browser)
 tasks-hub usage [--days=14]           on how many of the last days the interface was opened
 ```
+
+## Install from a release
+
+A release on GitHub (a tag `vX.Y.Z`, published by hand after a draft was tried) holds the program for
+Windows, Linux and macOS (macOS is built but not tried), `SHA256SUMS`, and the four scripts below. The
+scripts need no administrator rights and install for one user, so they also work where a signed
+Setup is not allowed. Run them in your own terminal (not elevated, not from inside a program that
+sandboxes AppData).
+
+```
+sh scripts/install.sh [--version vX.Y.Z] [--autostart] [--shortcut]      # Linux, macOS
+.\scripts\install.ps1 [-Version vX.Y.Z] [-Autostart] [-Shortcut]         # Windows PowerShell
+```
+
+They download the archive of the release, check it against `SHA256SUMS` (a wrong or missing
+checksum installs nothing), and hand over to `tasks-hub install`, which replaces the program in one
+step and brings a running hub back. Run the same script again to repair or to update: the
+installation that is there is found and replaced, never a second one beside it. `--archive FILE`
+(`-Archive`) installs from a file you already have, with `--sums FILE` or `--sha256 HEX`.
+
+```
+sh scripts/uninstall.sh [--purge-settings]
+.\scripts\uninstall.ps1 [-PurgeSettings]
+```
+
+Uninstalling stops the hub, takes away the login entry and the link, and removes the program. Your
+settings stay unless you ask; your vault and your tasks are never touched. If a step fails the
+program stays, so that nothing points at a missing file. How a release is made:
+[docs/RELEASING.md](docs/RELEASING.md).
 
 The hub keeps one Neovim process as its engine and asks it over a line
 protocol (about a fifth of the time of one process per question, measured on

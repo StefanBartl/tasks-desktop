@@ -1,0 +1,205 @@
+# A release is a deliberate act: it starts with a tag `vX.Y.Z` and ends as a DRAFT that a person
+# opens, installs from and clicks through before publishing it (rule REL-07). Nothing here
+# publishes.
+#
+# What it makes, for the hub (the native shell and its Setup come with the Tauri task):
+#   tasks-hub-X.Y.Z-<target>.zip|tar.gz   the program, one archive per system
+#   SHA256SUMS                            the checksums of all archives (scripts/install.* check them)
+#
+# Before anything is built: the tag, the version in crates/tasks-hub/Cargo.toml and the
+# main branch agree, and the CI of main was green for this very commit (REL-08).
+#
+# Actions are pinned by commit (REL-03); a job gets only the rights it needs; nothing but the
+# GitHub CLI of the runner talks to the release.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.facts.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The tag, the version and the CI of this commit agree
+        id: facts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          tag="$GITHUB_REF_NAME"
+          case "$tag" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::the tag $tag is not vX.Y.Z"; exit 1 ;;
+          esac
+          version="${tag#v}"
+          crate="$(sed -n 's/^version *= *"\(.*\)"/\1/p' crates/tasks-hub/Cargo.toml | head -n 1)"
+          if [ "$version" != "$crate" ]; then
+            echo "::error::the tag says $version but crates/tasks-hub/Cargo.toml says $crate (bump it in its own commit first)"
+            exit 1
+          fi
+          # A release comes from main, never from a side branch.
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::the commit of the tag is not on main"
+            exit 1
+          fi
+          green="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" --status success --json databaseId --jq 'length')"
+          if [ "$green" -lt 1 ]; then
+            echo "::error::no green CI run for $GITHUB_SHA: wait for it, or fix main, then tag again"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  draft:
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Create the draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::a release $GITHUB_REF_NAME exists already: delete the draft first, a published one is never cut again (REL-09, REL-10)"
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+            --title "$GITHUB_REF_NAME" --notes-file .github/release-notes.md
+
+  build:
+    needs: [check, draft]
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            program: tasks-hub.exe
+            archive: zip
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            program: tasks-hub
+            archive: tar.gz
+          # Built, never tried on a Mac: the notes of the release say so.
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            program: tasks-hub
+            archive: tar.gz
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+      # The interface is part of the binary (REL-04): it is built first, then the program.
+      - name: Build the interface
+        working-directory: ui
+        run: |
+          npm install --global pnpm@11.28.2
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Build the program
+        run: cargo build --release --locked -p tasks-hub
+      - name: Pack
+        id: pack
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -eu
+          name="tasks-hub-${VERSION}-${{ matrix.target }}"
+          mkdir -p stage
+          cp "target/release/${{ matrix.program }}" stage/
+          cp LICENSE stage/
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            (cd stage && 7z a -tzip "../${name}.zip" . >/dev/null)
+            echo "file=${name}.zip" >> "$GITHUB_OUTPUT"
+          else
+            tar -czf "${name}.tar.gz" -C stage .
+            echo "file=${name}.tar.gz" >> "$GITHUB_OUTPUT"
+          fi
+      # What the archive holds, without installing it (REL-12): unpack it elsewhere, ask the
+      # program for its version (the hub is a command line program), and run the install and
+      # uninstall scripts on it in a folder of their own.
+      - name: Check the archive
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          FILE: ${{ steps.pack.outputs.file }}
+        run: |
+          set -eu
+          mkdir -p check
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            7z x -y "-ocheck" "$FILE" >/dev/null
+          else
+            tar -xzf "$FILE" -C check
+          fi
+          got="$(check/${{ matrix.program }} --version)"
+          if [ "$got" != "tasks-hub ${VERSION}" ]; then
+            echo "::error::the program in the archive says '$got', the tag says $VERSION"
+            exit 1
+          fi
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            pwsh -NoProfile -File scripts/test-install.ps1 "target/release/${{ matrix.program }}"
+          fi
+          sh scripts/test-install.sh "target/release/${{ matrix.program }}"
+      - name: Attach to the draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FILE: ${{ steps.pack.outputs.file }}
+        run: gh release upload "$GITHUB_REF_NAME" "$FILE" --repo "$GITHUB_REPOSITORY" --clobber
+
+  sums:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: The checksums of every archive and every script
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p assets
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --dir assets --pattern 'tasks-hub-*'
+          archives="$(ls assets | wc -l)"
+          if [ "$archives" -ne 3 ]; then
+            echo "::error::$archives archive(s) instead of 3: a system is missing"
+            exit 1
+          fi
+          # The scripts of exactly this tag travel with the release: a download of only the
+          # release has them, and they are checked like the archives.
+          cp scripts/install.sh scripts/install.ps1 scripts/uninstall.sh scripts/uninstall.ps1 assets/
+          (cd assets && sha256sum tasks-hub-* install.sh install.ps1 uninstall.sh uninstall.ps1 > SHA256SUMS && cat SHA256SUMS)
+          gh release upload "$GITHUB_REF_NAME" assets/SHA256SUMS assets/install.sh assets/install.ps1 assets/uninstall.sh assets/uninstall.ps1 --repo "$GITHUB_REPOSITORY" --clobber
