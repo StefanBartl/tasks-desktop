@@ -1722,3 +1722,58 @@ test('another vault is chosen: the page loads again and shows its tasks, and the
   await dialog.getByRole('button', { name: 'Close' }).click();
   expect(await violations(page)).toEqual([]);
 });
+
+test('a number of the overview opens its tasks, in views that can be switched, with the key v and the mouse', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await chooseView(page, 'View', 'Today');
+  const tile = page.locator('button.tile[data-count="blocked"]');
+  await expect(tile).toBeVisible();
+  const number = Number(await tile.locator('.num').innerText());
+  expect(number).toBeGreaterThan(0);
+
+  // A click opens the tasks; the count in the heading is the number on the tile.
+  await tile.click();
+  await expect(tile).toHaveAttribute('aria-expanded', 'true');
+  const panel = page.getByRole('region', { name: 'blocked' });
+  await expect(panel.getByRole('heading', { level: 2 })).toHaveText(`blocked · ${number}`);
+  await expect(panel.locator('li')).toHaveCount(number);
+  await expectAccessible(page, 'the tasks behind a number');
+
+  // The views are switched with the mouse ...
+  await panel.getByRole('radio', { name: 'By area' }).check();
+  const counts = await panel.locator('summary .muted').allInnerTexts();
+  expect(counts.length).toBeGreaterThan(0);
+  expect(counts.map((c) => Number(c.slice(1, -1))).reduce((a, b) => a + b, 0)).toBe(number);
+
+  // ... and with the key v on the number itself (blocked can also be cut up by its blocker).
+  await panel.getByRole('radio', { name: 'List' }).check();
+  await tile.focus();
+  await page.keyboard.press('v');
+  await expect(panel.getByRole('radio', { name: 'By blocker' })).toBeChecked();
+  await page.keyboard.press('v');
+  await expect(panel.getByRole('radio', { name: 'By priority' })).toBeChecked();
+
+  // The choice is kept for this number only.
+  await expect(page.locator('button.tile[data-count="doing"]')).toHaveAttribute('aria-expanded', 'false');
+  await page.reload();
+  await expect(page.getByRole('menubar')).toBeVisible();
+  await page.locator('button.tile[data-count="blocked"]').click();
+  await expect(page.getByRole('region', { name: 'blocked' }).getByRole('radio', { name: 'By priority' })).toBeChecked();
+
+  // Escape closes the tasks and gives the focus back to the number.
+  await page.getByRole('region', { name: 'blocked' }).getByRole('radio', { name: 'By priority' }).focus();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('region', { name: 'blocked' })).toHaveCount(0);
+  await expect(page.locator('button.tile[data-count="blocked"]')).toBeFocused();
+
+  // A task of the list is opened in the list, selected.
+  await page.locator('button.tile[data-count="doing"]').click();
+  const doing = page.getByRole('region', { name: 'doing' });
+  const first = doing.locator('li').first();
+  const id = (await first.locator('code').innerText()).trim();
+  await first.getByRole('button').click();
+  await expect(page.locator('aside.detail .id')).toHaveText(id);
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});

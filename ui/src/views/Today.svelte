@@ -5,6 +5,8 @@
   import { dueItems } from '../lib/remind';
   import { labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
+  import { tasksOf, type CountKey } from '../lib/counts';
+  import CountPanel from './CountPanel.svelte';
 
   let { app }: { app: App } = $props();
 
@@ -24,15 +26,36 @@
     if (!snapshot) return [];
     const by = snapshot.counts.by_status;
     return [
-      { key: 'today.tiles.ready' as Key, value: snapshot.plan.summary.ready },
-      { key: 'today.tiles.doing' as Key, value: by['doing'] ?? 0 },
-      { key: 'today.tiles.blocked' as Key, value: by['blocked'] ?? 0 },
+      { count: 'ready' as CountKey, key: 'today.tiles.ready' as Key, value: snapshot.plan.summary.ready },
+      { count: 'doing' as CountKey, key: 'today.tiles.doing' as Key, value: by['doing'] ?? 0 },
+      { count: 'blocked' as CountKey, key: 'today.tiles.blocked' as Key, value: by['blocked'] ?? 0 },
       {
+        count: 'estimated' as CountKey,
         key: 'today.tiles.estimated' as Key,
         value: `${snapshot.estimate.n_with_value}/${snapshot.estimate.tasks}`,
+        // What the engine counts as estimated is the first number.
+        total: snapshot.estimate.n_with_value,
       },
     ];
   });
+
+  /** The tasks of the open number, and how many the engine says there are. */
+  const opened = $derived.by(() => {
+    const key = app.countOpen;
+    const tile = tiles.find((x) => x.count === key);
+    if (!key || !tile) return null;
+    const total = 'total' in tile && tile.total !== undefined ? tile.total : Number(tile.value);
+    return { key, label: tile.key, tasks: tasksOf(key, app.tasks), total };
+  });
+
+  /** `v` on a number walks its views; Escape closes (handled by the panel). */
+  function onTileKey(event: KeyboardEvent, key: CountKey): void {
+    if (event.key === 'v' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      app.cycleCountView(key);
+    }
+  }
 
   function open(id: string): void {
     app.reveal(id);
@@ -58,16 +81,28 @@
       </header>
       <div class="tiles">
         {#each tiles as tile (tile.key)}
-          <div class="tile">
+          <button
+            type="button"
+            class="tile"
+            data-count={tile.count}
+            aria-expanded={app.countOpen === tile.count}
+            aria-controls="count-panel"
+            title={t('count.hint')}
+            onclick={() => app.toggleCount(tile.count)}
+            onkeydown={(e) => onTileKey(e, tile.count)}
+          >
             <span class="num">{tile.value}</span>
             <span class="muted">{t(tile.key)}</span>
-          </div>
+          </button>
         {/each}
       </div>
     </aside>
   {/if}
 
   <div class="main">
+    {#if opened}
+      <CountPanel {app} key={opened.key} label={t(opened.label)} tasks={opened.tasks} total={opened.total} />
+    {/if}
     {#if app.hiddenTiles.length > 0}
       <p class="restore">
         <button type="button" class="link" onclick={() => app.showTiles()}
@@ -357,6 +392,15 @@
     padding: 0.5rem 0.75rem;
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .tile:hover,
+  .tile[aria-expanded='true'] {
+    border-color: var(--accent);
   }
   .num {
     font-size: 1.5rem;

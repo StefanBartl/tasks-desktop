@@ -10,6 +10,7 @@ import type { DonePreview, Next, Result, Snapshot, TaskDocument, TaskEntry } fro
 import type { Op } from './api';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
 import { bumped, parseFrecency, type Frecency } from './palette';
+import { defaultView, nextView, parseViews, type CountKey, type CountView } from './counts';
 import { conflictsOf, conflictsOfRequest, mergeConflicts, retryOp, type Conflict } from './conflicts';
 import { backoffSeconds, readStream, StreamRefused, type SseMessage } from './sse';
 import { detectLang, isLang, translate, type Key, type Lang } from './i18n';
@@ -104,6 +105,10 @@ export class App {
   filter = $state<Filter>({ ...emptyFilter, areas: [], statuses: [], actors: [] });
   /** Blocks of the Today view the person put away. */
   hiddenTiles = $state<Tile[]>([]);
+  /** The number of the overview whose tasks are shown (none: closed). */
+  countOpen = $state<CountKey | null>(null);
+  /** The view chosen for each number; what is not here has the default. */
+  countViews = $state<Partial<Record<CountKey, CountView>>>({});
   /** Area names without the prefix `wkdbook-` where that is unambiguous. */
   shortAreas = $state(true);
   /** The day of the reader, `YYYY-MM-DD`; renewed when the window is looked at again. */
@@ -180,6 +185,7 @@ export class App {
     this.shortAreas = safe(() => env.prefs.getItem('tasks-desktop.short-areas')) !== 'off';
     const hidden = safe(() => env.prefs.getItem('tasks-desktop.tiles-hidden'));
     this.hiddenTiles = parseTiles(hidden);
+    this.countViews = parseViews(safe(() => env.prefs.getItem('tasks-desktop.count-views')));
     this.frecency = parseFrecency(safe(() => env.prefs.getItem('tasks-desktop.frecency')));
     // The page opens on the view it was left on.
     const view = safe(() => env.prefs.getItem('tasks-desktop.view'));
@@ -785,6 +791,38 @@ export class App {
     if (this.hiddenTiles.includes(tile)) return;
     this.hiddenTiles = [...this.hiddenTiles, tile];
     this.saveTiles();
+  }
+
+  /** The view a number shows its tasks in. */
+  countView(key: CountKey): CountView {
+    return this.countViews[key] ?? defaultView(key);
+  }
+
+  /** Open the tasks behind a number, or close them when they are open. */
+  toggleCount(key: CountKey): void {
+    this.countOpen = this.countOpen === key ? null : key;
+  }
+
+  closeCount(): void {
+    this.countOpen = null;
+  }
+
+  setCountView(key: CountKey, view: CountView): void {
+    this.countViews = { ...this.countViews, [key]: view };
+    safe(() => this.env.prefs.setItem('tasks-desktop.count-views', JSON.stringify(this.countViews)));
+  }
+
+  /** The next view of a number (the key `v`); the number is opened first when it is not. */
+  cycleCountView(key: CountKey): void {
+    this.countOpen = key;
+    this.setCountView(key, nextView(key, this.countView(key)));
+  }
+
+  /** The tasks of a number in the list, with the status filter that fits (only "doing" and "blocked" have one). */
+  openCountInList(key: CountKey): void {
+    if (key !== 'doing' && key !== 'blocked') return;
+    this.filter = { ...emptyFilter, areas: [], statuses: [key], actors: [] };
+    this.setView('list');
   }
 
   showTiles(): void {
