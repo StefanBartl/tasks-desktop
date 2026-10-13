@@ -808,7 +808,7 @@ describe('writing', () => {
       // A name that is no task, and the card itself, are told before anything is sent.
       await app.dropOnColumn('pub/a', 'blocked');
       expect(app.unknownBlockers(['pub/b', 'pub/zzz', 'pub/a'])).toEqual(['pub/zzz', 'pub/a']);
-      await app.confirmBlock(['pub/b']);
+      await app.confirmBlock(['pub/b', 'pub/b']);
       expect(hub.sent).toHaveLength(1);
       expect(hub.sent[0]?.ops).toEqual([
         { op: 'set', id: 'pub/a', patch: { status: 'blocked', blocked_by: ['pub/b'] }, if_match: 'e1' },

@@ -539,7 +539,9 @@ export class App {
   }
 
   /** Block the card, by `ids` or by nothing the person can name. */
-  async confirmBlock(ids: string[]): Promise<void> {
+  async confirmBlock(blockers: string[]): Promise<void> {
+    // The same id twice is one blocker.
+    const ids = [...new Set(blockers)];
     const asking = this.blocking;
     if (!asking) return;
     this.blocking = null;
