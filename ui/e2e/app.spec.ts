@@ -1305,3 +1305,65 @@ test('marking stops at 100: "Mark all" says so, and the box of the 101st row jum
   }
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('the bulk bar sets effort, a reminder and tags, takes a tag off, and the files say so', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  for (const n of [1, 2, 3]) await capture(page, `Bulk more e2e ${n}`);
+  const file = (n: number) => join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `bulk-more-e2e-${n}.md`);
+  const text = (n: number) => readFileSync(file(n), 'utf8');
+  // The second task has a tag already: the others get it added, none is taken off a task that has not got it.
+  addFrontmatter('bulk-more-e2e-2', 'tags: [old, shared]');
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Bulk more e2e');
+  await expect(page.locator('.rows .line')).toHaveCount(3);
+  // The page holds the new version of the file when its tags show in the form (the version is what is checked on writing).
+  await page.locator('button.row', { hasText: 'Bulk more e2e 2' }).click();
+  await expect(page.locator('aside.detail').getByLabel(/Tags/)).toHaveValue('old, shared');
+  await page.getByRole('button', { name: 'Mark all shown' }).click();
+  const bar = page.getByRole('group', { name: 'Change the marked tasks' });
+
+  // A tag the engine would refuse is told and nothing is sent.
+  let writes = 0;
+  await page.route('**/api/tasks/ops', async (route) => {
+    writes += 1;
+    await route.continue();
+  });
+  await bar.getByPlaceholder('Add tags').fill('bad,tag, a#b');
+  await bar.getByRole('button', { name: 'Apply to the marked' }).click();
+  await expect(page.getByRole('status').getByText(/a#b/)).toBeVisible();
+  expect(writes).toBe(0);
+
+  await bar.getByPlaceholder('Add tags').fill('batch, shared');
+  await bar.getByLabel('Effort').selectOption('S');
+  await bar.getByLabel('Remind me').selectOption('+7d');
+  await bar.getByRole('button', { name: 'Apply to the marked' }).click();
+  await expect(page.getByRole('status').getByText('Saved: 3.')).toBeVisible();
+  expect(writes).toBe(1);
+  for (const n of [1, 2, 3]) {
+    expect(text(n)).toMatch(/^effort: S$/m);
+    expect(text(n)).toMatch(/^remind: /m);
+    expect(text(n)).toMatch(/batch/);
+  }
+  expect(text(2)).toMatch(/old/);
+
+  // Taken back: every file as it was.
+  await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByRole('status').getByText('Undone.')).toBeVisible();
+  for (const n of [1, 2, 3]) {
+    expect(text(n)).not.toMatch(/^effort:/m);
+    expect(text(n)).not.toMatch(/^remind:/m);
+    expect(text(n)).not.toMatch(/batch/);
+  }
+
+  // A tag taken off the marked tasks; effort and the reminder taken away with the choice "remove".
+  await page.getByRole('button', { name: 'Mark all shown' }).click();
+  await bar.getByPlaceholder('Remove tags').fill('shared');
+  await bar.getByRole('button', { name: 'Apply to the marked' }).click();
+  await expect(page.getByRole('status').getByText('Saved: 1.')).toBeVisible();
+  expect(text(2)).toMatch(/old/);
+  expect(text(2)).not.toMatch(/shared/);
+
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});

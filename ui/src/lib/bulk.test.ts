@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TaskEntry } from './contract';
-import { BULK_MAX, bulkSetOps, markAll, pruneMarks, toggleMark } from './bulk';
+import { BULK_MAX, bulkSetOps, editedTags, markAll, pruneMarks, toggleMark } from './bulk';
 
 const task = (id: string, etag?: string) => ({ id, ...(etag ? { etag } : {}) }) as unknown as TaskEntry;
 
@@ -32,6 +32,33 @@ describe('bulkSetOps', () => {
       { op: 'set', id: 'a', patch: { status: 'doing' }, if_match: 'e1' },
       { op: 'set', id: 'b', patch: { status: 'doing' } },
     ]);
+  });
+
+  it('works the tags out for each task from the tags it has', () => {
+    const tagged = (id: string, tags: string[], etag: string) => ({ id, tags, etag }) as unknown as TaskEntry;
+    const ops = bulkSetOps(
+      [tagged('a', ['x', 'y'], 'e1'), tagged('b', ['y'], 'e2'), tagged('c', [], 'e3'), tagged('d', ['z'], 'e4')],
+      ['a', 'b', 'c', 'd'],
+      { effort: 'S' },
+      { add: ['n'], remove: ['y'] },
+    );
+    expect(ops.map((o) => o.patch)).toEqual([
+      { effort: 'S', tags: ['x', 'n'] },
+      { effort: 'S', tags: ['n'] },
+      { effort: 'S', tags: ['n'] },
+      { effort: 'S', tags: ['z', 'n'] },
+    ]);
+  });
+
+  it('takes the key away when no tag is left, and leaves out a task that has what was asked for', () => {
+    const tagged = (id: string, tags: string[]) => ({ id, tags }) as unknown as TaskEntry;
+    const ops = bulkSetOps([tagged('a', ['y']), tagged('b', ['n', 'm'])], ['a', 'b'], {}, { add: ['n'], remove: ['y'] });
+    // b has n already and no y: nothing to write for it.
+    expect(ops).toEqual([{ op: 'set', id: 'a', patch: { tags: ['n'] } }]);
+    expect(bulkSetOps([tagged('a', ['y'])], ['a'], {}, { add: [], remove: ['y'] })[0]?.patch).toEqual({ tags: null });
+    expect(editedTags(undefined, { add: [], remove: ['q'] })).toBeNull();
+    // Removed first, then added: a tag in both stays.
+    expect(editedTags(['t'], { add: ['t'], remove: ['t'] })).toBeNull();
   });
 
   it('does not share the patch between the operations', () => {
