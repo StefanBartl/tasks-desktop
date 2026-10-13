@@ -1441,3 +1441,64 @@ test('the command palette: Ctrl+K, an action by a few letters, a task by its wor
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('the conflict center keeps a refused change, shows wanted and now, and tries it again on the version that is there', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  await capture(page, 'Conflict e2e 1');
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Conflict e2e');
+  await expect(page.locator('.rows .line')).toHaveCount(1);
+  await page.locator('button.row', { hasText: 'Conflict e2e 1' }).click();
+  const detail = page.locator('aside.detail');
+  await expect(detail).toContainText('Conflict e2e 1');
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', 'conflict-e2e-1.md');
+
+  // The first write goes out with a version that is not the file's: the engine refuses it, as it would after a
+  // change by another program. Nothing is written.
+  let spoiled = false;
+  await page.route('**/api/tasks/ops', async (route) => {
+    const body = route.request().postData() ?? '';
+    if (!spoiled && body.includes('"patch"')) {
+      spoiled = true;
+      await route.continue({ postData: body.replace(/"if_match":"[^"]*"/, '"if_match":"sha256:0000000000000000"') });
+      return;
+    }
+    await route.continue();
+  });
+  await detail.getByLabel('Status').selectOption('parked');
+  const button = page.getByRole('button', { name: /Refused changes: 1/ });
+  await expect(button).toBeVisible();
+  expect(readFileSync(file, 'utf8')).not.toMatch(/^status: parked$/m);
+
+  // The center says what was wanted and what is there now.
+  await button.click();
+  const center = page.getByRole('dialog', { name: /Refused changes/ });
+  await expect(center).toBeVisible();
+  await expect(center).toContainText('Conflict e2e 1');
+  const row = center.getByRole('row', { name: /Status/ });
+  await expect(row).toContainText('parked');
+  await expect(row).toContainText('open');
+  expect(await violations(page)).toEqual([]);
+
+  // Try again: it is written on the version that is there, and the list is empty.
+  await center.getByRole('button', { name: 'Try again' }).click();
+  await expect.poll(() => readFileSync(file, 'utf8')).toMatch(/^status: parked$/m);
+  await expect(center).toBeHidden();
+  await expect(page.getByRole('button', { name: /Refused changes/ })).toHaveCount(0);
+
+  // A second refusal, let go of: nothing is written and the button is gone.
+  spoiled = false;
+  await detail.getByLabel('Status').selectOption('doing');
+  await expect(page.getByRole('button', { name: /Refused changes: 1/ })).toBeVisible();
+  await page.getByRole('button', { name: /Refused changes: 1/ }).click();
+  await center.getByRole('button', { name: 'Let go' }).click();
+  await expect(center).toBeHidden();
+  await expect(page.getByRole('button', { name: /Refused changes/ })).toHaveCount(0);
+  expect(readFileSync(file, 'utf8')).toMatch(/^status: parked$/m);
+
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});

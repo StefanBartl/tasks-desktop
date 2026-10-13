@@ -13,6 +13,7 @@
   import PrioDialog from './views/PrioDialog.svelte';
   import BlockDialog from './views/BlockDialog.svelte';
   import Palette from './views/Palette.svelte';
+  import ConflictCenter from './views/ConflictCenter.svelte';
   import Toast from './views/Toast.svelte';
 
   let { app, code }: { app: App; code: string | null } = $props();
@@ -304,6 +305,11 @@
     <strong class="brand">{t('app.title')}</strong>
     <MenuBar {menus} label={t('menu.label')} />
     <span class="spacer"></span>
+    {#if app.conflicts.length > 0}
+      <button type="button" class="conflicts" onclick={() => app.openConflicts()}
+        >{t('conflicts.button', { n: app.conflicts.length })}</button
+      >
+    {/if}
     {#if app.phase === 'ready'}
       <span class="conn conn-{app.connection}" role="status">
         {app.cachedAt !== null ? t('conn.cached') : t(`conn.${app.connection}` as Key)}
@@ -384,6 +390,7 @@
     <PrioDialog {app} />
     <BlockDialog {app} />
     <Palette {app} />
+    <ConflictCenter {app} />
   {/if}
   <Toast {app} />
 </div>
@@ -408,6 +415,15 @@
   }
   .spacer {
     flex: 1;
+  }
+  .conflicts {
+    background: var(--surface-2);
+    color: var(--bad);
+    border: 1px solid var(--bad);
+    border-radius: var(--radius);
+    padding: 0.15rem 0.6rem;
+    font-size: 0.8rem;
+    cursor: pointer;
   }
   .conn {
     font-size: 0.8rem;
