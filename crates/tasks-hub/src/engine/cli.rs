@@ -196,13 +196,14 @@ impl Inner {
         &self,
         method: Method,
         stdin: Option<String>,
+        writes: bool,
         abandoned: impl Fn() -> bool,
     ) -> Result<Reply, EngineError> {
         let permit = self.gate.lock().await;
-        // A read that nobody waits for any more is not worth a process. A
-        // write is always carried out: its caller may be gone, its client
-        // knows it by `client_op_id`.
-        if method != Method::Ops && abandoned() {
+        // A read that nobody waits for any more is not worth a process (nor
+        // is a dry run: it changes nothing). A write is always carried out:
+        // its caller may be gone, its client knows it by `client_op_id`.
+        if !writes && abandoned() {
             return Err(EngineError::Process("the caller gave up".to_owned()));
         }
 
@@ -221,7 +222,7 @@ impl Inner {
                         stderr: Vec::new(),
                     };
                     return match self.judge(method, out) {
-                        Err(e) if method == Method::Ops => Err(e.for_write()),
+                        Err(e) if writes => Err(e.for_write()),
                         other => other,
                     };
                 }
@@ -230,14 +231,14 @@ impl Inner {
                 Err(Failure::Unavailable(_)) => {}
                 // The host ended with the question: a read is asked again, a
                 // write may have been carried out.
-                Err(Failure::Died(why)) if method != Method::Ops => {
+                Err(Failure::Died(why)) if !writes => {
                     eprintln!("engine host: {} (asking again)", self.scrub(&why));
                 }
                 Err(Failure::Died(why)) => {
                     return Err(EngineError::Process(self.scrub(&why)).for_write());
                 }
                 Err(Failure::Timeout) => {
-                    return Err(if method == Method::Ops {
+                    return Err(if writes {
                         EngineError::Timeout.for_write()
                     } else {
                         EngineError::Timeout
@@ -245,11 +246,7 @@ impl Inner {
                 }
                 Err(Failure::TooLarge) => {
                     let e = EngineError::Protocol("the answer is larger than the limit".to_owned());
-                    return Err(if method == Method::Ops {
-                        e.for_write()
-                    } else {
-                        e
-                    });
+                    return Err(if writes { e.for_write() } else { e });
                 }
             }
         }
@@ -280,7 +277,7 @@ impl Inner {
             ProcError::Io(_) => EngineError::Process(self.scrub(&e.to_string())),
         });
         match out.and_then(|o| self.judge(method, o)) {
-            Err(e) if method == Method::Ops => Err(e.for_write()),
+            Err(e) if writes => Err(e.for_write()),
             other => other,
         }
     }
@@ -444,6 +441,13 @@ impl CliEngine {
             (_, None) => None,
         };
 
+        // A dry run is a question, not a write: it is dropped like a read, and a
+        // failure of it leaves nothing open.
+        let writes = method == Method::Ops
+            && params
+                .and_then(|p| p.get("dry_run"))
+                .and_then(Value::as_bool)
+                != Some(true);
         let place = Place::take(&self.inner).ok_or(EngineError::Busy)?;
         let (tx, rx) = oneshot::channel();
         let inner = Arc::clone(&self.inner);
@@ -451,17 +455,15 @@ impl CliEngine {
         // not kill a child that may be writing task files.
         tokio::spawn(async move {
             let _place = place;
-            let result = inner.execute(method, stdin, || tx.is_closed()).await;
+            let result = inner
+                .execute(method, stdin, writes, || tx.is_closed())
+                .await;
             let _ = tx.send(result);
         });
         // The sender is gone without an answer only if the task panicked.
         rx.await.unwrap_or_else(|_| {
             let lost = EngineError::Process("the engine task ended without an answer".to_owned());
-            Err(if method == Method::Ops {
-                lost.for_write()
-            } else {
-                lost
-            })
+            Err(if writes { lost.for_write() } else { lost })
         })
     }
 }

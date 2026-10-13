@@ -82,6 +82,9 @@ pub struct Limits {
     /// Mutations (POST) per window, over all clients.
     pub post_max: usize,
     pub post_window: Duration,
+    /// Dry runs (the wizard asks while a person types) per window: they change nothing.
+    pub dry_max: usize,
+    pub dry_window: Duration,
     /// Pairing exchanges per window: a code is guessable only by trying.
     pub exchange_max: usize,
     pub exchange_window: Duration,
@@ -107,6 +110,8 @@ impl Default for Limits {
             max_connections: 64,
             post_max: 60,
             post_window: Duration::from_secs(10),
+            dry_max: 300,
+            dry_window: Duration::from_secs(10),
             exchange_max: 10,
             exchange_window: Duration::from_secs(60),
             max_sessions: 16,
@@ -211,6 +216,7 @@ struct Shared {
     sessions: SessionStore,
     control: Secret,
     post_limit: RateLimiter,
+    dry_limit: RateLimiter,
     exchange_limit: RateLimiter,
     limits: Limits,
     instance: String,
@@ -355,6 +361,7 @@ pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
         sessions: SessionStore::new(limits.max_sessions),
         control: cfg.control_secret,
         post_limit: RateLimiter::new(Arc::clone(&cfg.clock), limits.post_max, limits.post_window),
+        dry_limit: RateLimiter::new(Arc::clone(&cfg.clock), limits.dry_max, limits.dry_window),
         exchange_limit: RateLimiter::new(cfg.clock, limits.exchange_max, limits.exchange_window),
         limits: limits.clone(),
         instance: instance.clone(),
@@ -665,8 +672,9 @@ async fn judge(st: &Shared, class: Class, req: Request, next: Next) -> Response 
         );
     }
 
-    // 6. Rate limit for mutations
-    if mutation && !st.post_limit.allow() {
+    // 6. Rate limit for mutations. `ops` counts itself: only its body tells a
+    // write from a dry run, and a dry run has a limit of its own.
+    if mutation && parts.uri.path() != OPS_PATH && !st.post_limit.allow() {
         return error_body(
             StatusCode::TOO_MANY_REQUESTS,
             "rate_limited",
@@ -715,6 +723,16 @@ async fn judge(st: &Shared, class: Class, req: Request, next: Next) -> Response 
             "the request took too long",
         ),
     }
+}
+
+const OPS_PATH: &str = "/api/tasks/ops";
+
+fn too_many() -> Response {
+    error_body(
+        StatusCode::TOO_MANY_REQUESTS,
+        "rate_limited",
+        "too many requests",
+    )
 }
 
 fn set_security_headers(response: &mut Response, class: Class) {
@@ -1415,9 +1433,24 @@ fn check_ops_request(body: &[u8]) -> Result<serde_json::Value, String> {
 async fn ops(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
     let request = match check_ops_request(&body) {
         Ok(r) => r,
-        Err(why) => return error_body(StatusCode::BAD_REQUEST, "bad_request", &why),
+        Err(why) => {
+            // A request that is not one still counts as a mutation.
+            if !st.post_limit.allow() {
+                return too_many();
+            }
+            return error_body(StatusCode::BAD_REQUEST, "bad_request", &why);
+        }
     };
     let dry_run = request.get("dry_run").and_then(serde_json::Value::as_bool) == Some(true);
+    // A dry run changes nothing: the wizard asks once per key a person types.
+    let limit = if dry_run {
+        &st.dry_limit
+    } else {
+        &st.post_limit
+    };
+    if !limit.allow() {
+        return too_many();
+    }
     let reply = match ask(&st, EngineMethod::Ops, Some(&request)).await {
         Ok(reply) => reply,
         Err(response) => {
