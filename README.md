@@ -123,7 +123,10 @@ whole vault. The interface can create a task (`c`, or the Project menu), change 
 priority, who, kind, effort, value and tags in the detail, change several marked
 tasks at once (`x` or the box marks, the choice in the bar is applied with a button,
 and a filter that hides a task also takes its mark; one batch, each task with the version that
-was shown, so a task changed meanwhile fails alone), undo that, finish a task after a preview of
+was shown, so a task changed meanwhile fails alone), undo that, see the tasks as a board (a column for each status, the cards in the
+engine's order; a card is dragged to another column to set its status or among
+the cards of its priority to reorder, or moved with `J` `K` `H` `L`; the order
+holds inside one priority only, which the board says), finish a task after a preview of
 what it does, and set a reminder (a date on which a task comes back on the
 Today page; also when finishing); the engine makes every change. The interface lists the vault in the engine's own order (it
 never sorts), shows a task with its steps and its text (as text only),

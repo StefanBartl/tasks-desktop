@@ -662,6 +662,98 @@ describe('writing', () => {
     expect(app.toast?.kind).toBe('error');
   });
 
+  describe('board', () => {
+    const open = (id: string, group: string, etag: string) =>
+      task(id, { etag, status: 'open', group } as Partial<TaskEntry>);
+
+    it('moves a card inside its group with one reorder that carries the version shown', async () => {
+      const { app, hub } = await ready([
+        open('pub/a', 'open|1', 'e1'),
+        open('pub/b', 'open|1', 'e2'),
+        open('pub/c', 'open|2', 'e3'),
+      ]);
+      await app.stepCard('pub/a', 1);
+      expect(hub.sent).toHaveLength(1);
+      expect(hub.sent[0]?.ops).toEqual([
+        { op: 'reorder', id: 'pub/a', after: 'pub/b', group: 'open|1', if_match: 'e1' },
+      ]);
+      await app.dropNear('pub/b', { id: 'pub/a', place: 'before' });
+      expect(hub.sent[1]?.ops[0]).toMatchObject({ op: 'reorder', id: 'pub/b', before: 'pub/a' });
+    });
+
+    it('does not send a move across a priority border, and says why', async () => {
+      const { app, hub } = await ready([open('pub/a', 'open|1', 'e1'), open('pub/c', 'open|2', 'e3')]);
+      await app.dropNear('pub/a', { id: 'pub/c', place: 'after' });
+      expect(hub.sent).toHaveLength(0);
+      expect(app.toast?.kind).toBe('error');
+      // The edge of a group is told, too.
+      app.dismissToast();
+      await app.stepCard('pub/a', -1);
+      expect(hub.sent).toHaveLength(0);
+      expect(app.toast?.kind).toBe('error');
+    });
+
+    it('sets the status when a card goes to another column, and nothing when it stays', async () => {
+      const { app, hub } = await ready([open('pub/a', 'open|1', 'e1')]);
+      await app.dropOnColumn('pub/a', 'open');
+      expect(hub.sent).toHaveLength(0);
+      await app.dropOnColumn('pub/a', 'doing');
+      expect(hub.sent[0]?.ops).toEqual([
+        { op: 'set', id: 'pub/a', patch: { status: 'doing' }, if_match: 'e1' },
+      ]);
+      await app.shiftColumn('pub/a', 1);
+      expect(hub.sent[1]?.ops[0]).toMatchObject({ patch: { status: 'parked' } });
+      expect(hub.sent).toHaveLength(2);
+    });
+
+    it('takes a reorder back with the reorder the engine named', async () => {
+      const { app, hub } = await ready([open('pub/a', 'open|1', 'e1'), open('pub/b', 'open|1', 'e2')]);
+      hub.next_ops = {
+        kind: 'tasks.result',
+        ok: true,
+        dry_run: false,
+        results: [
+          {
+            n: 1,
+            op: 'reorder',
+            id: 'pub/a',
+            ok: true,
+            outcome: 'changed',
+            changed_ids: ['pub/a'],
+            inverse: { op: 'reorder', id: 'pub/a', before: 'pub/b', if_match: 'e1b' },
+          },
+        ],
+      } as unknown as Result;
+      await app.stepCard('pub/a', 1);
+      expect(app.toast?.undo).toEqual([{ op: 'reorder', id: 'pub/a', before: 'pub/b', if_match: 'e1b' }]);
+      await app.undo();
+      expect(hub.sent[1]?.ops).toEqual([{ op: 'reorder', id: 'pub/a', before: 'pub/b', if_match: 'e1b' }]);
+    });
+
+    it('moves the selection inside a column and across to the next one that has cards', async () => {
+      const { app } = await ready([
+        task('pub/a', { status: 'doing' } as Partial<TaskEntry>),
+        task('pub/b', { status: 'open' } as Partial<TaskEntry>),
+        task('pub/c', { status: 'open' } as Partial<TaskEntry>),
+        task('pub/d', { status: 'parked' } as Partial<TaskEntry>),
+      ]);
+      app.select('pub/b');
+      app.moveSelectionInColumn(1);
+      expect(app.selectedId).toBe('pub/c');
+      app.moveSelectionInColumn(1);
+      expect(app.selectedId).toBe('pub/c');
+      app.moveSelectionAcross(1);
+      expect(app.selectedId).toBe('pub/d');
+      // the same height in the column on the left: the parked column has one card, d is on its first row
+      app.moveSelectionAcross(-1);
+      expect(app.selectedId).toBe('pub/b');
+      app.select('pub/b');
+      // decision and blocked are empty: left of open is doing
+      app.moveSelectionAcross(-1);
+      expect(app.selectedId).toBe('pub/a');
+    });
+  });
+
   it('sends the inverse on undo, once', async () => {
     const { app, hub } = await ready();
     await app.setField('pub/a', 'prio', 1);
