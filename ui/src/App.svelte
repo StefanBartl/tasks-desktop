@@ -41,7 +41,7 @@
       target instanceof HTMLElement &&
       (target.isContentEditable ||
         // A ticked box is not typing: the keys of the page work on after a click on a mark.
-        (target.tagName === 'INPUT' && (target as HTMLInputElement).type !== 'checkbox') ||
+        (target.tagName === 'INPUT' && !target.classList.contains('mark')) ||
         ['TEXTAREA', 'SELECT'].includes(target.tagName) ||
         // An open menu has its own keys; a letter there is not a shortcut of the
         // page. (The buttons of the bar are not it: after a choice the focus
