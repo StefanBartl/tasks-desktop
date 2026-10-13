@@ -35,6 +35,8 @@ export function runKey(task: TaskEntry): string {
 /** Where the card goes in a column, or why it cannot. */
 export type Move =
   | { kind: 'ok'; op: Op }
+  /** Beside cards of another priority: set the priority too, if the person agrees (`ops` are sent in this order). */
+  | { kind: 'prio'; id: string; from: string; prio: number; ops: Op[] }
   | { kind: 'refused'; reason: 'group' | 'status' | 'self' | 'edge' | 'unknown' };
 
 /**
@@ -52,7 +54,24 @@ export function placeNear(
   const near = tasks.find((t) => t.id === target.id);
   if (!card || !near) return { kind: 'refused', reason: 'unknown' };
   if (card.status !== near.status) return { kind: 'refused', reason: 'status' };
-  if (runKey(card) !== runKey(near)) return { kind: 'refused', reason: 'group' };
+  if (runKey(card) !== runKey(near)) {
+    const prio = priorityOf(near.group);
+    // Only the priority differs: the move can carry it along. Another stage is another run, which no priority changes.
+    if (prio === null || stageOf(card) === null || stageOf(card) !== stageOf(near)) {
+      return { kind: 'refused', reason: 'group' };
+    }
+    return {
+      kind: 'prio',
+      id,
+      from: groupLabel(card.group) ?? '-',
+      prio,
+      ops: [
+        { op: 'set', id, patch: { prio }, ...(card.etag ? { if_match: card.etag } : {}) },
+        // No version of the card: the set before it has changed the file. The group is the guard.
+        { op: 'reorder', id, ...(target.place === 'before' ? { before: near.id } : { after: near.id }), group: near.group },
+      ],
+    };
+  }
   return {
     kind: 'ok',
     op: {
@@ -95,6 +114,12 @@ export function placeOf(pointerY: number, top: number, height: number): 'before'
 /** The stage of a card, or null when the engine did not say (a task in a cycle has none). */
 export function stageOf(task: TaskEntry): number | null {
   return task.readiness?.stage ?? null;
+}
+
+/** The priority a group stands for (`status|2`), or null for a group without one. */
+export function priorityOf(group: string | undefined): number | null {
+  const label = groupLabel(group);
+  return label !== null && /^[0-9]+$/.test(label) ? Number(label) : null;
 }
 
 /** The group label shown over a run of cards: the priority part of `status|eff_prio`. */

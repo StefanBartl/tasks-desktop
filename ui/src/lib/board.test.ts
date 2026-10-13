@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TaskEntry } from './contract';
-import { columnsOf, groupLabel, neighbourColumn, placeNear, placeOf, runKey, stageOf, stepInGroup } from './board';
+import { columnsOf, groupLabel, neighbourColumn, placeNear, placeOf, priorityOf, runKey, stageOf, stepInGroup } from './board';
 
 const card = (id: string, status: string, group: string, etag = `e-${id}`) =>
   ({ id, status, group, etag }) as unknown as TaskEntry;
@@ -100,6 +100,25 @@ describe('stages', () => {
   it('does not place a card beside one of the same priority in another stage (the engine refuses it)', () => {
     expect(placeNear(column, 'a', { id: 'b', place: 'after' })).toEqual({ kind: 'refused', reason: 'group' });
     expect(placeNear(column, 'b', { id: 'd', place: 'after' })).toMatchObject({ kind: 'ok' });
+  });
+
+  it('offers to carry the priority along when only the priority differs', () => {
+    const list = [staged('a', 'open|1', 0), staged('c', 'open|2', 0), staged('e', 'open|-', 0)];
+    expect(placeNear(list, 'a', { id: 'c', place: 'after' })).toEqual({
+      kind: 'prio',
+      id: 'a',
+      from: '1',
+      prio: 2,
+      ops: [
+        { op: 'set', id: 'a', patch: { prio: 2 }, if_match: 'e-a' },
+        { op: 'reorder', id: 'a', after: 'c', group: 'open|2' },
+      ],
+    });
+    // Beside a card without a priority there is none to set; another stage is another run.
+    expect(placeNear(list, 'a', { id: 'e', place: 'after' })).toEqual({ kind: 'refused', reason: 'group' });
+    expect(priorityOf('open|2')).toBe(2);
+    expect(priorityOf('open|-')).toBeNull();
+    expect(priorityOf(undefined)).toBeNull();
   });
 
   it('steps inside the run of its stage only', () => {
