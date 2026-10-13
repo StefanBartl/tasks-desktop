@@ -217,6 +217,11 @@ export class Hub {
     return this.vaultPost('/api/vaults/remove', { name });
   }
 
+  /** Show the file of a task in Neovim, in a window of its own (the hub starts it; the page names only the task). */
+  openInEditor(id: string): Promise<void> {
+    return this.vaultPost('/api/tasks/open', { id });
+  }
+
   /** Read another vault; the hub swaps what it holds and the page reads everything again. */
   selectVault(name: string): Promise<void> {
     return this.vaultPost('/api/vaults/select', { name });

@@ -303,6 +303,13 @@ fn respond(method: &str, raw: &[u8], started: u64) -> Value {
                     doc["retryable"] = json!(false);
                 } else {
                     doc["task"] = json!({ "id": id });
+                    // `<vault>/.fake-task-file` names the file every task is in (the route that opens one).
+                    let vault_dir = std::env::var("TASKS_VAULT").unwrap_or_default();
+                    if let Ok(file) = std::fs::read_to_string(
+                        std::path::Path::new(&vault_dir).join(".fake-task-file"),
+                    ) {
+                        doc["task"]["file"] = json!(file.trim());
+                    }
                     doc["body"] = json!("");
                     // The state the task was read in follows `<vault>/.fake-n`
                     // like the snapshot, when a test keeps one.

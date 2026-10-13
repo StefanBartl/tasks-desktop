@@ -113,6 +113,10 @@ class FakeHub {
       this.vaultDoc = { ...this.vaultDoc, vaults: this.vaultDoc.vaults.filter((v) => v.name !== name) };
     }
   }
+  async openInEditor(id: string): Promise<void> {
+    this.vaultCalls.push(`open ${id}`);
+    if (this.vaultError) throw this.vaultError;
+  }
   async selectVault(name: string): Promise<void> {
     this.vaultCalls.push(`select ${name}`);
     if (this.vaultError) throw this.vaultError;
@@ -1481,6 +1485,23 @@ describe('writing', () => {
       const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
       hub.next_ops = new ApiError(502, 'outcome_unknown', 'x');
       expect(await app.addNote('pub/a', 'a line')).toBe(false);
+    });
+  });
+
+  describe('opening a task in Neovim', () => {
+    it('asks the hub for the task by its id and says so', async () => {
+      const { app, hub } = await ready();
+      await app.openInEditor('pub/a');
+      expect(hub.vaultCalls).toEqual(['open pub/a']);
+      expect(app.toast?.kind).toBe('ok');
+    });
+
+    it('tells the reason when the hub cannot', async () => {
+      const { app, hub } = await ready();
+      hub.vaultError = new ApiError(502, 'open_failed', 'no way to open a window with Neovim is known on this system');
+      await app.openInEditor('pub/a');
+      expect(app.toast?.kind).toBe('error');
+      expect(app.toast?.text).toContain('no way to open a window');
     });
   });
 

@@ -11,6 +11,7 @@ pub mod classes;
 pub mod client;
 pub mod config;
 pub mod discovery;
+pub mod editor;
 pub mod engine;
 pub mod loginitems;
 pub mod search;

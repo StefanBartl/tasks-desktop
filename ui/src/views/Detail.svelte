@@ -409,6 +409,11 @@
 
     <h3>{t('detail.file')}</h3>
     <p><code class="file">{task.file}</code></p>
+    <p>
+      <button type="button" class="open-editor" onclick={() => void app.openInEditor(task.id)}
+        >{t('editor.button')}</button
+      >
+    </p>
   {/if}
 </aside>
 
@@ -435,6 +440,14 @@
     border-radius: var(--radius);
     padding: 0.25rem 0.5rem;
     font-size: 0.9rem;
+  }
+  .open-editor {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.25rem 0.7rem;
+    cursor: pointer;
   }
   .edit .wide {
     flex: 1 1 14rem;

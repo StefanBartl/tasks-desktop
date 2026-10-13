@@ -786,6 +786,17 @@ export class App {
     );
   }
 
+  /** Show the file of a task in Neovim. The hub starts the window; the answer says when it could not. */
+  async openInEditor(id: string): Promise<void> {
+    try {
+      await this.env.hub.openInEditor(id);
+      this.say('ok', 'editor.opened');
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : '';
+      this.say('error', 'editor.failed', { message });
+    }
+  }
+
   /** Bring a finished task back (the reminder of a finished task offers it). */
   async reopen(id: string): Promise<void> {
     await this.write([{ op: 'reopen', id }], { undoable: false });
