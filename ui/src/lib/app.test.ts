@@ -1574,8 +1574,11 @@ describe('writing', () => {
     it('keeps the view of each number, walks the views with the key, and reads the choice back', async () => {
       const { app, prefs } = await ready();
       expect(app.countView('blocked')).toBe('list');
+      // The first press opens the number in the view it has; the next goes on.
       app.cycleCountView('blocked');
       expect(app.countOpen).toBe('blocked');
+      expect(app.countView('blocked')).toBe('list');
+      app.cycleCountView('blocked');
       expect(app.countView('blocked')).toBe('blocker');
       expect(app.countView('ready')).toBe('list');
       app.setCountView('ready', 'area');

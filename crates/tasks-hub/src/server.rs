@@ -237,6 +237,9 @@ struct Shared {
     vaults: Option<Arc<dyn VaultAdmin>>,
     /// Shows a task file in an editor; none in a hub that cannot.
     opener: Option<Arc<dyn FileOpener>>,
+    /// One change of vault at a time, from the choice to the swap: two that overlap would leave the hub reading one
+    /// vault while the settings name the other.
+    switching: tokio::sync::Mutex<()>,
 }
 
 impl Shared {
@@ -526,6 +529,7 @@ pub async fn start_with(cfg: ServerConfig, extras: Extras) -> std::io::Result<Ru
         refresh,
         vaults,
         opener,
+        switching: tokio::sync::Mutex::new(()),
     });
 
     let app = router(Arc::clone(&shared));
@@ -1862,6 +1866,7 @@ async fn vaults_select(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
         Ok(n) => n,
         Err(r) => return r,
     };
+    let _one_at_a_time = st.switching.lock().await;
     let target = match admin.select(&name).await {
         Ok(t) => t,
         Err(why) => return error_body(StatusCode::BAD_REQUEST, "vault_refused", &why),

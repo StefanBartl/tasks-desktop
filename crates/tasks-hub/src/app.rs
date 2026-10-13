@@ -197,6 +197,12 @@ impl ConfigVaults {
             .clone()
     }
 
+    /// The settings as they are on disk now: a person may have edited the file since the hub started, and a change of
+    /// the list must not write the old text back over that. A file that cannot be read stops the change.
+    fn fresh(&self) -> Result<FileConfig, String> {
+        config::load_file(&self.dir).map_err(|_| "the settings file cannot be read".to_owned())
+    }
+
     /// Write `next` and keep it, or leave both as they are.
     fn keep(&self, next: FileConfig) -> Result<(), String> {
         config::save_file(&self.dir, &next)?;
@@ -241,6 +247,13 @@ impl VaultAdmin for ConfigVaults {
         Box::pin(async move {
             let _one = self.gate.lock().await;
             config::valid_vault_name(name).map_err(|why| format!("the name {why}"))?;
+            // A network share is not looked at: opening `\\host\share` makes Windows sign in to that host, and a
+            // page that asks for it could point the machine at one it does not own. A drive or a mount is fine.
+            if path.starts_with("\\\\") || path.starts_with("//") {
+                return Err(
+                    "a network folder is not accepted: use a drive or a mounted folder".to_owned(),
+                );
+            }
             let folder = PathBuf::from(path);
             if !folder.is_absolute() {
                 return Err("the folder must be given with its whole path".to_owned());
@@ -248,7 +261,7 @@ impl VaultAdmin for ConfigVaults {
             if !folder.is_dir() {
                 return Err("there is no such folder".to_owned());
             }
-            let mut next = self.current();
+            let mut next = self.fresh()?;
             if next.vaults.iter().any(|v| v.name == name) {
                 return Err("a vault of this name is there already".to_owned());
             }
@@ -266,7 +279,7 @@ impl VaultAdmin for ConfigVaults {
     fn remove<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
             let _one = self.gate.lock().await;
-            let mut next = self.current();
+            let mut next = self.fresh()?;
             if next.active_name() == name {
                 return Err("the vault that is read cannot be removed".to_owned());
             }
@@ -282,7 +295,7 @@ impl VaultAdmin for ConfigVaults {
     fn select<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<VaultTarget, String>> {
         Box::pin(async move {
             let _one = self.gate.lock().await;
-            let mut next = self.current();
+            let mut next = self.fresh()?;
             if name == config::MAIN_VAULT {
                 next.active = None;
             } else if next.vaults.iter().any(|v| v.name == name) {
@@ -769,6 +782,8 @@ mod vault_tests {
             vault: Some(main),
             ..FileConfig::default()
         };
+        // The hub starts from the file on disk, and a change reads it again.
+        config::save_file(&cfg, &file).unwrap();
         (
             ConfigVaults::new(cfg.clone(), Env::default(), file),
             cfg,
@@ -780,15 +795,28 @@ mod vault_tests {
     async fn adding_checks_the_name_the_folder_and_writes_the_file_once() {
         let (admin, cfg, vault) = admin("add");
         let path = vault.to_string_lossy().into_owned();
+        // A share is refused for what it is, before anything looks at it (a lookup is what makes Windows sign in).
+        for share in ["//host/share/vault", r"\\host\share\vault"] {
+            let why = admin.add("two", share).await.unwrap_err();
+            assert!(why.contains("network folder"), "{share}: {why}");
+        }
+        let before = std::fs::read(cfg.join("config.json")).unwrap();
         for (name, folder) in [
             ("main", path.as_str()),
             ("a b", path.as_str()),
             ("two", "relative/folder"),
             ("two", "/no/such/folder/anywhere"),
+            // a network share is never looked at (Windows would sign in to it)
+            ("two", "//host/share/vault"),
+            ("two", r"\\host\share\vault"),
         ] {
             assert!(admin.add(name, folder).await.is_err(), "{name} {folder}");
         }
-        assert!(!cfg.join("config.json").exists(), "a refused add wrote");
+        assert_eq!(
+            std::fs::read(cfg.join("config.json")).unwrap(),
+            before,
+            "a refused add wrote"
+        );
         admin.add("two", &path).await.unwrap();
         assert!(admin.add("two", &path).await.is_err(), "twice");
         let saved = config::load_file(&cfg).unwrap();
@@ -799,6 +827,26 @@ mod vault_tests {
         let names: Vec<_> = list.vaults.iter().map(|v| v.name.as_str()).collect();
         assert_eq!(names, ["main", "two"]);
         assert_eq!(list.vaults[1].label, "vault-two", "the last part only");
+    }
+
+    #[tokio::test]
+    async fn a_setting_changed_by_hand_meanwhile_is_not_written_over() {
+        let (admin, cfg, vault) = admin("hand");
+        // The person edits the file while the hub runs: the port is new.
+        let mut edited = config::load_file(&cfg).unwrap();
+        edited.port = Some(23456);
+        config::save_file(&cfg, &edited).unwrap();
+        admin.add("two", &vault.to_string_lossy()).await.unwrap();
+        let saved = config::load_file(&cfg).unwrap();
+        assert_eq!(saved.port, Some(23456), "the edit was undone");
+        assert_eq!(saved.vaults.len(), 1);
+        // A file that cannot be read now stops the change instead of replacing it.
+        std::fs::write(cfg.join("config.json"), "{ not json").unwrap();
+        assert!(admin.remove("two").await.is_err());
+        assert_eq!(
+            std::fs::read_to_string(cfg.join("config.json")).unwrap(),
+            "{ not json"
+        );
     }
 
     #[tokio::test]

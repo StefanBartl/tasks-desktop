@@ -1767,9 +1767,13 @@ test('a number of the overview opens its tasks, in views that can be switched, w
   await expect(page.getByRole('region', { name: 'blocked' })).toHaveCount(0);
   await expect(page.locator('button.tile[data-count="blocked"]')).toBeFocused();
 
-  // A task of the list is opened in the list, selected.
-  await page.locator('button.tile[data-count="doing"]').click();
+  // The key on a number that is closed opens it in the view it has; it does not skip one.
+  await page.locator('button.tile[data-count="doing"]').focus();
+  await page.keyboard.press('v');
   const doing = page.getByRole('region', { name: 'doing' });
+  await expect(doing.getByRole('radio', { name: 'List' })).toBeChecked();
+
+  // A task of the list is opened in the list, selected.
   const first = doing.locator('li').first();
   const id = (await first.locator('code').innerText()).trim();
   await first.getByRole('button').click();
@@ -1867,4 +1871,26 @@ test('a task is opened in Neovim by the hub: the page names the task, the hub th
   expect(await page.locator('body').innerText()).not.toContain(opened[0] ?? 'x');
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('a note that is being typed survives a change of the vault that arrives meanwhile', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  await open(page, 'lib.nvim/beta');
+  const detail = page.locator('aside.detail');
+  const box = detail.getByRole('textbox', { name: /Add a note/ });
+  await box.fill('half a thought');
+
+  // Somebody else changes the file: the list is read again and the detail with it.
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', 'beta.md');
+  const text = readFileSync(file, 'utf8');
+  writeFileSync(file, text.replace(/^title: (.*)$/m, 'title: $1 TOUCHED'));
+  await expect(detail.locator('.task-title')).toContainText('TOUCHED', { timeout: 8000 });
+  await expect(box).toHaveValue('half a thought');
+
+  // Another task: the draft belongs to the one it was typed for, so it goes.
+  await page.locator('button.row', { hasText: 'lib.nvim/gamma' }).click();
+  await expect(detail.locator('.id')).toHaveText('lib.nvim/gamma');
+  await expect(detail.getByRole('textbox', { name: /Add a note/ })).toHaveValue('');
+  writeFileSync(file, text);
 });

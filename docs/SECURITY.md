@@ -282,11 +282,16 @@ routes and count against the same limit of mutations:
 * `GET /api/vaults` lists the names and the last part of each folder, never a whole path.
 * `POST /api/vaults/add` `{ name, path, confirm: true }` remembers a folder. The page asks the person first and says so in
   the request (`confirm`); without it the hub refuses. The name is 1 to 40 letters, digits, dot, dash or underscore; the
-  folder must be absolute and exist. Nothing is read from it yet.
+  folder must be absolute and exist, and must not be a network share (`//host/share`, or two backslashes and a host:
+  looking at one makes Windows sign in to that host; a drive letter or a mount is fine). Nothing is read from it yet.
+  The settings file is read again before every change, so what a person edited by hand meanwhile is not written over,
+  and a file that cannot be read stops the change.
 * `POST /api/vaults/remove` `{ name }` forgets one (never its files); the vault that is read cannot go.
 * `POST /api/vaults/select` `{ name }` starts an engine for that vault. Only a vault that answers is taken: the old one
   stays when the new one does not work, and the settings are written (in one step, a temporary file and a rename) only after
   that. The snapshot, the search, the watcher and the open event streams of the old vault end with it; the page loads again.
+  One change at a time, from the choice to the swap: two that overlap do not leave the hub reading one vault while the
+  settings name the other.
 
 The data classes are per area name (`areas.json`) and apply to every vault: an area that has no entry is closed (or
 `default`) in the new vault as it was in the old one. What a page may do here is what a person at the keyboard of this machine
