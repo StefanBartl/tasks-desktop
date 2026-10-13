@@ -1484,6 +1484,44 @@ describe('writing', () => {
     });
   });
 
+  describe('the numbers of the overview', () => {
+    it('opens and closes the tasks behind a number, one at a time', async () => {
+      const { app } = await ready();
+      expect(app.countOpen).toBeNull();
+      app.toggleCount('doing');
+      expect(app.countOpen).toBe('doing');
+      app.toggleCount('blocked');
+      expect(app.countOpen).toBe('blocked');
+      app.toggleCount('blocked');
+      expect(app.countOpen).toBeNull();
+    });
+
+    it('keeps the view of each number, walks the views with the key, and reads the choice back', async () => {
+      const { app, prefs } = await ready();
+      expect(app.countView('blocked')).toBe('list');
+      app.cycleCountView('blocked');
+      expect(app.countOpen).toBe('blocked');
+      expect(app.countView('blocked')).toBe('blocker');
+      expect(app.countView('ready')).toBe('list');
+      app.setCountView('ready', 'area');
+      const saved = prefs.get('tasks-desktop.count-views') ?? '';
+      expect(JSON.parse(saved)).toEqual({ blocked: 'blocker', ready: 'area' });
+      const again = make({ prefs });
+      expect(again.app.countView('blocked')).toBe('blocker');
+      expect(again.app.countView('ready')).toBe('area');
+    });
+
+    it('opens the doing and blocked tasks in the list with their status, and has no list filter for the others', async () => {
+      const { app } = await ready();
+      app.openCountInList('blocked');
+      expect(app.filter.statuses).toEqual(['blocked']);
+      expect(app.view).toBe('list');
+      app.setView('today');
+      app.openCountInList('ready');
+      expect(app.view).toBe('today');
+    });
+  });
+
   describe('the vaults', () => {
     /** The list is read after the page is shown, in the background: wait for it. */
     async function readyVaults() {

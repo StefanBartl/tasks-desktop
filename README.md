@@ -168,7 +168,7 @@ what it does, and set a reminder (a date on which a task comes back on the
 Today page; also when finishing); the engine makes every change. The interface lists the vault in the engine's own order (it
 never sorts), shows a task with its steps and its text (as text only),
 follows the hub's event stream and asks for a scan when the window gets the
-focus back. German and English, light and dark.
+focus back. The numbers of the overview on the Today page (ready, doing, blocked, with value) are buttons: a click opens the tasks behind the number, as a list or cut up by priority, area, plan or (for blocked) the task they wait on, a page of fifty at a time; the key `v` on a number walks the views and the choice is kept for each number. The Vaults menu chooses which vault the hub reads (the list is in `config.json`); Options holds the language, the theme and the settings. German and English, light and dark.
 
 ## Build
 
