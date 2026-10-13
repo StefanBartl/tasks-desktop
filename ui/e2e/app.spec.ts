@@ -1529,3 +1529,61 @@ test('the conflict center keeps a refused change, shows wanted and now, and trie
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('a step is ticked in the detail, the file changes when the engine wrote it, and undo takes it back', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  await open(page, 'lib.nvim/alpha');
+  const detail = page.locator('aside.detail');
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', 'alpha.md');
+
+  // Steps 1 and 2 have a box; step 3 is dropped and has none.
+  await expect(detail.getByRole('checkbox')).toHaveCount(2);
+  const box = detail.getByRole('checkbox', { name: /2\. second/ });
+  await expect(box).not.toBeChecked();
+  expect(readFileSync(file, 'utf8')).toContain('- [ ] 2. second');
+
+  await box.click();
+  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  await expect(box).toBeChecked();
+  expect(readFileSync(file, 'utf8')).toContain('- [x] 2. second');
+  await expectAccessible(page, 'the detail with its steps and the note box');
+
+  await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
+  await expect(box).not.toBeChecked();
+  expect(readFileSync(file, 'utf8')).toContain('- [ ] 2. second');
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('a note is added to a task, dated, below its notes; the box empties only when it was written', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+
+  await page.keyboard.press('c');
+  const capture = page.getByRole('dialog', { name: 'New task' });
+  await capture.getByLabel('Title').fill('Task that gets a note');
+  await capture.locator('select').first().selectOption('lib.nvim');
+  await capture.getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  const id = (await page.locator('aside.detail .id').innerText()).trim();
+  const detail = page.locator('aside.detail');
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${id.split('/')[1]}.md`);
+
+  const box = detail.getByRole('textbox', { name: /Add a note/ });
+  const add = detail.getByRole('button', { name: 'Add note' });
+  await expect(add).toBeDisabled();
+  await box.fill('looked at it, nothing found');
+  await add.click();
+  await expect(page.getByRole('status').getByText('Saved.').last()).toBeVisible();
+  await expect(box).toHaveValue('');
+  // The text of the task is read again and shows the line.
+  await expect(detail.locator('.prose, pre.body')).toContainText('looked at it, nothing found');
+  expect(readFileSync(file, 'utf8')).toMatch(/\n- \d{4}-\d{2}-\d{2}: looked at it, nothing found\n/);
+  // A line cannot be taken back from the page: the toast offers no undo for it.
+  await expect(page.getByRole('status').getByRole('button', { name: 'Undo' })).toHaveCount(0);
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});

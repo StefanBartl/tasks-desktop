@@ -154,7 +154,8 @@ engine did all the reckoning and the page only groups it. A plan can be chosen: 
 stages, the phase counts and the warnings narrow to it (the choice is kept when the view
 is left), while the state counts, the estimate and the critical path stay those of the
 whole vault. The interface can create a task (`c`, or the Project menu), change status,
-priority, who, kind, effort, value and tags in the detail, change several marked
+priority, who, kind, effort, value and tags in the detail, tick a step of the plan section and add a dated line to the notes (the box of a step shows what the file says; a click asks the engine first),
+change several marked
 tasks at once (also effort, reminder and tags: added or taken off for each task) (`x` or the box marks, the choice in the bar is applied with a button,
 and a filter that hides a task also takes its mark; one batch, each task with the version that
 was shown, so a task changed meanwhile fails alone), undo that, see the tasks as a board (a column for each status, the cards in the

@@ -257,6 +257,14 @@ async fn a_plan_may_be_asked_for_and_an_unknown_operation_is_not() {
     let body = r#"{"dry_run":true,"ops":[{"op":"plan_new","area":"alpha.nvim","title":"A plan"}]}"#;
     let (status, doc) = post(&r, "/api/tasks/ops", body, JSON, true).await;
     assert_eq!(status, 200, "the door refused plan_new: {doc}");
+    // The two that change the text of a task are let through as well (the engine judges them).
+    for body in [
+        r#"{"dry_run":true,"ops":[{"op":"tick_step","id":"alpha.nvim/t1","n":1}]}"#,
+        r#"{"dry_run":true,"ops":[{"op":"append_note","id":"alpha.nvim/t1","text":"a note"}]}"#,
+    ] {
+        let (status, doc) = post(&r, "/api/tasks/ops", body, JSON, true).await;
+        assert_eq!(status, 200, "the door refused {body}: {doc}");
+    }
     // An operation the door does not know is still refused.
     let unknown = r#"{"ops":[{"op":"plan_delete","id":"alpha.nvim/p"}]}"#;
     let (status, _) = post(&r, "/api/tasks/ops", unknown, JSON, true).await;

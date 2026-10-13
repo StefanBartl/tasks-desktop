@@ -1372,4 +1372,82 @@ describe('writing', () => {
     app.openCapture();
     expect(app.capturing).toBe(false);
   });
+
+  describe('the text of a task: a step and a note', () => {
+    const entry = (op: string, extra: Record<string, unknown> = {}) => ({
+      n: 1,
+      op,
+      id: 'pub/a',
+      ok: true,
+      outcome: 'changed',
+      changed_ids: ['pub/a'],
+      ...extra,
+    });
+    const answer = (...entries: unknown[]) =>
+      ({ kind: 'tasks.result', ok: entries.every((e) => (e as { ok: boolean }).ok), dry_run: false, results: entries }) as unknown as Result;
+
+    it('ticks a step with the version the steps were read from, and takes it back with the inverse', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
+      hub.next_ops = answer(
+        entry('tick_step', { inverse: { op: 'tick_step', id: 'pub/a', n: 2, done: false, if_match: 'e2' } }),
+      );
+      await app.tickStep('pub/a', 2, true, 'e1');
+      expect(hub.sent[0]?.ops).toEqual([{ op: 'tick_step', id: 'pub/a', n: 2, done: true, if_match: 'e1' }]);
+      expect(app.toast?.kind).toBe('ok');
+      expect(app.toast?.undo).toEqual([{ op: 'tick_step', id: 'pub/a', n: 2, done: false, if_match: 'e2' }]);
+      await app.undo();
+      expect(hub.sent[1]?.ops).toEqual([{ op: 'tick_step', id: 'pub/a', n: 2, done: false, if_match: 'e2' }]);
+      expect(app.toast?.undo).toBeUndefined();
+    });
+
+    it('offers no undo for a tick whose inverse lacks the step number', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
+      hub.next_ops = answer(entry('tick_step', { inverse: { op: 'tick_step', id: 'pub/a', done: false } }));
+      await app.tickStep('pub/a', 1, true);
+      expect(app.toast?.undo).toBeUndefined();
+      // No version was known: none is sent (the engine then writes on whatever it finds).
+      expect(hub.sent[0]?.ops[0]).not.toHaveProperty('if_match');
+    });
+
+    it('says a refused tick and keeps no entry of it in the conflict center', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
+      hub.next_ops = answer({
+        n: 1,
+        op: 'tick_step',
+        id: 'pub/a',
+        ok: false,
+        outcome: 'failed',
+        changed_ids: [],
+        error: { code: 'conflict', message: 'x', retryable: false },
+      });
+      await app.tickStep('pub/a', 1, true, 'e1');
+      expect(app.toast?.kind).toBe('error');
+      expect(app.conflicts).toEqual([]);
+    });
+
+    it('adds a note once, with no way back, and says whether it was written', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
+      hub.next_ops = answer(entry('append_note'));
+      expect(await app.addNote('pub/a', 'a line', 'e1')).toBe(true);
+      expect(hub.sent[0]?.ops).toEqual([{ op: 'append_note', id: 'pub/a', text: 'a line', if_match: 'e1' }]);
+      expect(app.toast?.undo).toBeUndefined();
+      hub.next_ops = answer({
+        n: 1,
+        op: 'append_note',
+        id: 'pub/a',
+        ok: false,
+        outcome: 'failed',
+        changed_ids: [],
+        error: { code: 'invalid_argument', message: 'the note is empty', retryable: false },
+      });
+      expect(await app.addNote('pub/a', '  ', 'e1')).toBe(false);
+      expect(app.toast?.text).toContain('the note is empty');
+    });
+
+    it('does not claim a note that never left the page', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
+      hub.next_ops = new ApiError(502, 'outcome_unknown', 'x');
+      expect(await app.addNote('pub/a', 'a line')).toBe(false);
+    });
+  });
 });

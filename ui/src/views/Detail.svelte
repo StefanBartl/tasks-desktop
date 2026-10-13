@@ -30,6 +30,17 @@
     return labelOf(app.lang, 'status', byId.get(id)?.status);
   }
   const steps = $derived(detail.state === 'ok' ? (detail.doc.steps ?? []) : []);
+
+  // The line for the notes: kept while the task stays selected, emptied only when the engine wrote it.
+  let note = $state('');
+  $effect(() => {
+    void task?.id;
+    note = '';
+  });
+  async function addNote(): Promise<void> {
+    if (!task || detail.state !== 'ok' || note.trim() === '') return;
+    if (await app.addNote(task.id, note, detail.doc.task.etag)) note = '';
+  }
 </script>
 
 <aside class="detail" aria-label={t('detail.props')}>
@@ -251,11 +262,28 @@
         <ul class="plain">
           {#each steps as step, i (i)}
             <li class:dropped={step.dropped}>
-              <span aria-hidden="true">{step.ticked ? '☑' : step.dropped ? '⊘' : '☐'}</span>
-              <span class="sr-only"
-                >{t(step.ticked ? 'step.done' : step.dropped ? 'step.dropped' : 'step.open')}</span
-              >
-              {markHidden(step.text)}
+              {#if step.dropped || !app.can('tick_step')}
+                <span aria-hidden="true">{step.ticked ? '☑' : step.dropped ? '⊘' : '☐'}</span>
+                <span class="sr-only"
+                  >{t(step.ticked ? 'step.done' : step.dropped ? 'step.dropped' : 'step.open')}</span
+                >
+                {markHidden(step.text)}
+              {:else}
+                <!-- The box shows what the file says: a click asks the engine and the list is read again
+                     (no optimistic display), so the click itself changes nothing on the page. -->
+                <label class="step">
+                  <input
+                    type="checkbox"
+                    checked={step.ticked}
+                    disabled={app.saving}
+                    onclick={(e) => {
+                      e.preventDefault();
+                      void app.tickStep(task.id, step.n, !step.ticked, detail.doc.task.etag);
+                    }}
+                  />
+                  {markHidden(step.text)}
+                </label>
+              {/if}
             </li>
           {/each}
         </ul>
@@ -276,6 +304,29 @@
         <div class="body prose"><Blocks {blocks} /></div>
       {/if}
       {#if detail.doc.body_truncated}<p class="muted">{t('detail.body_truncated')}</p>{/if}
+      {#if app.can('append_note')}
+        <!-- No <form> element: the page's own tests take a form in the text of a task for injected markup. -->
+        <div class="note" role="group" aria-label={t('detail.note_label')}>
+          <label>
+            <span>{t('detail.note_label')} <small>({t('detail.note_hint')})</small></span>
+            <input
+              type="text"
+              bind:value={note}
+              maxlength="1000"
+              disabled={app.saving}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void addNote();
+                }
+              }}
+            />
+          </label>
+          <button type="button" disabled={app.saving || note.trim() === ''} onclick={() => void addNote()}
+            >{t('detail.note_button')}</button
+          >
+        </div>
+      {/if}
     {/if}
 
     <h3>{t('detail.file')}</h3>
@@ -351,6 +402,42 @@
   }
   .plain li {
     padding: 0.1rem 0;
+  }
+  .step {
+    display: flex;
+    gap: 0.4rem;
+    align-items: baseline;
+    cursor: pointer;
+  }
+  .note {
+    display: flex;
+    gap: 0.6rem;
+    align-items: end;
+    flex-wrap: wrap;
+    margin: 0.75rem 0 1rem;
+  }
+  .note label {
+    flex: 1 1 14rem;
+    display: grid;
+    gap: 0.15rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .note input,
+  .note button {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.9rem;
+  }
+  .note button {
+    cursor: pointer;
+  }
+  .note :disabled {
+    opacity: 0.6;
+    cursor: default;
   }
   .dropped {
     text-decoration: line-through;
