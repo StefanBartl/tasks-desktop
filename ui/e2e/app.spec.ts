@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -1250,5 +1250,49 @@ test('the board: taking back a move that numbered its neighbours gives every fil
   expect(orders()).toEqual([false, false, false]);
 
   expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('marking stops at 100: "Mark all" says so, and the box of the 101st row jumps back', async ({ page }) => {
+  await watchViolations(page);
+  const dir = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks');
+  const files: string[] = [];
+  // More tasks than one batch takes, made the way another tool would make them.
+  for (let n = 1; n <= 101; n++) {
+    const file = join(dir, `limit-e2e-${String(n).padStart(3, '0')}.md`);
+    writeFileSync(file, `---\ntitle: Limit e2e ${String(n).padStart(3, '0')}\nstatus: open\n---\n`);
+    files.push(file);
+  }
+  try {
+    await pair(page);
+    await showList(page);
+    await page.getByRole('searchbox', { name: /search/i }).first().fill('Limit e2e');
+    // The rows come in frames: all of them are there a moment later.
+    await expect.poll(() => page.locator('.rows .line').count()).toBe(101);
+
+    await page.getByRole('button', { name: 'Mark all shown' }).click();
+    await expect(page.getByText('100 marked')).toBeVisible();
+    await expect(page.getByRole('status').getByText('At most 100 tasks in one batch.')).toBeVisible();
+    await expect(page.locator('.rows .line input.mark:checked')).toHaveCount(100);
+
+    // The 101st box is refused: it is not left checked on the screen, and the count stays.
+    const last = page.locator('.rows .line').last().locator('input.mark');
+    await page.getByRole('status').getByRole('button', { name: 'Close' }).click();
+    await last.scrollIntoViewIfNeeded();
+    await last.click();
+    await expect(page.getByRole('status').getByText('At most 100 tasks in one batch.')).toBeVisible();
+    await expect(last).not.toBeChecked();
+    await expect(page.getByText('100 marked')).toBeVisible();
+    await expect(page.locator('.rows .line input.mark:checked')).toHaveCount(100);
+
+    // Taking one off makes room for exactly that box.
+    await page.locator('.rows .line').first().locator('input.mark').uncheck();
+    await expect(page.getByText('99 marked')).toBeVisible();
+    await last.check();
+    await expect(last).toBeChecked();
+    await expect(page.getByText('100 marked')).toBeVisible();
+  } finally {
+    for (const file of files) rmSync(file, { force: true });
+  }
   expect(consoleProblems.get(page)).toEqual([]);
 });
