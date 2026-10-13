@@ -256,7 +256,8 @@
         <input
           type="text"
           value={tagsText(task.after)}
-          disabled={app.saving}
+          disabled={app.saving || !listEditable(task.after)}
+          title={listEditable(task.after) ? undefined : t('field.list_plain')}
           onchange={(e) => changeList('after', task.after, e.currentTarget.value)}
         />
       </label>
@@ -266,7 +267,7 @@
           type="text"
           value={tagsText(task.refs)}
           disabled={app.saving || !listEditable(task.refs)}
-          title={listEditable(task.refs) ? undefined : t('field.refs_comma')}
+          title={listEditable(task.refs) ? undefined : t('field.list_plain')}
           onchange={(e) => changeList('refs', task.refs, e.currentTarget.value)}
         />
       </label>

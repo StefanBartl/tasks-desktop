@@ -214,6 +214,20 @@ impl ConfigVaults {
     }
 }
 
+/// Whether a path names anything but a plain drive or mount: a network share, a device, a verbatim or an NT form.
+/// Windows reads `/` and `\` alike, so the separators are made one before the start is looked at (`/\host\share` is
+/// a share too); on Windows the parsed prefix must also be a drive letter.
+fn is_remote_path(text: &str) -> bool {
+    let flat = text.replace('\\', "/");
+    if flat.starts_with("//") || flat.starts_with("/??/") {
+        return true;
+    }
+    matches!(
+        Path::new(text).components().next(),
+        Some(std::path::Component::Prefix(p)) if !matches!(p.kind(), std::path::Prefix::Disk(_))
+    )
+}
+
 /// The last part of a folder: what the page may show of it.
 fn label_of(path: &Path, fallback: &str) -> String {
     path.file_name()
@@ -249,7 +263,7 @@ impl VaultAdmin for ConfigVaults {
             config::valid_vault_name(name).map_err(|why| format!("the name {why}"))?;
             // A network share is not looked at: opening `\\host\share` makes Windows sign in to that host, and a
             // page that asks for it could point the machine at one it does not own. A drive or a mount is fine.
-            if path.starts_with("\\\\") || path.starts_with("//") {
+            if is_remote_path(path) {
                 return Err(
                     "a network folder is not accepted: use a drive or a mounted folder".to_owned(),
                 );
@@ -280,7 +294,8 @@ impl VaultAdmin for ConfigVaults {
         Box::pin(async move {
             let _one = self.gate.lock().await;
             let mut next = self.fresh()?;
-            if next.active_name() == name {
+            // The vault the hub reads now, not only the one the file names: a hand edit may have moved `active`.
+            if next.active_name() == name || self.current().active_name() == name {
                 return Err("the vault that is read cannot be removed".to_owned());
             }
             let before = next.vaults.len();
@@ -796,7 +811,16 @@ mod vault_tests {
         let (admin, cfg, vault) = admin("add");
         let path = vault.to_string_lossy().into_owned();
         // A share is refused for what it is, before anything looks at it (a lookup is what makes Windows sign in).
-        for share in ["//host/share/vault", r"\\host\share\vault"] {
+        for share in [
+            "//host/share/vault",
+            r"\\host\share\vault",
+            r"/\host\share\vault",
+            r"\/host/share/vault",
+            r"\\?\UNC\host\share\vault",
+            r"\\.\pipe\vault",
+            r"\??\UNC\host\share\vault",
+            "/??/UNC/host/share/vault",
+        ] {
             let why = admin.add("two", share).await.unwrap_err();
             assert!(why.contains("network folder"), "{share}: {why}");
         }
@@ -858,5 +882,22 @@ mod vault_tests {
         assert!(admin.select("nope").await.is_err());
         admin.remove("two").await.unwrap();
         assert!(config::load_file(&cfg).unwrap().vaults.is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_vault_the_hub_reads_cannot_be_removed_even_if_the_file_names_another() {
+        let (admin, cfg, vault) = admin("remove-read");
+        admin.add("two", &vault.to_string_lossy()).await.unwrap();
+        // The hub reads "two" (as kept in memory) ...
+        let mut reading = admin.current();
+        reading.active = Some("two".to_owned());
+        *admin.file.lock().unwrap() = reading;
+        // ... while a hand edit moved `active` on disk back to the main vault.
+        let mut edited = config::load_file(&cfg).unwrap();
+        edited.active = None;
+        config::save_file(&cfg, &edited).unwrap();
+        let why = admin.remove("two").await.unwrap_err();
+        assert!(why.contains("is read"), "{why}");
+        assert_eq!(config::load_file(&cfg).unwrap().vaults.len(), 1);
     }
 }

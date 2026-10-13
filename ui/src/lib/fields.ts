@@ -30,11 +30,13 @@ export function parseTags(text: string): string[] {
 export const parseList = parseTags;
 
 /**
- * Can this list be edited as one line of comma separated words? Not when an entry holds a comma (a reference may):
- * typing the line back would cut that entry in two and write it so.
+ * Can this list be edited as one line of comma separated words? Only when typing the line back gives the same list:
+ * not when an entry holds a comma (a reference may; it would be cut in two), has blanks around it, is empty or
+ * repeats an earlier one (the line would be cleaned up, and the file changed in what the person did not touch).
  */
 export function listEditable(list: readonly string[] | undefined): boolean {
-  return (list ?? []).every((entry) => !entry.includes(','));
+  const entries = list ?? [];
+  return !tagsChanged(entries, tagsText(entries)) && entries.every((entry) => !entry.includes(','));
 }
 
 /** Tags the way the field shows them. */

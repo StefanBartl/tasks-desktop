@@ -283,7 +283,9 @@ routes and count against the same limit of mutations:
 * `POST /api/vaults/add` `{ name, path, confirm: true }` remembers a folder. The page asks the person first and says so in
   the request (`confirm`); without it the hub refuses. The name is 1 to 40 letters, digits, dot, dash or underscore; the
   folder must be absolute and exist, and must not be a network share (`//host/share`, or two backslashes and a host:
-  looking at one makes Windows sign in to that host; a drive letter or a mount is fine). Nothing is read from it yet.
+  looking at one makes Windows sign in to that host; a drive letter or a mount is fine). Windows reads `/` and the
+  backslash alike, so the separators are made one before the start is looked at (`/\host\share` and `\/host/share` are
+  shares too), and device, verbatim and NT forms (`\\.\`, `\\?\`, `\??\`) are refused with them. Nothing is read from it yet.
   The settings file is read again before every change, so what a person edited by hand meanwhile is not written over,
   and a file that cannot be read stops the change.
 * `POST /api/vaults/remove` `{ name }` forgets one (never its files); the vault that is read cannot go.
@@ -305,7 +307,9 @@ the task is in, accepts only a plain relative name (no `..`, no drive, not absol
 links resolved, lies inside the vault (a link planted in the vault does not lead out of it). Neovim is started with that one
 file as an argument and no shell: a new console window on Windows, the first terminal program found on Linux (`x-terminal-emulator`,
 `gnome-terminal`, `konsole`, `xfce4-terminal`, `alacritty`, `kitty`, `xterm`). Where no way is known (macOS) the answer says so.
-The answer holds no path. The route needs a session and counts against the limit of mutations like any POST. An area that is
+On Windows the path given to Neovim has the `\\?\` prefix of `canonicalize` taken off, except where the plain form would not
+do: a path of 260 characters or more, and a name Windows reads differently without the prefix (a device name such as
+`con.md`, a trailing dot or space). The answer holds no path. The route needs a session and counts against the limit of mutations like any POST. An area that is
 private is opened too: it is the person at this machine who asks, and showing it here is not a use that leaves the hub.
 `TASKS_DESKTOP_EDITOR_LOG` (a file) makes the hub write the file instead of starting anything; the browser tests use it.
 
