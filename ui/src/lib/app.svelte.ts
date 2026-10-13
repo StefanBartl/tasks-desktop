@@ -108,6 +108,8 @@ export class App {
   capabilities = $state.raw<string[] | null>(null);
   /** A write is under way: the controls wait. */
   saving = $state(false);
+  /** A write is sent and not answered yet: the toast on the screen is not the toast of that write. */
+  answering = $state(false);
   /** Settles when the write under way has ended, its re-read included. */
   private settling: Promise<void> | null = null;
   /**
@@ -271,10 +273,12 @@ export class App {
   async write(ops: Op[], opts: { undoable?: boolean } = {}): Promise<Result | null> {
     if (this.saving || this.phase !== 'ready') return null;
     this.saving = true;
+    this.answering = true;
     let settle!: () => void;
     this.settling = new Promise<void>((resolve) => (settle = resolve));
     try {
       const result = await this.env.hub.ops({ client_op_id: this.opId(), ops });
+      this.answering = false;
       const failed = result.results.find((r) => !r.ok);
       if (failed) {
         const code = failed.error?.code ?? 'failed';
@@ -296,6 +300,7 @@ export class App {
       await this.refresh();
       return result;
     } catch (error) {
+      this.answering = false;
       if (error instanceof ApiError && error.code === 'outcome_unknown') {
         this.say('error', 'write.unknown');
       } else if (error instanceof ApiError && error.status === 409) {
@@ -311,6 +316,7 @@ export class App {
       return null;
     } finally {
       this.saving = false;
+      this.answering = false;
       this.settling = null;
       this.writes += 1;
       settle();
@@ -348,12 +354,15 @@ export class App {
 
   async undo(): Promise<void> {
     const ops = this.toast?.undo;
-    if (!ops) return;
+    // While a write waits for its answer the toast is an older one: what it would undo may be touched by that write.
+    if (!ops || this.answering) return;
     this.toast = null;
     // A click while the write under way still re-reads the list is queued, not lost.
     if (this.settling) await this.settling;
     const result = await this.write(ops, { undoable: false });
     if (result && result.ok) this.say('ok', 'write.undone');
+    // Not sent at all (the page is not ready any more): say so, the toast is gone.
+    else if (!result && !this.toast) this.say('error', 'write.failed', { code: 'offline' });
   }
 
   /** Take a reminder away (an open task or a finished one); `etag` is the version of the file that was shown. */
@@ -626,9 +635,6 @@ export class App {
     for (;;) {
       try {
         const hello = await this.env.hub.hello();
-        this.capabilities = hello.engine.capabilities;
-        // A board left open by an older engine would offer what it refuses.
-        if (this.view === 'board' && !this.can('reorder')) this.view = 'today';
         if (!hello.engine.ready) {
           this.problem = hello.engine.problem ?? 'unknown';
           this.phase = 'unavailable';
@@ -636,6 +642,10 @@ export class App {
           if (this.stopped) return;
           continue;
         }
+        // An engine that is not there says nothing about what it can do.
+        this.capabilities = hello.engine.capabilities;
+        // A board left open by an older engine would offer what it refuses.
+        if (this.view === 'board' && !this.can('reorder')) this.view = 'today';
         break;
       } catch {
         this.connection = 'offline';
