@@ -1,7 +1,7 @@
 <script lang="ts" module>
   export type MenuItem =
     | { kind: 'action'; label: string; onselect: () => void; disabled?: boolean }
-    | { kind: 'radio'; label: string; checked: boolean; onselect: () => void }
+    | { kind: 'radio'; label: string; checked: boolean; onselect: () => void; disabled?: boolean }
     | { kind: 'check'; label: string; checked: boolean; onselect: () => void }
     | { kind: 'info'; label: string }
     | { kind: 'separator' };
@@ -54,7 +54,7 @@
 
   function pick(item: MenuItem): void {
     if (item.kind === 'separator' || item.kind === 'info') return;
-    if (item.kind === 'action' && item.disabled) return;
+    if ((item.kind === 'action' || item.kind === 'radio') && item.disabled) return;
     close(true);
     item.onselect();
   }
@@ -185,7 +185,7 @@
                 aria-checked={item.kind === 'radio' || item.kind === 'check'
                   ? item.checked
                   : undefined}
-                disabled={item.kind === 'action' && item.disabled}
+                disabled={(item.kind === 'action' || item.kind === 'radio') && item.disabled}
                 tabindex="-1"
                 onclick={() => pick(item)}
                 onkeydown={(e) => onItemKey(e, menu.id)}

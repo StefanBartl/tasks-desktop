@@ -40,7 +40,7 @@ export interface OpsRequest {
 export interface Hello {
   instance: string;
   version: string;
-  engine: { ready: boolean; problem: string | null };
+  engine: { ready: boolean; problem: string | null; capabilities: string[] };
 }
 
 /** One area as `GET /api/tasks/areas` tells it, with the class it is shown with. */
@@ -135,9 +135,13 @@ export class Hub {
     const doc = await this.json<{
       instance: string;
       version: string;
-      engine: { ready: boolean; problem: string | null };
+      engine: { ready: boolean; problem: string | null; capabilities?: string[] };
     }>('/api/tasks/hello');
-    return { instance: doc.instance, version: doc.version, engine: doc.engine };
+    return {
+      instance: doc.instance,
+      version: doc.version,
+      engine: { ...doc.engine, capabilities: doc.engine.capabilities ?? [] },
+    };
   }
 
   /** Trade a pairing code for a session token. */

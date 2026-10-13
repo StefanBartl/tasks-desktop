@@ -47,6 +47,7 @@ async fn a_request_that_is_dropped_while_it_waits_never_reaches_the_engine() {
         status: HubStatus {
             engine_ready: true,
             problem: None,
+            capabilities: Vec::new(),
         },
         engine: Some(engine),
         policy: Arc::new(AreaPolicy::default()),

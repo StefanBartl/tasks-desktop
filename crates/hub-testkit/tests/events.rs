@@ -109,6 +109,7 @@ async fn rig(name: &str, timing: Timing) -> Rig {
         status: HubStatus {
             engine_ready: true,
             problem: None,
+            capabilities: Vec::new(),
         },
         engine: Some(engine),
         policy: Arc::new(AreaPolicy::default()),

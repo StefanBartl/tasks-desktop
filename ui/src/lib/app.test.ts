@@ -24,6 +24,7 @@ class FakeHub {
   areaList: HubArea[] = [{ name: 'pub', data_class: 'public' }];
   snapshotCalls: (string | null)[] = [];
   engineReady = true;
+  capabilities: string[] = ['reorder', 'plan_new'];
   hubDown = false;
   exchanged: string[] = [];
   exchangeFails = false;
@@ -45,7 +46,7 @@ class FakeHub {
   }
   async hello() {
     if (this.hubDown) throw new Error('down');
-    return { instance: 'i', version: '0', engine: { ready: this.engineReady, problem: 'x' } };
+    return { instance: 'i', version: '0', engine: { ready: this.engineReady, problem: 'x', capabilities: this.capabilities } };
   }
   async exchange(code: string) {
     this.exchanged.push(code);
@@ -661,6 +662,37 @@ describe('writing', () => {
     app.markShown();
     expect(app.marks).toHaveLength(100);
     expect(app.toast?.kind).toBe('error');
+  });
+
+  describe('what the engine can do', () => {
+    it('does not open the board or the plan wizard on an engine without reorder and plan_new', async () => {
+      const m = make({ token: 't' });
+      m.hub.capabilities = ['hello'];
+      await m.app.start(null);
+      m.app.stop();
+      m.app.setView('board');
+      expect(m.app.view).not.toBe('board');
+      m.app.openPlanWizard();
+      expect(m.app.planning).toBe(false);
+    });
+
+    it('leaves a board that was left open when the engine cannot reorder', async () => {
+      const prefs = new Map([['tasks-desktop.view', 'board']]);
+      const m = make({ token: 't', prefs });
+      m.hub.capabilities = ['hello'];
+      expect(m.app.view).toBe('board');
+      await m.app.start(null);
+      m.app.stop();
+      expect(m.app.view).toBe('today');
+    });
+
+    it('offers both where the engine names them', async () => {
+      const { app } = await ready();
+      app.setView('board');
+      expect(app.view).toBe('board');
+      app.openPlanWizard();
+      expect(app.planning).toBe(true);
+    });
   });
 
   describe('board', () => {

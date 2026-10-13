@@ -37,6 +37,7 @@ async fn hub(ui: UiFiles) -> RunningServer {
         status: HubStatus {
             engine_ready: false,
             problem: None,
+            capabilities: Vec::new(),
         },
         engine: None,
         policy: Arc::new(AreaPolicy::default()),

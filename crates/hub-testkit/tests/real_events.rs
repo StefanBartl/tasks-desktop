@@ -129,6 +129,7 @@ async fn an_edit_of_a_task_file_reaches_the_stream_within_two_seconds() {
         status: HubStatus {
             engine_ready: true,
             problem: None,
+            capabilities: Vec::new(),
         },
         engine: Some(engine),
         policy: Arc::new(AreaPolicy::default()),
