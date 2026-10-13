@@ -7,6 +7,8 @@
   import MultiSelect from './MultiSelect.svelte';
   import { areaLabel } from '../lib/filter';
   import { untrack } from 'svelte';
+  import { EFFORT_SIZES, badTag, parseTags } from '../lib/fields';
+  import { REMIND_CHOICES } from '../lib/remind';
 
   let { app, searchBox = $bindable(null) }: { app: App; searchBox?: HTMLInputElement | null } =
     $props();
@@ -34,18 +36,39 @@
   });
 
   // The bulk bar changes what is chosen in it, all at once, when the button is pressed (a select alone never writes).
-  let draft = $state({ status: '', prio: '', actor: '' });
+  // `effort` and `remind` are '' (keep), '-' (take away) or a value; the tags are typed.
+  const blank = { status: '', prio: '', actor: '', effort: '', remind: '', addTags: '', removeTags: '' };
+  let draft = $state({ ...blank });
   $effect(() => {
-    if (app.marks.length === 0) draft = { status: '', prio: '', actor: '' };
+    if (app.marks.length === 0) draft = { ...blank };
   });
+  const chosen = $derived(
+    Object.values(draft).some((value) => value.trim() !== ''),
+  );
   async function applyDraft(): Promise<void> {
     const patch: Record<string, unknown> = {};
     if (draft.status) patch.status = draft.status;
     if (draft.prio) patch.prio = Number(draft.prio);
     if (draft.actor) patch.actor = draft.actor;
-    if (Object.keys(patch).length === 0) return;
+    if (draft.effort) patch.effort = draft.effort === '-' ? null : draft.effort;
+    if (draft.remind) patch.remind = draft.remind === '-' ? null : draft.remind;
+    const add = parseTags(draft.addTags);
+    const remove = parseTags(draft.removeTags);
+    const bad = badTag(add);
+    // A tag the engine would refuse is told here, and the text stays for the person to change.
+    if (bad !== null) {
+      app.tell('error', 'field.tags_invalid', { tag: bad });
+      return;
+    }
+    if (Object.keys(patch).length === 0 && add.length === 0 && remove.length === 0) return;
     // What stays marked (a failure) keeps the choice for the second try; with no marks left it starts over.
-    await app.bulkSet(patch);
+    await app.bulkSet(patch, add.length > 0 || remove.length > 0 ? { add, remove } : undefined);
+  }
+
+  function applyOnEnter(event: KeyboardEvent): void {
+    if (event.key !== 'Enter' || app.saving || !chosen) return;
+    event.preventDefault();
+    void applyDraft();
   }
 
   // The first rows are drawn at once and the rest in the frames after: a
@@ -152,10 +175,38 @@
             {#each actors.filter((a) => a !== 'none') as a (a)}<option value={a}>{t(`actor.${a}` as Key)}</option>{/each}
           </select>
         </label>
+        <label>
+          <span class="sr-only">{t('field.effort')}</span>
+          <select bind:value={draft.effort} disabled={app.saving}>
+            <option value="">{t('field.effort')}: {t('bulk.keep')}</option>
+            <option value="-">{t('field.effort')}: {t('bulk.unset')}</option>
+            {#each EFFORT_SIZES as size (size)}<option value={size}>{size}</option>{/each}
+          </select>
+        </label>
+        <label>
+          <span class="sr-only">{t('remind.field')}</span>
+          <select bind:value={draft.remind} disabled={app.saving}>
+            <option value="">{t('remind.field')}: {t('bulk.keep')}</option>
+            <option value="-">{t('remind.field')}: {t('bulk.unset')}</option>
+            {#each REMIND_CHOICES as choice (choice)}
+              <option value={choice}
+                >{choice === '+0d' ? t('remind.today') : t('remind.in', { n: choice.slice(1, -1) })}</option
+              >
+            {/each}
+          </select>
+        </label>
+        <label>
+          <span class="sr-only">{t('bulk.tags_add')}</span>
+          <input type="text" placeholder={t('bulk.tags_add')} bind:value={draft.addTags} disabled={app.saving} onkeydown={applyOnEnter} />
+        </label>
+        <label>
+          <span class="sr-only">{t('bulk.tags_remove')}</span>
+          <input type="text" placeholder={t('bulk.tags_remove')} bind:value={draft.removeTags} disabled={app.saving} onkeydown={applyOnEnter} />
+        </label>
         <button
           type="button"
           class="apply"
-          disabled={app.saving || !(draft.status || draft.prio || draft.actor)}
+          disabled={app.saving || !chosen}
           onclick={applyDraft}>{t('bulk.apply')}</button
         >
         <button type="button" onclick={() => app.clearMarks()}>{t('bulk.clear')}</button>
@@ -250,6 +301,10 @@
     border-bottom: 1px solid var(--border);
     font-size: 0.85rem;
   }
+  .bulk input {
+    width: 9rem;
+  }
+  .bulk input,
   .bulk select,
   .bulk button {
     background: var(--surface);

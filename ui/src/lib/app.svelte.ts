@@ -1,7 +1,7 @@
 // The state of the page and what keeps it true: pairing, the held list, the
 // event stream and the detail of the selected task.
 
-import { bulkSetOps, markAll, pruneMarks, toggleMark } from './bulk';
+import { type TagEdit, bulkSetOps, markAll, pruneMarks, toggleMark } from './bulk';
 import { planOp, type PlanForm, type PlanPreview } from './planwizard';
 import { columnsOf, isColumn, neighbourColumn, placeNear, stepInGroup, type Move } from './board';
 import { ApiError, type Hub, type HubArea, type HubAreas, type SearchResult } from './api';
@@ -441,9 +441,12 @@ export class App {
    * is kept. The marks stay on the tasks that failed, so a second try is one click; a mark made while the request was
    * under way is not touched.
    */
-  async bulkSet(patch: Record<string, unknown>): Promise<void> {
-    const ops = bulkSetOps(this.tasks, this.marks, patch);
-    if (ops.length === 0) return;
+  async bulkSet(patch: Record<string, unknown>, tags?: TagEdit): Promise<void> {
+    const ops = bulkSetOps(this.tasks, this.marks, patch, tags);
+    if (ops.length === 0) {
+      this.say('ok', 'bulk.nothing');
+      return;
+    }
     const sent = new Set(ops.map((o) => o.id));
     const result = await this.write(ops);
     if (!result) return;
