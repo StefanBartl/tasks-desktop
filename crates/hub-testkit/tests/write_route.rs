@@ -23,6 +23,10 @@ struct Rig {
 }
 
 async fn rig(name: &str) -> Rig {
+    rig_with(name, Limits::default()).await
+}
+
+async fn rig_with(name: &str, limits: Limits) -> Rig {
     let vault =
         std::env::temp_dir().join(format!("tasks-desktop-write-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&vault);
@@ -44,7 +48,7 @@ async fn rig(name: &str) -> Rig {
         addr: "127.0.0.1:0".parse().unwrap(),
         limits: Limits {
             snapshot_max_age: None,
-            ..Limits::default()
+            ..limits
         },
         clock: Arc::new(ManualClock::new()),
         pairing_ttl: Duration::from_secs(60),
@@ -186,6 +190,38 @@ async fn a_dry_run_changes_and_scans_nothing() {
         .lines()
         .count();
     assert_eq!(calls_before, calls_after, "a dry run made the hub scan");
+}
+
+#[tokio::test]
+async fn a_dry_run_has_a_limit_of_its_own_and_costs_the_writes_nothing() {
+    // The pairing of the rig takes two of the mutations.
+    let r = rig_with(
+        "dry-limit",
+        Limits {
+            post_max: 4,
+            dry_max: 3,
+            ..Limits::default()
+        },
+    )
+    .await;
+    let dry =
+        r#"{"dry_run":true,"ops":[{"op":"set","id":"alpha.nvim/t1","patch":{"status":"doing"}}]}"#;
+    let write = r#"{"ops":[{"op":"set","id":"alpha.nvim/t1","patch":{"status":"doing"}}]}"#;
+    for _ in 0..3 {
+        assert_eq!(post(&r, "/api/tasks/ops", dry, JSON, true).await.0, 200);
+    }
+    let (status, doc) = post(&r, "/api/tasks/ops", dry, JSON, true).await;
+    assert_eq!(
+        (status, doc["error"]["code"].as_str()),
+        (429, Some("rate_limited"))
+    );
+    // The dry runs took nothing from the writes: two are left, then the limit.
+    for _ in 0..2 {
+        assert_eq!(post(&r, "/api/tasks/ops", write, JSON, true).await.0, 200);
+    }
+    assert_eq!(post(&r, "/api/tasks/ops", write, JSON, true).await.0, 429);
+    // A request that is none is a mutation, too.
+    assert_eq!(post(&r, "/api/tasks/ops", "{}", JSON, true).await.0, 429);
 }
 
 #[tokio::test]

@@ -330,6 +330,34 @@ async fn a_read_nobody_waits_for_is_never_started() {
 }
 
 #[tokio::test]
+async fn a_dry_run_nobody_waits_for_is_never_started() {
+    let engine = CliEngine::new(config(Env::from_process()));
+    let blocker = fake(json!({ "sleep_ms": 600 }));
+    let first = engine.call(Method::List, Some(&blocker));
+    let never = marker("abandoned-dry-run");
+    let request = json!({ "schema": 1, "dry_run": true, "ops": [], "fake": { "marker": never } });
+    let second = engine.call(Method::Ops, Some(&request));
+    let (_, outcome) = tokio::join!(first, async {
+        wait_for_queued(&engine, 1).await;
+        tokio::time::timeout(Duration::from_millis(100), second).await
+    });
+    assert!(outcome.is_err());
+    wait_for_queued(&engine, 0).await;
+    assert!(!never.exists(), "an abandoned dry run was run");
+}
+
+#[tokio::test]
+async fn a_dry_run_that_fails_is_a_plain_failure() {
+    let engine = CliEngine::new(config(Env::from_process()));
+    let request = json!({ "schema": 1, "dry_run": true, "ops": [], "fake": { "exit": 3 } });
+    let err = engine
+        .call(Method::Ops, Some(&request))
+        .await
+        .expect_err("failed");
+    assert!(!matches!(err, EngineError::OutcomeUnknown(_)), "{err}");
+}
+
+#[tokio::test]
 async fn a_write_that_does_not_end_with_a_document_has_an_unknown_outcome() {
     let engine = CliEngine::new(config(Env::from_process()));
     let request = json!({ "schema": 1, "ops": [], "fake": { "exit": 3 } });
