@@ -53,8 +53,11 @@ class FakeHub {
     if (this.exchangeFails) throw new ApiError(401, 'bad_code', 'x');
     return 'token-1';
   }
+  /** While set, a read of the list does not answer (a slow engine, a busy machine). */
+  holdSnapshot: Promise<void> | null = null;
   async snapshot(etag: string | null) {
     this.snapshotCalls.push(etag);
+    if (this.holdSnapshot) await this.holdSnapshot;
     if (!this.token) throw new ApiError(401, 'unauthorized', 'x');
     if (etag !== null && etag === this.doc.digest) return { kind: 'not_modified' as const };
     return { kind: 'fresh' as const, doc: this.doc, etag: this.doc.digest ?? null };
@@ -629,6 +632,40 @@ describe('writing', () => {
     expect(app.toast?.kind).toBe('error');
     expect(app.toast?.text).toMatch(/2\D+1/);
     expect(app.toast?.undo?.map((o) => (o.op === 'set' ? o.id : ''))).toEqual(['pub/c', 'pub/a']);
+  });
+
+  it('says what came of a batch at once, without waiting for the list to be read again', async () => {
+    const { app, hub } = await ready([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' }), task('pub/c', { etag: 'e3' })]);
+    for (const id of ['pub/a', 'pub/b', 'pub/c']) app.toggleMark(id);
+    hub.next_ops = {
+      kind: 'tasks.result',
+      ok: false,
+      dry_run: false,
+      results: [okEntry(1, 'pub/a'), engineFailure(2), okEntry(3, 'pub/c')],
+    } as unknown as Result;
+    let release!: () => void;
+    hub.holdSnapshot = new Promise<void>((resolve) => (release = resolve));
+    const done = app.bulkSet({ prio: 1 });
+    // The answer is known; the re-read is held. The toast and the marks must not depend on it.
+    await vi.waitFor(() => expect(app.toast?.text).toMatch(/2\D+1/));
+    expect(app.marks).toEqual(['pub/b']);
+    expect(app.toast?.undo?.length).toBe(2);
+    release();
+    await done;
+    expect(app.toast?.text).toMatch(/2\D+1/);
+  });
+
+  it('says "undone" at once, without waiting for the list to be read again', async () => {
+    const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
+    await app.setField('pub/a', 'status', 'doing');
+    expect(app.toast?.undo).toBeDefined();
+    let release!: () => void;
+    hub.holdSnapshot = new Promise<void>((resolve) => (release = resolve));
+    const done = app.undo();
+    await vi.waitFor(() => expect(app.toast?.text).toBe('Rückgängig gemacht.'));
+    release();
+    await done;
+    expect(app.toast?.text).toBe('Rückgängig gemacht.');
   });
 
   it('finds a failed task by error.details.id when the position does not say', async () => {
