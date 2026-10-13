@@ -24,6 +24,14 @@ export function columnsOf(tasks: readonly TaskEntry[]): Record<Column, TaskEntry
   return out;
 }
 
+/**
+ * What the engine orders inside: the same status and effective priority (`group`) in the same stage. A card of the same
+ * priority in another stage is another run - the engine refuses to place one beside the other.
+ */
+export function runKey(task: TaskEntry): string {
+  return `${task.group ?? ''}#${task.readiness?.stage ?? ''}`;
+}
+
 /** Where the card goes in a column, or why it cannot. */
 export type Move =
   | { kind: 'ok'; op: Op }
@@ -44,7 +52,7 @@ export function placeNear(
   const near = tasks.find((t) => t.id === target.id);
   if (!card || !near) return { kind: 'refused', reason: 'unknown' };
   if (card.status !== near.status) return { kind: 'refused', reason: 'status' };
-  if (card.group !== near.group) return { kind: 'refused', reason: 'group' };
+  if (runKey(card) !== runKey(near)) return { kind: 'refused', reason: 'group' };
   return {
     kind: 'ok',
     op: {
@@ -64,7 +72,7 @@ export function placeNear(
 export function stepInGroup(column: readonly TaskEntry[], id: string, dir: 1 | -1): Move {
   const card = column.find((t) => t.id === id);
   if (!card) return { kind: 'refused', reason: 'unknown' };
-  const members = column.filter((t) => t.group === card.group);
+  const members = column.filter((t) => runKey(t) === runKey(card));
   const at = members.findIndex((t) => t.id === id);
   const near = members[at + dir];
   if (!near) return { kind: 'refused', reason: 'edge' };
@@ -82,6 +90,11 @@ export function neighbourColumn(status: string | undefined, dir: 1 | -1): Column
  */
 export function placeOf(pointerY: number, top: number, height: number): 'before' | 'after' {
   return pointerY < top + height / 2 ? 'before' : 'after';
+}
+
+/** The stage of a card, or null when the engine did not say (a task in a cycle has none). */
+export function stageOf(task: TaskEntry): number | null {
+  return task.readiness?.stage ?? null;
 }
 
 /** The group label shown over a run of cards: the priority part of `status|eff_prio`. */

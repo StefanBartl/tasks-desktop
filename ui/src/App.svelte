@@ -91,6 +91,18 @@
         return;
       }
     }
+    // The board: Shift with j, k, h or l writes (reorder inside the group, set the status). The letter's case is not
+    // trusted: CapsLock turns a plain j into 'J'.
+    if (app.view === 'board' && event.shiftKey && /^[jkhl]$/i.test(event.key)) {
+      event.preventDefault();
+      const id = app.selectedId;
+      if (id !== null && !event.repeat) {
+        const key = event.key.toLowerCase();
+        if (key === 'j' || key === 'k') void app.stepCard(id, key === 'j' ? 1 : -1);
+        else void app.shiftColumn(id, key === 'l' ? 1 : -1);
+      }
+      return;
+    }
     switch (event.key) {
       case 'g':
         setChord(true);
@@ -107,26 +119,12 @@
         if (app.view === 'list') app.moveSelection(-1);
         else if (app.view === 'board') app.moveSelectionInColumn(-1);
         break;
-      // The board: h and l change the column, J and K move the card inside its group, H and L change its status.
+      // The board: h and l change the column (Shift with j, k, h, l writes, above).
       case 'h':
         if (app.view === 'board') app.moveSelectionAcross(-1);
         break;
       case 'l':
         if (app.view === 'board') app.moveSelectionAcross(1);
-        break;
-      case 'J':
-      case 'K':
-        if (app.view === 'board' && app.selectedId !== null && !event.repeat) {
-          event.preventDefault();
-          void app.stepCard(app.selectedId, event.key === 'J' ? 1 : -1);
-        }
-        break;
-      case 'H':
-      case 'L':
-        if (app.view === 'board' && app.selectedId !== null && !event.repeat) {
-          event.preventDefault();
-          void app.shiftColumn(app.selectedId, event.key === 'L' ? 1 : -1);
-        }
         break;
       case 'x':
         // Holding the key does not flip the mark back and forth.

@@ -3,7 +3,7 @@
   // another column: the status; among the cards of its group: the order) or with the keys of the page. The page
   // never sorts: the order is the engine's, and a move asks the engine for the new one.
   import type { App } from '../lib/app.svelte';
-  import { COLUMNS, COLUMN_FIRST, groupLabel, placeOf, type Column } from '../lib/board';
+  import { COLUMNS, COLUMN_FIRST, groupLabel, placeOf, runKey, stageOf, type Column } from '../lib/board';
   import { labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
   import Detail from './Detail.svelte';
@@ -55,7 +55,9 @@
     event.stopPropagation();
     overColumn = column;
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    over = id === dragging ? null : { id, place: placeOf(event.clientY, rect.top, rect.height) };
+    // Over a card of another column the drop sets the status: no insertion bar there.
+    const sameColumn = app.tasks.find((x) => x.id === dragging)?.status === column;
+    over = id === dragging || !sameColumn ? null : { id, place: placeOf(event.clientY, rect.top, rect.height) };
   }
   function onColumnOver(event: DragEvent, column: Column): void {
     if (dragging === null) return;
@@ -92,19 +94,30 @@
     return () => cancelAnimationFrame(frame);
   });
 
-  function priorityOf(group: string | undefined): string | null {
-    const label = groupLabel(group);
-    return label === null ? null : t('board.group', { p: label });
+  function runLabel(card: (typeof board)[Column][number]): string | null {
+    const label = groupLabel(card.group);
+    if (label === null) return null;
+    const stage = stageOf(card);
+    return stage === null ? t('board.group', { p: label }) : `${t('board.group', { p: label })} · ${t('board.stage', { n: stage })}`;
+  }
+
+  // The pointer left the board: no bar and no highlight stay behind.
+  function onBoardLeave(event: DragEvent): void {
+    const to = event.relatedTarget;
+    if (!(to instanceof Node) || !(event.currentTarget as HTMLElement).contains(to)) {
+      over = null;
+      overColumn = null;
+    }
   }
 </script>
 
 <div class="wrap">
-  <p class="count" role="status">
-    {t('list.count', { shown: app.shown.length, total: app.tasks.length })}
+  <p class="count">
+    <span role="status">{t('list.count', { shown: app.shown.length, total: app.tasks.length })}</span>
     <span class="help">{t('board.help')}</span>
   </p>
   <div class="layout">
-    <div class="board" aria-label={t('nav.board')}>
+    <div class="board" role="group" aria-label={t('nav.board')} ondragleave={onBoardLeave}>
       {#each COLUMNS as column (column)}
         <section
           class="column"
@@ -120,8 +133,8 @@
           <div class="cards">
             {#each visible(column) as card, i (card.file)}
               {@const cards = visible(column)}
-              {#if i === 0 || cards[i - 1]?.group !== card.group}
-                {@const label = priorityOf(card.group)}
+              {#if i === 0 || (cards[i - 1] && runKey(cards[i - 1] as typeof card) !== runKey(card))}
+                {@const label = runLabel(card)}
                 {#if label}<p class="group">{label}</p>{/if}
               {/if}
               <button
