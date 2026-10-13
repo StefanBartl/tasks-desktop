@@ -1777,3 +1777,27 @@ test('a number of the overview opens its tasks, in views that can be switched, w
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('a task is made with a text: the file holds it as written, and the detail shows it', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+
+  await page.keyboard.press('c');
+  const capture = page.getByRole('dialog', { name: 'New task' });
+  await capture.getByLabel('Title').fill('Task from a note');
+  await capture.locator('select').first().selectOption('lib.nvim');
+  await capture.getByLabel(/^Text/).fill('The first line of the note.\n\n- one\n- two');
+  await expectAccessible(page, 'the capture dialog with a text field');
+  await capture.getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  const id = (await page.locator('aside.detail .id').innerText()).trim();
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${id.split('/')[1]}.md`);
+  const text = readFileSync(file, 'utf8');
+  expect(text).toContain('\nThe first line of the note.\n\n- one\n- two\n');
+  expect(text).not.toContain('## Kontext');
+  await expect(page.locator('aside.detail .prose, aside.detail pre.body')).toContainText('The first line of the note.');
+  await expect(page.locator('aside.detail').getByText('Task from a note').first()).toBeVisible();
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});

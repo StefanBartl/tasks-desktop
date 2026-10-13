@@ -15,7 +15,7 @@ export class ApiError extends Error {
 /** One operation of a write. The engine checks the rules; the form is the page's. */
 export type Op =
   | { op: 'set'; id: string; patch: Record<string, unknown>; if_match?: string }
-  | { op: 'new'; area: string; title: string; fields?: Record<string, unknown> }
+  | { op: 'new'; area: string; title: string; fields?: Record<string, unknown>; body?: string }
   | { op: 'reorder'; id: string; after?: string; before?: string; group?: string; if_match?: string }
   | { op: 'done'; id: string; confirm: string; remind?: string }
   | { op: 'tick_step'; id: string; n: number; done?: boolean; if_match?: string }

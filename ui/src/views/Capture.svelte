@@ -13,6 +13,7 @@
   let title = $state('');
   let area = $state('');
   let prio = $state('');
+  let text = $state('');
   let busy = $state(false);
 
   const areas = $derived(
@@ -29,6 +30,7 @@
       area = app.filter.areas.length === 1 ? (app.filter.areas[0] ?? '') : (areas[0]?.name ?? '');
       title = '';
       prio = '';
+      text = '';
       dialog.showModal();
     }
     if (!app.capturing && dialog.open) dialog.close();
@@ -41,7 +43,7 @@
     try {
       const fields: Record<string, unknown> = {};
       if (prio !== '') fields['prio'] = Number(prio);
-      await app.createTask(area, title.trim(), fields);
+      await app.createTask(area, title.trim(), fields, text);
     } finally {
       busy = false;
     }
@@ -72,6 +74,10 @@
         <option value="2">2</option>
         <option value="3">3</option>
       </select>
+    </label>
+    <label>
+      <span>{t('capture.body')} <small>({t('capture.body_hint')})</small></span>
+      <textarea bind:value={text} rows="5" maxlength="20000"></textarea>
     </label>
     <div class="actions">
       <button type="button" onclick={() => app.closeCapture()}>{t('dialog.cancel')}</button>
@@ -104,6 +110,7 @@
     margin-bottom: 0.7rem;
   }
   input,
+  textarea,
   select {
     background: var(--surface-2);
     color: var(--text);

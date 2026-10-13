@@ -1484,6 +1484,21 @@ describe('writing', () => {
     });
   });
 
+  describe('a task made with a text', () => {
+    it('sends the text, trimmed, and none when there is none', async () => {
+      const { app, hub } = await ready();
+      await app.createTask('pub', 'With text', {}, '  First line.\n\nMore.\n ');
+      expect(hub.sent[0]?.ops[0]).toEqual({
+        op: 'new',
+        area: 'pub',
+        title: 'With text',
+        body: 'First line.\n\nMore.',
+      });
+      await app.createTask('pub', 'No text', { prio: 1 }, '   \n ');
+      expect(hub.sent[1]?.ops[0]).toEqual({ op: 'new', area: 'pub', title: 'No text', fields: { prio: 1 } });
+    });
+  });
+
   describe('the numbers of the overview', () => {
     it('opens and closes the tasks behind a number, one at a time', async () => {
       const { app } = await ready();
