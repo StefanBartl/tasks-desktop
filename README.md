@@ -121,14 +121,14 @@ stages, the phase counts and the warnings narrow to it (the choice is kept when 
 is left), while the state counts, the estimate and the critical path stay those of the
 whole vault. The interface can create a task (`c`, or the Project menu), change status,
 priority, who, kind, effort, value and tags in the detail, change several marked
-tasks at once (`x` or the box marks, the choice in the bar is applied with a button,
+tasks at once (also effort, reminder and tags: added or taken off for each task) (`x` or the box marks, the choice in the bar is applied with a button,
 and a filter that hides a task also takes its mark; one batch, each task with the version that
 was shown, so a task changed meanwhile fails alone), undo that, see the tasks as a board (a column for each status, the cards in the
 engine's order; a card is dragged to another column to set its status or among
 the cards of its priority to reorder, or moved with `Shift` and `j` `k` `h` `l`; `g b` opens
 the board; the order holds inside one priority and one stage only, which the board says), make a plan with a wizard (a title and an area are enough; the engine names the
 plan in a dry run while you type, tells a name that is taken and refuses what is not a plan),
-finish a task after a preview of
+find an action or a task in the command palette (`Ctrl`+`K`: a few letters in order are enough, what you chose before comes first; it changes the status or priority of the selected task, goes to a view, and more), finish a task after a preview of
 what it does, and set a reminder (a date on which a task comes back on the
 Today page; also when finishing); the engine makes every change. The interface lists the vault in the engine's own order (it
 never sorts), shows a task with its steps and its text (as text only),
