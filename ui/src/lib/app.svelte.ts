@@ -629,7 +629,7 @@ export class App {
 
   /** `id` dropped on `target`: before or after it. */
   async dropNear(id: string, target: { id: string; place: 'before' | 'after' }): Promise<void> {
-    await this.moveCard(placeNear(this.tasks, id, target));
+    await this.moveCard(placeNear(this.tasks, id, target, this.can('eff_prio')));
   }
 
   /** `id` one place up or down inside its group (`K` and `J`). */

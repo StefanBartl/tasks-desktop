@@ -48,6 +48,8 @@ export function placeNear(
   tasks: readonly TaskEntry[],
   id: string,
   target: { id: string; place: 'before' | 'after' },
+  /** Whether the engine says it gives `readiness.eff_prio` (capability `eff_prio`); without it no priority is guessed. */
+  prioKnown = true,
 ): Move {
   if (id === target.id) return { kind: 'refused', reason: 'self' };
   const card = tasks.find((t) => t.id === id);
@@ -55,7 +57,7 @@ export function placeNear(
   if (!card || !near) return { kind: 'refused', reason: 'unknown' };
   if (card.status !== near.status) return { kind: 'refused', reason: 'status' };
   if (runKey(card) !== runKey(near)) {
-    const prio = priorityOf(near.group);
+    const prio = prioKnown ? priorityOf(near) : null;
     // Only the priority differs: the move can carry it along. Another stage is another run, which no priority changes.
     if (prio === null || stageOf(card) === null || stageOf(card) !== stageOf(near)) {
       return { kind: 'refused', reason: 'group' };
@@ -63,7 +65,7 @@ export function placeNear(
     return {
       kind: 'prio',
       id,
-      from: groupLabel(card.group) ?? '-',
+      from: groupLabel(card) ?? '-',
       prio,
       ops: [
         { op: 'set', id, patch: { prio }, ...(card.etag ? { if_match: card.etag } : {}) },
@@ -116,15 +118,17 @@ export function stageOf(task: TaskEntry): number | null {
   return task.readiness?.stage ?? null;
 }
 
-/** The priority a group stands for (`status|2`), or null for a group without one. */
-export function priorityOf(group: string | undefined): number | null {
-  const label = groupLabel(group);
-  return label !== null && /^[0-9]+$/.test(label) ? Number(label) : null;
+/**
+ * The priority the engine groups a task by (`readiness.eff_prio`), or null for none. The `group` key is the engine's
+ * guard for `reorder` and is passed back as it is; the page never takes it apart (WEB-13).
+ */
+export function priorityOf(task: TaskEntry): number | null {
+  return task.readiness?.eff_prio ?? null;
 }
 
-/** The group label shown over a run of cards: the priority part of `status|eff_prio`. */
-export function groupLabel(group: string | undefined): string | null {
-  if (!group) return null;
-  const at = group.indexOf('|');
-  return at < 0 ? null : group.slice(at + 1);
+/** The label shown over a run of cards: the priority, `-` without one, null for a card the engine gave no group. */
+export function groupLabel(task: TaskEntry): string | null {
+  if (!task.group) return null;
+  const prio = priorityOf(task);
+  return prio === null ? '-' : String(prio);
 }

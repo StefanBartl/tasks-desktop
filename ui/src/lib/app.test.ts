@@ -24,7 +24,7 @@ class FakeHub {
   areaList: HubArea[] = [{ name: 'pub', data_class: 'public' }];
   snapshotCalls: (string | null)[] = [];
   engineReady = true;
-  capabilities: string[] | null = ['reorder', 'plan_new'];
+  capabilities: string[] | null = ['reorder', 'plan_new', 'eff_prio'];
   hubDown = false;
   exchanged: string[] = [];
   exchangeFails = false;
@@ -530,8 +530,9 @@ describe('App, the text of the tasks', () => {
 });
 
 describe('writing', () => {
-  async function ready(tasks: ReturnType<typeof task>[] = []) {
+  async function ready(tasks: ReturnType<typeof task>[] = [], opts: { capabilities?: string[] } = {}) {
     const m = make({ token: 't' });
+    if (opts.capabilities) m.hub.capabilities = opts.capabilities;
     if (tasks.length > 0) m.hub.doc = snapshot(tasks);
     await m.app.start(null);
     expect(m.app.phase).toBe('ready');
@@ -814,7 +815,7 @@ describe('writing', () => {
 
     it('asks before it sets the priority of a card dropped among cards of another one', async () => {
       const staged = (id: string, group: string, etag: string) =>
-        task(id, { etag, status: 'open', group, readiness: { state: 'ready', stage: 0 } } as Partial<TaskEntry>);
+        task(id, { etag, status: 'open', group, readiness: { state: 'ready', stage: 0, eff_prio: Number(group.split('|')[1]) } } as Partial<TaskEntry>);
       const { app, hub } = await ready([staged('pub/a', 'open|1', 'e1'), staged('pub/c', 'open|2', 'e3')]);
       await app.dropNear('pub/a', { id: 'pub/c', place: 'after' });
       // Nothing is sent before the answer.
@@ -832,6 +833,17 @@ describe('writing', () => {
         { op: 'reorder', id: 'pub/a', after: 'pub/c', group: 'open|2' },
       ]);
       expect(app.repriority).toBeNull();
+    });
+
+    it('carries no priority along when the engine does not promise the number (capability eff_prio)', async () => {
+      const staged = (id: string, group: string, etag: string) =>
+        task(id, { etag, status: 'open', group, readiness: { state: 'ready', stage: 0, eff_prio: Number(group.split('|')[1]) } } as Partial<TaskEntry>);
+      const { app, hub } = await ready([staged('pub/a', 'open|1', 'e1'), staged('pub/c', 'open|2', 'e3')], {
+        capabilities: ['reorder', 'plan_new'],
+      });
+      await app.dropNear('pub/a', { id: 'pub/c', place: 'after' });
+      expect(app.repriority).toBeNull();
+      expect(hub.sent).toHaveLength(0);
     });
 
     it('asks for the blocker when a card goes to the blocked column, and sends the status with it', async () => {
