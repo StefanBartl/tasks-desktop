@@ -15,9 +15,10 @@ use crate::classes::{self, AreaPolicy};
 use crate::client;
 use crate::config::{self, Env, FileConfig};
 use crate::discovery::discover;
+use crate::editor::TerminalOpener;
 use crate::engine::{probe, CliEngine, CliEngineConfig, Engine, Method};
 use crate::server::{
-    self, BoxFuture, HubStatus, Limits, ServerConfig, VaultAdmin, VaultInfo, VaultList,
+    self, BoxFuture, Extras, HubStatus, Limits, ServerConfig, VaultAdmin, VaultInfo, VaultList,
     VaultTarget, WatchConfig, APP_NAME, DEFAULT_PORT,
 };
 use crate::store::RefreshOptions;
@@ -107,6 +108,8 @@ struct EngineState {
     note: Option<String>,
     /// The vault to watch, once the engine is known to be there.
     vault: Option<PathBuf>,
+    /// The Neovim that was found, for opening a file in it.
+    nvim: Option<PathBuf>,
 }
 
 /// Find the engine and ask it `hello`.
@@ -120,6 +123,7 @@ async fn engine_state(file: &FileConfig, env: &Env) -> EngineState {
         engine: None,
         note: Some(note),
         vault: None,
+        nvim: None,
     };
     let setup = match discover(file, env).await {
         Ok(setup) => setup,
@@ -155,6 +159,7 @@ async fn engine_state(file: &FileConfig, env: &Env) -> EngineState {
             },
             engine: Some(Arc::new(engine)),
             vault: Some(setup.vault.value.clone()),
+            nvim: Some(setup.nvim.value.clone()),
             note: setup
                 .lib_problem
                 .as_ref()
@@ -412,8 +417,15 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
     // The port is part of the origin, so the wanted one is tried first. When
     // it is taken the server still starts, on another port, and says so:
     // the page then has another origin and its stored state does not carry over.
+    let nvim = state.nvim.clone();
     let vaults: Arc<dyn VaultAdmin> = Arc::new(ConfigVaults::new(dir.clone(), env.clone(), file));
-    let running = match server::start_with(make_cfg(want), Some(Arc::clone(&vaults))).await {
+    let extras = || Extras {
+        vaults: Some(Arc::clone(&vaults)),
+        opener: nvim.clone().map(|n| {
+            Arc::new(TerminalOpener::new(n, env.clone())) as Arc<dyn crate::editor::FileOpener>
+        }),
+    };
+    let running = match server::start_with(make_cfg(want), extras()).await {
         Ok(r) => r,
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
             // Two hubs that start at the same moment both passed the check
@@ -423,7 +435,7 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
                 return Err(format!("a hub is already running on port {want}"));
             }
             eprintln!("note: port {want} is in use, using a free port; the origin changes");
-            server::start_with(make_cfg(0), Some(vaults))
+            server::start_with(make_cfg(0), extras())
                 .await
                 .map_err(|e| e.to_string())?
         }

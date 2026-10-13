@@ -1848,3 +1848,23 @@ test('a finished task is brought back by the undo of the finish and from the rem
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('a task is opened in Neovim by the hub: the page names the task, the hub the file', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  await open(page, 'lib.nvim/alpha');
+  const log = join(state().config, '..', 'editor.log');
+  rmSync(log, { force: true });
+
+  await page.locator('aside.detail').getByRole('button', { name: 'Open in Neovim' }).click();
+  await expect(page.getByRole('status').getByText('Opened in Neovim.')).toBeVisible();
+  await expect.poll(() => (existsSync(log) ? readFileSync(log, 'utf8') : '')).toContain('alpha.md');
+  const opened = readFileSync(log, 'utf8').trim().split('\n');
+  expect(opened).toHaveLength(1);
+  // The file is the one inside the vault (links resolved), and the page never saw its path.
+  expect(opened[0]?.replace(/\\/g, '/')).toMatch(/lib\.nvim\/ROADMAP\/tasks\/alpha\.md$/);
+  expect(await page.locator('body').innerText()).not.toContain(opened[0] ?? 'x');
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});

@@ -53,6 +53,7 @@ use tokio::sync::{broadcast, mpsc, watch, Semaphore};
 use tokio::task::JoinHandle;
 
 use crate::classes::{AreaPolicy, Shown};
+use crate::editor::FileOpener;
 use crate::engine::{Engine, EngineError, Method as EngineMethod};
 use crate::search::{self, SearchIndex};
 use crate::store::{self, RefreshOptions, SnapshotStore, StoreOptions};
@@ -234,6 +235,8 @@ struct Shared {
     refresh: RefreshOptions,
     /// The vaults the person may choose from; none in a hub that has only one.
     vaults: Option<Arc<dyn VaultAdmin>>,
+    /// Shows a task file in an editor; none in a hub that cannot.
+    opener: Option<Arc<dyn FileOpener>>,
 }
 
 impl Shared {
@@ -252,6 +255,8 @@ impl Shared {
 /// What the hub keeps for the vault it reads: the engine and the answers
 /// that depend on it. Dropping it stops the watching and the indexing.
 struct VaultRuntime {
+    /// The folder of the vault, when the engine is there.
+    vault: Option<PathBuf>,
     status: HubStatus,
     engine: Option<Arc<dyn Engine>>,
     store: Arc<SnapshotStore>,
@@ -341,6 +346,7 @@ fn build_runtime(
     );
     // The text of the tasks, for the search: kept by the hub, read by the engine.
     let search = engine.clone().map(SearchIndex::new);
+    let folder = vault.clone();
     let mut jobs = Vec::new();
     if let Some(index) = &search {
         jobs.push(search::spawn_indexer(Arc::clone(index), &store));
@@ -360,6 +366,7 @@ fn build_runtime(
         hints = Some(tx);
     }
     VaultRuntime {
+        vault: folder,
         status,
         engine,
         store,
@@ -461,7 +468,16 @@ impl RunningServer {
 /// An I/O error of binding, or `InvalidInput` for an address that is not
 /// loopback.
 pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
-    start_with(cfg, None).await
+    start_with(cfg, Extras::default()).await
+}
+
+/// What a hub may have besides the data routes.
+#[derive(Default)]
+pub struct Extras {
+    /// The list of vaults the page may choose from.
+    pub vaults: Option<Arc<dyn VaultAdmin>>,
+    /// How a task file is shown in Neovim.
+    pub opener: Option<Arc<dyn FileOpener>>,
 }
 
 /// Bind and serve, with a list of vaults the page may choose from.
@@ -469,10 +485,8 @@ pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
 /// # Errors
 ///
 /// As [`start`].
-pub async fn start_with(
-    cfg: ServerConfig,
-    vaults: Option<Arc<dyn VaultAdmin>>,
-) -> std::io::Result<RunningServer> {
+pub async fn start_with(cfg: ServerConfig, extras: Extras) -> std::io::Result<RunningServer> {
+    let Extras { vaults, opener } = extras;
     if !cfg.addr.ip().is_loopback() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -511,6 +525,7 @@ pub async fn start_with(
         runtime: StdRwLock::new(Arc::new(runtime)),
         refresh,
         vaults,
+        opener,
     });
 
     let app = router(Arc::clone(&shared));
@@ -540,6 +555,10 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/api/tasks/rescan", post(rescan))
         .route("/api/tasks/done_preview", get(done_preview))
         .route("/api/tasks/ops", post(ops))
+        .route(
+            "/api/tasks/open",
+            post(open_file).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
+        )
         .route("/api/vaults", get(vaults_list))
         .route(
             "/api/vaults/add",
@@ -1703,6 +1722,60 @@ fn vaults_unavailable() -> Response {
         "vaults_unavailable",
         "this hub has no list of vaults",
     )
+}
+
+/// `POST /api/tasks/open` `{ "id" }`: show the file of a task in Neovim, in a window of its own. The page names the
+/// task, never a file: the engine says which file it is, the hub checks that it is a plain file inside the vault, and
+/// starts the editor with that one argument (no shell).
+async fn open_file(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
+    let Some(opener) = &st.opener else {
+        return error_body(
+            StatusCode::NOT_FOUND,
+            "open_unavailable",
+            "this hub cannot open a file in an editor",
+        );
+    };
+    let map = match vault_request(&body, &["id"]) {
+        Ok(m) => m,
+        Err(r) => return r,
+    };
+    let id = match vault_text(&map, "id", 200) {
+        Ok(id) if valid_task_id(&id) => id,
+        Ok(_) => {
+            return error_body(
+                StatusCode::BAD_REQUEST,
+                "bad_id",
+                "id must be <area>/<slug>",
+            )
+        }
+        Err(r) => return r,
+    };
+    let rt = st.rt();
+    let Some(vault) = rt.vault.clone() else {
+        return engine_unavailable(&st);
+    };
+    let reply = match ask(&st, EngineMethod::Task, Some(&json!({ "id": id }))).await {
+        Ok(r) => r,
+        Err(response) => return response,
+    };
+    let name = serde_json::from_str::<serde_json::Value>(&reply.text)
+        .ok()
+        .and_then(|doc| doc["task"]["file"].as_str().map(str::to_owned));
+    let Some(name) = name else {
+        return error_body(
+            StatusCode::BAD_GATEWAY,
+            "engine_failed",
+            "the engine named no file for this task",
+        );
+    };
+    let file = match crate::editor::file_in_vault(&vault, &name) {
+        Ok(f) => f,
+        Err(why) => return error_body(StatusCode::BAD_REQUEST, "open_refused", why),
+    };
+    match opener.open(&file) {
+        Ok(()) => axum::Json(json!({ "ok": true })).into_response(),
+        Err(why) => error_body(StatusCode::BAD_GATEWAY, "open_failed", &why),
+    }
 }
 
 /// `GET /api/vaults`: the vaults the person may choose from and the one that

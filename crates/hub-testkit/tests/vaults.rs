@@ -16,8 +16,8 @@ use tasks_hub::client;
 use tasks_hub::config::Env;
 use tasks_hub::engine::{CliEngine, CliEngineConfig, Engine};
 use tasks_hub::server::{
-    start, start_with, BoxFuture, HubStatus, Limits, RunningServer, ServerConfig, VaultAdmin,
-    VaultInfo, VaultList, VaultTarget, WatchConfig,
+    start, start_with, BoxFuture, Extras, HubStatus, Limits, RunningServer, ServerConfig,
+    VaultAdmin, VaultInfo, VaultList, VaultTarget, WatchConfig,
 };
 use tasks_hub::store::RefreshOptions;
 
@@ -170,7 +170,15 @@ async fn rig(name: &str, with_admin: bool) -> Rig {
     };
     let server = if with_admin {
         let admin: Arc<dyn VaultAdmin> = Arc::clone(&fake) as Arc<dyn VaultAdmin>;
-        start_with(cfg, Some(admin)).await.unwrap()
+        start_with(
+            cfg,
+            Extras {
+                vaults: Some(admin),
+                opener: None,
+            },
+        )
+        .await
+        .unwrap()
     } else {
         start(cfg).await.unwrap()
     };

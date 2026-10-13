@@ -203,6 +203,8 @@ export function env(config: string): NodeJS.ProcessEnv {
   return {
     ...process.env,
     TASKS_DESKTOP_CONFIG_DIR: config,
+    // The editor is not started in a test: the file it would open is written here.
+    TASKS_DESKTOP_EDITOR_LOG: join(config, '..', 'editor.log'),
     TASKS_DESKTOP_PORT: String(PORT),
   };
 }

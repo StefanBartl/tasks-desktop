@@ -293,6 +293,17 @@ The data classes are per area name (`areas.json`) and apply to every vault: an a
 may do: a page that is paired could point the hub at any folder, so adding is a deliberate step with a confirmation, and an
 error never holds a path (the terminal of whoever runs the hub gets the reason).
 
+## Opening a task in Neovim (`POST /api/tasks/open`)
+
+The page sends `{ "id": "<area>/<slug>" }` and nothing else (a second field is refused). The hub asks the engine which file
+the task is in, accepts only a plain relative name (no `..`, no drive, not absolute), and only a regular file that, with
+links resolved, lies inside the vault (a link planted in the vault does not lead out of it). Neovim is started with that one
+file as an argument and no shell: a new console window on Windows, the first terminal program found on Linux (`x-terminal-emulator`,
+`gnome-terminal`, `konsole`, `xfce4-terminal`, `alacritty`, `kitty`, `xterm`). Where no way is known (macOS) the answer says so.
+The answer holds no path. The route needs a session and counts against the limit of mutations like any POST. An area that is
+private is opened too: it is the person at this machine who asks, and showing it here is not a use that leaves the hub.
+`TASKS_DESKTOP_EDITOR_LOG` (a file) makes the hub write the file instead of starting anything; the browser tests use it.
+
 ## Search in the text of the tasks
 
 The engine alone reads task files, so the texts come from it: the verb

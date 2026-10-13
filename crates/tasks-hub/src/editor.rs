@@ -1,0 +1,260 @@
+//! Opening a task file in Neovim, in a window of its own.
+//!
+//! The page asks by task id; the hub finds the file (the engine names it, the
+//! hub checks that it lies inside the vault) and starts Neovim with that one
+//! file as an argument. No shell is involved: a program and its arguments, so
+//! nothing in a file name can become a command. Which window Neovim gets
+//! depends on the system: a new console on Windows, the first terminal program
+//! found on Linux. Where no way is known the answer says so.
+//!
+//! `TASKS_DESKTOP_EDITOR_LOG` (a file) makes the hub write the file it would
+//! have opened to that file instead of starting anything: the seam of the tests.
+
+use std::ffi::OsString;
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
+
+use crate::config::Env;
+
+/// Something that can show a file in an editor.
+pub trait FileOpener: Send + Sync {
+    /// Start the editor on `file`; does not wait for it. The error is a short
+    /// text for the page: no path.
+    ///
+    /// # Errors
+    ///
+    /// Why the editor could not be started.
+    fn open(&self, file: &Path) -> Result<(), String>;
+}
+
+/// A program and its arguments.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Launch {
+    pub program: PathBuf,
+    pub args: Vec<OsString>,
+}
+
+/// The terminal programs tried on Linux, in this order, each with what comes
+/// before the command it runs.
+const TERMINALS: &[(&str, &[&str])] = &[
+    ("x-terminal-emulator", &["-e"]),
+    ("gnome-terminal", &["--"]),
+    ("konsole", &["-e"]),
+    ("xfce4-terminal", &["-x"]),
+    ("alacritty", &["-e"]),
+    ("kitty", &[]),
+    ("xterm", &["-e"]),
+];
+
+/// How to start `nvim` on `file` in a window of its own, or `None` when no way
+/// is known on `os` (`std::env::consts::OS`). `find` looks a program up.
+#[must_use]
+pub fn plan(
+    nvim: &Path,
+    file: &Path,
+    os: &str,
+    find: &dyn Fn(&str) -> Option<PathBuf>,
+) -> Option<Launch> {
+    match os {
+        // A console of its own is made when the process starts (see `spawn`).
+        "windows" => Some(Launch {
+            program: nvim.to_path_buf(),
+            args: vec![file.as_os_str().to_owned()],
+        }),
+        "linux" => TERMINALS.iter().find_map(|(name, before)| {
+            let program = find(name)?;
+            let mut args: Vec<OsString> = before.iter().map(OsString::from).collect();
+            args.push(nvim.as_os_str().to_owned());
+            args.push(file.as_os_str().to_owned());
+            Some(Launch { program, args })
+        }),
+        _ => None,
+    }
+}
+
+/// A program of this name on `PATH` (as a file).
+fn on_path(env: &Env, name: &str) -> Option<PathBuf> {
+    let path = env.get("PATH")?;
+    std::env::split_paths(path)
+        .map(|dir| dir.join(name))
+        .find(|candidate| candidate.is_file())
+}
+
+/// Starts Neovim in a terminal window.
+pub struct TerminalOpener {
+    nvim: PathBuf,
+    env: Env,
+}
+
+impl TerminalOpener {
+    #[must_use]
+    pub fn new(nvim: PathBuf, env: Env) -> Self {
+        Self { nvim, env }
+    }
+}
+
+#[cfg(windows)]
+fn spawn(launch: &Launch) -> std::io::Result<std::process::Child> {
+    use std::os::windows::process::CommandExt as _;
+    // CREATE_NEW_CONSOLE: Neovim is a console program, and the hub has none.
+    std::process::Command::new(&launch.program)
+        .args(&launch.args)
+        .creation_flags(0x0000_0010)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+}
+
+#[cfg(not(windows))]
+fn spawn(launch: &Launch) -> std::io::Result<std::process::Child> {
+    std::process::Command::new(&launch.program)
+        .args(&launch.args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+}
+
+impl FileOpener for TerminalOpener {
+    fn open(&self, file: &Path) -> Result<(), String> {
+        if let Some(log) = self.env.path("TASKS_DESKTOP_EDITOR_LOG") {
+            let mut out = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log)
+                .map_err(|_| "the test log cannot be written".to_owned())?;
+            writeln!(out, "{}", file.display())
+                .map_err(|_| "the test log cannot be written".to_owned())?;
+            return Ok(());
+        }
+        let find = |name: &str| on_path(&self.env, name);
+        let launch = plan(&self.nvim, file, std::env::consts::OS, &find).ok_or_else(|| {
+            "no way to open a window with Neovim is known on this system".to_owned()
+        })?;
+        let mut child = spawn(&launch).map_err(|_| "Neovim could not be started".to_owned())?;
+        // Reaped when it ends; the hub never waits for the editor.
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+        Ok(())
+    }
+}
+
+/// The file of a task as the engine named it (`lib.nvim/ROADMAP/tasks/x.md`),
+/// as a path inside `vault`, or why it is not one. The name must be a plain
+/// relative path, and what it leads to must be a file that lies in the vault
+/// once links are resolved: a link planted in a vault does not lead out of it.
+///
+/// # Errors
+///
+/// A short reason, no path.
+pub fn file_in_vault(vault: &Path, name: &str) -> Result<PathBuf, &'static str> {
+    use std::path::Component;
+    let relative = Path::new(name);
+    if name.is_empty()
+        || relative.is_absolute()
+        || !relative
+            .components()
+            .all(|c| matches!(c, Component::Normal(_)))
+    {
+        return Err("the engine named a file that is not a plain relative path");
+    }
+    let joined = vault.join(relative);
+    let meta = std::fs::symlink_metadata(&joined).map_err(|_| "the file is not there")?;
+    if meta.file_type().is_symlink() || !meta.is_file() {
+        return Err("the task is not a plain file");
+    }
+    let real = joined.canonicalize().map_err(|_| "the file is not there")?;
+    let root = vault.canonicalize().map_err(|_| "the vault is not there")?;
+    if !real.starts_with(&root) {
+        return Err("the file lies outside the vault");
+    }
+    Ok(real)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn none(_: &str) -> Option<PathBuf> {
+        None
+    }
+
+    #[test]
+    fn windows_starts_neovim_itself_and_linux_the_first_terminal_it_finds() {
+        let nvim = PathBuf::from("/bin/nvim");
+        let file = PathBuf::from("/v/a/ROADMAP/tasks/x.md");
+        let win = plan(&nvim, &file, "windows", &none).unwrap();
+        assert_eq!(win.program, nvim);
+        assert_eq!(win.args, vec![file.as_os_str().to_owned()]);
+
+        let only_konsole =
+            |name: &str| (name == "konsole").then(|| PathBuf::from("/usr/bin/konsole"));
+        let l = plan(&nvim, &file, "linux", &only_konsole).unwrap();
+        assert_eq!(l.program, PathBuf::from("/usr/bin/konsole"));
+        assert_eq!(
+            l.args,
+            vec![
+                OsString::from("-e"),
+                nvim.as_os_str().to_owned(),
+                file.as_os_str().to_owned()
+            ]
+        );
+        // The first of the list wins.
+        let both =
+            |name: &str| matches!(name, "xterm" | "gnome-terminal").then(|| PathBuf::from(name));
+        assert_eq!(
+            plan(&nvim, &file, "linux", &both).unwrap().program,
+            PathBuf::from("gnome-terminal")
+        );
+    }
+
+    #[test]
+    fn where_no_way_is_known_there_is_none() {
+        let nvim = PathBuf::from("nvim");
+        let file = PathBuf::from("x.md");
+        assert!(plan(&nvim, &file, "linux", &none).is_none());
+        assert!(plan(&nvim, &file, "macos", &none).is_none());
+    }
+
+    #[test]
+    fn a_file_name_that_climbs_or_names_a_drive_is_refused() {
+        let dir = std::env::temp_dir().join(format!("tasks-desktop-editor-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("a")).unwrap();
+        std::fs::write(dir.join("a").join("x.md"), "x").unwrap();
+        assert!(file_in_vault(&dir, "a/x.md").is_ok());
+        for bad in [
+            "",
+            "../x.md",
+            "a/../a/x.md",
+            "/etc/passwd",
+            "C:/x.md",
+            "a/nope.md",
+        ] {
+            assert!(file_in_vault(&dir, bad).is_err(), "{bad:?} was accepted");
+        }
+        // A folder is not a task file.
+        assert!(file_in_vault(&dir, "a").is_err());
+    }
+
+    #[test]
+    fn the_test_seam_writes_the_file_it_would_have_opened() {
+        let dir =
+            std::env::temp_dir().join(format!("tasks-desktop-editor-log-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("opened.log");
+        let _ = std::fs::remove_file(&log);
+        let env = Env::from_pairs([(
+            "TASKS_DESKTOP_EDITOR_LOG",
+            log.to_string_lossy().into_owned(),
+        )]);
+        let opener = TerminalOpener::new(PathBuf::from("nvim"), env);
+        opener.open(Path::new("/v/a.md")).unwrap();
+        opener.open(Path::new("/v/b.md")).unwrap();
+        let text = std::fs::read_to_string(&log).unwrap();
+        assert_eq!(text.lines().count(), 2);
+        assert!(text.contains("a.md") && text.contains("b.md"));
+    }
+}
