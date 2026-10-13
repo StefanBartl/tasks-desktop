@@ -188,6 +188,18 @@ async fn a_dry_run_changes_and_scans_nothing() {
 }
 
 #[tokio::test]
+async fn a_plan_may_be_asked_for_and_an_unknown_operation_is_not() {
+    let r = rig("plan").await;
+    let body = r#"{"dry_run":true,"ops":[{"op":"plan_new","area":"alpha.nvim","title":"A plan"}]}"#;
+    let (status, doc) = post(&r, "/api/tasks/ops", body, JSON, true).await;
+    assert_eq!(status, 200, "the door refused plan_new: {doc}");
+    // An operation the door does not know is still refused.
+    let unknown = r#"{"ops":[{"op":"plan_delete","id":"alpha.nvim/p"}]}"#;
+    let (status, _) = post(&r, "/api/tasks/ops", unknown, JSON, true).await;
+    assert_eq!(status, 400);
+}
+
+#[tokio::test]
 async fn a_request_that_is_plainly_not_one_is_refused_at_the_door() {
     let r = rig("form").await;
     let many: String = (0..101)

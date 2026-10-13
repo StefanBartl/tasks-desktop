@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -809,6 +809,73 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
   await drag(page, column('open').locator('.card', { hasText: other }), rest.first(), 'lower');
   expect(writes).toBe(0);
   await expect(page.getByRole('status').getByText(/holds inside one priority/)).toBeVisible();
+
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('the plan wizard names the plan with a dry run, refuses what the engine refuses and makes the file', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+
+  const dialog = page.getByRole('dialog', { name: 'New plan' });
+  const open = async (): Promise<void> => {
+    await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'New plan ...' }).click();
+    await expect(dialog).toBeVisible();
+  };
+  await open();
+  const create = dialog.getByRole('button', { name: 'Create' });
+  await expect(create).toBeDisabled();
+  expect(await violations(page)).toEqual([]);
+
+  // The engine names the plan while the person types; nothing is written yet.
+  await dialog.getByLabel('Title', { exact: true }).fill('Wizard e2e plan');
+  await dialog.getByLabel('Area of the plan file').selectOption('lib.nvim');
+  await expect(dialog.getByRole('status')).toHaveText('The plan will be lib.nvim/wizard-e2e-plan');
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'plans', 'wizard-e2e-plan.md');
+  expect(existsSync(file)).toBe(false);
+
+  // What the engine refuses is shown as it says it, and the plan cannot be made.
+  await dialog.getByLabel(/Phases in order/).fill('design, Not Kebab');
+  await expect(dialog.getByRole('status')).toContainText('kebab');
+  await expect(create).toBeDisabled();
+  await dialog.getByLabel(/Phases in order/).fill('design, build');
+  await expect(dialog.getByRole('status')).toHaveText('The plan will be lib.nvim/wizard-e2e-plan');
+  await expect(create).toBeEnabled();
+
+  await dialog.getByLabel('Target task').fill('lib.nvim/alpha');
+  await dialog.getByLabel('State of the plan').selectOption('doing');
+  await dialog.getByLabel(/Each phase waits/).check();
+  await dialog.getByLabel('One line about it').fill('Made by the browser test.');
+  await expect(create).toBeEnabled();
+  await create.click();
+  await expect(dialog).toHaveCount(0);
+
+  // The plan view opens on the new plan, and the file is what the engine makes.
+  await expect(page.getByRole('heading', { name: 'Plan', level: 1 })).toBeAttached();
+  await expect(page.getByLabel('Plan', { exact: true }).or(page.locator('.plan-select select'))).toHaveValue(
+    'lib.nvim/wizard-e2e-plan',
+  );
+  const text = readFileSync(file, 'utf8');
+  expect(text).toContain('title: Wizard e2e plan');
+  expect(text).toContain('gate: hard');
+  expect(text).toContain('Made by the browser test.');
+  expect(text).toMatch(/phase_order: \[design, build\]/);
+
+  // The same title again: the name is taken, and the dry run says so before anything is made.
+  await open();
+  await dialog.getByLabel('Title', { exact: true }).fill('Wizard e2e plan');
+  await dialog.getByLabel('Area of the plan file').selectOption('lib.nvim');
+  await expect(dialog.getByRole('status')).toHaveText(
+    'The name was taken: the plan will be lib.nvim/wizard-e2e-plan-2',
+  );
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(existsSync(join(state().vault, 'lib.nvim', 'ROADMAP', 'plans', 'wizard-e2e-plan-2.md'))).toBe(false);
 
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);

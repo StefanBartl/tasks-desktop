@@ -8,6 +8,7 @@
   import MenuBar, { type Menu } from './views/MenuBar.svelte';
   import PlanView from './views/PlanView.svelte';
   import Capture from './views/Capture.svelte';
+  import PlanWizard from './views/PlanWizard.svelte';
   import DoneDialog from './views/DoneDialog.svelte';
   import Toast from './views/Toast.svelte';
 
@@ -172,6 +173,12 @@
             label: t('menu.capture'),
             disabled: !ready,
             onselect: () => app.openCapture(),
+          },
+          {
+            kind: 'action',
+            label: t('plan.new.button'),
+            disabled: app.phase !== 'ready',
+            onselect: () => app.openPlanWizard(),
           },
           {
             kind: 'action',
@@ -357,6 +364,7 @@
   </main>
   {#if app.phase === 'ready'}
     <Capture {app} />
+    <PlanWizard {app} />
     <DoneDialog {app} />
   {/if}
   <Toast {app} />

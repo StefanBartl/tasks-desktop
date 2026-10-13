@@ -2,6 +2,7 @@
 // event stream and the detail of the selected task.
 
 import { bulkSetOps, markAll, pruneMarks, toggleMark } from './bulk';
+import { planOp, type PlanForm, type PlanPreview } from './planwizard';
 import { columnsOf, isColumn, neighbourColumn, placeNear, stepInGroup, type Move } from './board';
 import { ApiError, type Hub, type HubArea, type HubAreas, type SearchResult } from './api';
 import { cacheableList, type ListStore } from './cache';
@@ -116,6 +117,8 @@ export class App {
   toast = $state.raw<Toast | null>(null);
   /** The capture dialog is open. */
   capturing = $state(false);
+  /** The plan wizard is open. */
+  planning = $state(false);
   /** The task that is being finished, with what the engine says that does. */
   finishing = $state.raw<{ id: string; preview: DonePreview } | null>(null);
   private opCount = 0;
@@ -207,6 +210,48 @@ export class App {
 
   closeCapture(): void {
     this.capturing = false;
+  }
+
+  openPlanWizard(): void {
+    if (this.phase === 'ready') this.planning = true;
+  }
+
+  closePlanWizard(): void {
+    this.planning = false;
+  }
+
+  /**
+   * Ask the engine what the plan would be called (a dry run: nothing is written, nothing is scanned). The engine's
+   * refusal is the answer when the form is not one, so the rules stay in one place.
+   */
+  async previewPlan(form: PlanForm, signal?: AbortSignal): Promise<PlanPreview> {
+    if (form.title.trim() === '' || form.area === '') return { kind: 'unknown' };
+    try {
+      const result = await this.env.hub.ops(
+        { client_op_id: this.opId(), dry_run: true, ops: [planOp(form)] },
+        signal,
+      );
+      const entry = result.results[0];
+      if (entry?.ok && typeof entry.id === 'string') {
+        return { kind: 'ok', id: entry.id, renamed: entry.renamed === true };
+      }
+      return { kind: 'refused', message: entry?.error?.message ?? '' };
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 400) {
+        return { kind: 'refused', message: error.message };
+      }
+      return { kind: 'unknown' };
+    }
+  }
+
+  /** Make the plan, show it in the plan view and choose it there. */
+  async createPlan(form: PlanForm): Promise<void> {
+    const result = await this.write([planOp(form)], { undoable: false });
+    const id = result?.results.find((r) => r.ok && r.outcome === 'created')?.id;
+    if (!id) return;
+    this.planning = false;
+    this.planChoice = id;
+    this.setView('plan');
   }
 
   /**

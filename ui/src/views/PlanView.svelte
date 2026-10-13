@@ -56,6 +56,7 @@
           {/each}
         {/if}
       </div>
+      <button type="button" class="newplan" onclick={() => app.openPlanWizard()}>{t('plan.new.button')}</button>
       {#if plans.length > 0}
         <label class="plan-select">
           <span>{t('plan.which')}</span>
@@ -175,6 +176,15 @@
   }
   .card.warn {
     border-color: var(--warn);
+  }
+  .newplan {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.25rem 0.6rem;
+    cursor: pointer;
+    margin: 0.2rem 0;
   }
   .chips,
   .phases {

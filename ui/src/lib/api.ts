@@ -17,7 +17,19 @@ export type Op =
   | { op: 'set'; id: string; patch: Record<string, unknown>; if_match?: string }
   | { op: 'new'; area: string; title: string; fields?: Record<string, unknown> }
   | { op: 'reorder'; id: string; after?: string; before?: string; group?: string; if_match?: string }
-  | { op: 'done'; id: string; confirm: string; remind?: string };
+  | { op: 'done'; id: string; confirm: string; remind?: string }
+  | {
+      op: 'plan_new';
+      area: string;
+      title: string;
+      areas?: string[];
+      target?: string;
+      phases?: string[];
+      gate?: string;
+      status?: string;
+      summary?: string;
+      slug?: string;
+    };
 
 export interface OpsRequest {
   client_op_id: string;
@@ -176,11 +188,12 @@ export class Hub {
   }
 
   /** Changes, through the one door of the engine. The answer says per operation what happened. */
-  async ops(request: OpsRequest): Promise<Result> {
+  async ops(request: OpsRequest, signal?: AbortSignal): Promise<Result> {
     const response = await this.request('/api/tasks/ops', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
+      ...(signal ? { signal } : {}),
     });
     if (!response.ok) throw await failure(response);
     return (await response.json()) as Result;

@@ -4,6 +4,7 @@ import { App, type Env } from './app.svelte';
 import type { CachedList, ListStore } from './cache';
 import type { DonePreview, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import { task } from './fixtures';
+import { emptyForm } from './planwizard';
 
 function snapshot(tasks: TaskEntry[], rev = 'rev:1'): Snapshot {
   return {
@@ -101,9 +102,9 @@ class FakeHub {
       results: request.ops.map((op, i) => ({
         n: i + 1,
         op: op.op,
-        id: op.op === 'new' ? 'pub/created' : op.id,
+        id: op.op === 'new' ? 'pub/created' : op.op === 'plan_new' ? `${op.area}/made-plan` : op.id,
         ok: true,
-        outcome: op.op === 'new' ? 'created' : 'changed',
+        outcome: op.op === 'new' || op.op === 'plan_new' ? (request.dry_run ? 'would_create' : 'created') : 'changed',
         changed_ids: [],
         ...(op.op === 'set'
           ? { inverse: { op: 'set', id: op.id, patch: { status: 'open' }, if_match: 'e2' } }
@@ -751,6 +752,102 @@ describe('writing', () => {
       // decision and blocked are empty: left of open is doing
       app.moveSelectionAcross(-1);
       expect(app.selectedId).toBe('pub/a');
+    });
+  });
+
+  describe('plan wizard', () => {
+    const form = { ...emptyForm('pub'), title: 'A plan', phases: 'design, build' };
+
+    it('asks the engine for a dry run and shows its name; an empty form asks nothing', async () => {
+      const { app, hub } = await ready();
+      expect(await app.previewPlan({ ...form, title: '  ' })).toEqual({ kind: 'unknown' });
+      expect(hub.sent).toHaveLength(0);
+      const answer = await app.previewPlan(form);
+      expect(answer).toEqual({ kind: 'ok', id: 'pub/made-plan', renamed: false });
+      expect(hub.sent).toHaveLength(1);
+      expect(hub.sent[0]?.dry_run).toBe(true);
+      expect(hub.sent[0]?.ops).toEqual([
+        { op: 'plan_new', area: 'pub', title: 'A plan', areas: ['pub'], phases: ['design', 'build'] },
+      ]);
+      // A dry run is neither a write nor a scan: no toast, no busy state.
+      expect(app.toast).toBeNull();
+      expect(app.saving).toBe(false);
+    });
+
+    it('says what the engine refused, and tells a name that was taken', async () => {
+      const { app, hub } = await ready();
+      hub.next_ops = {
+        kind: 'tasks.result',
+        ok: false,
+        dry_run: true,
+        results: [
+          {
+            n: 1,
+            op: 'plan_new',
+            ok: false,
+            outcome: 'failed',
+            changed_ids: [],
+            error: { code: 'invalid_argument', message: 'phases: x is no kebab-case word', retryable: false },
+          },
+        ],
+      } as unknown as Result;
+      expect(await app.previewPlan(form)).toEqual({
+        kind: 'refused',
+        message: 'phases: x is no kebab-case word',
+      });
+      hub.next_ops = new ApiError(400, 'bad_request', 'the request is not valid');
+      expect(await app.previewPlan(form)).toEqual({ kind: 'refused', message: 'the request is not valid' });
+      hub.next_ops = new ApiError(502, 'engine_unavailable', 'x');
+      expect(await app.previewPlan(form)).toEqual({ kind: 'unknown' });
+      hub.next_ops = {
+        kind: 'tasks.result',
+        ok: true,
+        dry_run: true,
+        results: [
+          { n: 1, op: 'plan_new', id: 'pub/a-plan-2', ok: true, outcome: 'would_create', renamed: true, changed_ids: [] },
+        ],
+      } as unknown as Result;
+      expect(await app.previewPlan(form)).toEqual({ kind: 'ok', id: 'pub/a-plan-2', renamed: true });
+    });
+
+    it('makes the plan, chooses it in the plan view and closes the wizard', async () => {
+      const { app, hub } = await ready();
+      app.setView('list');
+      app.openPlanWizard();
+      expect(app.planning).toBe(true);
+      await app.createPlan(form);
+      expect(hub.sent).toHaveLength(1);
+      expect(hub.sent[0]?.dry_run).toBeUndefined();
+      expect(hub.sent[0]?.ops[0]).toMatchObject({ op: 'plan_new', title: 'A plan' });
+      expect(app.planning).toBe(false);
+      expect(app.view).toBe('plan');
+      expect(app.planChoice).toBe('pub/made-plan');
+      // A plan is not taken back with a rename of the file: no way back is offered.
+      expect(app.toast?.undo).toBeUndefined();
+    });
+
+    it('keeps the wizard open when the engine refuses the plan', async () => {
+      const { app, hub } = await ready();
+      app.openPlanWizard();
+      hub.next_ops = {
+        kind: 'tasks.result',
+        ok: false,
+        dry_run: false,
+        results: [
+          {
+            n: 1,
+            op: 'plan_new',
+            ok: false,
+            outcome: 'failed',
+            changed_ids: [],
+            error: { code: 'invalid_argument', message: 'gate must be `hard` or absent', retryable: false },
+          },
+        ],
+      } as unknown as Result;
+      await app.createPlan(form);
+      expect(app.planning).toBe(true);
+      expect(app.view).not.toBe('plan');
+      expect(app.toast?.kind).toBe('error');
     });
   });
 
