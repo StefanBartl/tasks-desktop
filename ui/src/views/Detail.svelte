@@ -453,6 +453,9 @@
     padding: 1rem;
     overflow: auto;
     min-height: 0;
+    /* A tall form must not stretch the row of the page it stands in (the board's columns would grow with it). */
+    align-self: start;
+    max-height: calc(100vh - 5rem);
   }
   .task-title {
     font-size: 1.25rem;
