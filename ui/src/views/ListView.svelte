@@ -35,15 +35,17 @@
 
   // The bulk bar changes what is chosen in it, all at once, when the button is pressed (a select alone never writes).
   let draft = $state({ status: '', prio: '', actor: '' });
+  $effect(() => {
+    if (app.marks.length === 0) draft = { status: '', prio: '', actor: '' };
+  });
   async function applyDraft(): Promise<void> {
     const patch: Record<string, unknown> = {};
     if (draft.status) patch.status = draft.status;
     if (draft.prio) patch.prio = Number(draft.prio);
     if (draft.actor) patch.actor = draft.actor;
     if (Object.keys(patch).length === 0) return;
+    // What stays marked (a failure) keeps the choice for the second try; with no marks left it starts over.
     await app.bulkSet(patch);
-    // What stays marked (a failure) keeps the choice for the second try; a clean batch starts over.
-    if (app.marks.length === 0) draft = { status: '', prio: '', actor: '' };
   }
 
   // The first rows are drawn at once and the rest in the frames after: a
@@ -128,14 +130,14 @@
       <div class="bulk" role="group" aria-label={t('bulk.change')}>
         <strong aria-live="polite">{t('bulk.count', { n: app.marks.length })}</strong>
         <label>
-          <span class="sr">{t('field.status')}</span>
+          <span class="sr-only">{t('field.status')}</span>
           <select bind:value={draft.status} disabled={app.saving}>
             <option value="">{t('field.status')}: {t('bulk.keep')}</option>
             {#each statuses as s (s)}<option value={s}>{t(`status.${s}` as Key)}</option>{/each}
           </select>
         </label>
         <label>
-          <span class="sr">{t('field.prio')}</span>
+          <span class="sr-only">{t('field.prio')}</span>
           <select bind:value={draft.prio} disabled={app.saving}>
             <option value="">{t('field.prio')}: {t('bulk.keep')}</option>
             <option value="1">P1</option>
@@ -144,7 +146,7 @@
           </select>
         </label>
         <label>
-          <span class="sr">{t('field.actor')}</span>
+          <span class="sr-only">{t('field.actor')}</span>
           <select bind:value={draft.actor} disabled={app.saving}>
             <option value="">{t('field.actor')}: {t('bulk.keep')}</option>
             {#each actors.filter((a) => a !== 'none') as a (a)}<option value={a}>{t(`actor.${a}` as Key)}</option>{/each}
@@ -247,14 +249,6 @@
     background: var(--surface-2);
     border-bottom: 1px solid var(--border);
     font-size: 0.85rem;
-  }
-  .sr {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
   }
   .bulk select,
   .bulk button {

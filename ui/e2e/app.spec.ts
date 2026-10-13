@@ -543,7 +543,8 @@ test('marked tasks are changed in one batch, with the keys and the button', asyn
   }
 
   // Narrow the list to the three, mark them all, change the status once.
-  await page.getByRole('searchbox', { name: /search/i }).first().fill('Bulk e2e');
+  const search = page.getByRole('searchbox', { name: /search/i }).first();
+  await search.fill('Bulk e2e');
   const rows = page.locator('.rows .line');
   await expect(rows).toHaveCount(3);
   await page.getByRole('button', { name: 'Mark all shown' }).click();
@@ -551,23 +552,45 @@ test('marked tasks are changed in one batch, with the keys and the button', asyn
   const bar = page.getByRole('group', { name: 'Change the marked tasks' });
   const apply = bar.getByRole('button', { name: 'Apply to the marked' });
   await expect(apply).toBeDisabled();
-  // Choosing writes nothing, not even with the arrow keys; only the button does.
+  // The bar is on the screen: the page still passes the checks of the policy and of axe.
+  expect(await violations(page)).toEqual([]);
+
+  // Choosing writes nothing, not even with the arrow keys; only the button does. The requests are counted.
+  let writes = 0;
+  await page.route('**/api/tasks/ops', async (route) => {
+    writes += 1;
+    await route.continue();
+  });
   await bar.getByLabel('Status').selectOption('doing');
   await bar.getByLabel('Priority').selectOption('1');
+  await bar.getByLabel('Priority').press('ArrowDown');
+  await page.waitForTimeout(400);
+  expect(writes).toBe(0);
   await expect(page.locator('.rows .line', { hasText: 'doing' })).toHaveCount(0);
   await apply.click();
   await expect(page.getByRole('status').getByText('Saved: 3.')).toBeVisible();
+  expect(writes).toBe(1);
   await expect(page.getByText('3 marked')).toHaveCount(0);
   await expect(page.locator('.rows .line', { hasText: 'doing' })).toHaveCount(3);
-  await expect(page.locator('.rows .line', { hasText: 'P1' })).toHaveCount(3);
+  await expect(page.locator('.rows .line', { hasText: 'P2' })).toHaveCount(3);
+
+  // The choice belongs to the bar: after "Clear marks" a new mark starts with nothing chosen.
+  await page.getByRole('button', { name: 'Mark all shown' }).click();
+  await bar.getByLabel('Status').selectOption('parked');
+  await expect(apply).toBeEnabled();
+  await page.getByRole('button', { name: 'Clear marks' }).click();
+  await rows.nth(0).getByRole('checkbox').check();
+  await expect(bar.getByLabel('Status')).toHaveValue('');
+  await expect(apply).toBeDisabled();
+  await page.getByRole('button', { name: 'Clear marks' }).click();
 
   // A filter that hides a mark takes the mark with it.
   await page.getByRole('button', { name: 'Mark all shown' }).click();
   await expect(page.getByText('3 marked')).toBeVisible();
-  await page.getByRole('searchbox', { name: /search/i }).first().fill('Bulk e2e 1');
+  await search.fill('Bulk e2e 1');
   await expect(page.getByText('1 marked')).toBeVisible();
   await page.getByRole('button', { name: 'Clear marks' }).click();
-  await page.getByRole('searchbox', { name: /search/i }).first().fill('Bulk e2e');
+  await search.fill('Bulk e2e');
   await expect(rows).toHaveCount(3);
 
   // A click on the box leaves the keys of the page alive; the key marks the selected row;
@@ -580,10 +603,101 @@ test('marked tasks are changed in one batch, with the keys and the button', asyn
   await page.keyboard.press('Escape');
   await expect(page.getByText('2 marked')).toHaveCount(0);
   await expect(page.locator('.rows [aria-current="true"]')).toHaveCount(1);
+
+  // Holding the key does not flip the mark back and forth (the second press of a held key is a repeat).
+  await page.keyboard.down('x');
+  await page.keyboard.down('x');
+  await page.keyboard.up('x');
+  await expect(page.getByText('1 marked')).toBeVisible();
+
+  // Escape on another page does not take marks the person cannot see.
+  await page.keyboard.press('g');
+  await page.keyboard.press('h');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('g');
+  await page.keyboard.press('l');
+  await expect(page.getByText('1 marked')).toBeVisible();
+  await page.getByRole('button', { name: 'Clear marks' }).click();
   await page.keyboard.press('Escape');
   await expect(page.locator('.rows [aria-current="true"]')).toHaveCount(0);
+
+  // The boxes of the filter are not the marks: the keys of the page do nothing while one has the focus.
+  await page.getByRole('button', { name: /^Status/ }).first().click();
+  await page.getByRole('group', { name: 'Status' }).getByRole('checkbox').first().check();
+  await page.keyboard.press('c');
+  await expect(page.getByRole('dialog', { name: 'New task' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('a task that changed meanwhile fails alone in a batch; the others are saved and can be taken back', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+
+  for (const n of [1, 2, 3]) {
+    await page.keyboard.press('c');
+    const capture = page.getByRole('dialog', { name: 'New task' });
+    await capture.getByLabel('Title').fill(`Partial e2e ${n}`);
+    await capture.locator('select').first().selectOption('lib.nvim');
+    await capture.getByRole('button', { name: 'Create' }).click();
+    await expect(capture).toHaveCount(0);
+  }
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Partial e2e');
+  const rows = page.locator('.rows .line');
+  await expect(rows).toHaveCount(3);
+  await page.getByRole('button', { name: 'Mark all shown' }).click();
+
+  // The file of the second task changes after the page showed it and before the request arrives.
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', 'partial-e2e-2.md');
+  await page.route('**/api/tasks/ops', async (route) => {
+    writeFileSync(file, readFileSync(file, 'utf8') + '\nChanged by someone else.\n');
+    await route.continue();
+  });
+  const bar = page.getByRole('group', { name: 'Change the marked tasks' });
+  await bar.getByLabel('Priority').selectOption('1');
+  await bar.getByRole('button', { name: 'Apply to the marked' }).click();
+
+  const toast = page.getByRole('status');
+  await expect(toast.getByText(/2 saved, 1 not/)).toBeVisible();
+  // Only the task that failed stays marked; the other two are P1.
+  await expect(page.getByText('1 marked')).toBeVisible();
+  await expect(rows.filter({ hasText: 'Partial e2e 2' }).getByRole('checkbox')).toBeChecked();
+  await expect(page.locator('.rows .line', { hasText: 'P1' })).toHaveCount(2);
+
+  // The way back takes the two that went through back, as one batch.
+  await toast.getByRole('button', { name: 'Undo' }).click();
+  await expect(toast.getByText('Undone.')).toBeVisible();
+  await expect(page.locator('.rows .line', { hasText: 'P1' })).toHaveCount(0);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('a tag that was refused does not travel to the next task', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  // Two tasks without tags: the field reads '' for both, which is the case a stale value would survive.
+  for (const n of [1, 2]) {
+    await page.keyboard.press('c');
+    const capture = page.getByRole('dialog', { name: 'New task' });
+    await capture.getByLabel('Title').fill(`Travel e2e ${n}`);
+    await capture.locator('select').first().selectOption('lib.nvim');
+    await capture.getByRole('button', { name: 'Create' }).click();
+    await expect(capture).toHaveCount(0);
+  }
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Travel e2e');
+  await open(page, 'lib.nvim/travel-e2e-1');
+  const tags = page.locator('aside.detail').getByLabel('Tags');
+  await tags.fill('keep, bad#tag');
+  await tags.blur();
+  await expect(page.getByRole('status').getByText(/bad#tag/)).toBeVisible();
+  await expect(tags).toHaveValue('keep, bad#tag');
+  await open(page, 'lib.nvim/travel-e2e-2');
+  await expect(tags).toHaveValue('');
 });
 
 test('a reminder set on a task comes back on the Today page when it is due', async ({ page }) => {

@@ -13,14 +13,22 @@ describe('tags', () => {
     expect(parseTags('\u{1F600}'.repeat(40))[0]).toBe('\u{1F600}'.repeat(40));
   });
 
-  it('finds the tag the engine would refuse', () => {
+  // The engine's rule, written out (ops.lua / mutate.lua): the characters of a list entry that break the file, and
+  // every control character except the tab. Probed against the real engine for U+0000..U+01FF.
+  it('refuses what the engine refuses and nothing else', () => {
+    const refusedByEngine = (cp: number) =>
+      cp <= 0x08 || (cp >= 0x0a && cp <= 0x1f) || (cp >= 0x7f && cp <= 0x9f) || cp === 0x2028 || cp === 0x2029;
+    const listBreakers = new Set([',', '[', ']', '"', "'", '#']);
+    for (let cp = 0; cp <= 0x1ff; cp += 1) {
+      const ch = String.fromCodePoint(cp);
+      const expected = refusedByEngine(cp) || listBreakers.has(ch);
+      expect(badTag([`a${ch}b`]) !== null, `U+${cp.toString(16)}`).toBe(expected);
+    }
+    for (const cp of [0x2028, 0x2029]) {
+      expect(badTag([`a${String.fromCodePoint(cp)}b`])).not.toBeNull();
+    }
     expect(badTag(['ok', 'a#b', 'c'])).toBe('a#b');
-    expect(badTag(['q"uote'])).toBe('q"uote');
-    expect(badTag(["it's"])).toBe("it's");
-    expect(badTag(['[x]'])).toBe('[x]');
-    expect(badTag(['tab\there'])).toBe('tab\there');
-    expect(badTag(['next\u0085line'])).toBe('next\u0085line');
-    expect(badTag(['fine: but-ok 1.2', 'ünï'])).toBeNull();
+    expect(badTag(['fine: but-ok 1.2', 'ünï', 'tab\there'])).toBeNull();
   });
 
   it('shows the tags and notices a change only when there is one', () => {

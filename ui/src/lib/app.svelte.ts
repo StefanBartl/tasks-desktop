@@ -352,17 +352,16 @@ export class App {
       const id = ops[r.n - 1]?.id ?? (r.error?.details as { id?: unknown } | undefined)?.id;
       if (typeof id === 'string') failedIds.add(id);
     }
-    const unmatched = result.results.some((r) => !r.ok) && failedIds.size === 0;
-    if (unmatched) {
-      // Which tasks failed is not known: nothing is taken off the marks.
-      this.say('error', 'bulk.partial', { done: 0, failed: ops.length });
+    if (result.results.some((r) => !r.ok) && failedIds.size === 0) {
+      // Which tasks failed is not known: the toast of the write says why, and nothing is taken off the marks.
       return;
     }
     this.marks = this.marks.filter((id) => !sent.has(id) || failedIds.has(id));
+    const undo = this.inverseOf(result);
     if (failedIds.size === 0) {
-      this.say('ok', 'bulk.saved', { n: ops.length }, this.toast?.undo);
+      this.say('ok', 'bulk.saved', { n: ops.length }, undo);
     } else {
-      this.say('error', 'bulk.partial', { done: ops.length - failedIds.size, failed: failedIds.size }, this.toast?.undo);
+      this.say('error', 'bulk.partial', { done: ops.length - failedIds.size, failed: failedIds.size }, undo);
     }
   }
 

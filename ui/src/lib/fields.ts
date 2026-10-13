@@ -38,9 +38,9 @@ export function tagsChanged(current: readonly string[] | undefined, text: string
   return next.length !== now.length || next.some((tag, i) => tag !== now[i]);
 }
 
-/** What the engine refuses inside a tag (it would break the list in the file); it also refuses control characters. */
+/** What the engine refuses inside a tag (it would break the list in the file), control characters (a tab is fine) and the C1 range. */
 // eslint-disable-next-line no-control-regex
-const BAD_TAG = /[,[\]"'#\u0000-\u001f\u007f\u0085\u2028\u2029]/;
+const BAD_TAG = /[,[\]"'#\u0000-\u0008\u000a-\u001f\u007f-\u009f\u2028\u2029]/;
 
 /** The first tag that the engine would refuse, or null. */
 export function badTag(tags: readonly string[]): string | null {
