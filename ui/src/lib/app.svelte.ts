@@ -2,6 +2,7 @@
 // event stream and the detail of the selected task.
 
 import { bulkSetOps, markAll, pruneMarks, toggleMark } from './bulk';
+import { columnsOf, isColumn, neighbourColumn, placeNear, stepInGroup, type Move } from './board';
 import { ApiError, type Hub, type HubArea, type HubAreas, type SearchResult } from './api';
 import { cacheableList, type ListStore } from './cache';
 import type { DonePreview, Next, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
@@ -13,7 +14,7 @@ import { localToday } from './remind';
 
 export type Phase = 'starting' | 'needs_pairing' | 'offline' | 'unavailable' | 'ready';
 export type Connection = 'live' | 'reconnecting' | 'offline';
-export type View = 'today' | 'list' | 'plan';
+export type View = 'today' | 'list' | 'board' | 'plan';
 export type Theme = 'auto' | 'light' | 'dark';
 /** The blocks of the Today view that a person may hide. */
 export const TILES = ['next', 'waiting', 'remind', 'cdx', 'counts'] as const;
@@ -150,7 +151,7 @@ export class App {
     this.hiddenTiles = parseTiles(hidden);
     // The page opens on the view it was left on.
     const view = safe(() => env.prefs.getItem('tasks-desktop.view'));
-    this.view = view === 'list' || view === 'plan' ? view : 'today';
+    this.view = view === 'list' || view === 'board' || view === 'plan' ? view : 'today';
   }
 
   // ── derived ───────────────────────────────────────────────────────────
@@ -262,7 +263,18 @@ export class App {
       // An entry that failed changed nothing: it has no way back and needs none.
       if (!entry.ok || entry.outcome === 'unchanged') continue;
       const inv = entry.inverse;
-      if (!inv || inv.op !== 'set') return undefined;
+      if (!inv) return undefined;
+      if (inv.op === 'reorder') {
+        inverses.push({
+          op: 'reorder',
+          id: inv.id,
+          ...(inv.after ? { after: inv.after } : {}),
+          ...(inv.before ? { before: inv.before } : {}),
+          ...(inv.if_match ? { if_match: inv.if_match } : {}),
+        });
+        continue;
+      }
+      if (inv.op !== 'set') return undefined;
       inverses.push({
         op: 'set',
         id: inv.id,
@@ -363,6 +375,77 @@ export class App {
     } else {
       this.say('error', 'bulk.partial', { done: ops.length - failedIds.size, failed: failedIds.size }, undo);
     }
+  }
+
+  // ── the board ─────────────────────────────────────────────────────────
+
+  /** The cards of the board: what the list shows, in a column for each status, in the engine's order. */
+  get board() {
+    return columnsOf(this.shown);
+  }
+
+  /** Send a move of a card, or say why it cannot be made (the order has no meaning across a priority border). */
+  async moveCard(move: Move): Promise<void> {
+    if (move.kind === 'refused') {
+      if (move.reason === 'group') this.say('error', 'board.refused_group');
+      else if (move.reason === 'edge') this.say('error', 'board.refused_edge');
+      return;
+    }
+    await this.write([move.op]);
+  }
+
+  /** `id` dropped on `target`: before or after it. */
+  async dropNear(id: string, target: { id: string; place: 'before' | 'after' }): Promise<void> {
+    await this.moveCard(placeNear(this.tasks, id, target));
+  }
+
+  /** `id` one place up or down inside its group (`K` and `J`). */
+  async stepCard(id: string, dir: 1 | -1): Promise<void> {
+    const task = this.tasks.find((t) => t.id === id);
+    if (!task || !isColumn(task.status)) return;
+    await this.moveCard(stepInGroup(this.board[task.status], id, dir));
+  }
+
+  /** `id` into the column of `status` (a drop on a column, `H` and `L`). */
+  async dropOnColumn(id: string, status: string): Promise<void> {
+    const task = this.tasks.find((t) => t.id === id);
+    if (!task || task.status === status || !isColumn(status)) return;
+    await this.setField(id, 'status', status);
+  }
+
+  /** `id` one column to the left or right. */
+  async shiftColumn(id: string, dir: 1 | -1): Promise<void> {
+    const task = this.tasks.find((t) => t.id === id);
+    const to = neighbourColumn(task?.status, dir);
+    if (task && to) await this.dropOnColumn(id, to);
+  }
+
+  /** The selection to the next card of its column (`j`, `k`). */
+  moveSelectionInColumn(delta: number): void {
+    const task = this.tasks.find((t) => t.id === this.selectedId);
+    if (!task || !isColumn(task.status)) {
+      const first = Object.values(this.board).flat()[0];
+      if (first) this.select(first.id);
+      return;
+    }
+    const column = this.board[task.status];
+    const at = column.findIndex((t) => t.id === task.id);
+    const next = column[at + delta];
+    if (next) this.select(next.id);
+  }
+
+  /** The selection to the same height in the column left or right (`h`, `l`); empty columns are passed. */
+  moveSelectionAcross(dir: 1 | -1): void {
+    const task = this.tasks.find((t) => t.id === this.selectedId);
+    if (!task || !isColumn(task.status)) return;
+    const at = task.status;
+    const board = this.board;
+    const row = board[at].findIndex((t) => t.id === task.id);
+    let col = neighbourColumn(at, dir);
+    while (col !== null && board[col].length === 0) col = neighbourColumn(col, dir);
+    if (col === null) return;
+    const target = board[col][Math.min(row, board[col].length - 1)];
+    if (target) this.select(target.id);
   }
 
   async createTask(area: string, title: string, fields: Record<string, unknown> = {}): Promise<void> {

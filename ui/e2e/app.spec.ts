@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { STATE } from './global';
 import { pairingLink } from './hub';
 
@@ -65,6 +65,39 @@ async function chooseView(page: Page, menu: string, item: string): Promise<void>
 async function showList(page: Page): Promise<void> {
   await chooseView(page, 'View', 'List');
   await expect(page.locator('button.row').first()).toBeVisible();
+}
+
+/**
+ * Drag `source` onto `target` with real mouse steps: the card is read again when the button goes down (a board that has
+ * just been redrawn has moved), and `place` picks the upper or lower half of a card.
+ */
+async function drag(
+  page: Page,
+  source: Locator,
+  target: Locator,
+  place: 'upper' | 'lower' | 'middle' = 'middle',
+): Promise<void> {
+  const from = (await source.boundingBox())!;
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(from.x + from.width / 2 - 30, from.y + from.height / 2 + 10, { steps: 4 });
+  const to = (await target.boundingBox())!;
+  const y = place === 'upper' ? to.y + 8 : place === 'lower' ? to.y + to.height - 8 : to.y + to.height / 2;
+  await page.mouse.move(to.x + to.width / 2, y, { steps: 10 });
+  await page.mouse.up();
+}
+
+/** Make a task through the capture dialog; the key is pressed again until the dialog is there (the menu may hold the focus). */
+async function capture(page: Page, title: string): Promise<void> {
+  const dialog = page.getByRole('dialog', { name: 'New task' });
+  await expect(async () => {
+    if (!(await dialog.isVisible())) await page.keyboard.press('c');
+    await expect(dialog).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 10000 });
+  await dialog.getByLabel('Title').fill(title);
+  await dialog.locator('select').first().selectOption('lib.nvim');
+  await dialog.getByRole('button', { name: 'Create' }).click();
+  await expect(dialog).toHaveCount(0);
 }
 
 async function open(page: Page, id: string): Promise<void> {
@@ -698,6 +731,87 @@ test('a tag that was refused does not travel to the next task', async ({ page })
   await expect(tags).toHaveValue('keep, bad#tag');
   await open(page, 'lib.nvim/travel-e2e-2');
   await expect(tags).toHaveValue('');
+});
+
+test('the board: cards move by key and by drag, the engine keeps the order, a priority border is not crossed', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+
+  for (const n of [1, 2, 3]) await capture(page, `Board e2e ${n}`);
+  // The filter of the list is the filter of the board.
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Board e2e');
+  await expect(page.locator('.rows .line')).toHaveCount(3);
+  await chooseView(page, 'View', 'Board');
+
+  const column = (name: string) => page.getByRole('region', { name, exact: true });
+  const titles = (name: string) => column(name).locator('.card .title').allInnerTexts();
+  await expect(column('open').locator('.card')).toHaveCount(3);
+  const first = await titles('open');
+  expect(first).toHaveLength(3);
+
+  // J moves the selected card one place down inside its group, and the engine's order says so after a reload.
+  await column('open').locator('.card').first().click();
+  await page.keyboard.press('J');
+  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  const moved = [first[1], first[0], first[2]];
+  await expect.poll(() => titles('open')).toEqual(moved);
+  await page.reload();
+  await expect(page.getByRole('menubar')).toBeVisible();
+  // The filter is not kept over a reload: narrow to the three again through the list.
+  await chooseView(page, 'View', 'List');
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Board e2e');
+  await chooseView(page, 'View', 'Board');
+  await expect(column('open').locator('.card')).toHaveCount(3);
+  expect(await titles('open')).toEqual(moved);
+
+  // K takes it back; at the edge of the group there is nowhere to go, and that is told.
+  await column('open').locator('.card').nth(1).click();
+  await page.keyboard.press('K');
+  await expect.poll(() => titles('open')).toEqual(first);
+  await page.keyboard.press('K');
+  await expect(page.getByRole('status').getByText(/end of its priority group/)).toBeVisible();
+
+  // Drag one card onto the lower half of another: the order changes by a reorder.
+  const cards = column('open').locator('.card');
+  await drag(page, cards.nth(0), cards.nth(2), 'lower');
+  await expect.poll(() => titles('open')).toEqual([first[1], first[2], first[0]]);
+
+  // Drag a card into another column: the status changes.
+  const name = (await titles('open'))[0] as string;
+  await drag(page, column('open').locator('.card', { hasText: name }), column('doing'));
+  await expect(column('doing').locator('.card', { hasText: name })).toHaveCount(1);
+  await expect(column('open').locator('.card')).toHaveCount(2);
+
+  // H and L change the status of the selected card with the keys.
+  await column('doing').locator('.card', { hasText: name }).click();
+  await page.keyboard.press('L');
+  await expect(column('decision').locator('.card', { hasText: name })).toHaveCount(1);
+  await page.keyboard.press('H');
+  await expect(column('doing').locator('.card', { hasText: name })).toHaveCount(1);
+
+  // A card of another priority is another group: the engine orders inside a group only, so the move is refused.
+  const other = (await titles('open'))[0] as string;
+  await column('open').locator('.card', { hasText: other }).click();
+  await page.locator('aside.detail').getByLabel('Priority').selectOption('1');
+  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  const rest = column('open').locator('.card').filter({ hasNotText: other });
+  await expect(rest).toHaveCount(1);
+  let writes = 0;
+  await page.route('**/api/tasks/ops', async (route) => {
+    writes += 1;
+    await route.continue();
+  });
+  // A card can be dragged when no write is under way.
+  await expect(column('open').locator('.card', { hasText: other })).toHaveAttribute('draggable', 'true');
+  await drag(page, column('open').locator('.card', { hasText: other }), rest.first(), 'lower');
+  expect(writes).toBe(0);
+  await expect(page.getByRole('status').getByText(/holds inside one priority/)).toBeVisible();
+
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
 });
 
 test('a reminder set on a task comes back on the Today page when it is due', async ({ page }) => {

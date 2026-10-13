@@ -16,6 +16,7 @@ export class ApiError extends Error {
 export type Op =
   | { op: 'set'; id: string; patch: Record<string, unknown>; if_match?: string }
   | { op: 'new'; area: string; title: string; fields?: Record<string, unknown> }
+  | { op: 'reorder'; id: string; after?: string; before?: string; group?: string; if_match?: string }
   | { op: 'done'; id: string; confirm: string; remind?: string };
 
 export interface OpsRequest {

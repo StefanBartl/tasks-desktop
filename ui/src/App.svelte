@@ -4,6 +4,7 @@
   import { ago, dictionaries, translate, type Key } from './lib/i18n';
   import Today from './views/Today.svelte';
   import ListView from './views/ListView.svelte';
+  import BoardView from './views/BoardView.svelte';
   import MenuBar, { type Menu } from './views/MenuBar.svelte';
   import PlanView from './views/PlanView.svelte';
   import Capture from './views/Capture.svelte';
@@ -83,6 +84,11 @@
         event.preventDefault();
         return;
       }
+      if (event.key === 'b') {
+        app.setView('board');
+        event.preventDefault();
+        return;
+      }
     }
     switch (event.key) {
       case 'g':
@@ -94,9 +100,32 @@
         break;
       case 'j':
         if (app.view === 'list') app.moveSelection(1);
+        else if (app.view === 'board') app.moveSelectionInColumn(1);
         break;
       case 'k':
         if (app.view === 'list') app.moveSelection(-1);
+        else if (app.view === 'board') app.moveSelectionInColumn(-1);
+        break;
+      // The board: h and l change the column, J and K move the card inside its group, H and L change its status.
+      case 'h':
+        if (app.view === 'board') app.moveSelectionAcross(-1);
+        break;
+      case 'l':
+        if (app.view === 'board') app.moveSelectionAcross(1);
+        break;
+      case 'J':
+      case 'K':
+        if (app.view === 'board' && app.selectedId !== null && !event.repeat) {
+          event.preventDefault();
+          void app.stepCard(app.selectedId, event.key === 'J' ? 1 : -1);
+        }
+        break;
+      case 'H':
+      case 'L':
+        if (app.view === 'board' && app.selectedId !== null && !event.repeat) {
+          event.preventDefault();
+          void app.shiftColumn(app.selectedId, event.key === 'L' ? 1 : -1);
+        }
         break;
       case 'x':
         // Holding the key does not flip the mark back and forth.
@@ -168,6 +197,12 @@
             label: t('nav.list'),
             checked: app.view === 'list',
             onselect: () => app.setView('list'),
+          },
+          {
+            kind: 'radio',
+            label: t('nav.board'),
+            checked: app.view === 'board',
+            onselect: () => app.setView('board'),
           },
           {
             kind: 'radio',
@@ -286,12 +321,20 @@
           <p class="banner" role="alert">{t('data.incomplete')}</p>
         {/if}
         <h1 class="sr-only">
-          {app.view === 'today' ? t('nav.today') : app.view === 'plan' ? t('nav.plan') : t('nav.list')}
+          {app.view === 'today'
+            ? t('nav.today')
+            : app.view === 'plan'
+              ? t('nav.plan')
+              : app.view === 'board'
+                ? t('nav.board')
+                : t('nav.list')}
         </h1>
         {#if app.view === 'today'}
           <Today {app} />
         {:else if app.view === 'plan'}
           <PlanView {app} />
+        {:else if app.view === 'board'}
+          <BoardView {app} />
         {:else}
           <ListView {app} bind:searchBox />
         {/if}
