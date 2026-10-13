@@ -1801,3 +1801,50 @@ test('a task is made with a text: the file holds it as written, and the detail s
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('a finished task is brought back by the undo of the finish and from the reminder, and the backlog loses its row', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+
+  await capture(page, 'Finished and back again');
+  const id = (await page.locator('aside.detail .id').innerText()).trim();
+  const slug = id.split('/')[1] ?? '';
+  const open = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
+  const readme = join(state().vault, 'lib.nvim', 'Backlog', 'README.md');
+  expect(existsSync(open)).toBe(true);
+
+  // Finish: the file leaves ROADMAP, the README gets a row.
+  await page.locator('aside.detail').getByRole('button', { name: 'Finish ...' }).click();
+  const done = page.getByRole('dialog', { name: 'Finish this task?' });
+  await done.getByRole('button', { name: 'Finish', exact: true }).click();
+  await expect(done).toHaveCount(0);
+  await expect(page.locator('button.row', { hasText: id })).toHaveCount(0);
+  expect(existsSync(open)).toBe(false);
+  expect(readFileSync(readme, 'utf8')).toContain('Finished and back again');
+
+  // The undo of the finish brings it back: open again, the row gone.
+  await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByRole('status').getByText('Undone.')).toBeVisible();
+  await expect(page.locator('button.row', { hasText: id })).toBeVisible();
+  expect(existsSync(open)).toBe(true);
+  expect(readFileSync(open, 'utf8')).toContain('status: open');
+  expect(readFileSync(readme, 'utf8')).not.toContain('Finished and back again');
+
+  // Finish again with a reminder: the reminder of a finished task has a button to bring it back.
+  await page.locator('button.row', { hasText: id }).click();
+  await page.locator('aside.detail').getByRole('button', { name: 'Finish ...' }).click();
+  await done.getByLabel('Remind me about the result').selectOption('+0d');
+  await done.getByRole('button', { name: 'Finish', exact: true }).click();
+  await expect(done).toHaveCount(0);
+  await chooseView(page, 'View', 'Today');
+  const card = page.getByRole('region', { name: 'To look at again' });
+  await card.getByRole('button', { name: `Reopen: ${id}` }).click();
+  await expect(page.getByRole('region', { name: 'To look at again' })).toHaveCount(0);
+  expect(existsSync(open)).toBe(true);
+  expect(readFileSync(open, 'utf8')).not.toContain('remind:');
+  await showList(page);
+  await expect(page.locator('button.row', { hasText: id })).toBeVisible();
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});

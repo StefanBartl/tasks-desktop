@@ -18,6 +18,7 @@ export type Op =
   | { op: 'new'; area: string; title: string; fields?: Record<string, unknown>; body?: string }
   | { op: 'reorder'; id: string; after?: string; before?: string; group?: string; if_match?: string }
   | { op: 'done'; id: string; confirm: string; remind?: string }
+  | { op: 'reopen'; id: string; status?: string; if_match?: string }
   | { op: 'tick_step'; id: string; n: number; done?: boolean; if_match?: string }
   | { op: 'append_note'; id: string; text: string; if_match?: string }
   | {

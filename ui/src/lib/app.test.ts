@@ -1484,6 +1484,45 @@ describe('writing', () => {
     });
   });
 
+  describe('finishing and bringing a task back', () => {
+    const doneEntry = (extra: Record<string, unknown> = {}) =>
+      ({
+        kind: 'tasks.result',
+        ok: true,
+        dry_run: false,
+        results: [{ n: 1, op: 'done', id: 'pub/a', ok: true, outcome: 'done', changed_ids: ['pub/a'], ...extra }],
+      }) as unknown as Result;
+
+    it('offers to bring the task back after finishing it, and sends reopen on undo', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
+      await app.startFinish('pub/a');
+      hub.next_ops = doneEntry();
+      await app.confirmFinish();
+      expect(app.toast?.undo).toEqual([{ op: 'reopen', id: 'pub/a' }]);
+      await app.undo();
+      expect(hub.sent[1]?.ops).toEqual([{ op: 'reopen', id: 'pub/a' }]);
+    });
+
+    it('offers no way back when finishing ticked steps or closed a plan: reopen would leave those as they are', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
+      await app.startFinish('pub/a');
+      hub.next_ops = doneEntry({ steps_ticked: 2 });
+      await app.confirmFinish();
+      expect(app.toast?.undo).toBeUndefined();
+      await app.startFinish('pub/a');
+      hub.next_ops = doneEntry({ plans_closed: ['pub/plan'] });
+      await app.confirmFinish();
+      expect(app.toast?.undo).toBeUndefined();
+    });
+
+    it('brings a finished task back from a reminder, with no undo of its own', async () => {
+      const { app, hub } = await ready();
+      await app.reopen('pub/old');
+      expect(hub.sent[0]?.ops).toEqual([{ op: 'reopen', id: 'pub/old' }]);
+      expect(app.toast?.undo).toBeUndefined();
+    });
+  });
+
   describe('a task made with a text', () => {
     it('sends the text, trimmed, and none when there is none', async () => {
       const { app, hub } = await ready();

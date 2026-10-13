@@ -209,6 +209,13 @@
             <li>
               {#if item.finished}
                 <span>{markHidden(item.title)}</span>
+                <button
+                  type="button"
+                  class="clear"
+                  disabled={app.saving || !app.can('reopen')}
+                  aria-label={`${t('reopen.button')}: ${item.id}`}
+                  onclick={() => void app.reopen(item.id)}>{t('reopen.button')}</button
+                >
               {:else}
                 <button type="button" class="link" onclick={() => open(item.id)}
                   >{markHidden(item.title)}</button
