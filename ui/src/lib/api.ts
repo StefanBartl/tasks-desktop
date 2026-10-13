@@ -18,6 +18,8 @@ export type Op =
   | { op: 'new'; area: string; title: string; fields?: Record<string, unknown> }
   | { op: 'reorder'; id: string; after?: string; before?: string; group?: string; if_match?: string }
   | { op: 'done'; id: string; confirm: string; remind?: string }
+  | { op: 'tick_step'; id: string; n: number; done?: boolean; if_match?: string }
+  | { op: 'append_note'; id: string; text: string; if_match?: string }
   | {
       op: 'plan_new';
       area: string;

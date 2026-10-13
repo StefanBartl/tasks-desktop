@@ -432,6 +432,17 @@ export class App {
         });
         continue;
       }
+      if (inv.op === 'tick_step') {
+        if (typeof inv.n !== 'number') return undefined;
+        inverses.push({
+          op: 'tick_step',
+          id: inv.id,
+          n: inv.n,
+          ...(typeof inv.done === 'boolean' ? { done: inv.done } : {}),
+          ...(inv.if_match ? { if_match: inv.if_match } : {}),
+        });
+        continue;
+      }
       if (inv.op !== 'set') return undefined;
       inverses.push({
         op: 'set',
@@ -470,6 +481,23 @@ export class App {
     await this.write([
       { op: 'set', id, patch: { [key]: value }, ...(task.etag ? { if_match: task.etag } : {}) },
     ]);
+  }
+
+  /**
+   * Tick or untick step `n` of the plan section of a task. `etag` is the version of the file the steps were read from:
+   * if the file moved on, the engine refuses and the numbers are not applied to another text.
+   */
+  async tickStep(id: string, n: number, done: boolean, etag?: string): Promise<void> {
+    await this.write([{ op: 'tick_step', id, n, done, ...(etag ? { if_match: etag } : {}) }]);
+  }
+
+  /** Add one dated line to the notes of a task; says whether it was written (the box is emptied only then). */
+  async addNote(id: string, text: string, etag?: string): Promise<boolean> {
+    const result = await this.write(
+      [{ op: 'append_note', id, text, ...(etag ? { if_match: etag } : {}) }],
+      { undoable: false },
+    );
+    return result?.ok === true;
   }
 
   /** Mark or unmark `id`; says whether it is marked now (a mark past one batch is refused and told). */
