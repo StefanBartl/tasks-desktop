@@ -744,6 +744,37 @@ describe('writing', () => {
       expect(app.toast?.kind).toBe('error');
     });
 
+    it('takes a move that numbered its neighbours back with every file, not only the place', async () => {
+      const { app, hub } = await ready([open('pub/a', 'open|1', 'e1'), open('pub/b', 'open|1', 'e2')]);
+      hub.next_ops = {
+        kind: 'tasks.result',
+        ok: true,
+        dry_run: false,
+        results: [
+          {
+            n: 1,
+            op: 'reorder',
+            id: 'pub/a',
+            ok: true,
+            outcome: 'changed',
+            changed_ids: ['pub/b', 'pub/a'],
+            writes: 2,
+            inverse: { op: 'reorder', id: 'pub/a', before: 'pub/b', if_match: 'n1' },
+            restore: [
+              { op: 'set', id: 'pub/b', patch: { order: null }, if_match: 'n2' },
+              { op: 'set', id: 'pub/a', patch: { order: '5' }, if_match: 'n1' },
+            ],
+          },
+        ],
+      } as unknown as Result;
+      await app.stepCard('pub/a', 1);
+      await app.undo();
+      expect(hub.sent[1]?.ops).toEqual([
+        { op: 'set', id: 'pub/a', patch: { order: '5' }, if_match: 'n1' },
+        { op: 'set', id: 'pub/b', patch: { order: null }, if_match: 'n2' },
+      ]);
+    });
+
     it('asks before it sets the priority of a card dropped among cards of another one', async () => {
       const staged = (id: string, group: string, etag: string) =>
         task(id, { etag, status: 'open', group, readiness: { state: 'ready', stage: 0 } } as Partial<TaskEntry>);

@@ -1217,3 +1217,38 @@ test('the board: a card dropped on blocked asks for the blocker, a card dropped 
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('the board: taking back a move that numbered its neighbours gives every file its old order back', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  for (const n of [1, 2, 3]) await capture(page, `Restore e2e ${n}`);
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Restore e2e');
+  await expect(page.locator('.rows .line')).toHaveCount(3);
+  await chooseView(page, 'View', 'Board');
+  const open = page.getByRole('region', { name: 'open', exact: true });
+  const titles = () => open.locator('.card .title').allInnerTexts();
+  const first = await titles();
+  expect(first).toHaveLength(3);
+  const files = [1, 2, 3].map((n) => join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `restore-e2e-${n}.md`));
+  const orders = () => files.map((f) => /^order:/m.test(readFileSync(f, 'utf8')));
+  expect(orders()).toEqual([false, false, false]);
+
+  // The last card one place up: the engine numbers the cards before the spot, and says how many files it wrote.
+  await open.locator('.card').nth(2).click();
+  await page.keyboard.press('Shift+K');
+  await expect.poll(() => titles()).toEqual([first[0], first[2], first[1]]);
+  await expect(page.getByRole('status').getByText(/files written/)).toBeVisible();
+  expect(orders().filter(Boolean).length).toBeGreaterThan(1);
+
+  // Undo: the place and the numbers are as they were, in every file.
+  await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByRole('status').getByText('Undone.')).toBeVisible();
+  await expect.poll(() => titles()).toEqual(first);
+  expect(orders()).toEqual([false, false, false]);
+
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
