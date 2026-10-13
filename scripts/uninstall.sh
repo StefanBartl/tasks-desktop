@@ -71,7 +71,9 @@ fi
 "$program" uninstall $PURGE || fail "tasks-hub uninstall failed (see above): the program stays in $dir"
 
 # Only the files the installer puts there; a folder that holds anything else stays.
-rm -f "$program" "$dir/tasks-hub.new" "$dir/tasks-hub.exe.new"
+# A file that cannot be removed is an error, not a "removed" (rule RS-07).
+rm -f "$program" "$dir/tasks-hub.new" "$dir/tasks-hub.exe.new" || fail "cannot remove $program"
+[ ! -e "$program" ] || fail "$program is still there"
 rmdir "$dir" 2>/dev/null || true
 # The parent only when it is the folder the installer makes (never a folder you chose).
 parent="$(dirname "$dir")"

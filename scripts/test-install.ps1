@@ -102,7 +102,22 @@ try {
     Write-Check (-not (Test-Path -LiteralPath (Join-Path $env:TASKS_DESKTOP_CONFIG_DIR 'config.json'))) 'the settings file is gone'
     Write-Check (Test-Path -LiteralPath (Join-Path $env:TASKS_DESKTOP_CONFIG_DIR 'notes.txt')) 'a file that is not the app''s stays'
 
-    # 7. A folder that holds other files stays when the program goes.
+    # 7. A program that cannot be removed (it is open) is an error, and the script does not say "removed".
+    $r = Invoke-Script 'install.ps1' @('-Archive', $archive)
+    Write-Check ($r.Code -eq 0) 'install before the locked removal'
+    $lock = [IO.File]::Open($exe, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    try {
+        $r = Invoke-Script 'uninstall.ps1' @()
+        Write-Check ($r.Code -ne 0 -and $r.Text -notmatch '(?m)^removed ') 'a program that cannot be removed is an error'
+        Write-Check (Test-Path -LiteralPath $exe) 'and it is still there'
+    }
+    finally {
+        $lock.Dispose()
+    }
+    $r = Invoke-Script 'uninstall.ps1' @()
+    Write-Check ($r.Code -eq 0) 'once it is free the uninstall goes through'
+
+    # 8. A folder that holds other files stays when the program goes.
     New-Item -ItemType Directory -Path $bin -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $bin 'other.txt') -Value 'mine'
     $r = Invoke-Script 'install.ps1' @('-Archive', $archive)

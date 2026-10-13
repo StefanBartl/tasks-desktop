@@ -117,7 +117,21 @@ runs "uninstall --purge-settings" sh "$HERE/uninstall.sh" --purge-settings
 check "the settings file is gone" sh -c "! [ -e '$TMP/cfg/config.json' ]"
 check "a file that is not the app's stays" [ -f "$TMP/cfg/notes.txt" ]
 
-# 7. A folder that holds other files stays when the program goes.
+# 7. A program that cannot be removed is an error (a folder without write rights; not on Windows,
+# where the mode bits mean nothing).
+case "$(uname -s)" in
+    Linux | Darwin)
+        sh "$HERE/install.sh" --archive "$ARCHIVE" >"$TMP/out" 2>&1 || nope "install before the locked removal"
+        chmod a-w "$TMP/bin"
+        refuses "a program that cannot be removed is an error" sh "$HERE/uninstall.sh"
+        if grep -q '^removed ' "$TMP/out"; then nope "  and it does not say removed"; else pass "  and it does not say removed"; fi
+        check "  and it is still there" installed
+        chmod u+w "$TMP/bin"
+        runs "  once it can be removed the uninstall goes through" sh "$HERE/uninstall.sh"
+        ;;
+esac
+
+# 8. A folder that holds other files stays when the program goes.
 mkdir -p "$TMP/bin"
 echo 'mine' >"$TMP/bin/other.txt"
 sh "$HERE/install.sh" --archive "$ARCHIVE" >"$TMP/out" 2>&1 || nope "install into a folder with other files"

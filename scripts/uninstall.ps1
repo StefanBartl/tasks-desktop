@@ -54,9 +54,15 @@ if ($LASTEXITCODE -ne 0) {
     Stop-Uninstall "tasks-hub uninstall failed (see above): the program stays in $dir"
 }
 
-# Only the files the installer puts there; a folder that holds anything else stays.
+# Only the files the installer puts there; a folder that holds anything else stays. A file that
+# cannot be removed (a program that still runs from it) is an error, not a "removed" (rule RS-07).
 foreach ($name in 'tasks-hub.exe', 'tasks-hub.exe.new') {
-    Remove-Item -LiteralPath (Join-Path $dir $name) -Force -ErrorAction SilentlyContinue
+    $file = Join-Path $dir $name
+    if (Test-Path -LiteralPath $file) {
+        try { Remove-Item -LiteralPath $file -Force }
+        catch { Stop-Uninstall "cannot remove ${file}: $($_.Exception.Message)" }
+        if (Test-Path -LiteralPath $file) { Stop-Uninstall "$file is still there" }
+    }
 }
 if (-not (Get-ChildItem -LiteralPath $dir -Force -ErrorAction SilentlyContinue)) {
     Remove-Item -LiteralPath $dir -Force -ErrorAction SilentlyContinue
