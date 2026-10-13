@@ -126,9 +126,13 @@ export function priorityOf(task: TaskEntry): number | null {
   return task.readiness?.eff_prio ?? null;
 }
 
-/** The label shown over a run of cards: the priority, `-` without one, null for a card the engine gave no group. */
-export function groupLabel(task: TaskEntry): string | null {
-  if (!task.group) return null;
+/**
+ * The label shown over a run of cards: the priority, `-` without one, null for a card the engine gave no group - and
+ * null when the engine does not promise the number (`known` false: no `eff_prio` capability), so that it is not shown
+ * as "no priority".
+ */
+export function groupLabel(task: TaskEntry, known = true): string | null {
+  if (!known || !task.group) return null;
   const prio = priorityOf(task);
   return prio === null ? '-' : String(prio);
 }

@@ -86,6 +86,8 @@ describe('small helpers', () => {
     expect(priorityOf(task('open|9', 4))).toBe(4);
     expect(groupLabel(task(undefined, 2))).toBeNull();
     expect(priorityOf({ id: 'x' } as unknown as TaskEntry)).toBeNull();
+    // An engine that does not promise the number is not read as "no priority": no label at all.
+    expect(groupLabel(task('open|2'), false)).toBeNull();
   });
 });
 

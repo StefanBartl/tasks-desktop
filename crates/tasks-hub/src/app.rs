@@ -203,29 +203,30 @@ impl ConfigVaults {
         config::load_file(&self.dir).map_err(|_| "the settings file cannot be read".to_owned())
     }
 
-    /// Write `next` and keep it, or leave both as they are.
-    fn keep(&self, next: FileConfig) -> Result<(), String> {
+    /// Write `next` and keep it, or leave both as they are. The vault the hub reads is the one it holds in memory:
+    /// only a choice (`adopt_active`) moves it, an add or a remove keeps it even when the file on disk, edited by hand
+    /// meanwhile, names another (the file keeps what the person wrote).
+    fn keep(&self, next: FileConfig, adopt_active: bool) -> Result<(), String> {
         config::save_file(&self.dir, &next)?;
+        let mut held = next;
+        if !adopt_active {
+            held.active = self.current().active;
+        }
         *self
             .file
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = next;
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = held;
         Ok(())
     }
 }
 
 /// Whether a path names anything but a plain drive or mount: a network share, a device, a verbatim or an NT form.
 /// Windows reads `/` and `\` alike, so the separators are made one before the start is looked at (`/\host\share` is
-/// a share too); on Windows the parsed prefix must also be a drive letter.
+/// a share too). Every prefix but a drive letter (a share, a device, a verbatim or an NT form) begins with two
+/// separators, or with `/??/` once they are one, so this is the whole test.
 fn is_remote_path(text: &str) -> bool {
     let flat = text.replace('\\', "/");
-    if flat.starts_with("//") || flat.starts_with("/??/") {
-        return true;
-    }
-    matches!(
-        Path::new(text).components().next(),
-        Some(std::path::Component::Prefix(p)) if !matches!(p.kind(), std::path::Prefix::Disk(_))
-    )
+    flat.starts_with("//") || flat.starts_with("/??/")
 }
 
 /// The last part of a folder: what the page may show of it.
@@ -286,7 +287,7 @@ impl VaultAdmin for ConfigVaults {
                 name: name.to_owned(),
                 path: folder,
             });
-            self.keep(next)
+            self.keep(next, false)
         })
     }
 
@@ -303,7 +304,7 @@ impl VaultAdmin for ConfigVaults {
             if next.vaults.len() == before {
                 return Err("there is no vault of this name".to_owned());
             }
-            self.keep(next)
+            self.keep(next, false)
         })
     }
 
@@ -329,7 +330,7 @@ impl VaultAdmin for ConfigVaults {
                     state.status.problem.unwrap_or("engine_unavailable")
                 ));
             };
-            self.keep(next)?;
+            self.keep(next, true)?;
             Ok(VaultTarget {
                 engine: Some(engine),
                 status: state.status,
@@ -899,5 +900,36 @@ mod vault_tests {
         let why = admin.remove("two").await.unwrap_err();
         assert!(why.contains("is read"), "{why}");
         assert_eq!(config::load_file(&cfg).unwrap().vaults.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_hand_edit_of_the_active_vault_does_not_move_the_one_the_hub_reads_over_several_changes(
+    ) {
+        let (admin, cfg, vault) = admin("remove-twice");
+        let path = vault.to_string_lossy().into_owned();
+        admin.add("two", &path).await.unwrap();
+        admin.add("three", &path).await.unwrap();
+        // The hub reads "two" ...
+        let mut reading = admin.current();
+        reading.active = Some("two".to_owned());
+        *admin.file.lock().unwrap() = reading;
+        // ... a hand edit puts `active` back to the main vault on disk.
+        let mut edited = config::load_file(&cfg).unwrap();
+        edited.active = None;
+        config::save_file(&cfg, &edited).unwrap();
+        // A change of the list passes, and must not take the memory over from the disk.
+        admin.remove("three").await.unwrap();
+        assert_eq!(
+            admin.list().active,
+            "two",
+            "the page names the vault that is read"
+        );
+        let why = admin.remove("two").await.unwrap_err();
+        assert!(why.contains("is read"), "{why}");
+        admin.add("four", &path).await.unwrap();
+        assert_eq!(admin.list().active, "two");
+        assert!(admin.remove("two").await.is_err());
+        // The file keeps what the person wrote.
+        assert_eq!(config::load_file(&cfg).unwrap().active, None);
     }
 }
