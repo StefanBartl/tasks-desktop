@@ -9,6 +9,7 @@ import { cacheableList, type ListStore } from './cache';
 import type { DonePreview, Next, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import type { Op } from './api';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
+import { bumped, parseFrecency, type Frecency } from './palette';
 import { backoffSeconds, readStream, StreamRefused, type SseMessage } from './sse';
 import { detectLang, isLang, translate, type Key, type Lang } from './i18n';
 import { localToday } from './remind';
@@ -127,6 +128,10 @@ export class App {
   repriority = $state.raw<{ id: string; from: string; prio: number; ops: Op[] } | null>(null);
   /** A card that goes to the blocked column and has no blocker yet, waiting for the person's answer. */
   blocking = $state.raw<{ id: string } | null>(null);
+  /** The command palette is open. */
+  palette = $state(false);
+  /** What the palette's choices were, to put them first next time. */
+  frecency = $state.raw<Frecency>({});
   /** The plan wizard is open. */
   planning = $state(false);
   /** The task that is being finished, with what the engine says that does. */
@@ -162,6 +167,7 @@ export class App {
     this.shortAreas = safe(() => env.prefs.getItem('tasks-desktop.short-areas')) !== 'off';
     const hidden = safe(() => env.prefs.getItem('tasks-desktop.tiles-hidden'));
     this.hiddenTiles = parseTiles(hidden);
+    this.frecency = parseFrecency(safe(() => env.prefs.getItem('tasks-desktop.frecency')));
     // The page opens on the view it was left on.
     const view = safe(() => env.prefs.getItem('tasks-desktop.view'));
     this.view = view === 'list' || view === 'board' || view === 'plan' ? view : 'today';
@@ -225,6 +231,20 @@ export class App {
   /** Whether the engine can do `capability`; true while it has not said (the cached list is shown first). */
   can(capability: string): boolean {
     return this.capabilities === null || this.capabilities.includes(capability);
+  }
+
+  openPalette(): void {
+    if (this.phase === 'ready') this.palette = true;
+  }
+
+  closePalette(): void {
+    this.palette = false;
+  }
+
+  /** Remember that `key` (an action or a task) was chosen. */
+  chose(key: string): void {
+    this.frecency = bumped(this.frecency, key, Date.now());
+    safe(() => this.env.prefs.setItem('tasks-desktop.frecency', JSON.stringify(this.frecency)));
   }
 
   openPlanWizard(): void {

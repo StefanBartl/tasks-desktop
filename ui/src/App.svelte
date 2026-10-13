@@ -12,6 +12,7 @@
   import DoneDialog from './views/DoneDialog.svelte';
   import PrioDialog from './views/PrioDialog.svelte';
   import BlockDialog from './views/BlockDialog.svelte';
+  import Palette from './views/Palette.svelte';
   import Toast from './views/Toast.svelte';
 
   let { app, code }: { app: App; code: string | null } = $props();
@@ -65,6 +66,13 @@
   }
 
   function onKey(event: KeyboardEvent): void {
+    // The palette is not a single-key shortcut: it opens with Ctrl or Cmd and K, also in a field and with the keys off.
+    if (app.phase === 'ready' && (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      // Only opens: a second press while it is open leaves it as it is (Escape closes).
+      app.openPalette();
+      return;
+    }
     if (!app.shortcuts || app.phase !== 'ready') return;
     if (event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) return;
     if (MODIFIERS.has(event.key)) return;
@@ -173,6 +181,12 @@
             label: t('menu.capture'),
             disabled: !ready,
             onselect: () => app.openCapture(),
+          },
+          {
+            kind: 'action',
+            label: t('menu.palette'),
+            disabled: !ready,
+            onselect: () => app.openPalette(),
           },
           {
             kind: 'action',
@@ -369,6 +383,7 @@
     <DoneDialog {app} />
     <PrioDialog {app} />
     <BlockDialog {app} />
+    <Palette {app} />
   {/if}
   <Toast {app} />
 </div>

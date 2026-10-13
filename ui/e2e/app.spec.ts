@@ -1367,3 +1367,77 @@ test('the bulk bar sets effort, a reminder and tags, takes a tag off, and the fi
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('the command palette: Ctrl+K, an action by a few letters, a task by its words, a change of the selected task, what was chosen comes first', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  for (const n of [1, 2]) await capture(page, `Palette e2e ${n}`);
+  const palette = page.getByRole('dialog', { name: 'Command palette' });
+  const box = palette.getByRole('combobox');
+
+  // Opens with Ctrl+K, has no violation, closes with Escape.
+  await page.keyboard.press('Control+k');
+  await expect(palette).toBeVisible();
+  await expect(box).toBeFocused();
+  expect(await violations(page)).toEqual([]);
+  await page.keyboard.press('Escape');
+  await expect(palette).toBeHidden();
+
+  // Opened again at once, without waiting for it to be gone: the end of the one before must not close the new one.
+  for (let i = 0; i < 5; i++) {
+    await page.keyboard.press('Control+k');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Control+k');
+    await expect(palette).toBeVisible();
+    await page.waitForTimeout(100);
+    await expect(palette).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(palette).toBeHidden();
+  }
+
+  // An action by letters in order: the board.
+  await page.keyboard.press('Control+k');
+  await box.fill('gbo');
+  await expect(palette.getByRole('option').first()).toContainText('Go to Board');
+  await page.keyboard.press('Enter');
+  await expect(palette).toBeHidden();
+  await expect(page.getByRole('group', { name: 'Board' })).toBeVisible();
+
+  // A task by the words of its title: it is selected in the list.
+  await page.keyboard.press('Control+k');
+  await box.fill('palette e2e 2');
+  await expect(palette.getByRole('option').first()).toContainText('Palette e2e 2');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('aside.detail')).toContainText('Palette e2e 2');
+  await expect(page.getByRole('searchbox', { name: /search/i }).first()).toBeVisible();
+
+  // An action on the selected task: its status, written through the engine.
+  await page.keyboard.press('Control+k');
+  await box.fill('status doing');
+  await expect(palette.getByRole('option').first()).toContainText('Selected task: status doing');
+  await page.keyboard.press('Enter');
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', 'palette-e2e-2.md');
+  await expect.poll(() => readFileSync(file, 'utf8')).toMatch(/^status: doing$/m);
+
+  // What was chosen comes first: the task is offered with an empty box, and the action that was used leads (the
+  // status the task has now is not offered again).
+  await page.keyboard.press('Control+k');
+  await expect(palette.getByRole('option', { name: /Palette e2e 2/ })).toBeVisible();
+  await expect(palette.getByRole('option').first()).toContainText('Go to Board');
+  await expect(palette.getByRole('option', { name: /status doing/ })).toHaveCount(0);
+  // Words that match nothing say so.
+  await box.fill('qqqqzzzz');
+  await expect(palette.getByText('Nothing matches')).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // Ctrl+K works from the menu, too, and the page is quiet.
+  await page.getByRole('menuitem', { name: 'Project' }).click();
+  await page.getByRole('menuitem', { name: 'Command palette ...' }).click();
+  await expect(palette).toBeVisible();
+  await page.keyboard.press('Escape');
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
