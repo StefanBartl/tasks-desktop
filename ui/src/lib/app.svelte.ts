@@ -716,10 +716,26 @@ export class App {
     if (target) this.select(target.id);
   }
 
-  async createTask(area: string, title: string, fields: Record<string, unknown> = {}): Promise<void> {
-    const result = await this.write([
-      { op: 'new', area, title, ...(Object.keys(fields).length > 0 ? { fields } : {}) },
-    ], { undoable: false });
+  async createTask(
+    area: string,
+    title: string,
+    fields: Record<string, unknown> = {},
+    body = '',
+  ): Promise<void> {
+    const text = body.trim();
+    const result = await this.write(
+      [
+        {
+          op: 'new',
+          area,
+          title,
+          ...(Object.keys(fields).length > 0 ? { fields } : {}),
+          // A text replaces the sections of the template; none keeps them.
+          ...(text !== '' ? { body: text } : {}),
+        },
+      ],
+      { undoable: false },
+    );
     const created = result?.results.find((r) => r.ok && r.outcome === 'created')?.id;
     this.capturing = false;
     if (created) {
