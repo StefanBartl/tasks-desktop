@@ -96,6 +96,9 @@
       case 'k':
         if (app.view === 'list') app.moveSelection(-1);
         break;
+      case 'x':
+        if (app.view === 'list' && app.selectedId !== null) app.toggleMark(app.selectedId);
+        break;
       case '/':
         if (app.view === 'list') {
           event.preventDefault();
@@ -103,7 +106,8 @@
         }
         break;
       case 'Escape':
-        app.select(null);
+        if (app.marks.length > 0) app.clearMarks();
+        else app.select(null);
         break;
     }
   }
