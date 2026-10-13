@@ -38,6 +38,7 @@ export function paletteActions(app: App): PaletteAction[] {
   if (app.can('reorder')) add('go.board', t('palette.go', { view: t('nav.board') }), () => app.setView('board'));
   add('go.plan', t('palette.go', { view: t('nav.plan') }), () => app.setView('plan'));
 
+  if (app.conflicts.length > 0) add('conflicts.show', t('palette.conflicts', { n: app.conflicts.length }), () => app.openConflicts());
   add('rescan', t('menu.rescan'), () => app.focused());
   add('marks.all', t('bulk.all'), () => {
     app.setView('list');

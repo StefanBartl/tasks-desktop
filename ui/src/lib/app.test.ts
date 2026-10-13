@@ -1093,6 +1093,71 @@ describe('writing', () => {
     expect(app.toast?.kind).toBe('error');
   });
 
+  describe('the conflict center', () => {
+    const refused = (code: string): Result =>
+      ({
+        kind: 'tasks.result',
+        ok: false,
+        dry_run: false,
+        results: [
+          { n: 1, op: 'set', id: 'pub/a', ok: false, outcome: 'failed', changed_ids: [], error: { code, message: 'x', retryable: false } },
+        ],
+      }) as unknown as Result;
+
+    it('keeps a refused change, with what was wanted, and tries it again on the version that is there', async () => {
+      const { app, hub } = await ready();
+      hub.next_ops = refused('conflict');
+      await app.setField('pub/a', 'status', 'doing');
+      expect(app.conflicts).toHaveLength(1);
+      expect(app.conflicts[0]).toMatchObject({ id: 'pub/a', code: 'conflict', op: { patch: { status: 'doing' } } });
+      const key = app.conflicts[0]?.key as string;
+      await app.retryConflict(key);
+      // It left the list, and went out with the version the list has now.
+      expect(app.conflicts).toHaveLength(0);
+      expect(hub.sent).toHaveLength(2);
+      expect(hub.sent[1]?.ops[0]).toMatchObject({ op: 'set', id: 'pub/a', patch: { status: 'doing' } });
+    });
+
+    it('puts a change that is refused again back as one entry, and lets go of it on request', async () => {
+      const { app, hub } = await ready();
+      hub.next_ops = refused('conflict');
+      await app.setField('pub/a', 'status', 'doing');
+      hub.next_ops = refused('conflict');
+      await app.retryConflict(app.conflicts[0]?.key as string);
+      expect(app.conflicts).toHaveLength(1);
+      app.openConflicts();
+      expect(app.conflictsOpen).toBe(true);
+      app.discardConflict(app.conflicts[0]?.key as string);
+      expect(app.conflicts).toHaveLength(0);
+      expect(app.conflictsOpen).toBe(false);
+    });
+
+    it('does not keep what is refused as wrong, and keeps every change of a request refused as a whole', async () => {
+      const { app, hub } = await ready();
+      hub.next_ops = refused('invalid_argument');
+      await app.setField('pub/a', 'prio', 9);
+      expect(app.conflicts).toHaveLength(0);
+      hub.next_ops = new ApiError(409, 'conflict', 'x');
+      await app.setField('pub/a', 'prio', 1);
+      expect(app.conflicts.map((c) => c.id)).toEqual(['pub/a']);
+    });
+
+    it('does not offer a try again for a change of the order', async () => {
+      const card = (id: string, etag: string) => task(id, { etag, status: 'open', group: 'open|1' } as Partial<TaskEntry>);
+      const { app, hub } = await ready([card('pub/a', 'e1'), card('pub/b', 'e2')]);
+      hub.next_ops = {
+        kind: 'tasks.result',
+        ok: false,
+        results: [{ n: 1, op: 'reorder', id: 'pub/a', ok: false, outcome: 'failed', changed_ids: [], error: { code: 'conflict', message: 'x', retryable: false } }],
+      } as unknown as Result;
+      await app.stepCard('pub/a', 1);
+      expect(app.conflicts).toHaveLength(1);
+      await app.retryConflict(app.conflicts[0]?.key as string);
+      expect(hub.sent).toHaveLength(1);
+      expect(app.conflicts).toHaveLength(1);
+    });
+  });
+
   it('says a conflict and keeps nothing it guessed', async () => {
     const { app, hub } = await ready();
     hub.next_ops = {

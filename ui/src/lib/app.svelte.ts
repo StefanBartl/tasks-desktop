@@ -10,6 +10,7 @@ import type { DonePreview, Next, Result, Snapshot, TaskDocument, TaskEntry } fro
 import type { Op } from './api';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
 import { bumped, parseFrecency, type Frecency } from './palette';
+import { conflictsOf, conflictsOfRequest, mergeConflicts, retryOp, type Conflict } from './conflicts';
 import { backoffSeconds, readStream, StreamRefused, type SseMessage } from './sse';
 import { detectLang, isLang, translate, type Key, type Lang } from './i18n';
 import { localToday } from './remind';
@@ -128,6 +129,10 @@ export class App {
   repriority = $state.raw<{ id: string; from: string; prio: number; ops: Op[] } | null>(null);
   /** A card that goes to the blocked column and has no blocker yet, waiting for the person's answer. */
   blocking = $state.raw<{ id: string } | null>(null);
+  /** The changes the engine refused because the file moved on: the conflict center lists them. */
+  conflicts = $state.raw<Conflict[]>([]);
+  /** The conflict center is open. */
+  conflictsOpen = $state(false);
   /** The command palette is open. */
   palette = $state(false);
   /** What the palette's choices were, to put them first next time. */
@@ -233,6 +238,39 @@ export class App {
     return this.capabilities === null || this.capabilities.includes(capability);
   }
 
+  openConflicts(): void {
+    if (this.conflicts.length > 0) this.conflictsOpen = true;
+  }
+
+  closeConflicts(): void {
+    this.conflictsOpen = false;
+  }
+
+  /** Let a refused change go. */
+  discardConflict(key: string): void {
+    this.conflicts = this.conflicts.filter((c) => c.key !== key);
+    if (this.conflicts.length === 0) this.conflictsOpen = false;
+  }
+
+  discardAllConflicts(): void {
+    this.conflicts = [];
+    this.conflictsOpen = false;
+  }
+
+  /**
+   * Try a refused change again, on the version the task has now (the person has seen both and chose). It leaves the
+   * list first; a second refusal puts it back as a new entry.
+   */
+  async retryConflict(key: string): Promise<void> {
+    const conflict = this.conflicts.find((c) => c.key === key);
+    if (!conflict || this.saving) return;
+    const op = retryOp(conflict, this.tasks.find((t) => t.id === conflict.id));
+    if (op === null) return;
+    this.conflicts = this.conflicts.filter((c) => c.key !== key);
+    if (this.conflicts.length === 0) this.conflictsOpen = false;
+    await this.write([op]);
+  }
+
   openPalette(): void {
     if (this.phase === 'ready') this.palette = true;
   }
@@ -303,6 +341,7 @@ export class App {
     try {
       const result = await this.env.hub.ops({ client_op_id: this.opId(), ops });
       this.answering = false;
+      this.conflicts = mergeConflicts(this.conflicts, conflictsOf(ops, result, Date.now()));
       const failed = result.results.find((r) => !r.ok);
       if (failed) {
         const code = failed.error?.code ?? 'failed';
@@ -328,6 +367,7 @@ export class App {
       if (error instanceof ApiError && error.code === 'outcome_unknown') {
         this.say('error', 'write.unknown');
       } else if (error instanceof ApiError && error.status === 409) {
+        this.conflicts = mergeConflicts(this.conflicts, conflictsOfRequest(ops, Date.now()));
         this.say('error', 'write.conflict');
       } else if (error instanceof ApiError && error.status === 400) {
         this.say('error', 'write.invalid', { message: error.message });
