@@ -3,7 +3,7 @@
   // the rest up (the critical path) and what the plan warns about.
   import type { App } from '../lib/app.svelte';
   import { formatNumber, labelOf, translate, type Key } from '../lib/i18n';
-  import { chosenPlan, criticalIds, phaseCounts, stagesOf, warningsOf } from '../lib/plan';
+  import { chosenPlan, criticalIds, firstTasks, phaseCounts, stagesOf, warningsOf } from '../lib/plan';
   import { markHidden } from '../lib/text';
 
   let { app }: { app: App } = $props();
@@ -15,6 +15,25 @@
   // A plan that is gone (a change of the vault) is not kept chosen.
   const planId = $derived(chosenPlan(plans, app.planChoice));
   const stages = $derived(stagesOf(app.tasks, planId === '' ? null : planId));
+  // The first tasks are drawn at once and the rest in the frames after, like the list: a plan of two thousand tasks
+  // is not one block of work between the click and the first stage (measured: 50 ms for 600, 150 ms for 2000).
+  const FIRST = 200;
+  const STEP = 400;
+  let limit = $state(FIRST);
+  const total = $derived(stages.reduce((n, s) => n + s.tasks.length, 0));
+  const drawn = $derived(firstTasks(stages, limit));
+  // Another plan starts from the first tasks again, not from the number the last one had grown to.
+  $effect(() => {
+    void planId;
+    limit = FIRST;
+  });
+  $effect(() => {
+    if (limit >= total) return;
+    const frame = requestAnimationFrame(() => {
+      limit = Math.min(total, limit + STEP);
+    });
+    return () => cancelAnimationFrame(frame);
+  });
   const critical = $derived(criticalIds(snapshot?.plan));
   const phases = $derived(
     phaseCounts(
@@ -128,11 +147,11 @@
     {/if}
 
     <section class="stages" aria-label={t('plan.stages')}>
-      {#each stages as stage (stage.stage ?? 'cycle')}
+      {#each drawn as stage (stage.stage ?? 'cycle')}
         <div class="stage card">
           <h2 class="eyebrow">
             {stage.stage === null ? t('plan.no_stage') : t('plan.stage', { n: stage.stage })}
-            ({stage.tasks.length})
+            ({stage.total})
           </h2>
           <ul class="plain">
             {#each stage.tasks as task (task.id)}
