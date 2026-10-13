@@ -261,6 +261,7 @@ async fn a_plan_may_be_asked_for_and_an_unknown_operation_is_not() {
     for body in [
         r#"{"dry_run":true,"ops":[{"op":"tick_step","id":"alpha.nvim/t1","n":1}]}"#,
         r#"{"dry_run":true,"ops":[{"op":"append_note","id":"alpha.nvim/t1","text":"a note"}]}"#,
+        r#"{"dry_run":true,"ops":[{"op":"reopen","id":"alpha.nvim/t1"}]}"#,
     ] {
         let (status, doc) = post(&r, "/api/tasks/ops", body, JSON, true).await;
         assert_eq!(status, 200, "the door refused {body}: {doc}");

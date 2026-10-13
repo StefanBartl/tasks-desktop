@@ -434,6 +434,13 @@ export class App {
         }
         continue;
       }
+      // Finishing is taken back by bringing the task back. What finishing set in motion beside the file (ticked steps,
+      // closed plans) stays as it is, so with such effects no way back is offered rather than a half one.
+      if (entry.op === 'done' && entry.id) {
+        if ((entry.steps_ticked ?? 0) > 0 || (entry.plans_closed?.length ?? 0) > 0) return undefined;
+        inverses.push({ op: 'reopen', id: entry.id });
+        continue;
+      }
       const inv = entry.inverse;
       if (!inv) return undefined;
       if (inv.op === 'reorder') {
@@ -775,8 +782,13 @@ export class App {
           ...(remind ? { remind } : {}),
         },
       ],
-      { undoable: false },
+      // The way back is to bring the task back (see `inverseOf`).
     );
+  }
+
+  /** Bring a finished task back (the reminder of a finished task offers it). */
+  async reopen(id: string): Promise<void> {
+    await this.write([{ op: 'reopen', id }], { undoable: false });
   }
 
   setShortAreas(on: boolean): void {
