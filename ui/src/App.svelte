@@ -14,6 +14,7 @@
   import BlockDialog from './views/BlockDialog.svelte';
   import Palette from './views/Palette.svelte';
   import ConflictCenter from './views/ConflictCenter.svelte';
+  import VaultsDialog from './views/VaultsDialog.svelte';
   import Toast from './views/Toast.svelte';
 
   let { app, code }: { app: App; code: string | null } = $props();
@@ -249,9 +250,52 @@
         ],
       },
       {
-        id: 'settings',
-        label: t('menu.settings'),
+        id: 'vaults',
+        label: t('menu.vaults'),
         items: [
+          ...(app.vaultList?.vaults ?? []).map((v) => ({
+            kind: 'radio' as const,
+            label: v.name === 'main' ? `${v.label} (main)` : `${v.name} (${v.label})`,
+            checked: v.name === app.vaultList?.active,
+            disabled: !ready || app.vaultBusy,
+            onselect: () => void app.selectVault(v.name),
+          })),
+          ...(app.vaultList ? [{ kind: 'separator' as const }] : []),
+          {
+            kind: 'action' as const,
+            label: t('menu.vaults_manage'),
+            disabled: !ready || !app.vaultList,
+            onselect: () => app.openVaults(),
+          },
+        ],
+      },
+      {
+        id: 'options',
+        label: t('menu.options'),
+        items: [
+          { kind: 'info', label: t('lang.label') },
+          {
+            kind: 'radio',
+            label: 'Deutsch',
+            checked: app.lang === 'de',
+            onselect: () => app.setLang('de'),
+          },
+          {
+            kind: 'radio',
+            label: 'English',
+            checked: app.lang === 'en',
+            onselect: () => app.setLang('en'),
+          },
+          { kind: 'separator' },
+          { kind: 'info', label: t('theme.label') },
+          ...(['auto', 'light', 'dark'] as const).map((value) => ({
+            kind: 'radio' as const,
+            label: t(`theme.${value}` as Key),
+            checked: app.theme === value,
+            onselect: () => app.setTheme(value),
+          })),
+          { kind: 'separator' },
+          { kind: 'info', label: t('menu.settings') },
           {
             kind: 'check',
             label: t('shortcuts.label'),
@@ -265,34 +309,6 @@
             onselect: () => app.setShortAreas(!app.shortAreas),
           },
         ],
-      },
-      {
-        id: 'language',
-        label: t('lang.label'),
-        items: [
-          {
-            kind: 'radio',
-            label: 'Deutsch',
-            checked: app.lang === 'de',
-            onselect: () => app.setLang('de'),
-          },
-          {
-            kind: 'radio',
-            label: 'English',
-            checked: app.lang === 'en',
-            onselect: () => app.setLang('en'),
-          },
-        ],
-      },
-      {
-        id: 'theme',
-        label: t('theme.label'),
-        items: (['auto', 'light', 'dark'] as const).map((value) => ({
-          kind: 'radio' as const,
-          label: t(`theme.${value}` as Key),
-          checked: app.theme === value,
-          onselect: () => app.setTheme(value),
-        })),
       },
     ];
   });
@@ -391,6 +407,7 @@
     <BlockDialog {app} />
     <Palette {app} />
     <ConflictCenter {app} />
+    <VaultsDialog {app} />
   {/if}
   <Toast {app} />
 </div>

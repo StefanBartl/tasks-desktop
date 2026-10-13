@@ -12,7 +12,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// The process environment, copied once. Tests hand in their own.
 #[derive(Debug, Clone, Default)]
@@ -96,22 +96,74 @@ pub struct Resolved<T> {
 
 /// The settings file, `config.json` in the config folder. Unknown keys are
 /// refused, so a typo is told instead of ignored.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct FileConfig {
-    /// The vault folder (the root that holds the areas).
+    /// The vault folder (the root that holds the areas). The vault called
+    /// [`MAIN_VAULT`].
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub vault: Option<PathBuf>,
+    /// More vaults (roots that hold areas), by name. The hub reads one at a
+    /// time: the one `active` names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub vaults: Vec<VaultEntry>,
+    /// The name of the vault that is read (`main` or an entry of `vaults`);
+    /// none means `main`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active: Option<String>,
     /// The Neovim executable.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub nvim: Option<PathBuf>,
     /// A checkout of tasks.nvim (the folder with `scripts/tasks.lua`).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub engine_dir: Option<PathBuf>,
     /// A checkout of lib.nvim.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub lib_dir: Option<PathBuf>,
     /// Folders that are areas although they have no `ROADMAP/` or `Backlog/`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extra_areas: Vec<String>,
     /// The port the hub tries first (it is part of the origin).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
+}
+
+/// The name of the vault that `vault` (or `TASKS_VAULT`) names.
+pub const MAIN_VAULT: &str = "main";
+/// The most vaults in the settings.
+pub const MAX_VAULTS: usize = 16;
+
+/// One more vault: a name and the folder that holds its areas.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct VaultEntry {
+    pub name: String,
+    pub path: PathBuf,
+}
+
+/// Is this a name for a vault: 1 to 40 letters, digits, dot, dash, underscore,
+/// not starting with a dot, and not the name of the main vault.
+///
+/// # Errors
+///
+/// What is wrong with the name.
+pub fn valid_vault_name(name: &str) -> Result<(), &'static str> {
+    if name.is_empty() || name.chars().count() > 40 {
+        return Err("must have 1 to 40 characters");
+    }
+    if name.starts_with('.')
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    {
+        return Err(
+            "may hold letters, digits, dot, dash and underscore, and does not start with a dot",
+        );
+    }
+    if name == MAIN_VAULT {
+        return Err("is the name of the main vault");
+    }
+    Ok(())
 }
 
 /// The longest name of an area the hub accepts.
@@ -132,7 +184,47 @@ impl FileConfig {
         for name in &self.extra_areas {
             valid_area_name(name).map_err(|why| format!("extra_areas: {name:?} {why}"))?;
         }
+        if self.vaults.len() > MAX_VAULTS {
+            return Err(format!("vaults: at most {MAX_VAULTS}"));
+        }
+        for (i, v) in self.vaults.iter().enumerate() {
+            valid_vault_name(&v.name).map_err(|why| format!("vaults: {:?} {why}", v.name))?;
+            if !v.path.is_absolute() {
+                return Err(format!("vaults: {:?} needs an absolute path", v.name));
+            }
+            if self.vaults[..i].iter().any(|o| o.name == v.name) {
+                return Err(format!("vaults: the name {:?} is there twice", v.name));
+            }
+        }
+        if let Some(active) = self
+            .active
+            .as_ref()
+            .filter(|a| *a != MAIN_VAULT && !self.vaults.iter().any(|v| &v.name == *a))
+        {
+            return Err(format!("active: there is no vault {active:?}"));
+        }
         Ok(())
+    }
+
+    /// The settings as they are for the vault that is read: `vault` is the
+    /// folder of the active vault.
+    #[must_use]
+    pub fn effective(&self) -> Self {
+        let mut out = self.clone();
+        if let Some(entry) = self
+            .active
+            .as_ref()
+            .and_then(|a| self.vaults.iter().find(|v| &v.name == a))
+        {
+            out.vault = Some(entry.path.clone());
+        }
+        out
+    }
+
+    /// The name of the vault that is read.
+    #[must_use]
+    pub fn active_name(&self) -> &str {
+        self.active.as_deref().unwrap_or(MAIN_VAULT)
     }
 }
 
@@ -236,6 +328,25 @@ pub fn load_file(dir: &Path) -> Result<FileConfig, ConfigError> {
 /// The largest settings file that is read.
 const MAX_FILE_BYTES: u64 = 64 * 1024;
 
+/// Write `config.json` into `dir` in one step (a temporary file, then a
+/// rename): a crash leaves the old file or the new one.
+///
+/// # Errors
+///
+/// The reason, as text.
+pub fn save_file(dir: &Path, cfg: &FileConfig) -> Result<(), String> {
+    cfg.validate()?;
+    let text = serde_json::to_string_pretty(cfg).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(dir).map_err(|e| format!("cannot make the config folder: {e}"))?;
+    let tmp = dir.join(format!("config.json.{}.tmp", std::process::id()));
+    std::fs::write(&tmp, format!("{text}\n"))
+        .map_err(|e| format!("cannot write the settings: {e}"))?;
+    std::fs::rename(&tmp, dir.join("config.json")).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("cannot replace the settings: {e}")
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,6 +416,82 @@ mod tests {
     fn a_settings_file_with_a_bad_area_is_refused_on_load() {
         let dir = temp_config("bad-area", br#"{"extra_areas":["../outside"]}"#);
         assert!(matches!(load_file(&dir), Err(ConfigError::Invalid(..))));
+    }
+
+    fn with_vaults(entries: &[(&str, &str)], active: Option<&str>) -> FileConfig {
+        FileConfig {
+            vaults: entries
+                .iter()
+                .map(|(n, p)| VaultEntry {
+                    name: (*n).to_owned(),
+                    path: PathBuf::from(p),
+                })
+                .collect(),
+            active: active.map(str::to_owned),
+            ..FileConfig::default()
+        }
+    }
+
+    fn abs() -> &'static str {
+        if cfg!(windows) {
+            "C:/v"
+        } else {
+            "/v"
+        }
+    }
+
+    #[test]
+    fn vaults_have_plain_names_absolute_paths_and_an_active_one_that_exists() {
+        assert!(with_vaults(&[("native", abs())], Some("native"))
+            .validate()
+            .is_ok());
+        assert!(with_vaults(&[], Some("main")).validate().is_ok());
+        for (entries, active) in [
+            (vec![("main", abs())], None),
+            (vec![("../x", abs())], None),
+            (vec![("a b", abs())], None),
+            (vec![(".h", abs())], None),
+            (vec![("a", "rel/path")], None),
+            (vec![("a", abs()), ("a", abs())], None),
+            (vec![("a", abs())], Some("b")),
+        ] {
+            assert!(
+                with_vaults(&entries, active).validate().is_err(),
+                "{entries:?} {active:?} was accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn the_active_vault_decides_which_folder_is_read() {
+        let mut cfg = with_vaults(&[("native", abs())], Some("native"));
+        cfg.vault = Some(PathBuf::from("/main"));
+        assert_eq!(cfg.effective().vault, Some(PathBuf::from(abs())));
+        assert_eq!(cfg.active_name(), "native");
+        cfg.active = None;
+        assert_eq!(cfg.effective().vault, Some(PathBuf::from("/main")));
+        assert_eq!(cfg.active_name(), MAIN_VAULT);
+    }
+
+    #[test]
+    fn saving_writes_what_loading_reads_and_refuses_what_is_not_valid() {
+        let dir = std::env::temp_dir().join(format!("tasks-desktop-save-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut cfg = with_vaults(&[("native", abs())], Some("native"));
+        cfg.port = Some(20000);
+        save_file(&dir, &cfg).unwrap();
+        let back = load_file(&dir).unwrap();
+        assert_eq!(back.vaults, cfg.vaults);
+        assert_eq!(
+            (back.active, back.port),
+            (Some("native".to_owned()), Some(20000))
+        );
+        let bad = with_vaults(&[("a b", abs())], None);
+        assert!(save_file(&dir, &bad).is_err());
+        assert!(
+            load_file(&dir).is_ok(),
+            "a refused save leaves the file as it was"
+        );
     }
 
     #[test]

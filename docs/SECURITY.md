@@ -273,6 +273,26 @@ A change is made with the `etag` the page has (`if_match`): a task that
 changed meanwhile is a `conflict`, nothing is overwritten, and the page reads
 again. The undo of the page is the `inverse` operation the engine returns.
 
+## Vaults (`/api/vaults`)
+
+The hub reads one vault at a time. `config.json` may hold more (`vaults`: a name and an absolute folder each, at most 16)
+and the one that is read (`active`, `main` for the folder of `vault`). The routes need a session like the other data
+routes and count against the same limit of mutations:
+
+* `GET /api/vaults` lists the names and the last part of each folder, never a whole path.
+* `POST /api/vaults/add` `{ name, path, confirm: true }` remembers a folder. The page asks the person first and says so in
+  the request (`confirm`); without it the hub refuses. The name is 1 to 40 letters, digits, dot, dash or underscore; the
+  folder must be absolute and exist. Nothing is read from it yet.
+* `POST /api/vaults/remove` `{ name }` forgets one (never its files); the vault that is read cannot go.
+* `POST /api/vaults/select` `{ name }` starts an engine for that vault. Only a vault that answers is taken: the old one
+  stays when the new one does not work, and the settings are written (in one step, a temporary file and a rename) only after
+  that. The snapshot, the search, the watcher and the open event streams of the old vault end with it; the page loads again.
+
+The data classes are per area name (`areas.json`) and apply to every vault: an area that has no entry is closed (or
+`default`) in the new vault as it was in the old one. What a page may do here is what a person at the keyboard of this machine
+may do: a page that is paired could point the hub at any folder, so adding is a deliberate step with a confirmation, and an
+error never holds a path (the terminal of whoever runs the hub gets the reason).
+
 ## Search in the text of the tasks
 
 The engine alone reads task files, so the texts come from it: the verb

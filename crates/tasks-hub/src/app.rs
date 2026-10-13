@@ -3,8 +3,8 @@
 //! They live in the library so that their parts can be tested; `main.rs`
 //! only reads the arguments.
 
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use app_core::authn::{Secret, SystemClock, CODE_BYTES, TOKEN_BYTES};
@@ -16,7 +16,10 @@ use crate::client;
 use crate::config::{self, Env, FileConfig};
 use crate::discovery::discover;
 use crate::engine::{probe, CliEngine, CliEngineConfig, Engine, Method};
-use crate::server::{self, HubStatus, Limits, ServerConfig, WatchConfig, APP_NAME, DEFAULT_PORT};
+use crate::server::{
+    self, BoxFuture, HubStatus, Limits, ServerConfig, VaultAdmin, VaultInfo, VaultList,
+    VaultTarget, WatchConfig, APP_NAME, DEFAULT_PORT,
+};
 use crate::store::RefreshOptions;
 
 /// What to do when the hub is started.
@@ -161,6 +164,148 @@ async fn engine_state(file: &FileConfig, env: &Env) -> EngineState {
     }
 }
 
+/// The vaults of the settings file, as the routes under `/api/vaults` use
+/// them: the file is the only place the list lives, and every change of it is
+/// one atomic write.
+struct ConfigVaults {
+    dir: PathBuf,
+    env: Env,
+    file: StdMutex<FileConfig>,
+    /// One change at a time: choosing a vault starts an engine, which takes a while.
+    gate: tokio::sync::Mutex<()>,
+}
+
+impl ConfigVaults {
+    fn new(dir: PathBuf, env: Env, file: FileConfig) -> Self {
+        Self {
+            dir,
+            env,
+            file: StdMutex::new(file),
+            gate: tokio::sync::Mutex::new(()),
+        }
+    }
+
+    fn current(&self) -> FileConfig {
+        self.file
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Write `next` and keep it, or leave both as they are.
+    fn keep(&self, next: FileConfig) -> Result<(), String> {
+        config::save_file(&self.dir, &next)?;
+        *self
+            .file
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = next;
+        Ok(())
+    }
+}
+
+/// The last part of a folder: what the page may show of it.
+fn label_of(path: &Path, fallback: &str) -> String {
+    path.file_name()
+        .map_or_else(|| fallback.to_owned(), |n| n.to_string_lossy().into_owned())
+}
+
+impl VaultAdmin for ConfigVaults {
+    fn list(&self) -> VaultList {
+        let file = self.current();
+        let mut vaults = Vec::new();
+        let main = file.vault.clone().or_else(|| self.env.path("TASKS_VAULT"));
+        if let Some(path) = main {
+            vaults.push(VaultInfo {
+                name: config::MAIN_VAULT.to_owned(),
+                label: label_of(&path, config::MAIN_VAULT),
+                main: true,
+            });
+        }
+        vaults.extend(file.vaults.iter().map(|v| VaultInfo {
+            name: v.name.clone(),
+            label: label_of(&v.path, &v.name),
+            main: false,
+        }));
+        VaultList {
+            active: file.active_name().to_owned(),
+            vaults,
+        }
+    }
+
+    fn add<'a>(&'a self, name: &'a str, path: &'a str) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            let _one = self.gate.lock().await;
+            config::valid_vault_name(name).map_err(|why| format!("the name {why}"))?;
+            let folder = PathBuf::from(path);
+            if !folder.is_absolute() {
+                return Err("the folder must be given with its whole path".to_owned());
+            }
+            if !folder.is_dir() {
+                return Err("there is no such folder".to_owned());
+            }
+            let mut next = self.current();
+            if next.vaults.iter().any(|v| v.name == name) {
+                return Err("a vault of this name is there already".to_owned());
+            }
+            if next.vaults.len() >= config::MAX_VAULTS {
+                return Err(format!("at most {} vaults", config::MAX_VAULTS));
+            }
+            next.vaults.push(config::VaultEntry {
+                name: name.to_owned(),
+                path: folder,
+            });
+            self.keep(next)
+        })
+    }
+
+    fn remove<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            let _one = self.gate.lock().await;
+            let mut next = self.current();
+            if next.active_name() == name {
+                return Err("the vault that is read cannot be removed".to_owned());
+            }
+            let before = next.vaults.len();
+            next.vaults.retain(|v| v.name != name);
+            if next.vaults.len() == before {
+                return Err("there is no vault of this name".to_owned());
+            }
+            self.keep(next)
+        })
+    }
+
+    fn select<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<VaultTarget, String>> {
+        Box::pin(async move {
+            let _one = self.gate.lock().await;
+            let mut next = self.current();
+            if name == config::MAIN_VAULT {
+                next.active = None;
+            } else if next.vaults.iter().any(|v| v.name == name) {
+                next.active = Some(name.to_owned());
+            } else {
+                return Err("there is no vault of this name".to_owned());
+            }
+            let state = engine_state(&next.effective(), &self.env).await;
+            let Some(engine) = state.engine else {
+                // The terminal of whoever runs the hub gets the whole reason (it may hold paths).
+                if let Some(note) = &state.note {
+                    eprintln!("note: vault {name:?} cannot be read: {note}");
+                }
+                return Err(format!(
+                    "this vault cannot be read ({})",
+                    state.status.problem.unwrap_or("engine_unavailable")
+                ));
+            };
+            self.keep(next)?;
+            Ok(VaultTarget {
+                engine: Some(engine),
+                status: state.status,
+                vault: state.vault,
+            })
+        })
+    }
+}
+
 /// The names of the areas the engine knows.
 async fn area_names(engine: &dyn Engine) -> Result<Vec<String>, String> {
     let reply = engine
@@ -198,7 +343,7 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
     // into "everything unclassified" without anyone seeing it.
     let policy = Arc::new(AreaPolicy::load(&dir).map_err(|e| e.to_string())?);
 
-    let state = engine_state(&file, &env).await;
+    let state = engine_state(&file.effective(), &env).await;
     if let Some(note) = &state.note {
         eprintln!("{note}");
     }
@@ -267,7 +412,8 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
     // The port is part of the origin, so the wanted one is tried first. When
     // it is taken the server still starts, on another port, and says so:
     // the page then has another origin and its stored state does not carry over.
-    let running = match server::start(make_cfg(want)).await {
+    let vaults: Arc<dyn VaultAdmin> = Arc::new(ConfigVaults::new(dir.clone(), env.clone(), file));
+    let running = match server::start_with(make_cfg(want), Some(Arc::clone(&vaults))).await {
         Ok(r) => r,
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
             // Two hubs that start at the same moment both passed the check
@@ -277,7 +423,7 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
                 return Err(format!("a hub is already running on port {want}"));
             }
             eprintln!("note: port {want} is in use, using a free port; the origin changes");
-            server::start(make_cfg(0))
+            server::start_with(make_cfg(0), Some(vaults))
                 .await
                 .map_err(|e| e.to_string())?
         }
@@ -461,7 +607,7 @@ pub async fn areas(command: AreasCommand) -> Result<String, String> {
     let env = Env::from_process();
     let dir = app_dir(&env)?;
     let file = config::load_file(&dir).map_err(|e| e.to_string())?;
-    let state = engine_state(&file, &env).await;
+    let state = engine_state(&file.effective(), &env).await;
     let Some(engine) = state.engine else {
         return Err(format!(
             "the engine is not ready: {}",
@@ -590,5 +736,67 @@ mod tests {
                 assert!(got.is_err(), "{bad:?}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod vault_tests {
+    use super::*;
+
+    fn admin(name: &str) -> (ConfigVaults, PathBuf, PathBuf) {
+        let base =
+            std::env::temp_dir().join(format!("tasks-desktop-cv-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let cfg = base.join("cfg");
+        let vault = base.join("vault-two");
+        std::fs::create_dir_all(&vault).unwrap();
+        std::fs::create_dir_all(&cfg).unwrap();
+        let main = base.join("main-vault");
+        std::fs::create_dir_all(&main).unwrap();
+        let file = FileConfig {
+            vault: Some(main),
+            ..FileConfig::default()
+        };
+        (
+            ConfigVaults::new(cfg.clone(), Env::default(), file),
+            cfg,
+            vault,
+        )
+    }
+
+    #[tokio::test]
+    async fn adding_checks_the_name_the_folder_and_writes_the_file_once() {
+        let (admin, cfg, vault) = admin("add");
+        let path = vault.to_string_lossy().into_owned();
+        for (name, folder) in [
+            ("main", path.as_str()),
+            ("a b", path.as_str()),
+            ("two", "relative/folder"),
+            ("two", "/no/such/folder/anywhere"),
+        ] {
+            assert!(admin.add(name, folder).await.is_err(), "{name} {folder}");
+        }
+        assert!(!cfg.join("config.json").exists(), "a refused add wrote");
+        admin.add("two", &path).await.unwrap();
+        assert!(admin.add("two", &path).await.is_err(), "twice");
+        let saved = config::load_file(&cfg).unwrap();
+        assert_eq!(saved.vaults.len(), 1);
+        assert_eq!(saved.vaults[0].name, "two");
+        let list = admin.list();
+        assert_eq!(list.active, "main");
+        let names: Vec<_> = list.vaults.iter().map(|v| v.name.as_str()).collect();
+        assert_eq!(names, ["main", "two"]);
+        assert_eq!(list.vaults[1].label, "vault-two", "the last part only");
+    }
+
+    #[tokio::test]
+    async fn the_vault_that_is_read_cannot_be_removed_and_an_unknown_one_cannot_be_chosen() {
+        let (admin, cfg, vault) = admin("remove");
+        admin.add("two", &vault.to_string_lossy()).await.unwrap();
+        assert!(admin.remove("main").await.is_err(), "the active vault");
+        assert!(admin.remove("nope").await.is_err());
+        assert!(admin.select("nope").await.is_err());
+        admin.remove("two").await.unwrap();
+        assert!(config::load_file(&cfg).unwrap().vaults.is_empty());
     }
 }

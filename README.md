@@ -185,7 +185,9 @@ that a failure, as CI does.
 ## Settings
 
 `config.json` in the config folder (`%APPDATA%\tasks-desktop` on Windows, or
-whatever `TASKS_DESKTOP_CONFIG_DIR` names) may set `vault`, `nvim`,
+whatever `TASKS_DESKTOP_CONFIG_DIR` names) may set `vault`, `vaults` (more
+vaults, each a `name` and an absolute `path`: the Vaults menu of the page adds them and
+chooses the one that is read), `active` (the name of that one), `nvim`,
 `engine_dir`, `lib_dir`, `extra_areas` and `port`. Unknown keys are refused.
 Every path falls back to an environment variable (`TASKS_VAULT`,
 `TASKS_NVIM`, `TASKS_ENGINE_DIR`, `LIB_NVIM_DIR`, and `TASKS_DESKTOP_PORT`

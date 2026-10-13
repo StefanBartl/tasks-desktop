@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -398,7 +398,7 @@ for (const scheme of ['light', 'dark'] as const) {
 
 test('the German page has no violations either', async ({ page }) => {
   await pair(page);
-  await page.getByRole('menuitem', { name: 'Language' }).click();
+  await page.getByRole('menuitem', { name: 'Options' }).click();
   await page.getByRole('menuitemradio', { name: 'Deutsch' }).click();
   await expect(page.getByRole('menuitem', { name: 'Ansicht' })).toBeVisible();
   await showListDe(page);
@@ -494,17 +494,17 @@ test('the menu bar opens with the keyboard, switches views, language and theme',
 
   // Left and Right walk the menus.
   await page.keyboard.press('ArrowRight');
-  await expect(page.getByRole('menuitem', { name: 'Settings' })).toBeFocused();
+  await expect(page.getByRole('menuitem', { name: 'Vaults' })).toBeFocused();
 
   expect(await violations(page)).toEqual([]);
-  await page.getByRole('menuitem', { name: 'Theme' }).click();
+  await page.getByRole('menuitem', { name: 'Options' }).click();
   await page.getByRole('menuitemradio', { name: 'Dark' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
   // Keys can be switched off from the settings menu.
-  await page.getByRole('menuitem', { name: 'Settings' }).click();
+  await page.getByRole('menuitem', { name: 'Options' }).click();
   await page.getByRole('menuitemcheckbox', { name: 'Keys' }).click();
-  await page.getByRole('menuitem', { name: 'Settings' }).click();
+  await page.getByRole('menuitem', { name: 'Options' }).click();
   await expect(page.getByRole('menuitemcheckbox', { name: 'Keys' })).toHaveAttribute('aria-checked', 'false');
   expect(await violations(page)).toEqual([]);
 });
@@ -1634,4 +1634,91 @@ test('the title, the summary and the relations are changed in the detail, and th
   await expectAccessible(page, 'the detail with the title and relation fields');
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('the vaults menu lists the vault that is read, and the dialog adds, shows and forgets one', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+
+  // The vault that is read is ticked in the menu.
+  await page.getByRole('menuitem', { name: 'Vaults', exact: true }).click();
+  await expect(page.getByRole('menuitemradio', { checked: true })).toHaveCount(1);
+  await expect(page.getByRole('menuitemradio').first()).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('menuitem', { name: 'Manage vaults ...' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Vaults' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('read now')).toBeVisible();
+  await expectAccessible(page, 'the vaults dialog');
+
+  // A folder that is not there is refused in the hub's words, and nothing is added.
+  await dialog.getByLabel(/^Name/).fill('elsewhere');
+  await dialog.getByLabel(/^Folder/).fill(join(state().vault, 'no-such-folder-here'));
+  await dialog.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.getByRole('status').getByText(/there is no such folder/)).toBeVisible();
+  await expect(dialog.getByText('elsewhere')).toHaveCount(0);
+
+  // A real folder is added (the same one under another name: the dialog only lists it).
+  await dialog.getByLabel(/^Folder/).fill(state().vault);
+  await dialog.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.getByRole('status').getByText('Vault added.')).toBeVisible();
+  await expect(dialog.getByText('elsewhere')).toBeVisible();
+
+  // Forgotten again; the files stay.
+  await dialog.getByRole('button', { name: 'Forget: elsewhere' }).click();
+  await expect(page.getByRole('status').getByText(/Vault forgotten/)).toBeVisible();
+  await expect(dialog.getByText('elsewhere')).toHaveCount(0);
+  expect(readFileSync(join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', 'alpha.md'), 'utf8')).toContain('title: Alpha');
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await violations(page)).toEqual([]);
+  // The refused folder is a 400 the browser logs by itself; nothing else may be there.
+  expect((consoleProblems.get(page) ?? []).filter((m) => !m.includes('status of 400'))).toEqual([]);
+});
+
+test('another vault is chosen: the page loads again and shows its tasks, and the first one can be chosen back', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  const second = join(state().vault, '..', 'second-vault');
+  rmSync(second, { recursive: true, force: true });
+  const tasks = join(second, 'solo.nvim', 'ROADMAP', 'tasks');
+  mkdirSync(tasks, { recursive: true });
+  writeFileSync(
+    join(tasks, 'solo-task.md'),
+    ['---', 'title: Solo task of the second vault', 'status: open', 'kind: task', 'prio: 2', 'created: 2026-01-01', 'updated: 2026-01-01', '---', '', 'Solo.', ''].join('\n'),
+  );
+
+  await page.getByRole('menuitem', { name: 'Vaults', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Manage vaults ...' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Vaults' });
+  await dialog.getByLabel(/^Name/).fill('second');
+  await dialog.getByLabel(/^Folder/).fill(second);
+  await dialog.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.getByRole('status').getByText('Vault added.')).toBeVisible();
+
+  // Chosen: the page loads again; only the tasks of the second vault are there.
+  await dialog.getByRole('button', { name: 'Read this one' }).click();
+  await expect(page.getByRole('menubar')).toBeVisible();
+  await showList(page);
+  await expect(page.locator('button.row', { hasText: 'solo.nvim/solo-task' })).toBeVisible();
+  await expect(page.locator('button.row', { hasText: 'lib.nvim/alpha' })).toHaveCount(0);
+  await page.getByRole('menuitem', { name: 'Vaults', exact: true }).click();
+  await expect(page.getByRole('menuitemradio', { name: /^second/ })).toHaveAttribute('aria-checked', 'true');
+
+  // And back: the first vault is the one that is read again, with its tasks.
+  await page.getByRole('menuitemradio').first().click();
+  await expect(page.getByRole('menubar')).toBeVisible();
+  await showList(page);
+  await expect(page.locator('button.row', { hasText: /lib\.nvim\/alpha(?![-\w])/ })).toBeVisible();
+  await expect(page.locator('button.row', { hasText: 'solo.nvim/solo-task' })).toHaveCount(0);
+
+  // A vault that was chosen is not forgotten while it is read; the other goes.
+  await page.getByRole('menuitem', { name: 'Vaults', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Manage vaults ...' }).click();
+  await dialog.getByRole('button', { name: 'Forget: second' }).click();
+  await expect(page.getByRole('status').getByText(/Vault forgotten/)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  expect(await violations(page)).toEqual([]);
 });

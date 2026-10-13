@@ -22,10 +22,11 @@
 
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -224,15 +225,150 @@ struct Shared {
     exchange_limit: RateLimiter,
     limits: Limits,
     instance: String,
-    status: HubStatus,
-    engine: Option<Arc<dyn Engine>>,
     classes: Arc<AreaPolicy>,
-    store: Arc<SnapshotStore>,
     streams: Arc<StreamCounter>,
     ui: UiFiles,
     usage: Option<Arc<UsageLog>>,
+    /// What belongs to the vault that is read; replaced when another is chosen.
+    runtime: StdRwLock<Arc<VaultRuntime>>,
+    refresh: RefreshOptions,
+    /// The vaults the person may choose from; none in a hub that has only one.
+    vaults: Option<Arc<dyn VaultAdmin>>,
+}
+
+impl Shared {
+    /// The state of the vault that is read now. A request keeps the one it
+    /// took, so a change of vault never splits one answer in two.
+    fn rt(&self) -> Arc<VaultRuntime> {
+        Arc::clone(
+            &self
+                .runtime
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        )
+    }
+}
+
+/// What the hub keeps for the vault it reads: the engine and the answers
+/// that depend on it. Dropping it stops the watching and the indexing.
+struct VaultRuntime {
+    status: HubStatus,
+    engine: Option<Arc<dyn Engine>>,
+    store: Arc<SnapshotStore>,
     search: Option<Arc<SearchIndex>>,
     details: StdMutex<Details>,
+    jobs: StdMutex<Vec<JoinHandle<()>>>,
+    // Kept alive: the refresher ends when every sender of hints is gone, and
+    // the timer must keep running even if the file watcher could not start.
+    _hints: Option<mpsc::UnboundedSender<Hint>>,
+    _watcher: Option<fswatch::Watcher>,
+}
+
+impl VaultRuntime {
+    /// Stop the refresher and the indexer.
+    fn stop(&self) {
+        if let Ok(mut jobs) = self.jobs.lock() {
+            for job in jobs.drain(..) {
+                job.abort();
+            }
+        }
+    }
+}
+
+impl Drop for VaultRuntime {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// The vault the hub reads and what it needs: an engine that answered, or
+/// the reason it did not.
+pub struct VaultTarget {
+    pub engine: Option<Arc<dyn Engine>>,
+    pub status: HubStatus,
+    /// The folder to watch, once the engine is known to be there.
+    pub vault: Option<PathBuf>,
+}
+
+/// One vault of the list the page shows: a name and the last part of its
+/// folder (never the whole path).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VaultInfo {
+    pub name: String,
+    pub label: String,
+    pub main: bool,
+}
+
+/// The list of vaults and the one that is read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VaultList {
+    pub active: String,
+    pub vaults: Vec<VaultInfo>,
+}
+
+/// A future that is boxed, so that a trait object can answer with it.
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// What the routes under `/api/vaults` ask of the program: which vaults there
+/// are, adding and removing one, and choosing the one to read. An error is a
+/// short text for the page: no path, no engine output.
+pub trait VaultAdmin: Send + Sync {
+    fn list(&self) -> VaultList;
+    /// Remember a vault by name. The folder must exist; whether it holds a
+    /// vault is found out when it is chosen.
+    fn add<'a>(&'a self, name: &'a str, path: &'a str) -> BoxFuture<'a, Result<(), String>>;
+    /// Forget a vault (never its files). The one that is read cannot go.
+    fn remove<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<(), String>>;
+    /// Set up the engine for a vault and remember the choice; the server then
+    /// reads it. A vault that does not work is refused and nothing changes.
+    fn select<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<VaultTarget, String>>;
+}
+
+/// The state for one vault, with the watcher and the jobs that keep it fresh.
+fn build_runtime(
+    engine: Option<Arc<dyn Engine>>,
+    status: HubStatus,
+    vault: Option<PathBuf>,
+    max_age: Option<Duration>,
+    refresh: RefreshOptions,
+) -> VaultRuntime {
+    let store = SnapshotStore::new(
+        engine.clone(),
+        StoreOptions {
+            max_age,
+            ..StoreOptions::default()
+        },
+    );
+    // The text of the tasks, for the search: kept by the hub, read by the engine.
+    let search = engine.clone().map(SearchIndex::new);
+    let mut jobs = Vec::new();
+    if let Some(index) = &search {
+        jobs.push(search::spawn_indexer(Arc::clone(index), &store));
+    }
+    // The watcher only says "look again"; the refresher does the looking.
+    let (mut hints, mut watcher) = (None, None);
+    if let Some(vault) = vault {
+        let (tx, rx) = mpsc::unbounded_channel();
+        match fswatch::start(&vault, tx.clone()) {
+            Ok(started) => watcher = Some(started),
+            // Not fatal: the timer and the rescan request still work.
+            Err(e) => {
+                eprintln!("note: the vault cannot be watched ({e}); scanning on a timer only");
+            }
+        }
+        jobs.push(store::spawn_refresher(Arc::clone(&store), rx, refresh));
+        hints = Some(tx);
+    }
+    VaultRuntime {
+        status,
+        engine,
+        store,
+        search,
+        details: StdMutex::new(Details::default()),
+        jobs: StdMutex::new(jobs),
+        _hints: hints,
+        _watcher: watcher,
+    }
 }
 
 /// The most task documents kept.
@@ -287,22 +423,12 @@ pub struct RunningServer {
     instance: String,
     stop: watch::Sender<bool>,
     task: JoinHandle<()>,
-    refresher: Option<JoinHandle<()>>,
-    indexer: Option<JoinHandle<()>>,
-    // Kept alive: the refresher ends when every sender of hints is gone, and
-    // the timer must keep running even if the file watcher could not start.
-    _hints: Option<mpsc::UnboundedSender<Hint>>,
-    _watcher: Option<fswatch::Watcher>,
+    shared: Arc<Shared>,
 }
 
 impl Drop for RunningServer {
     fn drop(&mut self) {
-        if let Some(r) = &self.refresher {
-            r.abort();
-        }
-        if let Some(i) = &self.indexer {
-            i.abort();
-        }
+        self.shared.rt().stop();
     }
 }
 
@@ -322,9 +448,7 @@ impl RunningServer {
     /// Stop accepting, let open requests end, wait for the accept loop.
     pub async fn shutdown(mut self) {
         let _ = self.stop.send(true);
-        if let Some(r) = self.refresher.take() {
-            r.abort();
-        }
+        self.shared.rt().stop();
         let task = std::mem::replace(&mut self.task, tokio::spawn(async {}));
         let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
     }
@@ -337,6 +461,18 @@ impl RunningServer {
 /// An I/O error of binding, or `InvalidInput` for an address that is not
 /// loopback.
 pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
+    start_with(cfg, None).await
+}
+
+/// Bind and serve, with a list of vaults the page may choose from.
+///
+/// # Errors
+///
+/// As [`start`].
+pub async fn start_with(
+    cfg: ServerConfig,
+    vaults: Option<Arc<dyn VaultAdmin>>,
+) -> std::io::Result<RunningServer> {
     if !cfg.addr.ip().is_loopback() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -347,18 +483,17 @@ pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
     let addr = listener.local_addr()?;
     let instance = cfg.instance.to_hex();
     let limits = cfg.limits.clone();
-    let store = SnapshotStore::new(
-        cfg.engine.clone(),
-        StoreOptions {
-            max_age: limits.snapshot_max_age,
-            ..StoreOptions::default()
-        },
+    let (vault, refresh) = match cfg.watch {
+        Some(w) => (Some(w.vault), w.refresh),
+        None => (None, RefreshOptions::default()),
+    };
+    let runtime = build_runtime(
+        cfg.engine,
+        cfg.status,
+        vault,
+        limits.snapshot_max_age,
+        refresh.clone(),
     );
-    // The text of the tasks, for the search: kept by the hub, read by the engine.
-    let search = cfg.engine.clone().map(SearchIndex::new);
-    let indexer = search
-        .as_ref()
-        .map(|index| search::spawn_indexer(Arc::clone(index), &store));
     let shared = Arc::new(Shared {
         policy: HostPolicy::loopback(addr.port()),
         pairing: PairingStore::new(Arc::clone(&cfg.clock), cfg.pairing_ttl),
@@ -369,33 +504,16 @@ pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
         exchange_limit: RateLimiter::new(cfg.clock, limits.exchange_max, limits.exchange_window),
         limits: limits.clone(),
         instance: instance.clone(),
-        status: cfg.status,
-        engine: cfg.engine.clone(),
         classes: cfg.policy,
-        store: Arc::clone(&store),
         streams: Arc::new(StreamCounter::default()),
         ui: cfg.ui,
         usage: cfg.usage,
-        search: search.clone(),
-        details: StdMutex::new(Details::default()),
+        runtime: StdRwLock::new(Arc::new(runtime)),
+        refresh,
+        vaults,
     });
 
-    // The watcher only says "look again"; the refresher does the looking.
-    let (mut hints, mut watcher, mut refresher) = (None, None, None);
-    if let Some(w) = cfg.watch {
-        let (tx, rx) = mpsc::unbounded_channel();
-        match fswatch::start(&w.vault, tx.clone()) {
-            Ok(started) => watcher = Some(started),
-            // Not fatal: the timer and the rescan request still work.
-            Err(e) => {
-                eprintln!("note: the vault cannot be watched ({e}); scanning on a timer only")
-            }
-        }
-        refresher = Some(store::spawn_refresher(Arc::clone(&store), rx, w.refresh));
-        hints = Some(tx);
-    }
-
-    let app = router(shared);
+    let app = router(Arc::clone(&shared));
     let (stop, stop_rx) = watch::channel(false);
     let task = tokio::spawn(accept_loop(listener, app, limits, stop_rx));
     Ok(RunningServer {
@@ -403,10 +521,7 @@ pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
         instance,
         stop,
         task,
-        refresher,
-        indexer,
-        _hints: hints,
-        _watcher: watcher,
+        shared,
     })
 }
 
@@ -425,6 +540,19 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/api/tasks/rescan", post(rescan))
         .route("/api/tasks/done_preview", get(done_preview))
         .route("/api/tasks/ops", post(ops))
+        .route("/api/vaults", get(vaults_list))
+        .route(
+            "/api/vaults/add",
+            post(vaults_add).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
+        )
+        .route(
+            "/api/vaults/remove",
+            post(vaults_remove).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
+        )
+        .route(
+            "/api/vaults/select",
+            post(vaults_select).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
+        )
         .route(
             "/auth/exchange",
             post(exchange).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
@@ -811,6 +939,7 @@ async fn shell(State(st): State<Arc<Shared>>, uri: axum::http::Uri) -> Response 
 }
 
 async fn hello(State(st): State<Arc<Shared>>) -> Response {
+    let rt = st.rt();
     // Version and abilities only: no task, no area, no path, no vault name.
     let body = json!({
         "schema": 1,
@@ -819,9 +948,9 @@ async fn hello(State(st): State<Arc<Shared>>) -> Response {
         "version": crate::VERSION,
         "instance": st.instance,
         "engine": {
-            "ready": st.status.engine_ready,
-            "problem": st.status.problem,
-            "capabilities": st.status.capabilities,
+            "ready": rt.status.engine_ready,
+            "problem": rt.status.problem,
+            "capabilities": rt.status.capabilities,
         },
         "capabilities": ["pairing"],
     });
@@ -914,7 +1043,7 @@ fn engine_unavailable(st: &Shared) -> Response {
     let body = json!({ "error": {
         "code": "engine_unavailable",
         "message": "the engine is not ready",
-        "problem": st.status.problem,
+        "problem": st.rt().status.problem,
     }});
     (StatusCode::SERVICE_UNAVAILABLE, axum::Json(body)).into_response()
 }
@@ -999,7 +1128,8 @@ async fn ask(
     method: EngineMethod,
     params: Option<&serde_json::Value>,
 ) -> Result<crate::engine::Reply, Response> {
-    let Some(engine) = &st.engine else {
+    let rt = st.rt();
+    let Some(engine) = &rt.engine else {
         return Err(engine_unavailable(st));
     };
     engine.call(method, params).await.map_err(engine_failure)
@@ -1025,10 +1155,11 @@ async fn snapshot(
     if let Some(response) = no_query(query.as_deref()) {
         return response;
     }
-    if !st.store.has_engine() {
+    let rt = st.rt();
+    if !rt.store.has_engine() {
         return engine_unavailable(&st);
     }
-    let cached = match st.store.current().await {
+    let cached = match rt.store.current().await {
         Ok(c) => c,
         Err(error) => return engine_failure(error),
     };
@@ -1107,9 +1238,10 @@ async fn task(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Respo
     // repeated look at a task costs no engine question. A hub that holds no
     // snapshot asks the engine and keeps nothing: this route never makes a
     // full scan wait in front of a task.
-    let rev = st.store.latest().and_then(|c| c.rev.clone());
+    let rt = st.rt();
+    let rev = rt.store.latest().and_then(|c| c.rev.clone());
     if let Some(rev) = &rev {
-        let hit = st.details.lock().ok().and_then(|mut d| d.get(rev, id));
+        let hit = rt.details.lock().ok().and_then(|mut d| d.get(rev, id));
         if let Some(doc) = hit {
             return json_response(StatusCode::OK, doc, None);
         }
@@ -1122,8 +1254,8 @@ async fn task(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Respo
             // still the held one after the read: a change that came in
             // meanwhile must not leave an old document under the new state.
             if let Some(rev) = &rev {
-                let now = st.store.latest().and_then(|c| c.rev.clone());
-                let table = st.details.lock().ok().filter(|_| now.as_ref() == Some(rev));
+                let now = rt.store.latest().and_then(|c| c.rev.clone());
+                let table = rt.details.lock().ok().filter(|_| now.as_ref() == Some(rev));
                 if let Some(mut details) = table {
                     details.put(rev, id, Bytes::from(reply.text.clone()));
                 }
@@ -1254,7 +1386,8 @@ async fn events(
     if let Some(response) = no_query(query.as_deref()) {
         return response;
     }
-    if !st.store.has_engine() {
+    let rt = st.rt();
+    if !rt.store.has_engine() {
         return engine_unavailable(&st);
     }
     // The guard has checked the session; the token is the key of the count.
@@ -1270,10 +1403,10 @@ async fn events(
         );
     };
     // Start from a known state: the snapshot is held before the stream is.
-    if let Err(error) = st.store.current().await {
+    if let Err(error) = rt.store.current().await {
         return engine_failure(error);
     }
-    let (mut changes, seq, rev) = st.store.subscribe();
+    let (mut changes, seq, rev) = rt.store.subscribe();
     let (tx, rx) = mpsc::channel::<Bytes>(16);
     let heartbeat = st.limits.heartbeat;
     let instance = st.instance.clone();
@@ -1331,7 +1464,8 @@ async fn events(
 /// text around the match (marks in UTF-16 units). The text comes from the
 /// index the hub keeps; while there is none, `status` says so.
 async fn search_route(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
-    let Some(index) = &st.search else {
+    let rt = st.rt();
+    let Some(index) = &rt.search else {
         return engine_unavailable(&st);
     };
     let (text, limit) = match search::parse_request(query.as_deref()) {
@@ -1469,7 +1603,7 @@ async fn ops(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
         Err(response) => {
             // A write that ended without an answer may have been carried out:
             // look again, so the page does not stand on an old state.
-            st.store.request_rescan();
+            st.rt().store.request_rescan();
             return response;
         }
     };
@@ -1490,7 +1624,7 @@ async fn ops(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
             // A document this hub cannot read for it: scan anyway.
             .unwrap_or(true);
         if wrote {
-            let _ = st.store.refresh("ops").await;
+            let _ = st.rt().store.refresh("ops").await;
         }
         if let Some(usage) = &st.usage {
             usage.touched();
@@ -1519,13 +1653,173 @@ async fn done_preview(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) 
     }
 }
 
+/// The text a request of the vault routes carries: one JSON object with a few
+/// short fields.
+// The error is the answer to send, as everywhere in this file: a response is large, and rare.
+#[allow(clippy::result_large_err)]
+fn vault_request(
+    body: &Bytes,
+    fields: &[&str],
+) -> Result<serde_json::Map<String, serde_json::Value>, Response> {
+    let bad = |why: &str| error_body(StatusCode::BAD_REQUEST, "bad_request", why);
+    let value: serde_json::Value =
+        serde_json::from_slice(body).map_err(|_| bad("the body is not JSON"))?;
+    let serde_json::Value::Object(map) = value else {
+        return Err(bad("the body must be an object"));
+    };
+    if let Some(key) = map.keys().find(|k| !fields.contains(&k.as_str())) {
+        return Err(bad(&format!("unknown field {key:?}")));
+    }
+    Ok(map)
+}
+
+// The error is the answer to send, as everywhere in this file: a response is large, and rare.
+#[allow(clippy::result_large_err)]
+fn vault_text(
+    map: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    longest: usize,
+) -> Result<String, Response> {
+    match map.get(key).and_then(serde_json::Value::as_str) {
+        Some(text)
+            if !text.is_empty()
+                && text.chars().count() <= longest
+                && !text.chars().any(char::is_control) =>
+        {
+            Ok(text.to_owned())
+        }
+        _ => Err(error_body(
+            StatusCode::BAD_REQUEST,
+            "bad_request",
+            &format!("{key}: text of 1 to {longest} characters, no control characters"),
+        )),
+    }
+}
+
+fn vaults_unavailable() -> Response {
+    error_body(
+        StatusCode::NOT_FOUND,
+        "vaults_unavailable",
+        "this hub has no list of vaults",
+    )
+}
+
+/// `GET /api/vaults`: the vaults the person may choose from and the one that
+/// is read. Names and the last part of a folder; never a whole path.
+async fn vaults_list(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
+    if let Some(response) = no_query(query.as_deref()) {
+        return response;
+    }
+    let Some(admin) = &st.vaults else {
+        return vaults_unavailable();
+    };
+    let list = admin.list();
+    let vaults: Vec<serde_json::Value> = list
+        .vaults
+        .iter()
+        .map(|v| json!({ "name": v.name, "label": v.label, "main": v.main }))
+        .collect();
+    axum::Json(
+        json!({ "schema": 1, "kind": "hub.vaults", "active": list.active, "vaults": vaults }),
+    )
+    .into_response()
+}
+
+/// `POST /api/vaults/add` `{ "name", "path", "confirm": true }`: remember a
+/// vault. The folder is the person's choice and the page asks first: the
+/// request must say it was confirmed.
+async fn vaults_add(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
+    let Some(admin) = &st.vaults else {
+        return vaults_unavailable();
+    };
+    let map = match vault_request(&body, &["name", "path", "confirm"]) {
+        Ok(m) => m,
+        Err(r) => return r,
+    };
+    if map.get("confirm").and_then(serde_json::Value::as_bool) != Some(true) {
+        return error_body(
+            StatusCode::BAD_REQUEST,
+            "confirm_required",
+            "adding a vault must be confirmed",
+        );
+    }
+    let (name, path) = match (vault_text(&map, "name", 40), vault_text(&map, "path", 1024)) {
+        (Ok(n), Ok(p)) => (n, p),
+        (Err(r), _) | (_, Err(r)) => return r,
+    };
+    match admin.add(&name, &path).await {
+        Ok(()) => axum::Json(json!({ "ok": true })).into_response(),
+        Err(why) => error_body(StatusCode::BAD_REQUEST, "vault_refused", &why),
+    }
+}
+
+/// `POST /api/vaults/remove` `{ "name" }`: forget a vault; its files stay.
+async fn vaults_remove(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
+    let Some(admin) = &st.vaults else {
+        return vaults_unavailable();
+    };
+    let map = match vault_request(&body, &["name"]) {
+        Ok(m) => m,
+        Err(r) => return r,
+    };
+    let name = match vault_text(&map, "name", 40) {
+        Ok(n) => n,
+        Err(r) => return r,
+    };
+    match admin.remove(&name).await {
+        Ok(()) => axum::Json(json!({ "ok": true })).into_response(),
+        Err(why) => error_body(StatusCode::BAD_REQUEST, "vault_refused", &why),
+    }
+}
+
+/// `POST /api/vaults/select` `{ "name" }`: read another vault. What belongs to
+/// the old one (the snapshot, the search, the watcher, the open streams) goes
+/// with it; the page reads again. A vault that does not work is refused and
+/// the old one stays.
+async fn vaults_select(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
+    let Some(admin) = &st.vaults else {
+        return vaults_unavailable();
+    };
+    let map = match vault_request(&body, &["name"]) {
+        Ok(m) => m,
+        Err(r) => return r,
+    };
+    let name = match vault_text(&map, "name", 40) {
+        Ok(n) => n,
+        Err(r) => return r,
+    };
+    let target = match admin.select(&name).await {
+        Ok(t) => t,
+        Err(why) => return error_body(StatusCode::BAD_REQUEST, "vault_refused", &why),
+    };
+    let next = build_runtime(
+        target.engine,
+        target.status,
+        target.vault,
+        st.limits.snapshot_max_age,
+        st.refresh.clone(),
+    );
+    let old = {
+        let mut slot = st
+            .runtime
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        std::mem::replace(&mut *slot, Arc::new(next))
+    };
+    // The open streams of the old vault end: their store is closed with it.
+    old.stop();
+    drop(old);
+    axum::Json(json!({ "ok": true, "active": name })).into_response()
+}
+
 /// `POST /api/tasks/rescan`: a client that got the focus again asks for a
 /// full scan. Many asks while one runs are one scan.
 async fn rescan(State(st): State<Arc<Shared>>) -> Response {
-    if !st.store.has_engine() {
+    let rt = st.rt();
+    if !rt.store.has_engine() {
         return engine_unavailable(&st);
     }
-    st.store.request_rescan();
+    rt.store.request_rescan();
     // The page asks for this when its window gets the focus back.
     if let Some(usage) = &st.usage {
         usage.touched();

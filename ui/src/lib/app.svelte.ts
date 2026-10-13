@@ -4,7 +4,7 @@
 import { type TagEdit, bulkSetOps, markAll, pruneMarks, toggleMark } from './bulk';
 import { planOp, type PlanForm, type PlanPreview } from './planwizard';
 import { columnsOf, isColumn, neighbourColumn, placeNear, stepInGroup, type Move } from './board';
-import { ApiError, type Hub, type HubArea, type HubAreas, type SearchResult } from './api';
+import { ApiError, type Hub, type HubArea, type HubAreas, type SearchResult, type VaultList } from './api';
 import { cacheableClass, cacheableList, type ListStore } from './cache';
 import type { DonePreview, Next, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import type { Op } from './api';
@@ -49,6 +49,8 @@ export interface Env {
   fetchFn: typeof fetch;
   /** Wait; replaced in tests. */
   sleep(ms: number): Promise<void>;
+  /** Load the page again (after another vault was chosen); replaced in tests. */
+  reload?(): void;
 }
 
 const TOKEN_KEY = 'tasks-desktop.session';
@@ -139,6 +141,12 @@ export class App {
   frecency = $state.raw<Frecency>({});
   /** The plan wizard is open. */
   planning = $state(false);
+  /** The vaults the hub offers (null: none known, or the hub has no list). */
+  vaultList = $state.raw<VaultList | null>(null);
+  /** The dialog of the vaults is open. */
+  managingVaults = $state(false);
+  /** A vault is being chosen or changed: one at a time. */
+  vaultBusy = $state(false);
   /** The task that is being finished, with what the engine says that does. */
   finishing = $state.raw<{ id: string; preview: DonePreview } | null>(null);
   private opCount = 0;
@@ -961,7 +969,67 @@ export class App {
     } catch {
       // No classes, no cache: nothing is written.
     }
+    void this.loadVaults();
     if (this.view === 'today') await this.loadNext();
+  }
+
+  /** Read the list of vaults; a hub without one (404) simply has no menu entries. */
+  async loadVaults(): Promise<void> {
+    try {
+      this.vaultList = await this.env.hub.vaults();
+    } catch {
+      this.vaultList = null;
+    }
+  }
+
+  openVaults(): void {
+    if (this.phase === 'ready' && this.vaultList) this.managingVaults = true;
+  }
+
+  closeVaults(): void {
+    this.managingVaults = false;
+  }
+
+  private async vaultStep(work: () => Promise<void>, ok?: Key): Promise<boolean> {
+    if (this.vaultBusy) return false;
+    this.vaultBusy = true;
+    try {
+      await work();
+      if (ok) this.say('ok', ok);
+      return true;
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : '';
+      this.say('error', 'vaults.failed', { message });
+      return false;
+    } finally {
+      this.vaultBusy = false;
+    }
+  }
+
+  /** Read another vault. What the page holds of the old one (the list, the cache) goes; the page loads again. */
+  async selectVault(name: string): Promise<void> {
+    if (this.vaultList?.active === name) return;
+    const done = await this.vaultStep(async () => {
+      await this.env.hub.selectVault(name);
+      // The list that is cached belongs to the vault that was left.
+      await this.env.cache.clear();
+    });
+    if (done) (this.env.reload ?? (() => undefined))();
+  }
+
+  async addVault(name: string, path: string): Promise<boolean> {
+    const done = await this.vaultStep(async () => {
+      await this.env.hub.addVault(name.trim(), path.trim());
+      this.vaultList = await this.env.hub.vaults();
+    }, 'vaults.added');
+    return done;
+  }
+
+  async removeVault(name: string): Promise<void> {
+    await this.vaultStep(async () => {
+      await this.env.hub.removeVault(name);
+      this.vaultList = await this.env.hub.vaults();
+    }, 'vaults.removed');
   }
 
   private nextFor: string | null = null;
