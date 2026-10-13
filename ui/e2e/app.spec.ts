@@ -481,6 +481,20 @@ test('a task is created, changed, taken back and finished through the engine', a
   await expect(page.getByRole('status').getByText('Undone.')).toBeVisible();
   await expect(page.locator('aside.detail').getByLabel('Status')).toHaveValue('open');
 
+  // Kind, effort, value and tags: the engine takes them and the next read shows them.
+  const detail = page.locator('aside.detail');
+  await detail.getByLabel('Effort').selectOption('M');
+  await expect(detail.getByLabel('Effort')).toHaveValue('M');
+  await detail.getByLabel('Value').selectOption('4');
+  await expect(detail.getByLabel('Value')).toHaveValue('4');
+  await detail.getByLabel('Kind').selectOption('bug');
+  await expect(detail.getByLabel('Kind')).toHaveValue('bug');
+  await detail.getByLabel('Tags').fill(' ui, e2e ,, ui');
+  await detail.getByLabel('Tags').blur();
+  await expect(detail.getByLabel('Tags')).toHaveValue('ui, e2e');
+  await detail.getByLabel('Effort').selectOption('');
+  await expect(detail.getByLabel('Effort')).toHaveValue('');
+
   // Finishing shows what it does and asks.
   await page.locator('aside.detail').getByRole('button', { name: 'Finish ...' }).click();
   const done = page.getByRole('dialog', { name: 'Finish this task?' });

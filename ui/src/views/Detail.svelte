@@ -4,6 +4,7 @@
   import { parseMarkdown } from '../lib/markdown';
   import { hasHidden, markHidden } from '../lib/text';
   import { REMIND_CHOICES } from '../lib/remind';
+  import { EFFORT_SIZES, KINDS, VALUES, parseTags, tagsChanged, tagsText } from '../lib/fields';
   import Blocks from './Blocks.svelte';
 
   let { app }: { app: App } = $props();
@@ -96,6 +97,70 @@
             <option value={a}>{labelOf(app.lang, 'actor', a)}</option>
           {/each}
         </select>
+      </label>
+      <label>
+        <span>{t('field.kind')}</span>
+        <select
+          value={task.kind ?? ''}
+          disabled={app.saving}
+          onchange={(e) =>
+            void app.setField(task.id, 'kind', e.currentTarget.value === '' ? null : e.currentTarget.value)}
+        >
+          <option value="">–</option>
+          {#each KINDS as k (k)}
+            <option value={k}>{k}</option>
+          {/each}
+        </select>
+      </label>
+      <label>
+        <span>{t('field.effort')}</span>
+        <select
+          value={task.effort ?? ''}
+          disabled={app.saving}
+          onchange={(e) =>
+            void app.setField(task.id, 'effort', e.currentTarget.value === '' ? null : e.currentTarget.value)}
+        >
+          <option value="">–</option>
+          {#if task.effort && !(EFFORT_SIZES as readonly string[]).includes(task.effort)}
+            <option value={task.effort}>{task.effort}</option>
+          {/if}
+          {#each EFFORT_SIZES as size (size)}
+            <option value={size}>{size}</option>
+          {/each}
+        </select>
+      </label>
+      <label>
+        <span>{t('field.value')}</span>
+        <select
+          value={task.value === undefined ? '' : String(task.value)}
+          disabled={app.saving}
+          onchange={(e) =>
+            void app.setField(
+              task.id,
+              'value',
+              e.currentTarget.value === '' ? null : Number(e.currentTarget.value),
+            )}
+        >
+          <option value="">–</option>
+          {#each VALUES as v (v)}
+            <option value={String(v)}>{v}</option>
+          {/each}
+        </select>
+      </label>
+      <label class="wide">
+        <span>{t('field.tags')} <small>({t('field.tags_hint')})</small></span>
+        <input
+          type="text"
+          value={tagsText(task.tags)}
+          disabled={app.saving}
+          onchange={(e) => {
+            const text = e.currentTarget.value;
+            if (tagsChanged(task.tags, text)) {
+              const tags = parseTags(text);
+              void app.setField(task.id, 'tags', tags.length === 0 ? null : tags);
+            }
+          }}
+        />
       </label>
       <label>
         <span>{t('remind.field')}</span>
@@ -227,6 +292,7 @@
     color: var(--muted);
   }
   .edit select,
+  .edit input,
   .edit .finish {
     background: var(--surface-2);
     color: var(--text);
@@ -234,6 +300,9 @@
     border-radius: var(--radius);
     padding: 0.25rem 0.5rem;
     font-size: 0.9rem;
+  }
+  .edit .wide {
+    flex: 1 1 14rem;
   }
   .edit .finish {
     cursor: pointer;

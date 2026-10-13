@@ -283,7 +283,7 @@ export class App {
   }
 
   /** Set one key of a task; `null` takes the key away. */
-  async setField(id: string, key: string, value: string | number | null): Promise<void> {
+  async setField(id: string, key: string, value: string | number | string[] | null): Promise<void> {
     const task = this.tasks.find((t) => t.id === id);
     if (!task) return;
     await this.write([
