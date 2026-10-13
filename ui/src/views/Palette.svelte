@@ -40,7 +40,7 @@
 
   async function run(item: PaletteItem | undefined): Promise<void> {
     if (!item) return;
-    app.chose(item.key);
+    app.chose(item.key, item.kind === 'task' ? item.id : undefined);
     // Closed first: what an action opens (a dialog) must not stand under this one.
     app.closePalette();
     if (item.kind === 'action') await item.action.run();

@@ -5,7 +5,7 @@ import { type TagEdit, bulkSetOps, markAll, pruneMarks, toggleMark } from './bul
 import { planOp, type PlanForm, type PlanPreview } from './planwizard';
 import { columnsOf, isColumn, neighbourColumn, placeNear, stepInGroup, type Move } from './board';
 import { ApiError, type Hub, type HubArea, type HubAreas, type SearchResult } from './api';
-import { cacheableList, type ListStore } from './cache';
+import { cacheableClass, cacheableList, type ListStore } from './cache';
 import type { DonePreview, Next, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import type { Op } from './api';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
@@ -238,6 +238,13 @@ export class App {
     return this.capabilities === null || this.capabilities.includes(capability);
   }
 
+  /** May the id of this task be kept in the browser? The class of its area decides, as for the cache. */
+  private mayRemember(id: string): boolean {
+    const task = this.tasks.find((t) => t.id === id);
+    if (!task) return false;
+    return cacheableClass(this.hubAreas.find((a) => a.name === task.area)?.data_class);
+  }
+
   openConflicts(): void {
     if (this.conflicts.length > 0) this.conflictsOpen = true;
   }
@@ -279,8 +286,13 @@ export class App {
     this.palette = false;
   }
 
-  /** Remember that `key` (an action or a task) was chosen. */
-  chose(key: string): void {
+  /**
+   * Remember that `key` (an action, or the task `taskId`) was chosen. A task is remembered only when its area
+   * may be put in the browser: the id of a private or unclassified task would lie in the profile otherwise
+   * (rules WEB-17 and SRV-21).
+   */
+  chose(key: string, taskId?: string): void {
+    if (taskId !== undefined && !this.mayRemember(taskId)) return;
     this.frecency = bumped(this.frecency, key, Date.now());
     safe(() => this.env.prefs.setItem('tasks-desktop.frecency', JSON.stringify(this.frecency)));
   }

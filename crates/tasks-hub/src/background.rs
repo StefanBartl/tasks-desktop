@@ -283,10 +283,34 @@ pub fn autostart_for(what: Autostart, exe: &Path) -> Result<String, String> {
     run_key(what, exe, &RegExe(system_program("reg.exe")?))
 }
 
-/// What one call of `reg.exe` came to: whether it succeeded and what it printed.
+/// What one call of `reg.exe` came to: whether it succeeded, what it printed and what it complained of.
 struct RegOutput {
     success: bool,
     stdout: String,
+    stderr: String,
+}
+
+impl RegOutput {
+    /// `": <the first line of the complaint>"`, or nothing. The reason of a refusal (rule RS-06) is
+    /// not thrown away; it goes to the terminal of the person only, cleaned of control characters.
+    fn reason(&self) -> String {
+        let line = self
+            .stderr
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("");
+        let clean: String = line
+            .trim()
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .take(200)
+            .collect();
+        if clean.is_empty() {
+            String::new()
+        } else {
+            format!(": {clean}")
+        }
+    }
 }
 
 /// The registry, as far as the login entry needs it: one call of `reg.exe` with
@@ -312,6 +336,7 @@ impl Registry for RegExe {
         Ok(RegOutput {
             success: out.status.success(),
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
         })
     }
 }
@@ -327,24 +352,26 @@ fn run_key(what: Autostart, exe: &Path, reg: &dyn Registry) -> Result<String, St
             let mut add = args(&["add", RUN_KEY, "/v", RUN_VALUE, "/t", "REG_SZ", "/d"]);
             add.push(OsString::from(run_command(exe)));
             add.push(OsString::from("/f"));
-            if reg.run(&add)?.success {
+            let added = reg.run(&add)?;
+            if added.success {
                 Ok(format!(
                     "the hub starts with your login: {}\n",
                     run_command(exe)
                 ))
             } else {
-                Err("the entry could not be written".to_owned())
+                Err(format!("the entry could not be written{}", added.reason()))
             }
         }
         Autostart::Off => {
-            let deleted = reg
-                .run(&args(&["delete", RUN_KEY, "/v", RUN_VALUE, "/f"]))?
-                .success;
+            let deleted = reg.run(&args(&["delete", RUN_KEY, "/v", RUN_VALUE, "/f"]))?;
             // A missing value is not an error: it is what was asked for. One that
             // is still there is (a policy or an ACL on the key). `reg delete` exits
             // the same for both, so the key is asked.
-            if !deleted && login_value_present(reg)? {
-                return Err("the entry could not be removed".to_owned());
+            if !deleted.success && login_value_present(reg)? {
+                return Err(format!(
+                    "the entry could not be removed{}",
+                    deleted.reason()
+                ));
             }
             Ok("the hub does not start with your login\n".to_owned())
         }
@@ -986,7 +1013,21 @@ mod tests {
             if self.missing {
                 return Err("reg.exe did not run: not found".to_owned());
             }
-            let answer = |success: bool, stdout: String| Ok(RegOutput { success, stdout });
+            let answer = |success: bool, stdout: String| {
+                Ok(RegOutput {
+                    success,
+                    stdout,
+                    // What reg.exe says when a policy or an ACL refuses.
+                    stderr: if !success && self.locked {
+                        "
+ERROR: Access is denied.
+"
+                        .to_owned()
+                    } else {
+                        String::new()
+                    },
+                })
+            };
             match args.first().map(String::as_str) {
                 Some("add") if !self.locked => {
                     let at = args.iter().position(|a| a == "/d").unwrap_or(0) + 1;
@@ -1042,13 +1083,35 @@ mod tests {
     }
 
     #[test]
+    fn the_reason_reg_gives_for_a_refusal_is_in_the_error() {
+        let mut reg = FakeRegistry::new(Some("x"));
+        reg.locked = true;
+        let written = run_key(Autostart::On, Path::new(EXE), &reg).unwrap_err();
+        assert_eq!(
+            written,
+            "the entry could not be written: ERROR: Access is denied."
+        );
+        let removed = run_key(Autostart::Off, Path::new(EXE), &reg).unwrap_err();
+        assert_eq!(
+            removed,
+            "the entry could not be removed: ERROR: Access is denied."
+        );
+        // A control character in the complaint does not reach the terminal.
+        let odd = RegOutput {
+            success: false,
+            stdout: String::new(),
+            stderr: format!("bad{}thing", char::from(0x1b)),
+        };
+        assert_eq!(odd.reason(), ": bad thing");
+    }
+
+    #[test]
     fn a_refused_write_is_an_error_and_a_missing_program_too() {
         let mut reg = FakeRegistry::new(None);
         reg.locked = true;
-        assert_eq!(
-            run_key(Autostart::On, Path::new(EXE), &reg).unwrap_err(),
-            "the entry could not be written"
-        );
+        assert!(run_key(Autostart::On, Path::new(EXE), &reg)
+            .unwrap_err()
+            .starts_with("the entry could not be written"));
         let mut gone = FakeRegistry::new(None);
         gone.missing = true;
         for what in [Autostart::On, Autostart::Off, Autostart::Status] {
@@ -1077,10 +1140,9 @@ mod tests {
     fn a_value_that_cannot_be_removed_is_an_error() {
         let mut reg = FakeRegistry::new(Some("x"));
         reg.locked = true;
-        assert_eq!(
-            run_key(Autostart::Off, Path::new(EXE), &reg).unwrap_err(),
-            "the entry could not be removed"
-        );
+        assert!(run_key(Autostart::Off, Path::new(EXE), &reg)
+            .unwrap_err()
+            .starts_with("the entry could not be removed"));
         assert!(reg.value.borrow().is_some());
     }
 

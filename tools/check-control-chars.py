@@ -6,7 +6,8 @@ unseen; a bidirectional override in source hides what the code does (the
 "Trojan Source" trick). This reads every file `git ls-files` lists, skips
 binary files (a NUL byte, or not UTF-8), and rejects:
 
-  * C0 controls except tab, line feed and carriage return, and DEL;
+  * C0 controls except line feed and carriage return, and DEL; a TAB too, except in the files
+    whose format needs it (Makefile, *.mk, *.tsv, .gitmodules);
   * the C1 range (U+0080 to U+009F);
   * the line and paragraph separators (U+2028, U+2029);
   * the invisible format characters: zero width (U+200B to U+200F, U+2060 to
@@ -25,6 +26,7 @@ Exit 2: git could not be asked.
 """
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -32,7 +34,7 @@ import sys
 # Code point ranges (inclusive) that are refused; kept as numbers so that this
 # file holds none of the characters it forbids.
 RANGES = [
-    (0x00, 0x08),
+    (0x00, 0x09),
     (0x0B, 0x0C),
     (0x0E, 0x1F),
     (0x7F, 0x9F),
@@ -49,6 +51,11 @@ BAD = re.compile(
 
 # Files that carry such characters on purpose.
 ALLOWED: dict[str, str] = {}
+
+# A TAB belongs to the format of these files (rule REL-14); everywhere else it is refused, since
+# a tab in a text is nearly always a lost backslash-t (rule APP-02).
+TAB_FILE_NAMES = ("Makefile", "GNUmakefile", ".gitmodules")
+TAB_FILE_SUFFIXES = (".mk", ".tsv")
 
 
 def tracked_files():
@@ -78,11 +85,15 @@ def problems(path, data):
     # A byte order mark at the start of a file is the way some editors say UTF-8.
     if text.startswith(chr(0xFEFF)):
         text = text[1:]
+    tab_ok = os.path.basename(path) in TAB_FILE_NAMES or path.endswith(TAB_FILE_SUFFIXES)
     found = []
     # Split on \n only: a lone \r or a CRLF is a line ending, not a finding.
     for number, line in enumerate(text.split("\n"), start=1):
         for match in BAD.finditer(line):
-            found.append((number, ord(match.group())))
+            code = ord(match.group())
+            if code == 0x09 and tab_ok:
+                continue
+            found.append((number, code))
     return found
 
 

@@ -248,11 +248,12 @@ The page may change tasks; the engine stays the only writer and the only
 holder of the rules. The route:
 
 * needs the session, an `Origin` the hub knows, `application/json` and
-  passes a rate limit of mutations like every other POST: a write the limit
-  of all mutations, a dry run (the plan wizard asks once per key) a limit of
-  its own that the writes do not pay for; a request that is none counts as a
-  write (the route counts itself, after the session is known: only the body
-  tells the two apart);
+  passes a rate limit of mutations like every other POST, in the guard before
+  the credential: every POST to this route counts against a coarse limit of
+  its own (300 in 10 s, the plan wizard asks once per key); only the body
+  tells a write from a dry run, so the writes are counted a second time,
+  strictly (the limit of all mutations), once the handler has read it. A dry
+  run costs the writes nothing; a request that is none counts as a write;
 * checks the **form** before an engine process is asked: a JSON object with
   `ops` (1 to 100 entries, each with a known `op`), at most the fields
   `schema`, `client_op_id`, `dry_run`, `ops`, a plain `client_op_id`. What
@@ -345,8 +346,8 @@ ASCII; nothing the user typed is put on a command line.
 ### The persistent engine process
 
 By default one `nvim -l scripts/tasks-host.lua` stays up and answers the
-questions as lines (`<id>	<method>	<params>`, answered by
-`<id>	<document>`). It gets the same environment as above, the same
+questions as lines (`<id>\t<method>\t<params>`, answered by
+`<id>\t<document>`). It gets the same environment as above, the same
 ASCII-only request and the same limits. What differs:
 
 * a host that cannot start, does not say `ready`, or fails three times in a
