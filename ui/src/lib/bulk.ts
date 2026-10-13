@@ -31,6 +31,11 @@ export function markAll(marks: readonly string[], ids: readonly string[]): strin
   return out;
 }
 
+/** Whether a key press in a field of the bar means "apply" (Enter, but not the Enter that ends an IME composition). */
+export function isApplyKey(event: { key: string; isComposing?: boolean }): boolean {
+  return event.key === 'Enter' && event.isComposing !== true;
+}
+
 /** Tags to put on and to take off every marked task (what a task has otherwise stays). */
 export interface TagEdit {
   add: readonly string[];

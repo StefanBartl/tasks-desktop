@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TaskEntry } from './contract';
-import { BULK_MAX, bulkSetOps, editedTags, markAll, pruneMarks, toggleMark } from './bulk';
+import { BULK_MAX, bulkSetOps, editedTags, isApplyKey, markAll, pruneMarks, toggleMark } from './bulk';
 
 const task = (id: string, etag?: string) => ({ id, ...(etag ? { etag } : {}) }) as unknown as TaskEntry;
 
@@ -19,6 +19,15 @@ describe('marks', () => {
 
   it('forgets a task that is gone', () => {
     expect(pruneMarks(['a', 'gone', 'b'], [task('a'), task('b')])).toEqual(['a', 'b']);
+  });
+});
+
+describe('isApplyKey', () => {
+  it('is Enter, and not the Enter that confirms an input method', () => {
+    expect(isApplyKey({ key: 'Enter' })).toBe(true);
+    expect(isApplyKey({ key: 'Enter', isComposing: false })).toBe(true);
+    expect(isApplyKey({ key: 'Enter', isComposing: true })).toBe(false);
+    expect(isApplyKey({ key: 'a' })).toBe(false);
   });
 });
 

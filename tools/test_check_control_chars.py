@@ -40,6 +40,11 @@ class ControlCharacters(unittest.TestCase):
     def test_ordinary_non_ascii_text_passes(self):
         self.assertEqual(found("Gr\u00fc\u00dfe \u2014 \u65e5\u672c\u8a9e \U0001F600"), [])
 
+    def test_a_control_character_in_a_file_name_is_found(self):
+        self.assertEqual(check.name_problems("docs/read" + chr(8) + "me.md"), [8])
+        self.assertEqual(check.name_problems("docs/a" + chr(0x202E) + "b.md"), [0x202E])
+        self.assertEqual(check.name_problems("docs/Grüße/readme.md"), [])
+
     def test_this_tool_and_its_test_hold_none(self):
         here = pathlib.Path(__file__).parent
         for name in ("check-control-chars.py", "test_check_control_chars.py"):
