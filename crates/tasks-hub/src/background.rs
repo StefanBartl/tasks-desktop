@@ -527,6 +527,40 @@ pub async fn install(opts: InstallOptions) -> Result<String, String> {
     }
 }
 
+/// How often the program file is moved over the old one, and the pause between the tries.
+const RENAME_TRIES: u32 = 3;
+const RENAME_PAUSE: Duration = Duration::from_millis(200);
+
+/// Whether a failed rename is the file being held for a moment (a virus scanner or the indexer after the program
+/// ended): "access denied" (5) or "in use" (32, 33) on Windows. Nothing else is tried again, and no other system.
+fn file_is_held(error: &std::io::Error) -> bool {
+    cfg!(windows)
+        && (error.kind() == std::io::ErrorKind::PermissionDenied
+            || matches!(error.raw_os_error(), Some(5 | 32 | 33)))
+}
+
+/// Run `attempt` up to `tries` times, `pause` apart, again only while `held` says the error is a moment's. On failure
+/// the error comes back with the number of tries made.
+async fn retry_while_held<F>(
+    mut attempt: F,
+    held: fn(&std::io::Error) -> bool,
+    tries: u32,
+    pause: Duration,
+) -> Result<(), (std::io::Error, u32)>
+where
+    F: FnMut() -> std::io::Result<()>,
+{
+    let mut made = 0;
+    loop {
+        made += 1;
+        match attempt() {
+            Ok(()) => return Ok(()),
+            Err(e) if made < tries && held(&e) => tokio::time::sleep(pause).await,
+            Err(e) => return Err((e, made)),
+        }
+    }
+}
+
 async fn install_steps(opts: InstallOptions, out: &mut String) -> Result<(), String> {
     let env = Env::from_process();
     let dir = install_dir(&env)?;
@@ -565,7 +599,14 @@ async fn install_steps(opts: InstallOptions, out: &mut String) -> Result<(), Str
                 }
             }
         }
-        if let Err(e) = std::fs::rename(&part, &target) {
+        if let Err((e, made)) = retry_while_held(
+            || std::fs::rename(&part, &target),
+            file_is_held,
+            RENAME_TRIES,
+            RENAME_PAUSE,
+        )
+        .await
+        {
             let _ = std::fs::remove_file(&part);
             // A hub that was stopped for this is not left down: it comes back
             // from the old installed program, or from this one.
@@ -574,7 +615,12 @@ async fn install_steps(opts: InstallOptions, out: &mut String) -> Result<(), Str
             } else {
                 " (is a hub running from it? `tasks-hub stop`)"
             };
-            let mut message = format!("cannot replace {}{hint}: {e}", target.display());
+            let tries = if made > 1 {
+                format!(" after {made} tries")
+            } else {
+                String::new()
+            };
+            let mut message = format!("cannot replace {}{tries}{hint}: {e}", target.display());
             if was_running {
                 let back = if target.is_file() {
                     start_from(&target)
@@ -815,6 +861,72 @@ link.Save\r\n"
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn io_error(code: i32) -> std::io::Error {
+        std::io::Error::from_raw_os_error(code)
+    }
+
+    #[tokio::test]
+    async fn a_held_file_is_tried_again_and_the_tries_are_counted() {
+        let held = |_: &std::io::Error| true;
+        let mut calls = 0;
+        // Held twice, free the third time.
+        let ok = retry_while_held(
+            || {
+                calls += 1;
+                if calls < 3 {
+                    Err(io_error(5))
+                } else {
+                    Ok(())
+                }
+            },
+            held,
+            3,
+            Duration::from_millis(1),
+        )
+        .await;
+        assert!(ok.is_ok());
+        assert_eq!(calls, 3);
+        // Held every time: it gives up after the tries and says how many.
+        let mut calls = 0;
+        let (_, made) = retry_while_held(
+            || {
+                calls += 1;
+                Err(io_error(5))
+            },
+            held,
+            3,
+            Duration::from_millis(1),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!((calls, made), (3, 3));
+        // Another error is reported at once.
+        let mut calls = 0;
+        let (_, made) = retry_while_held(
+            || {
+                calls += 1;
+                Err(io_error(2))
+            },
+            |e| e.raw_os_error() == Some(5),
+            3,
+            Duration::from_millis(1),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!((calls, made), (1, 1));
+    }
+
+    #[test]
+    fn only_a_held_file_on_windows_is_a_moment() {
+        if cfg!(windows) {
+            assert!(file_is_held(&io_error(5)));
+            assert!(file_is_held(&io_error(32)));
+            assert!(!file_is_held(&io_error(2)));
+        } else {
+            assert!(!file_is_held(&io_error(13)));
+        }
+    }
 
     #[test]
     fn the_hidden_command_line_is_one_quoted_command() {
