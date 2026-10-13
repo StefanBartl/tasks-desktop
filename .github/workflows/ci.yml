@@ -58,7 +58,7 @@ jobs:
         shell: bash
         working-directory: ui
         run: |
-          npm install --global pnpm@10.29.2
+          npm install --global pnpm@11.28.2
           pnpm install --frozen-lockfile
           pnpm build
       - run: cargo fmt --all --check
@@ -90,7 +90,7 @@ jobs:
           persist-credentials: false
       # The lockfile is the truth; the age and trust policy are in
       # ui/pnpm-workspace.yaml.
-      - run: npm install --global pnpm@10.29.2
+      - run: npm install --global pnpm@11.28.2
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm test
