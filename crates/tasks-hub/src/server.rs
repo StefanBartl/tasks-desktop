@@ -1350,8 +1350,9 @@ async fn search_route(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) 
 }
 
 /// The operations the page may ask for. `move_area` only as a dry run (the
-/// engine says so itself).
-const OPS_ALLOWED: [&str; 5] = ["set", "new", "reorder", "done", "move_area"];
+/// engine says so itself); a dry run of `plan_new` names the plan without
+/// making it.
+const OPS_ALLOWED: [&str; 6] = ["set", "new", "reorder", "done", "move_area", "plan_new"];
 /// The fields of a request of `ops` (the engine checks the rest, strictly).
 const OPS_FIELDS: [&str; 4] = ["schema", "client_op_id", "dry_run", "ops"];
 /// The most operations in one request (the engine's limit).
