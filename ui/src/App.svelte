@@ -11,6 +11,7 @@
   import PlanWizard from './views/PlanWizard.svelte';
   import DoneDialog from './views/DoneDialog.svelte';
   import PrioDialog from './views/PrioDialog.svelte';
+  import BlockDialog from './views/BlockDialog.svelte';
   import Toast from './views/Toast.svelte';
 
   let { app, code }: { app: App; code: string | null } = $props();
@@ -367,6 +368,7 @@
     <PlanWizard {app} />
     <DoneDialog {app} />
     <PrioDialog {app} />
+    <BlockDialog {app} />
   {/if}
   <Toast {app} />
 </div>

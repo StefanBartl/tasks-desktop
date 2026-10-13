@@ -766,6 +766,46 @@ describe('writing', () => {
       expect(app.repriority).toBeNull();
     });
 
+    it('asks for the blocker when a card goes to the blocked column, and sends the status with it', async () => {
+      const { app, hub } = await ready([open('pub/a', 'open|1', 'e1'), open('pub/b', 'open|1', 'e2')]);
+      await app.dropOnColumn('pub/a', 'blocked');
+      expect(hub.sent).toHaveLength(0);
+      expect(app.blocking).toEqual({ id: 'pub/a' });
+      app.cancelBlock();
+      expect(app.blocking).toBeNull();
+      expect(hub.sent).toHaveLength(0);
+      // A name that is no task, and the card itself, are told before anything is sent.
+      await app.dropOnColumn('pub/a', 'blocked');
+      expect(app.unknownBlockers(['pub/b', 'pub/zzz', 'pub/a'])).toEqual(['pub/zzz', 'pub/a']);
+      await app.confirmBlock(['pub/b']);
+      expect(hub.sent).toHaveLength(1);
+      expect(hub.sent[0]?.ops).toEqual([
+        { op: 'set', id: 'pub/a', patch: { status: 'blocked', blocked_by: ['pub/b'] }, if_match: 'e1' },
+      ]);
+      // Without a blocker the status alone goes.
+      await app.dropOnColumn('pub/b', 'blocked');
+      await app.confirmBlock([]);
+      expect(hub.sent[1]?.ops[0]).toMatchObject({ patch: { status: 'blocked' } });
+      expect(hub.sent[1]?.ops[0]).not.toHaveProperty('patch.blocked_by');
+    });
+
+    it('does not ask again for a card that has a blocker already', async () => {
+      const { app, hub } = await ready([
+        task('pub/a', { etag: 'e1', status: 'open', group: 'open|1', blocked_by: ['pub/b'] } as Partial<TaskEntry>),
+        open('pub/b', 'open|1', 'e2'),
+      ]);
+      await app.dropOnColumn('pub/a', 'blocked');
+      expect(app.blocking).toBeNull();
+      expect(hub.sent[0]?.ops[0]).toMatchObject({ patch: { status: 'blocked' } });
+    });
+
+    it('opens the preview of finishing when a card is dropped on the done zone', async () => {
+      const { app, hub } = await ready([open('pub/a', 'open|1', 'e1')]);
+      await app.dropOnDone('pub/a');
+      expect(app.finishing?.id).toBe('pub/a');
+      expect(hub.sent).toHaveLength(0);
+    });
+
     it('sets the status when a card goes to another column, and nothing when it stays', async () => {
       const { app, hub } = await ready([open('pub/a', 'open|1', 'e1')]);
       await app.dropOnColumn('pub/a', 'open');

@@ -46,6 +46,7 @@
   }
   function onDragEnd(): void {
     dragging = null;
+    overDone = false;
     over = null;
     overColumn = null;
   }
@@ -53,6 +54,7 @@
     if (dragging === null) return;
     event.preventDefault();
     event.stopPropagation();
+    overDone = false;
     overColumn = column;
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     // Over a card of another column the drop sets the status: no insertion bar there.
@@ -62,6 +64,7 @@
   function onColumnOver(event: DragEvent, column: Column): void {
     if (dragging === null) return;
     event.preventDefault();
+    overDone = false;
     overColumn = column;
     over = null;
   }
@@ -76,6 +79,21 @@
     // Dropped in another column: the status changes (the order inside the column is the engine's).
     if (task && task.status !== column) await app.dropOnColumn(from, column);
     else await app.dropNear(from, { id, place });
+  }
+  let overDone = $state(false);
+  function onDoneOver(event: DragEvent): void {
+    if (dragging === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    overDone = true;
+    overColumn = null;
+    over = null;
+  }
+  async function onDoneDrop(event: DragEvent): Promise<void> {
+    event.preventDefault();
+    const from = dragging;
+    onDragEnd();
+    if (from !== null) await app.dropOnDone(from);
   }
   async function onColumnDrop(event: DragEvent, column: Column): Promise<void> {
     event.preventDefault();
@@ -105,6 +123,7 @@
   function onBoardLeave(event: DragEvent): void {
     const to = event.relatedTarget;
     if (!(to instanceof Node) || !(event.currentTarget as HTMLElement).contains(to)) {
+      overDone = false;
       over = null;
       overColumn = null;
     }
@@ -117,7 +136,18 @@
     <span class="help">{t('board.help')}</span>
   </p>
   <div class="layout">
-    <div class="board" role="group" aria-label={t('nav.board')} ondragleave={onBoardLeave}>
+    <div class="main" ondragleave={onBoardLeave} role="presentation">
+      <div
+        class="donezone"
+        class:target={overDone && dragging !== null}
+        role="group"
+        aria-label={t('board.done')}
+        ondragover={onDoneOver}
+        ondrop={(e) => void onDoneDrop(e)}
+      >
+        {t('board.done')}
+      </div>
+    <div class="board" role="group" aria-label={t('nav.board')}>
       {#each COLUMNS as column (column)}
         <section
           class="column"
@@ -176,6 +206,7 @@
         </section>
       {/each}
     </div>
+    </div>
     <Detail {app} />
   </div>
 </div>
@@ -207,7 +238,27 @@
       grid-template-columns: 1fr;
     }
   }
+  .main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+    min-height: 0;
+  }
+  .donezone {
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-align: center;
+    padding: 0.5rem;
+  }
+  .donezone.target {
+    border-color: var(--accent);
+    color: var(--text);
+  }
   .board {
+    flex: 1;
     display: grid;
     grid-auto-flow: column;
     grid-auto-columns: minmax(14rem, 1fr);
