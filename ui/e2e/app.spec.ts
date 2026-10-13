@@ -810,6 +810,30 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
   expect(writes).toBe(0);
   await expect(page.getByRole('status').getByText(/holds inside one priority/)).toBeVisible();
 
+  // The other way - a card without a priority dropped under the card of priority 1 - asks whether the priority
+  // goes with it. No is nothing sent; yes is one batch (the priority, then the place), read back after a reload.
+  const mover = (await rest.first().locator('.title').innerText()) as string;
+  const target = column('open').locator('.card', { hasText: other });
+  await drag(page, column('open').locator('.card', { hasText: mover }), target, 'lower');
+  const ask = page.getByRole('dialog', { name: 'Priority 1?' });
+  await expect(ask).toBeVisible();
+  await ask.getByRole('button', { name: 'Cancel' }).click();
+  await expect(ask).toBeHidden();
+  expect(writes).toBe(0);
+  await drag(page, column('open').locator('.card', { hasText: mover }), target, 'lower');
+  await ask.getByRole('button', { name: /Set priority 1/ }).click();
+  await expect(page.getByRole('status').getByText(/Saved/)).toBeVisible();
+  expect(writes).toBe(1);
+  await expect.poll(() => titles('open')).toEqual([other, mover]);
+  await page.reload();
+  await expect(page.getByRole('menubar')).toBeVisible();
+  await chooseView(page, 'View', 'List');
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Board e2e');
+  await chooseView(page, 'View', 'Board');
+  await expect.poll(() => titles('open')).toEqual([other, mover]);
+  await column('open').locator('.card', { hasText: mover }).click();
+  await expect(page.locator('aside.detail').getByLabel('Priority')).toHaveValue('1');
+
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });

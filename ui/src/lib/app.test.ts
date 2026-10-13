@@ -744,6 +744,28 @@ describe('writing', () => {
       expect(app.toast?.kind).toBe('error');
     });
 
+    it('asks before it sets the priority of a card dropped among cards of another one', async () => {
+      const staged = (id: string, group: string, etag: string) =>
+        task(id, { etag, status: 'open', group, readiness: { state: 'ready', stage: 0 } } as Partial<TaskEntry>);
+      const { app, hub } = await ready([staged('pub/a', 'open|1', 'e1'), staged('pub/c', 'open|2', 'e3')]);
+      await app.dropNear('pub/a', { id: 'pub/c', place: 'after' });
+      // Nothing is sent before the answer.
+      expect(hub.sent).toHaveLength(0);
+      expect(app.repriority).toMatchObject({ id: 'pub/a', from: '1', prio: 2 });
+      app.cancelRepriority();
+      expect(app.repriority).toBeNull();
+      expect(hub.sent).toHaveLength(0);
+      await app.dropNear('pub/a', { id: 'pub/c', place: 'after' });
+      await app.confirmRepriority();
+      // One batch: the priority, then the place, and the way back covers both.
+      expect(hub.sent).toHaveLength(1);
+      expect(hub.sent[0]?.ops).toEqual([
+        { op: 'set', id: 'pub/a', patch: { prio: 2 }, if_match: 'e1' },
+        { op: 'reorder', id: 'pub/a', after: 'pub/c', group: 'open|2' },
+      ]);
+      expect(app.repriority).toBeNull();
+    });
+
     it('sets the status when a card goes to another column, and nothing when it stays', async () => {
       const { app, hub } = await ready([open('pub/a', 'open|1', 'e1')]);
       await app.dropOnColumn('pub/a', 'open');

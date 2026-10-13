@@ -123,6 +123,8 @@ export class App {
   toast = $state.raw<Toast | null>(null);
   /** The capture dialog is open. */
   capturing = $state(false);
+  /** A card dropped among cards of another priority, waiting for the person's answer. */
+  repriority = $state.raw<{ id: string; from: string; prio: number; ops: Op[] } | null>(null);
   /** The plan wizard is open. */
   planning = $state(false);
   /** The task that is being finished, with what the engine says that does. */
@@ -458,12 +460,30 @@ export class App {
 
   /** Send a move of a card, or say why it cannot be made (the order has no meaning across a priority border). */
   async moveCard(move: Move): Promise<void> {
+    if (move.kind === 'prio') {
+      if (this.phase === 'ready' && !this.saving) {
+        this.repriority = { id: move.id, from: move.from, prio: move.prio, ops: move.ops };
+      }
+      return;
+    }
     if (move.kind === 'refused') {
       if (move.reason === 'group') this.say('error', 'board.refused_group');
       else if (move.reason === 'edge') this.say('error', 'board.refused_edge');
       return;
     }
     await this.write([move.op]);
+  }
+
+  cancelRepriority(): void {
+    this.repriority = null;
+  }
+
+  /** Set the priority and place the card, as one batch (the way back is the inverse of both). */
+  async confirmRepriority(): Promise<void> {
+    const asking = this.repriority;
+    if (!asking) return;
+    this.repriority = null;
+    await this.write(asking.ops);
   }
 
   /** `id` dropped on `target`: before or after it. */
