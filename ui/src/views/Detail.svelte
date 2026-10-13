@@ -4,7 +4,17 @@
   import { parseMarkdown } from '../lib/markdown';
   import { hasHidden, markHidden } from '../lib/text';
   import { REMIND_CHOICES } from '../lib/remind';
-  import { EFFORT_SIZES, KINDS, VALUES, badTag, parseList, parseTags, tagsChanged, tagsText } from '../lib/fields';
+  import {
+    EFFORT_SIZES,
+    KINDS,
+    VALUES,
+    badTag,
+    listEditable,
+    parseList,
+    parseTags,
+    tagsChanged,
+    tagsText,
+  } from '../lib/fields';
   import Blocks from './Blocks.svelte';
 
   let { app }: { app: App } = $props();
@@ -46,8 +56,10 @@
 
   // The line for the notes: kept while the task stays selected, emptied only when the engine wrote it.
   let note = $state('');
+  // The id as a value of its own: a refresh gives `task` a new object with the same id, and the draft must stay.
+  const taskId = $derived(task?.id);
   $effect(() => {
-    void task?.id;
+    void taskId;
     note = '';
   });
   async function addNote(): Promise<void> {
@@ -253,7 +265,8 @@
         <input
           type="text"
           value={tagsText(task.refs)}
-          disabled={app.saving}
+          disabled={app.saving || !listEditable(task.refs)}
+          title={listEditable(task.refs) ? undefined : t('field.refs_comma')}
           onchange={(e) => changeList('refs', task.refs, e.currentTarget.value)}
         />
       </label>

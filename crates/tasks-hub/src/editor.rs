@@ -170,7 +170,18 @@ pub fn file_in_vault(vault: &Path, name: &str) -> Result<PathBuf, &'static str> 
     if !real.starts_with(&root) {
         return Err("the file lies outside the vault");
     }
-    Ok(real)
+    Ok(strip_verbatim(real))
+}
+
+/// On Windows `canonicalize` answers `\\?\C:\dir\file`; Neovim and most programs want `C:\dir\file`. A path of a
+/// network share (`\\?\UNC\...`) keeps its form, as does anything else.
+#[must_use]
+pub fn strip_verbatim(path: PathBuf) -> PathBuf {
+    let text = path.to_string_lossy();
+    match text.strip_prefix("\\\\?\\") {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+        _ => path,
+    }
 }
 
 #[cfg(test)]
@@ -237,6 +248,17 @@ mod tests {
         }
         // A folder is not a task file.
         assert!(file_in_vault(&dir, "a").is_err());
+    }
+
+    #[test]
+    fn the_verbatim_prefix_of_a_windows_path_goes_and_a_share_keeps_its_form() {
+        assert_eq!(
+            strip_verbatim(PathBuf::from("\\\\?\\C:\\v\\a.md")),
+            PathBuf::from("C:\\v\\a.md")
+        );
+        for same in ["\\\\?\\UNC\\server\\share\\a.md", "C:\\v\\a.md", "/v/a.md"] {
+            assert_eq!(strip_verbatim(PathBuf::from(same)), PathBuf::from(same));
+        }
     }
 
     #[test]

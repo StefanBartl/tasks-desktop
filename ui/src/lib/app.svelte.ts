@@ -851,9 +851,15 @@ export class App {
     safe(() => this.env.prefs.setItem('tasks-desktop.count-views', JSON.stringify(this.countViews)));
   }
 
-  /** The next view of a number (the key `v`); the number is opened first when it is not. */
+  /**
+   * The key `v` on a number: a number that is closed opens in the view it has (the first press shows what the number
+   * holds, it does not skip a view); one that is open goes on to its next view.
+   */
   cycleCountView(key: CountKey): void {
-    this.countOpen = key;
+    if (this.countOpen !== key) {
+      this.countOpen = key;
+      return;
+    }
     this.setCountView(key, nextView(key, this.countView(key)));
   }
 

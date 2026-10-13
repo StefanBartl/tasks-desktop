@@ -93,6 +93,10 @@ impl VaultAdmin for Fake {
 
     fn select<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<VaultTarget, String>> {
         Box::pin(async move {
+            // The vault b takes a while to start, as an engine does.
+            if name == "b" {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
             let vault = match name {
                 "main" => &self.a,
                 "b" => &self.b,
@@ -378,4 +382,26 @@ async fn adding_must_be_confirmed_and_the_form_is_checked() {
     assert_eq!(status, 200);
     let (_, list) = get(&r, "/api/vaults").await;
     assert!(!list.contains("\"n1\""), "{list}");
+}
+
+#[tokio::test]
+async fn two_choices_that_overlap_end_with_the_one_that_was_made_last() {
+    let r = rig("overlap", true).await;
+    // b is chosen first and is slow; main is chosen while b still starts. The hub must not end up reading b
+    // while the settings say main.
+    let slow = post(&r, "/api/vaults/select", r#"{"name":"b"}"#, true);
+    let fast = async {
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        post(&r, "/api/vaults/select", r#"{"name":"main"}"#, true).await
+    };
+    let (a, b) = tokio::join!(slow, fast);
+    assert_eq!((a.0, b.0), (200, 200), "{a:?} {b:?}");
+    let (_, body) = get(&r, "/api/vaults").await;
+    let active = serde_json::from_str::<Value>(&body).unwrap()["active"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let read = listed(&r).await;
+    // The vault a has 2 tasks, b has 5: the list and what is read say the same, and it is the choice made last.
+    assert_eq!((active.as_str(), read), ("main", 2));
 }

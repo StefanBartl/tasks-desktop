@@ -29,6 +29,14 @@ export function parseTags(text: string): string[] {
 /** A list the same way (ids, references): comma separated, trimmed, no duplicate. */
 export const parseList = parseTags;
 
+/**
+ * Can this list be edited as one line of comma separated words? Not when an entry holds a comma (a reference may):
+ * typing the line back would cut that entry in two and write it so.
+ */
+export function listEditable(list: readonly string[] | undefined): boolean {
+  return (list ?? []).every((entry) => !entry.includes(','));
+}
+
 /** Tags the way the field shows them. */
 export function tagsText(tags: readonly string[] | undefined): string {
   return (tags ?? []).join(', ');

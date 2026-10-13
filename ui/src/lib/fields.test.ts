@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { badTag, parseTags, tagsChanged, tagsText } from './fields';
+import { badTag, listEditable, parseTags, tagsChanged, tagsText } from './fields';
+
+describe('a list as one line', () => {
+  it('is editable unless an entry holds a comma, which would be cut in two', () => {
+    expect(listEditable(undefined)).toBe(true);
+    expect(listEditable([])).toBe(true);
+    expect(listEditable(['docs/a.md', 'repo@abc1234'])).toBe(true);
+    expect(listEditable(['docs/a,b.md'])).toBe(false);
+  });
+});
 
 describe('tags', () => {
   it('splits on commas, trims, drops empties and duplicates, keeps the order', () => {
