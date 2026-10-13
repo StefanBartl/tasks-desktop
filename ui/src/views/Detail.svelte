@@ -217,7 +217,8 @@
         <input
           type="text"
           value={tagsText(task.tags)}
-          disabled={app.saving}
+          disabled={app.saving || !listEditable(task.tags)}
+          title={listEditable(task.tags) ? undefined : t('field.list_plain')}
           onchange={(e) => {
             const text = e.currentTarget.value;
             if (tagsChanged(task.tags, text)) {

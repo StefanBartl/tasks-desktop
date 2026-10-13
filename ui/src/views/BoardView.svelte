@@ -113,7 +113,7 @@
   });
 
   function runLabel(card: (typeof board)[Column][number]): string | null {
-    const label = groupLabel(card);
+    const label = groupLabel(card, app.can('eff_prio'));
     if (label === null) return null;
     const stage = stageOf(card);
     return stage === null ? t('board.group', { p: label }) : `${t('board.group', { p: label })} · ${t('board.stage', { n: stage })}`;

@@ -185,7 +185,7 @@ pub fn strip_verbatim(path: PathBuf) -> PathBuf {
     match text.strip_prefix("\\\\?\\") {
         Some(rest)
             if rest.as_bytes().get(1) == Some(&b':')
-                && rest.chars().count() <= PLAIN_PATH_LIMIT
+                && rest.encode_utf16().count() <= PLAIN_PATH_LIMIT
                 && rest.split('\\').skip(1).all(is_plain_name) =>
         {
             PathBuf::from(rest)
@@ -209,8 +209,10 @@ fn is_plain_name(name: &str) -> bool {
         stem.as_str(),
         "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
     ) || ["COM", "LPT"].iter().any(|prefix| {
-        stem.strip_prefix(prefix)
-            .is_some_and(|n| n.len() == 1 && n.as_bytes()[0].is_ascii_digit())
+        // COM1 to COM9, and the superscript digits Windows reserves too (COM¹, COM², COM³).
+        stem.strip_prefix(prefix).is_some_and(|n| {
+            matches!(n, "¹" | "²" | "³") || (n.len() == 1 && n.as_bytes()[0].is_ascii_digit())
+        })
     });
     !device
 }
@@ -304,6 +306,8 @@ mod tests {
             "\\\\?\\C:\\v\\a.md.",
             "\\\\?\\C:\\v\\a.md ",
             "\\\\?\\C:\\aux\\a.md",
+            "\\\\?\\C:\\v\\com¹.md",
+            "\\\\?\\C:\\v\\LPT³",
         ] {
             assert_eq!(strip_verbatim(PathBuf::from(kept)), PathBuf::from(kept));
         }
@@ -311,6 +315,17 @@ mod tests {
         assert_eq!(
             strip_verbatim(PathBuf::from(&edge)),
             PathBuf::from(&edge[4..])
+        );
+        // The limit counts UTF-16 units, not characters: a name of characters outside the basic plane is twice as long.
+        let wide_ok = format!("\\\\?\\C:\\{}", "😀".repeat(128)); // 3 + 256 = 259 units
+        let wide_long = format!("\\\\?\\C:\\{}", "😀".repeat(129)); // 3 + 258 = 261 units
+        assert_eq!(
+            strip_verbatim(PathBuf::from(&wide_ok)),
+            PathBuf::from(&wide_ok[4..])
+        );
+        assert_eq!(
+            strip_verbatim(PathBuf::from(&wide_long)),
+            PathBuf::from(&wide_long)
         );
         for plain in ["console.md", "com10.md", "auxiliary", "a.con"] {
             let verbatim = format!("\\\\?\\C:\\v\\{plain}");

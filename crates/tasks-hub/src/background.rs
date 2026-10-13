@@ -561,6 +561,17 @@ where
     }
 }
 
+/// What `install` says when the new program could not be moved over the old one: the tries, if more than one was
+/// made, and the hint that fits.
+fn replace_failure(target: &Path, made: u32, hint: &str, error: &std::io::Error) -> String {
+    let tries = if made > 1 {
+        format!(" after {made} tries")
+    } else {
+        String::new()
+    };
+    format!("cannot replace {}{tries}{hint}: {error}", target.display())
+}
+
 async fn install_steps(opts: InstallOptions, out: &mut String) -> Result<(), String> {
     let env = Env::from_process();
     let dir = install_dir(&env)?;
@@ -615,12 +626,7 @@ async fn install_steps(opts: InstallOptions, out: &mut String) -> Result<(), Str
             } else {
                 " (is a hub running from it? `tasks-hub stop`)"
             };
-            let tries = if made > 1 {
-                format!(" after {made} tries")
-            } else {
-                String::new()
-            };
-            let mut message = format!("cannot replace {}{tries}{hint}: {e}", target.display());
+            let mut message = replace_failure(&target, made, hint, &e);
             if was_running {
                 let back = if target.is_file() {
                     start_from(&target)
@@ -915,6 +921,19 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!((calls, made), (1, 1));
+    }
+
+    #[test]
+    fn the_failure_names_the_tries_when_there_were_several() {
+        let e = io_error(5);
+        let once = replace_failure(Path::new("p"), 1, " (hint)", &e);
+        assert!(once.starts_with("cannot replace p (hint): "), "{once}");
+        assert!(!once.contains("tries"), "{once}");
+        let three = replace_failure(Path::new("p"), 3, "", &e);
+        assert!(
+            three.starts_with("cannot replace p after 3 tries: "),
+            "{three}"
+        );
     }
 
     #[test]

@@ -19,18 +19,18 @@
   // is not one block of work between the click and the first stage (measured: 50 ms for 600, 150 ms for 2000).
   const FIRST = 200;
   const STEP = 400;
-  let limit = $state(FIRST);
+  // How far the drawing has grown, and for which plan: the limit is a function of the plan, so another plan starts
+  // from the first tasks at once and never from the number the last one had grown to (an effect that reset it would
+  // run after the first draw of the new plan, which would then be drawn with the old number).
+  let grown = $state({ plan: '', n: FIRST });
+  const limit = $derived(grown.plan === planId ? grown.n : FIRST);
   const total = $derived(stages.reduce((n, s) => n + s.tasks.length, 0));
   const drawn = $derived(firstTasks(stages, limit));
-  // Another plan starts from the first tasks again, not from the number the last one had grown to.
-  $effect(() => {
-    void planId;
-    limit = FIRST;
-  });
   $effect(() => {
     if (limit >= total) return;
+    const plan = planId;
     const frame = requestAnimationFrame(() => {
-      limit = Math.min(total, limit + STEP);
+      grown = { plan, n: Math.min(total, limit + STEP) };
     });
     return () => cancelAnimationFrame(frame);
   });
