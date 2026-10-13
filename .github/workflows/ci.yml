@@ -20,7 +20,7 @@ jobs:
     runs-on: windows-latest
     steps:
       # Actions are pinned by commit (concept 7.4); the comment names the tag.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
         with:
           persist-credentials: false
       - name: Read the pinned engine commits
@@ -29,13 +29,13 @@ jobs:
         run: |
           echo "commit=$(sed -n 's/^commit *= *//p' engine.lock)" >> "$GITHUB_OUTPUT"
           echo "lib_commit=$(sed -n 's/^lib_commit *= *//p' engine.lock)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
         with:
           repository: StefanBartl/tasks.nvim
           ref: ${{ steps.engine.outputs.commit }}
           path: engine/tasks.nvim
           persist-credentials: false
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
         with:
           repository: StefanBartl/lib.nvim
           ref: ${{ steps.engine.outputs.lib_commit }}
@@ -99,7 +99,7 @@ jobs:
       run:
         working-directory: ui
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
         with:
           persist-credentials: false
       # The lockfile is the truth; the age and trust policy are in
@@ -116,7 +116,7 @@ jobs:
   hygiene:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
         with:
           persist-credentials: false
       - run: python3 -m unittest discover tools
@@ -128,7 +128,7 @@ jobs:
   scripts-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
