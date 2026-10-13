@@ -30,6 +30,21 @@ export function stagesOf(tasks: readonly TaskEntry[], plan: string | null = null
     .map(([stage, list]) => ({ stage, tasks: list }));
 }
 
+/**
+ * The first `limit` tasks of the stages, in order: a stage that is cut keeps its tasks up to the limit, the stages
+ * behind it are not there yet. The stage keeps its place and its `total` (the number of all its tasks, for the heading).
+ */
+export function firstTasks(stages: readonly Stage[], limit: number): (Stage & { total: number })[] {
+  const out: (Stage & { total: number })[] = [];
+  let left = limit;
+  for (const stage of stages) {
+    if (left <= 0) break;
+    out.push({ stage: stage.stage, tasks: stage.tasks.slice(0, left), total: stage.tasks.length });
+    left -= stage.tasks.length;
+  }
+  return out;
+}
+
 /** The plan that stays chosen: `choice` while the vault still has it, else `''` (every task). */
 export function chosenPlan(plans: readonly Snapshot['plans'][number][], choice: string): string {
   return plans.some((p) => p.id === choice) ? choice : '';

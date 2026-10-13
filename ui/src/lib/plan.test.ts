@@ -1,11 +1,33 @@
 import { describe, expect, it } from 'vitest';
-import { chosenPlan, criticalIds, phaseCounts, stagesOf, warningsOf } from './plan';
+import { chosenPlan, criticalIds, firstTasks, phaseCounts, stagesOf, warningsOf } from './plan';
 import { task } from './fixtures';
 import type { Snapshot } from './contract';
 
 const at = (stage: number | undefined, extra = {}) => ({
   readiness: { state: 'ready' as const, rank: 1, leverage: 0, open_blockers: [], stage },
   ...extra,
+});
+
+describe('firstTasks', () => {
+  const stages = [
+    { stage: 0, tasks: [task('a/1'), task('a/2'), task('a/3')] },
+    { stage: 1, tasks: [task('a/4'), task('a/5')] },
+    { stage: null, tasks: [task('a/6')] },
+  ];
+
+  it('takes tasks in order up to the limit and cuts the stage the limit falls in', () => {
+    const cut = firstTasks(stages, 4);
+    expect(cut.map((s) => [s.stage, s.tasks.map((t) => t.id), s.total])).toEqual([
+      [0, ['a/1', 'a/2', 'a/3'], 3],
+      [1, ['a/4'], 2],
+    ]);
+  });
+
+  it('leaves the stages behind the limit out, and gives everything when the limit is large', () => {
+    expect(firstTasks(stages, 3).map((s) => s.stage)).toEqual([0]);
+    expect(firstTasks(stages, 0)).toEqual([]);
+    expect(firstTasks(stages, 100).flatMap((s) => s.tasks)).toHaveLength(6);
+  });
 });
 
 describe('plan', () => {
