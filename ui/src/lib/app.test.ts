@@ -537,50 +537,127 @@ describe('writing', () => {
       task('pub/c', { etag: 'e3' }),
     ]);
     const ids = ['pub/c', 'pub/a'];
-    for (const id of ids) app.toggleMark(id);
+    for (const id of ids) expect(app.toggleMark(id)).toBe(true);
     expect(app.marks).toEqual(ids);
-    await app.bulkSet('status', 'doing');
+    await app.bulkSet({ status: 'doing', prio: 1 });
     expect(hub.sent).toHaveLength(1);
     expect(hub.sent[0]?.ops.map((o) => (o.op === 'set' ? o.id : ''))).toEqual(ids);
-    expect(hub.sent[0]?.ops.every((o) => o.op === 'set' && o.patch.status === 'doing')).toBe(true);
+    expect(
+      hub.sent[0]?.ops.every((o) => o.op === 'set' && o.patch.status === 'doing' && o.patch.prio === 1),
+    ).toBe(true);
     expect(hub.sent[0]?.ops.map((o) => (o.op === 'set' ? o.if_match : ''))).toEqual(['e3', 'e1']);
     expect(app.marks).toEqual([]);
     expect(app.toast?.kind).toBe('ok');
-    expect(app.toast?.undo).toHaveLength(2);
+    // The way back is the inverses in the opposite order, as one batch.
+    expect(app.toast?.undo?.map((o) => (o.op === 'set' ? o.id : ''))).toEqual(['pub/a', 'pub/c']);
   });
 
-  it('keeps the marks of the tasks that failed and says how many', async () => {
-    const { app, hub } = await ready([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' })]);
-    const ids = ['pub/a', 'pub/b'];
-    for (const id of ids) app.toggleMark(id);
+  // The engine names a failed entry by its position `n` and, for a conflict, in `error.details.id` - not by `id`.
+  const engineFailure = (n: number, id?: string) => ({
+    n,
+    op: 'set',
+    ok: false,
+    outcome: 'failed',
+    changed_ids: [],
+    error: { code: 'conflict', message: 'x', retryable: false, ...(id ? { details: { id } } : {}) },
+  });
+  const okEntry = (n: number, id: string) => ({
+    n,
+    op: 'set',
+    id,
+    ok: true,
+    outcome: 'changed',
+    changed_ids: [],
+    inverse: { op: 'set', id, patch: { prio: null }, if_match: 'new' },
+  });
+
+  it('keeps the marks of the tasks that failed - found by position - and offers the way back for the rest', async () => {
+    const { app, hub } = await ready([
+      task('pub/a', { etag: 'e1' }),
+      task('pub/b', { etag: 'e2' }),
+      task('pub/c', { etag: 'e3' }),
+    ]);
+    for (const id of ['pub/a', 'pub/b', 'pub/c']) app.toggleMark(id);
     hub.next_ops = {
       kind: 'tasks.result',
       ok: false,
       dry_run: false,
-      results: [
-        { n: 1, op: 'set', id: ids[0], ok: true, outcome: 'changed', changed_ids: [] },
-        {
-          n: 2,
-          op: 'set',
-          id: ids[1],
-          ok: false,
-          outcome: 'failed',
-          changed_ids: [],
-          error: { code: 'conflict', message: 'x', retryable: false },
-        },
-      ],
+      results: [okEntry(1, 'pub/a'), engineFailure(2), okEntry(3, 'pub/c')],
     } as unknown as Result;
-    await app.bulkSet('prio', 1);
-    expect(app.marks).toEqual([ids[1]]);
+    await app.bulkSet({ prio: 1 });
+    expect(app.marks).toEqual(['pub/b']);
     expect(app.toast?.kind).toBe('error');
-    expect(app.toast?.text).toContain('1');
+    expect(app.toast?.text).toMatch(/2\D+1/);
+    expect(app.toast?.undo?.map((o) => (o.op === 'set' ? o.id : ''))).toEqual(['pub/c', 'pub/a']);
   });
 
-  it('refuses a mark past one batch and says so', async () => {
-    const { app } = await ready();
-    const many = Array.from({ length: 100 }, (_, i) => `x/t${i}`);
-    app.marks = many;
-    app.toggleMark('x/one-more');
+  it('finds a failed task by error.details.id when the position does not say', async () => {
+    const { app, hub } = await ready([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' })]);
+    for (const id of ['pub/a', 'pub/b']) app.toggleMark(id);
+    hub.next_ops = {
+      kind: 'tasks.result',
+      ok: false,
+      dry_run: false,
+      results: [okEntry(1, 'pub/a'), engineFailure(9, 'pub/b')],
+    } as unknown as Result;
+    await app.bulkSet({ prio: 1 });
+    expect(app.marks).toEqual(['pub/b']);
+  });
+
+  it('takes no mark away when it cannot tell which task failed', async () => {
+    const { app, hub } = await ready([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' })]);
+    for (const id of ['pub/a', 'pub/b']) app.toggleMark(id);
+    hub.next_ops = {
+      kind: 'tasks.result',
+      ok: false,
+      dry_run: false,
+      results: [okEntry(1, 'pub/a'), engineFailure(9)],
+    } as unknown as Result;
+    await app.bulkSet({ prio: 1 });
+    expect(app.marks).toEqual(['pub/a', 'pub/b']);
+    expect(app.toast?.kind).toBe('error');
+  });
+
+  it('keeps every mark when the hub fails, and a mark made while it saved', async () => {
+    const { app, hub } = await ready([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' }), task('pub/c')]);
+    app.toggleMark('pub/a');
+    app.toggleMark('pub/b');
+    hub.next_ops = new ApiError(409, 'conflict', 'x');
+    await app.bulkSet({ prio: 1 });
+    expect(app.marks).toEqual(['pub/a', 'pub/b']);
+    expect(app.toast?.kind).toBe('error');
+
+    // A mark made while the request is under way survives its success.
+    const done = app.bulkSet({ prio: 2 });
+    app.toggleMark('pub/c');
+    await done;
+    expect(app.marks).toEqual(['pub/c']);
+  });
+
+  it('forgets the marks of a task that is gone, and of one the list does not show', async () => {
+    const { app, hub } = await ready([task('pub/a'), task('pub/b')]);
+    app.toggleMark('pub/a');
+    app.toggleMark('pub/b');
+    hub.doc = snapshot([task('pub/a')], 'rev:2');
+    await app.refresh();
+    expect(app.marks).toEqual(['pub/a']);
+
+    app.filter = { ...app.filter, query: 'no such title anywhere' };
+    app.keepMarksShown();
+    expect(app.marks).toEqual([]);
+  });
+
+  it('refuses a mark past one batch and says so, also for "mark all"', async () => {
+    const many = Array.from({ length: 101 }, (_, i) => task(`pub/t${i}`));
+    const { app } = await ready(many);
+    app.marks = many.slice(0, 100).map((t) => t.id);
+    expect(app.toggleMark('pub/t100')).toBe(false);
+    expect(app.marks).toHaveLength(100);
+    expect(app.toast?.kind).toBe('error');
+
+    app.clearMarks();
+    app.dismissToast();
+    app.markShown();
     expect(app.marks).toHaveLength(100);
     expect(app.toast?.kind).toBe('error');
   });

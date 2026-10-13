@@ -6,6 +6,7 @@
   import TaskRow from './TaskRow.svelte';
   import MultiSelect from './MultiSelect.svelte';
   import { areaLabel } from '../lib/filter';
+  import { untrack } from 'svelte';
 
   let { app, searchBox = $bindable(null) }: { app: App; searchBox?: HTMLInputElement | null } =
     $props();
@@ -25,6 +26,25 @@
       .sort((x, y) => x.label.localeCompare(y.label)),
   );
   const shown = $derived(app.shown);
+
+  // A mark that the filter hides is not changed behind the person's back: marks follow what the list shows.
+  $effect(() => {
+    void shown;
+    untrack(() => app.keepMarksShown());
+  });
+
+  // The bulk bar changes what is chosen in it, all at once, when the button is pressed (a select alone never writes).
+  let draft = $state({ status: '', prio: '', actor: '' });
+  async function applyDraft(): Promise<void> {
+    const patch: Record<string, unknown> = {};
+    if (draft.status) patch.status = draft.status;
+    if (draft.prio) patch.prio = Number(draft.prio);
+    if (draft.actor) patch.actor = draft.actor;
+    if (Object.keys(patch).length === 0) return;
+    await app.bulkSet(patch);
+    // What stays marked (a failure) keeps the choice for the second try; a clean batch starts over.
+    if (app.marks.length === 0) draft = { status: '', prio: '', actor: '' };
+  }
 
   // The first rows are drawn at once and the rest in the frames after: a
   // list of six hundred rows is not one block of work between the click and
@@ -106,45 +126,36 @@
     </p>
     {#if app.marks.length > 0}
       <div class="bulk" role="group" aria-label={t('bulk.change')}>
-        <strong>{t('bulk.count', { n: app.marks.length })}</strong>
-        <select
-          aria-label={t('bulk.set_status')}
-          disabled={app.saving}
-          onchange={(e) => {
-            const v = e.currentTarget.value;
-            e.currentTarget.value = '';
-            if (v !== '') void app.bulkSet('status', v);
-          }}
+        <strong aria-live="polite">{t('bulk.count', { n: app.marks.length })}</strong>
+        <label>
+          <span class="sr">{t('field.status')}</span>
+          <select bind:value={draft.status} disabled={app.saving}>
+            <option value="">{t('field.status')}: {t('bulk.keep')}</option>
+            {#each statuses as s (s)}<option value={s}>{t(`status.${s}` as Key)}</option>{/each}
+          </select>
+        </label>
+        <label>
+          <span class="sr">{t('field.prio')}</span>
+          <select bind:value={draft.prio} disabled={app.saving}>
+            <option value="">{t('field.prio')}: {t('bulk.keep')}</option>
+            <option value="1">P1</option>
+            <option value="2">P2</option>
+            <option value="3">P3</option>
+          </select>
+        </label>
+        <label>
+          <span class="sr">{t('field.actor')}</span>
+          <select bind:value={draft.actor} disabled={app.saving}>
+            <option value="">{t('field.actor')}: {t('bulk.keep')}</option>
+            {#each actors.filter((a) => a !== 'none') as a (a)}<option value={a}>{t(`actor.${a}` as Key)}</option>{/each}
+          </select>
+        </label>
+        <button
+          type="button"
+          class="apply"
+          disabled={app.saving || !(draft.status || draft.prio || draft.actor)}
+          onclick={applyDraft}>{t('bulk.apply')}</button
         >
-          <option value="">{t('bulk.set_status')}</option>
-          {#each statuses as s (s)}<option value={s}>{t(`status.${s}` as Key)}</option>{/each}
-        </select>
-        <select
-          aria-label={t('bulk.set_prio')}
-          disabled={app.saving}
-          onchange={(e) => {
-            const v = e.currentTarget.value;
-            e.currentTarget.value = '';
-            if (v !== '') void app.bulkSet('prio', Number(v));
-          }}
-        >
-          <option value="">{t('bulk.set_prio')}</option>
-          <option value="1">1</option>
-          <option value="2">2</option>
-          <option value="3">3</option>
-        </select>
-        <select
-          aria-label={t('bulk.set_actor')}
-          disabled={app.saving}
-          onchange={(e) => {
-            const v = e.currentTarget.value;
-            e.currentTarget.value = '';
-            if (v !== '') void app.bulkSet('actor', v);
-          }}
-        >
-          <option value="">{t('bulk.set_actor')}</option>
-          {#each actors.filter((a) => a !== 'none') as a (a)}<option value={a}>{t(`actor.${a}` as Key)}</option>{/each}
-        </select>
         <button type="button" onclick={() => app.clearMarks()}>{t('bulk.clear')}</button>
       </div>
     {/if}
@@ -236,6 +247,14 @@
     background: var(--surface-2);
     border-bottom: 1px solid var(--border);
     font-size: 0.85rem;
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .bulk select,
   .bulk button {

@@ -40,7 +40,9 @@
     return (
       target instanceof HTMLElement &&
       (target.isContentEditable ||
-        ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) ||
+        // A ticked box is not typing: the keys of the page work on after a click on a mark.
+        (target.tagName === 'INPUT' && (target as HTMLInputElement).type !== 'checkbox') ||
+        ['TEXTAREA', 'SELECT'].includes(target.tagName) ||
         // An open menu has its own keys; a letter there is not a shortcut of the
         // page. (The buttons of the bar are not it: after a choice the focus
         // sits there and j and k are still the list's.) A dialog is modal: what
@@ -97,7 +99,11 @@
         if (app.view === 'list') app.moveSelection(-1);
         break;
       case 'x':
-        if (app.view === 'list' && app.selectedId !== null) app.toggleMark(app.selectedId);
+        // Holding the key does not flip the mark back and forth.
+        if (app.view === 'list' && app.selectedId !== null && !event.repeat) {
+          const id = app.selectedId;
+          if (app.shown.some((t) => t.id === id)) app.toggleMark(id);
+        }
         break;
       case '/':
         if (app.view === 'list') {
@@ -106,7 +112,8 @@
         }
         break;
       case 'Escape':
-        if (app.marks.length > 0) app.clearMarks();
+        // In the list the marks go first; elsewhere there are none to see.
+        if (app.view === 'list' && app.marks.length > 0) app.clearMarks();
         else app.select(null);
         break;
     }

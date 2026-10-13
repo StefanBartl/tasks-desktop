@@ -20,7 +20,7 @@
     selected?: boolean;
     marked?: boolean;
     onselect: (id: string) => void;
-    onmark: (id: string) => void;
+    onmark: (id: string) => boolean;
     markLabel: string;
   } = $props();
 
@@ -36,7 +36,7 @@
   class="mark"
   checked={marked}
   aria-label={markLabel}
-  onchange={() => onmark(task.id)}
+  onchange={(e) => (e.currentTarget.checked = onmark(task.id))}
 />
 <button
   type="button"
@@ -77,7 +77,6 @@
   .row {
     flex: 1;
     min-width: 0;
-    border-bottom: 0;
     display: grid;
     grid-template-columns: minmax(8rem, 14rem) 1fr auto;
     gap: 0.75rem;
@@ -87,7 +86,6 @@
     padding: 0.4rem 0.6rem;
     background: none;
     border: 0;
-    border-bottom: 1px solid var(--border);
     cursor: pointer;
   }
   /* A row far off the screen is not laid out or painted. */

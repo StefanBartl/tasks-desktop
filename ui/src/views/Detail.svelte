@@ -4,7 +4,7 @@
   import { parseMarkdown } from '../lib/markdown';
   import { hasHidden, markHidden } from '../lib/text';
   import { REMIND_CHOICES } from '../lib/remind';
-  import { EFFORT_SIZES, KINDS, VALUES, parseTags, tagsChanged, tagsText } from '../lib/fields';
+  import { EFFORT_SIZES, KINDS, VALUES, badTag, parseTags, tagsChanged, tagsText } from '../lib/fields';
   import Blocks from './Blocks.svelte';
 
   let { app }: { app: App } = $props();
@@ -157,6 +157,12 @@
             const text = e.currentTarget.value;
             if (tagsChanged(task.tags, text)) {
               const tags = parseTags(text);
+              const bad = badTag(tags);
+              if (bad !== null) {
+                // The engine would refuse it: say so and keep what was typed.
+                app.tell('error', 'field.tags_invalid', { tag: bad });
+                return;
+              }
               void app.setField(task.id, 'tags', tags.length === 0 ? null : tags);
             }
           }}

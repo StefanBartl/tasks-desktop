@@ -221,12 +221,14 @@ export class App {
       const failed = result.results.find((r) => !r.ok);
       if (failed) {
         const code = failed.error?.code ?? 'failed';
-        if (code === 'conflict') this.say('error', 'write.conflict');
-        else if (code === 'not_found') this.say('error', 'write.not_found');
-        else if (code === 'exists') this.say('error', 'write.exists');
+        // What went through before the failure can still be taken back.
+        const undo = opts.undoable === false ? undefined : this.inverseOf(result);
+        if (code === 'conflict') this.say('error', 'write.conflict', {}, undo);
+        else if (code === 'not_found') this.say('error', 'write.not_found', {}, undo);
+        else if (code === 'exists') this.say('error', 'write.exists', {}, undo);
         else if (code === 'invalid_argument' || code === 'forbidden') {
-          this.say('error', 'write.invalid', { message: failed.error?.message ?? code });
-        } else this.say('error', 'write.failed', { code });
+          this.say('error', 'write.invalid', { message: failed.error?.message ?? code }, undo);
+        } else this.say('error', 'write.failed', { code }, undo);
       } else {
         const undo = opts.undoable === false ? undefined : this.inverseOf(result);
         this.say('ok', 'write.saved', {}, undo);
@@ -257,7 +259,8 @@ export class App {
   private inverseOf(result: Result): Op[] | undefined {
     const inverses: Op[] = [];
     for (const entry of result.results) {
-      if (entry.outcome === 'unchanged') continue;
+      // An entry that failed changed nothing: it has no way back and needs none.
+      if (!entry.ok || entry.outcome === 'unchanged') continue;
       const inv = entry.inverse;
       if (!inv || inv.op !== 'set') return undefined;
       inverses.push({
@@ -294,43 +297,73 @@ export class App {
     ]);
   }
 
-  toggleMark(id: string): void {
+  /** Mark or unmark `id`; says whether it is marked now (a mark past one batch is refused and told). */
+  toggleMark(id: string): boolean {
     const next = toggleMark(this.marks, id);
     if (next.length === this.marks.length && !this.marks.includes(id)) {
       this.say('error', 'bulk.limit');
-      return;
+      return false;
     }
+    this.marks = next;
+    return next.includes(id);
+  }
+
+  /** Mark every task the list shows (up to one batch; what does not fit is told). */
+  markShown(): void {
+    const ids = this.shown.map((t) => t.id);
+    const next = markAll(this.marks, ids);
+    if (ids.some((id) => !next.includes(id))) this.say('error', 'bulk.limit');
     this.marks = next;
   }
 
-  /** Mark every task the list shows (up to one batch). */
-  markShown(): void {
-    this.marks = markAll(this.marks, this.shown.map((t) => t.id));
+  /** Only the tasks the list shows stay marked: a mark that cannot be seen must not be changed. */
+  keepMarksShown(): void {
+    if (this.marks.length === 0) return;
+    const shown = new Set(this.shown.map((t) => t.id));
+    const kept = this.marks.filter((id) => shown.has(id));
+    if (kept.length !== this.marks.length) this.marks = kept;
   }
 
   clearMarks(): void {
     this.marks = [];
   }
 
+  /** Say something to the person without writing (a refusal before anything is sent). */
+  tell(kind: Toast['kind'], key: Key, params: Record<string, string | number> = {}): void {
+    this.say(kind, key, params);
+  }
+
   /**
-   * One key of every marked task, as ONE request: the engine takes the batch as a whole (one write of the index), each
-   * task with the version that was shown. A task that changed meanwhile fails alone and is told; the rest is kept.
-   * The marks stay on the tasks that failed, so a second try is one click.
+   * The keys of `patch` on every marked task, as ONE request: the engine takes the batch as a whole (one write of the
+   * index), each task with the version that was shown. A task that changed meanwhile fails alone and is told; the rest
+   * is kept. The marks stay on the tasks that failed, so a second try is one click; a mark made while the request was
+   * under way is not touched.
    */
-  async bulkSet(key: string, value: string | number | string[] | null): Promise<void> {
-    const ops = bulkSetOps(this.tasks, this.marks, { [key]: value });
+  async bulkSet(patch: Record<string, unknown>): Promise<void> {
+    const ops = bulkSetOps(this.tasks, this.marks, patch);
     if (ops.length === 0) return;
+    const sent = new Set(ops.map((o) => o.id));
     const result = await this.write(ops);
     if (!result) return;
-    const failed = result.results.filter((r) => !r.ok);
-    if (failed.length === 0) {
-      this.say('ok', 'bulk.saved', { n: ops.length }, this.toast?.undo);
-      this.marks = [];
+    // A failed entry names its operation (`n`), not always the task: the position in the batch says which one.
+    const failedIds = new Set<string>();
+    for (const r of result.results) {
+      if (r.ok) continue;
+      const id = ops[r.n - 1]?.id ?? (r.error?.details as { id?: unknown } | undefined)?.id;
+      if (typeof id === 'string') failedIds.add(id);
+    }
+    const unmatched = result.results.some((r) => !r.ok) && failedIds.size === 0;
+    if (unmatched) {
+      // Which tasks failed is not known: nothing is taken off the marks.
+      this.say('error', 'bulk.partial', { done: 0, failed: ops.length });
       return;
     }
-    const failedIds = new Set(failed.map((r) => r.id).filter((id): id is string => typeof id === 'string'));
-    this.marks = this.marks.filter((id) => failedIds.has(id));
-    this.say('error', 'bulk.partial', { done: ops.length - failed.length, failed: failed.length });
+    this.marks = this.marks.filter((id) => !sent.has(id) || failedIds.has(id));
+    if (failedIds.size === 0) {
+      this.say('ok', 'bulk.saved', { n: ops.length }, this.toast?.undo);
+    } else {
+      this.say('error', 'bulk.partial', { done: ops.length - failedIds.size, failed: failedIds.size }, this.toast?.undo);
+    }
   }
 
   async createTask(area: string, title: string, fields: Record<string, unknown> = {}): Promise<void> {

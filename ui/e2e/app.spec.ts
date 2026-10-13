@@ -481,19 +481,40 @@ test('a task is created, changed, taken back and finished through the engine', a
   await expect(page.getByRole('status').getByText('Undone.')).toBeVisible();
   await expect(page.locator('aside.detail').getByLabel('Status')).toHaveValue('open');
 
-  // Kind, effort, value and tags: the engine takes them and the next read shows them.
+  // Kind, effort, value and tags: the engine takes them, and a reload reads them back from the files.
   const detail = page.locator('aside.detail');
   await detail.getByLabel('Effort').selectOption('M');
-  await expect(detail.getByLabel('Effort')).toHaveValue('M');
   await detail.getByLabel('Value').selectOption('4');
-  await expect(detail.getByLabel('Value')).toHaveValue('4');
   await detail.getByLabel('Kind').selectOption('bug');
-  await expect(detail.getByLabel('Kind')).toHaveValue('bug');
   await detail.getByLabel('Tags').fill(' ui, e2e ,, ui');
   await detail.getByLabel('Tags').blur();
   await expect(detail.getByLabel('Tags')).toHaveValue('ui, e2e');
+  await page.reload();
+  await expect(page.getByRole('menubar')).toBeVisible();
+  await showList(page);
+  await open(page, id);
+  await expect(detail.getByLabel('Effort')).toHaveValue('M');
+  await expect(detail.getByLabel('Value')).toHaveValue('4');
+  await expect(detail.getByLabel('Kind')).toHaveValue('bug');
+  await expect(detail.getByLabel('Tags')).toHaveValue('ui, e2e');
+
+  // A tag the engine would refuse is told before anything is sent, and the text stays in the field.
+  await detail.getByLabel('Tags').fill('ui, bad#tag');
+  await detail.getByLabel('Tags').blur();
+  await expect(page.getByRole('status').getByText(/bad#tag/)).toBeVisible();
+  await expect(detail.getByLabel('Tags')).toHaveValue('ui, bad#tag');
+
+  // Emptying a field takes the key out of the file.
+  await detail.getByLabel('Tags').fill('');
+  await detail.getByLabel('Tags').blur();
   await detail.getByLabel('Effort').selectOption('');
+  await page.reload();
+  await expect(page.getByRole('menubar')).toBeVisible();
+  await showList(page);
+  await open(page, id);
+  await expect(detail.getByLabel('Tags')).toHaveValue('');
   await expect(detail.getByLabel('Effort')).toHaveValue('');
+  await expect(detail.getByLabel('Value')).toHaveValue('4');
 
   // Finishing shows what it does and asks.
   await page.locator('aside.detail').getByRole('button', { name: 'Finish ...' }).click();
@@ -527,18 +548,40 @@ test('marked tasks are changed in one batch, with the keys and the button', asyn
   await expect(rows).toHaveCount(3);
   await page.getByRole('button', { name: 'Mark all shown' }).click();
   await expect(page.getByText('3 marked')).toBeVisible();
-  await page.getByLabel('Set status ...').selectOption('doing');
-  await expect(page.getByRole('status').getByText('3 tasks saved.')).toBeVisible();
+  const bar = page.getByRole('group', { name: 'Change the marked tasks' });
+  const apply = bar.getByRole('button', { name: 'Apply to the marked' });
+  await expect(apply).toBeDisabled();
+  // Choosing writes nothing, not even with the arrow keys; only the button does.
+  await bar.getByLabel('Status').selectOption('doing');
+  await bar.getByLabel('Priority').selectOption('1');
+  await expect(page.locator('.rows .line', { hasText: 'doing' })).toHaveCount(0);
+  await apply.click();
+  await expect(page.getByRole('status').getByText('Saved: 3.')).toBeVisible();
   await expect(page.getByText('3 marked')).toHaveCount(0);
   await expect(page.locator('.rows .line', { hasText: 'doing' })).toHaveCount(3);
+  await expect(page.locator('.rows .line', { hasText: 'P1' })).toHaveCount(3);
 
-  // The key marks the selected row; Escape takes the marks away before it leaves the selection.
-  await page.locator('.rows .row').first().click();
-  await page.locator('.rows .row').first().blur();
-  await page.keyboard.press('x');
+  // A filter that hides a mark takes the mark with it.
+  await page.getByRole('button', { name: 'Mark all shown' }).click();
+  await expect(page.getByText('3 marked')).toBeVisible();
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Bulk e2e 1');
   await expect(page.getByText('1 marked')).toBeVisible();
+  await page.getByRole('button', { name: 'Clear marks' }).click();
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Bulk e2e');
+  await expect(rows).toHaveCount(3);
+
+  // A click on the box leaves the keys of the page alive; the key marks the selected row;
+  // Escape takes the marks away and leaves the selection where it is.
+  await rows.nth(0).getByRole('checkbox').check();
+  await expect(page.getByText('1 marked')).toBeVisible();
+  await page.keyboard.press('j');
+  await page.keyboard.press('x');
+  await expect(page.getByText('2 marked')).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(page.getByText('1 marked')).toHaveCount(0);
+  await expect(page.getByText('2 marked')).toHaveCount(0);
+  await expect(page.locator('.rows [aria-current="true"]')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.rows [aria-current="true"]')).toHaveCount(0);
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });
