@@ -1249,6 +1249,15 @@ test('the board: taking back a move that numbered its neighbours gives every fil
   await expect.poll(() => titles()).toEqual(first);
   expect(orders()).toEqual([false, false, false]);
 
+  // The same for a move that wrote one file only: the card had no number, and has none after the undo.
+  await open.locator('.card').nth(0).click();
+  await page.keyboard.press('Shift+J');
+  await expect.poll(() => titles()).toEqual([first[1], first[0], first[2]]);
+  await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
+  await expect.poll(() => titles()).toEqual(first);
+  await expect(page.getByRole('status').getByText('Undone.')).toBeVisible();
+  expect(orders()).toEqual([false, false, false]);
+
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });

@@ -10,7 +10,8 @@
 //! 4. the method is one the route knows;
 //! 5. a mutation without `Origin` is a program client: it needs a bearer
 //!    credential and must not look like a browser;
-//! 6. the rate limit for mutations;
+//! 6. the rate limit for mutations (`ops` counts itself in its handler: only
+//!    its body tells a write from a dry run, which has a limit of its own);
 //! 7. the credential the route needs (none, the control secret, a session);
 //! 8. a mutation carries `application/json`.
 //!

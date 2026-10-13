@@ -248,7 +248,11 @@ The page may change tasks; the engine stays the only writer and the only
 holder of the rules. The route:
 
 * needs the session, an `Origin` the hub knows, `application/json` and
-  passes the rate limit of mutations like every other POST;
+  passes a rate limit of mutations like every other POST: a write the limit
+  of all mutations, a dry run (the plan wizard asks once per key) a limit of
+  its own that the writes do not pay for; a request that is none counts as a
+  write (the route counts itself, after the session is known: only the body
+  tells the two apart);
 * checks the **form** before an engine process is asked: a JSON object with
   `ops` (1 to 100 entries, each with a known `op`), at most the fields
   `schema`, `client_op_id`, `dry_run`, `ops`, a plain `client_op_id`. What
