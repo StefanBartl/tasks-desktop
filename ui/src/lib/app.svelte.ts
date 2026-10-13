@@ -1,6 +1,7 @@
 // The state of the page and what keeps it true: pairing, the held list, the
 // event stream and the detail of the selected task.
 
+import { bulkSetOps, markAll, pruneMarks, toggleMark } from './bulk';
 import { ApiError, type Hub, type HubArea, type HubAreas, type SearchResult } from './api';
 import { cacheableList, type ListStore } from './cache';
 import type { DonePreview, Next, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
@@ -109,6 +110,8 @@ export class App {
    * (a conflict, a refusal) must not leave the control showing it.
    */
   writes = $state(0);
+  /** The ids marked for a bulk change, in the order they were marked. */
+  marks = $state.raw<string[]>([]);
   toast = $state.raw<Toast | null>(null);
   /** The capture dialog is open. */
   capturing = $state(false);
@@ -289,6 +292,45 @@ export class App {
     await this.write([
       { op: 'set', id, patch: { [key]: value }, ...(task.etag ? { if_match: task.etag } : {}) },
     ]);
+  }
+
+  toggleMark(id: string): void {
+    const next = toggleMark(this.marks, id);
+    if (next.length === this.marks.length && !this.marks.includes(id)) {
+      this.say('error', 'bulk.limit');
+      return;
+    }
+    this.marks = next;
+  }
+
+  /** Mark every task the list shows (up to one batch). */
+  markShown(): void {
+    this.marks = markAll(this.marks, this.shown.map((t) => t.id));
+  }
+
+  clearMarks(): void {
+    this.marks = [];
+  }
+
+  /**
+   * One key of every marked task, as ONE request: the engine takes the batch as a whole (one write of the index), each
+   * task with the version that was shown. A task that changed meanwhile fails alone and is told; the rest is kept.
+   * The marks stay on the tasks that failed, so a second try is one click.
+   */
+  async bulkSet(key: string, value: string | number | string[] | null): Promise<void> {
+    const ops = bulkSetOps(this.tasks, this.marks, { [key]: value });
+    if (ops.length === 0) return;
+    const result = await this.write(ops);
+    if (!result) return;
+    const failed = result.results.filter((r) => !r.ok);
+    if (failed.length === 0) {
+      this.say('ok', 'bulk.saved', { n: ops.length }, this.toast?.undo);
+      this.marks = [];
+      return;
+    }
+    const failedIds = new Set(failed.map((r) => r.id).filter((id): id is string => typeof id === 'string'));
+    this.marks = this.marks.filter((id) => failedIds.has(id));
+    this.say('error', 'bulk.partial', { done: ops.length - failed.length, failed: failed.length });
   }
 
   async createTask(area: string, title: string, fields: Record<string, unknown> = {}): Promise<void> {
@@ -511,6 +553,7 @@ export class App {
       this.phase = 'ready';
       if (this.connection === 'offline') this.connection = 'reconnecting';
       this.keepSelection();
+      this.marks = pruneMarks(this.marks, this.tasks);
       // What is needed beside the list is read after it is shown: each of
       // these is one more Neovim process of the hub.
       void this.readBeside();

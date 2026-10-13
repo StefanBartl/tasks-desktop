@@ -507,6 +507,42 @@ test('a task is created, changed, taken back and finished through the engine', a
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('marked tasks are changed in one batch, with the keys and the button', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+
+  for (const n of [1, 2, 3]) {
+    await page.keyboard.press('c');
+    const capture = page.getByRole('dialog', { name: 'New task' });
+    await capture.getByLabel('Title').fill(`Bulk e2e ${n}`);
+    await capture.locator('select').first().selectOption('lib.nvim');
+    await capture.getByRole('button', { name: 'Create' }).click();
+    await expect(capture).toHaveCount(0);
+  }
+
+  // Narrow the list to the three, mark them all, change the status once.
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Bulk e2e');
+  const rows = page.locator('.rows .line');
+  await expect(rows).toHaveCount(3);
+  await page.getByRole('button', { name: 'Mark all shown' }).click();
+  await expect(page.getByText('3 marked')).toBeVisible();
+  await page.getByLabel('Set status ...').selectOption('doing');
+  await expect(page.getByRole('status').getByText('3 tasks saved.')).toBeVisible();
+  await expect(page.getByText('3 marked')).toHaveCount(0);
+  await expect(page.locator('.rows .line', { hasText: 'doing' })).toHaveCount(3);
+
+  // The key marks the selected row; Escape takes the marks away before it leaves the selection.
+  await page.locator('.rows .row').first().click();
+  await page.locator('.rows .row').first().blur();
+  await page.keyboard.press('x');
+  await expect(page.getByText('1 marked')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByText('1 marked')).toHaveCount(0);
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
 test('a reminder set on a task comes back on the Today page when it is due', async ({ page }) => {
   await watchViolations(page);
   await pair(page);

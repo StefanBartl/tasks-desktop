@@ -9,13 +9,19 @@
     lang,
     today,
     selected = false,
+    marked = false,
     onselect,
+    onmark,
+    markLabel,
   }: {
     task: TaskEntry;
     lang: Lang;
     today: string;
     selected?: boolean;
+    marked?: boolean;
     onselect: (id: string) => void;
+    onmark: (id: string) => void;
+    markLabel: string;
   } = $props();
 
   // A word this version does not know is shown as it is.
@@ -24,6 +30,14 @@
   const due = $derived(isDue(task.remind, today));
 </script>
 
+<div class="line" class:marked>
+<input
+  type="checkbox"
+  class="mark"
+  checked={marked}
+  aria-label={markLabel}
+  onchange={() => onmark(task.id)}
+/>
 <button
   type="button"
   class="row"
@@ -45,9 +59,25 @@
     {/if}
   </span>
 </button>
+</div>
 
 <style>
+  .line {
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .line.marked {
+    background: var(--surface-2);
+  }
+  .mark {
+    margin: 0 0 0 0.6rem;
+    flex: none;
+  }
   .row {
+    flex: 1;
+    min-width: 0;
+    border-bottom: 0;
     display: grid;
     grid-template-columns: minmax(8rem, 14rem) 1fr auto;
     gap: 0.75rem;

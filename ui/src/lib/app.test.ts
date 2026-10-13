@@ -491,8 +491,9 @@ describe('App, the text of the tasks', () => {
 });
 
 describe('writing', () => {
-  async function ready() {
+  async function ready(tasks: ReturnType<typeof task>[] = []) {
     const m = make({ token: 't' });
+    if (tasks.length > 0) m.hub.doc = snapshot(tasks);
     await m.app.start(null);
     expect(m.app.phase).toBe('ready');
     m.app.stop();
@@ -527,6 +528,61 @@ describe('writing', () => {
       { op: 'set', id: 'pub/a', patch: { value: 4 } },
       { op: 'set', id: 'pub/a', patch: { effort: null } },
     ]);
+  });
+
+  it('changes every marked task in ONE request, each with its own version, and takes the marks away', async () => {
+    const { app, hub } = await ready([
+      task('pub/a', { etag: 'e1' }),
+      task('pub/b', { etag: 'e2' }),
+      task('pub/c', { etag: 'e3' }),
+    ]);
+    const ids = ['pub/c', 'pub/a'];
+    for (const id of ids) app.toggleMark(id);
+    expect(app.marks).toEqual(ids);
+    await app.bulkSet('status', 'doing');
+    expect(hub.sent).toHaveLength(1);
+    expect(hub.sent[0]?.ops.map((o) => (o.op === 'set' ? o.id : ''))).toEqual(ids);
+    expect(hub.sent[0]?.ops.every((o) => o.op === 'set' && o.patch.status === 'doing')).toBe(true);
+    expect(hub.sent[0]?.ops.map((o) => (o.op === 'set' ? o.if_match : ''))).toEqual(['e3', 'e1']);
+    expect(app.marks).toEqual([]);
+    expect(app.toast?.kind).toBe('ok');
+    expect(app.toast?.undo).toHaveLength(2);
+  });
+
+  it('keeps the marks of the tasks that failed and says how many', async () => {
+    const { app, hub } = await ready([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' })]);
+    const ids = ['pub/a', 'pub/b'];
+    for (const id of ids) app.toggleMark(id);
+    hub.next_ops = {
+      kind: 'tasks.result',
+      ok: false,
+      dry_run: false,
+      results: [
+        { n: 1, op: 'set', id: ids[0], ok: true, outcome: 'changed', changed_ids: [] },
+        {
+          n: 2,
+          op: 'set',
+          id: ids[1],
+          ok: false,
+          outcome: 'failed',
+          changed_ids: [],
+          error: { code: 'conflict', message: 'x', retryable: false },
+        },
+      ],
+    } as unknown as Result;
+    await app.bulkSet('prio', 1);
+    expect(app.marks).toEqual([ids[1]]);
+    expect(app.toast?.kind).toBe('error');
+    expect(app.toast?.text).toContain('1');
+  });
+
+  it('refuses a mark past one batch and says so', async () => {
+    const { app } = await ready();
+    const many = Array.from({ length: 100 }, (_, i) => `x/t${i}`);
+    app.marks = many;
+    app.toggleMark('x/one-more');
+    expect(app.marks).toHaveLength(100);
+    expect(app.toast?.kind).toBe('error');
   });
 
   it('sends the inverse on undo, once', async () => {

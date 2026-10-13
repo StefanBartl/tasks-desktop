@@ -99,8 +99,55 @@
     </div>
     <p class="count" role="status">
       {t('list.count', { shown: shown.length, total: app.tasks.length })}
-      <span class="help">{t('list.help')}</span>
+      <span class="help"
+        ><button type="button" class="linkish" onclick={() => app.markShown()}>{t('bulk.all')}</button> ·
+        {t('list.help')}</span
+      >
     </p>
+    {#if app.marks.length > 0}
+      <div class="bulk" role="group" aria-label={t('bulk.change')}>
+        <strong>{t('bulk.count', { n: app.marks.length })}</strong>
+        <select
+          aria-label={t('bulk.set_status')}
+          disabled={app.saving}
+          onchange={(e) => {
+            const v = e.currentTarget.value;
+            e.currentTarget.value = '';
+            if (v !== '') void app.bulkSet('status', v);
+          }}
+        >
+          <option value="">{t('bulk.set_status')}</option>
+          {#each statuses as s (s)}<option value={s}>{t(`status.${s}` as Key)}</option>{/each}
+        </select>
+        <select
+          aria-label={t('bulk.set_prio')}
+          disabled={app.saving}
+          onchange={(e) => {
+            const v = e.currentTarget.value;
+            e.currentTarget.value = '';
+            if (v !== '') void app.bulkSet('prio', Number(v));
+          }}
+        >
+          <option value="">{t('bulk.set_prio')}</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+        </select>
+        <select
+          aria-label={t('bulk.set_actor')}
+          disabled={app.saving}
+          onchange={(e) => {
+            const v = e.currentTarget.value;
+            e.currentTarget.value = '';
+            if (v !== '') void app.bulkSet('actor', v);
+          }}
+        >
+          <option value="">{t('bulk.set_actor')}</option>
+          {#each actors.filter((a) => a !== 'none') as a (a)}<option value={a}>{t(`actor.${a}` as Key)}</option>{/each}
+        </select>
+        <button type="button" onclick={() => app.clearMarks()}>{t('bulk.clear')}</button>
+      </div>
+    {/if}
     <TextHits {app} />
     <div class="rows">
       {#each visible as task (task.file)}
@@ -109,7 +156,10 @@
           lang={app.lang}
           today={app.today}
           selected={task.id === app.selectedId}
+          marked={app.marks.includes(task.id)}
           onselect={(id) => app.select(id)}
+          onmark={(id) => app.toggleMark(id)}
+          markLabel={t('bulk.mark', { id: task.id })}
         />
       {:else}
         <p class="empty">{t('list.none')}</p>
@@ -168,6 +218,32 @@
   }
   .help {
     text-align: right;
+  }
+  .linkish {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: inherit;
+  }
+  .bulk {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.4rem 0.6rem;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.85rem;
+  }
+  .bulk select,
+  .bulk button {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.2rem 0.5rem;
   }
   .rows {
     overflow: auto;
