@@ -235,7 +235,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("a")).unwrap();
         std::fs::write(dir.join("a").join("x.md"), "x").unwrap();
-        assert!(file_in_vault(&dir, "a/x.md").is_ok());
+        let ok = file_in_vault(&dir, "a/x.md").unwrap();
+        // What Neovim gets is a plain path, not the verbatim form Windows' canonicalize gives.
+        assert!(!ok.to_string_lossy().starts_with(r"\\?\"), "{ok:?}");
         for bad in [
             "",
             "../x.md",
