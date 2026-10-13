@@ -3,7 +3,7 @@ import { hasHidden, markHidden } from './text';
 
 describe('hidden characters', () => {
   it('marks bidi and zero-width characters', () => {
-    const text = 'a‮b​c';
+    const text = 'a\u202Eb\u200Bc';
     expect(hasHidden(text)).toBe(true);
     expect(markHidden(text)).toBe('a⟦U+202E⟧b⟦U+200B⟧c');
   });

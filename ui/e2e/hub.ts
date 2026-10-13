@@ -122,8 +122,8 @@ export const HOSTILE: { slug: string; title: string; body: string; front?: strin
   },
   {
     slug: 'bidi-title',
-    title: 'Invoice ‮txt.exe‬ ​ready',
-    body: 'a‮reversed',
+    title: 'Invoice \u202Etxt.exe\u202C \u200Bready',
+    body: 'a\u202Ereversed',
   },
 ];
 

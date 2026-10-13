@@ -96,3 +96,14 @@ jobs:
       - run: pnpm test
       - run: pnpm build
       - run: pnpm audit --audit-level high
+
+  # A control or invisible character in a tracked text file (a backspace in a
+  # path, a bidirectional override in source) is refused; the tool tests itself.
+  hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover tools
+      - run: python3 tools/check-control-chars.py

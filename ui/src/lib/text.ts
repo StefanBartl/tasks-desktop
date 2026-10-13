@@ -3,7 +3,7 @@
 
 // Bidi controls, zero-width characters, the byte order mark, soft hyphen and
 // the tag characters.
-const HIDDEN = /[­​-‏‪-‮⁠-⁤⁦-⁩﻿\u{e0000}-\u{e007f}]/gu;
+const HIDDEN = /[­\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF\u{e0000}-\u{e007f}]/gu;
 
 /** Does the text hold such characters? */
 export function hasHidden(text: string): boolean {
