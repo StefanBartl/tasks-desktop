@@ -40,7 +40,7 @@ export interface OpsRequest {
 export interface Hello {
   instance: string;
   version: string;
-  engine: { ready: boolean; problem: string | null; capabilities: string[] };
+  engine: { ready: boolean; problem: string | null; capabilities: string[] | null };
 }
 
 /** One area as `GET /api/tasks/areas` tells it, with the class it is shown with. */
@@ -140,7 +140,7 @@ export class Hub {
     return {
       instance: doc.instance,
       version: doc.version,
-      engine: { ...doc.engine, capabilities: doc.engine.capabilities ?? [] },
+      engine: { ...doc.engine, capabilities: doc.engine.capabilities ?? null },
     };
   }
 

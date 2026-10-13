@@ -24,7 +24,7 @@ class FakeHub {
   areaList: HubArea[] = [{ name: 'pub', data_class: 'public' }];
   snapshotCalls: (string | null)[] = [];
   engineReady = true;
-  capabilities: string[] = ['reorder', 'plan_new'];
+  capabilities: string[] | null = ['reorder', 'plan_new'];
   hubDown = false;
   exchanged: string[] = [];
   exchangeFails = false;
@@ -686,6 +686,24 @@ describe('writing', () => {
       expect(m.app.view).toBe('today');
     });
 
+    it('holds nothing back from an engine that is not there or does not say', async () => {
+      const prefs = new Map([['tasks-desktop.view', 'board']]);
+      const m = make({ token: 't', prefs });
+      m.hub.engineReady = false;
+      m.hub.capabilities = [];
+      const started = m.app.start(null);
+      await vi.waitFor(() => expect(m.app.phase).toBe('unavailable'));
+      // No engine tells nothing about what it can do.
+      expect(m.app.capabilities).toBeNull();
+      expect(m.app.view).toBe('board');
+      m.hub.engineReady = true;
+      m.hub.capabilities = null;
+      await started;
+      m.app.stop();
+      expect(m.app.can('reorder')).toBe(true);
+      expect(m.app.view).toBe('board');
+    });
+
     it('offers both where the engine names them', async () => {
       const { app } = await ready();
       app.setView('board');
@@ -939,6 +957,47 @@ describe('writing', () => {
     await undone;
     expect(hub.sent).toHaveLength(2);
     expect(hub.sent[1]?.ops[0]).toMatchObject({ op: 'set', id: 'pub/a', patch: { status: 'open' } });
+  });
+
+  it('does not undo the toast of an earlier write while a newer one waits for its answer', async () => {
+    const { app, hub } = await ready();
+    await app.setField('pub/a', 'prio', 1);
+    expect(app.toast?.undo).toBeDefined();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const send = hub.ops.bind(hub);
+    hub.ops = async (request) => {
+      await held;
+      return send(request);
+    };
+    const second = app.setField('pub/a', 'prio', 2);
+    await vi.waitFor(() => expect(app.answering).toBe(true));
+    await app.undo();
+    // Refused and kept: nothing was sent for it, the toast stays.
+    expect(hub.sent).toHaveLength(1);
+    expect(app.toast?.undo).toBeDefined();
+    release();
+    await second;
+    expect(app.answering).toBe(false);
+  });
+
+  it('says so when an undo that was queued cannot be sent any more', async () => {
+    const { app, hub } = await ready();
+    await app.setField('pub/a', 'prio', 1);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    hub.snapshot = async () => {
+      await held;
+      throw new ApiError(503, 'engine_unavailable', 'x');
+    };
+    const second = app.setField('pub/a', 'prio', 2);
+    await vi.waitFor(() => expect(hub.sent).toHaveLength(2));
+    const undone = app.undo();
+    release();
+    await second;
+    await undone;
+    expect(hub.sent).toHaveLength(2);
+    expect(app.toast?.kind).toBe('error');
   });
 
   it('says a conflict and keeps nothing it guessed', async () => {

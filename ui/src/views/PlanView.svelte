@@ -56,7 +56,7 @@
           {/each}
         {/if}
       </div>
-      <button type="button" class="newplan" onclick={() => app.openPlanWizard()}>{t('plan.new.button')}</button>
+      <button type="button" class="newplan" disabled={!app.can('plan_new')} onclick={() => app.openPlanWizard()}>{t('plan.new.button')}</button>
       {#if plans.length > 0}
         <label class="plan-select">
           <span>{t('plan.which')}</span>
