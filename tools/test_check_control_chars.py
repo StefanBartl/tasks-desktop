@@ -16,8 +16,14 @@ def found(text, encoding="utf-8"):
 
 
 class ControlCharacters(unittest.TestCase):
-    def test_plain_text_tab_and_line_endings_pass(self):
-        self.assertEqual(found("a\tb\r\nc\n\n"), [])
+    def test_plain_text_and_line_endings_pass(self):
+        self.assertEqual(found("a b\r\nc\n\n"), [])
+
+    def test_a_tab_is_refused_except_where_the_format_needs_it(self):
+        self.assertEqual(found("a\tb"), [(1, 9)])
+        for name in ["Makefile", "build/rules.mk", "data/table.tsv", ".gitmodules"]:
+            self.assertEqual(check.problems(name, b"a\tb"), [], name)
+        self.assertEqual(check.problems("docs/notes.md", b"a\tb"), [(1, 9)])
 
     def test_each_refused_range_is_found_with_its_line(self):
         for code in [0x01, 0x08, 0x0B, 0x0C, 0x0E, 0x1F, 0x7F, 0x85, 0x9F,

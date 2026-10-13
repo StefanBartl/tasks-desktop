@@ -10,8 +10,9 @@
 //! 4. the method is one the route knows;
 //! 5. a mutation without `Origin` is a program client: it needs a bearer
 //!    credential and must not look like a browser;
-//! 6. the rate limit for mutations (`ops` counts itself in its handler: only
-//!    its body tells a write from a dry run, which has a limit of its own);
+//! 6. the rate limit for mutations (`ops` has a coarse one of its own here, dry
+//!    runs included, and its writes are counted again by the handler: only the
+//!    body tells a write from a dry run);
 //! 7. the credential the route needs (none, the control secret, a session);
 //! 8. a mutation carries `application/json`.
 //!
@@ -83,9 +84,11 @@ pub struct Limits {
     /// Mutations (POST) per window, over all clients.
     pub post_max: usize,
     pub post_window: Duration,
-    /// Dry runs (the wizard asks while a person types) per window: they change nothing.
-    pub dry_max: usize,
-    pub dry_window: Duration,
+    /// POSTs to `ops` per window, dry runs included (the wizard asks once per key a person types):
+    /// the coarse limit of that route, in the guard before any credential. The writes among them
+    /// are counted again, strictly, by `post_max`.
+    pub ops_max: usize,
+    pub ops_window: Duration,
     /// Pairing exchanges per window: a code is guessable only by trying.
     pub exchange_max: usize,
     pub exchange_window: Duration,
@@ -111,8 +114,8 @@ impl Default for Limits {
             max_connections: 64,
             post_max: 60,
             post_window: Duration::from_secs(10),
-            dry_max: 300,
-            dry_window: Duration::from_secs(10),
+            ops_max: 300,
+            ops_window: Duration::from_secs(10),
             exchange_max: 10,
             exchange_window: Duration::from_secs(60),
             max_sessions: 16,
@@ -217,7 +220,7 @@ struct Shared {
     sessions: SessionStore,
     control: Secret,
     post_limit: RateLimiter,
-    dry_limit: RateLimiter,
+    ops_limit: RateLimiter,
     exchange_limit: RateLimiter,
     limits: Limits,
     instance: String,
@@ -362,7 +365,7 @@ pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
         sessions: SessionStore::new(limits.max_sessions),
         control: cfg.control_secret,
         post_limit: RateLimiter::new(Arc::clone(&cfg.clock), limits.post_max, limits.post_window),
-        dry_limit: RateLimiter::new(Arc::clone(&cfg.clock), limits.dry_max, limits.dry_window),
+        ops_limit: RateLimiter::new(Arc::clone(&cfg.clock), limits.ops_max, limits.ops_window),
         exchange_limit: RateLimiter::new(cfg.clock, limits.exchange_max, limits.exchange_window),
         limits: limits.clone(),
         instance: instance.clone(),
@@ -673,14 +676,18 @@ async fn judge(st: &Shared, class: Class, req: Request, next: Next) -> Response 
         );
     }
 
-    // 6. Rate limit for mutations. `ops` counts itself: only its body tells a
-    // write from a dry run, and a dry run has a limit of its own.
-    if mutation && parts.uri.path() != OPS_PATH && !st.post_limit.allow() {
-        return error_body(
-            StatusCode::TOO_MANY_REQUESTS,
-            "rate_limited",
-            "too many requests",
-        );
+    // 6. Rate limit for mutations, before any credential. Only the body of `ops` tells a write
+    // from a dry run, so the route has a coarse limit here for everything sent to it, and its
+    // writes are counted again, strictly, once the handler has read the body.
+    if mutation {
+        let limit = if parts.uri.path() == OPS_PATH {
+            &st.ops_limit
+        } else {
+            &st.post_limit
+        };
+        if !limit.allow() {
+            return too_many();
+        }
     }
 
     // 7. The credential the route needs
@@ -1443,13 +1450,8 @@ async fn ops(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
         }
     };
     let dry_run = request.get("dry_run").and_then(serde_json::Value::as_bool) == Some(true);
-    // A dry run changes nothing: the wizard asks once per key a person types.
-    let limit = if dry_run {
-        &st.dry_limit
-    } else {
-        &st.post_limit
-    };
-    if !limit.allow() {
+    // A dry run changes nothing and was counted by the guard only: it costs the writes nothing.
+    if !dry_run && !st.post_limit.allow() {
         return too_many();
     }
     let reply = match ask(&st, EngineMethod::Ops, Some(&request)).await {

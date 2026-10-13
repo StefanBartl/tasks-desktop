@@ -1093,6 +1093,28 @@ describe('writing', () => {
     expect(app.toast?.kind).toBe('error');
   });
 
+  describe('the memory of the palette', () => {
+    it('keeps the id of a task only when the class of its area may be kept in the browser', async () => {
+      const entry = (id: string, area: string) => task(id, { area } as Partial<TaskEntry>);
+      const m = make({ token: 't' });
+      m.hub.areaList = [
+        { name: 'pub', data_class: 'public' },
+        { name: 'inner', data_class: 'internal' },
+        { name: 'secret', data_class: 'private' },
+      ];
+      m.hub.doc = snapshot([entry('pub/a', 'pub'), entry('inner/b', 'inner'), entry('secret/c', 'secret'), entry('new/d', 'new')]);
+      await m.app.start(null);
+      m.app.stop();
+      // The classes are read after the list; before that nothing is kept (closed, not open).
+      await vi.waitFor(() => expect(m.app.hubAreas).toHaveLength(3));
+      for (const id of ['pub/a', 'inner/b', 'secret/c', 'new/d']) m.app.chose(`task:${id}`, id);
+      m.app.chose('action:go.today');
+      // Private and unclassified are not put into the profile; an action has no task to hide.
+      expect(Object.keys(m.app.frecency).sort()).toEqual(['action:go.today', 'task:inner/b', 'task:pub/a']);
+      expect(JSON.stringify([...m.prefs.values()])).not.toContain('secret/c');
+    });
+  });
+
   describe('the conflict center', () => {
     const refused = (code: string): Result =>
       ({

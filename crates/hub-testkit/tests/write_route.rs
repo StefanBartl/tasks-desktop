@@ -193,13 +193,13 @@ async fn a_dry_run_changes_and_scans_nothing() {
 }
 
 #[tokio::test]
-async fn a_dry_run_has_a_limit_of_its_own_and_costs_the_writes_nothing() {
-    // The pairing of the rig takes two of the mutations.
+async fn a_dry_run_costs_the_writes_nothing() {
+    // The pairing of the rig takes two of the mutations: two writes are left.
     let r = rig_with(
-        "dry-limit",
+        "dry-free",
         Limits {
             post_max: 4,
-            dry_max: 3,
+            ops_max: 100,
             ..Limits::default()
         },
     )
@@ -207,7 +207,40 @@ async fn a_dry_run_has_a_limit_of_its_own_and_costs_the_writes_nothing() {
     let dry =
         r#"{"dry_run":true,"ops":[{"op":"set","id":"alpha.nvim/t1","patch":{"status":"doing"}}]}"#;
     let write = r#"{"ops":[{"op":"set","id":"alpha.nvim/t1","patch":{"status":"doing"}}]}"#;
-    for _ in 0..3 {
+    for _ in 0..10 {
+        assert_eq!(post(&r, "/api/tasks/ops", dry, JSON, true).await.0, 200);
+    }
+    for _ in 0..2 {
+        assert_eq!(post(&r, "/api/tasks/ops", write, JSON, true).await.0, 200);
+    }
+    let (status, doc) = post(&r, "/api/tasks/ops", write, JSON, true).await;
+    assert_eq!(
+        (status, doc["error"]["code"].as_str()),
+        (429, Some("rate_limited"))
+    );
+    // A request that is none is a write, too.
+    assert_eq!(post(&r, "/api/tasks/ops", "{}", JSON, true).await.0, 429);
+    // The dry runs are still free of the limit of the writes.
+    assert_eq!(post(&r, "/api/tasks/ops", dry, JSON, true).await.0, 200);
+}
+
+#[tokio::test]
+async fn the_ops_route_has_a_limit_of_its_own_in_the_guard_before_the_credential() {
+    // Everything sent to `ops`, dry runs included, counts: three, then the limit. The pairing of the
+    // rig went to other routes and did not count here.
+    let r = rig_with(
+        "ops-limit",
+        Limits {
+            ops_max: 3,
+            ..Limits::default()
+        },
+    )
+    .await;
+    let dry =
+        r#"{"dry_run":true,"ops":[{"op":"set","id":"alpha.nvim/t1","patch":{"status":"doing"}}]}"#;
+    // Without a session: the limit comes before the credential (rule SRV-02), so it counts them too.
+    assert_eq!(post(&r, "/api/tasks/ops", dry, JSON, false).await.0, 401);
+    for _ in 0..2 {
         assert_eq!(post(&r, "/api/tasks/ops", dry, JSON, true).await.0, 200);
     }
     let (status, doc) = post(&r, "/api/tasks/ops", dry, JSON, true).await;
@@ -215,13 +248,7 @@ async fn a_dry_run_has_a_limit_of_its_own_and_costs_the_writes_nothing() {
         (status, doc["error"]["code"].as_str()),
         (429, Some("rate_limited"))
     );
-    // The dry runs took nothing from the writes: two are left, then the limit.
-    for _ in 0..2 {
-        assert_eq!(post(&r, "/api/tasks/ops", write, JSON, true).await.0, 200);
-    }
-    assert_eq!(post(&r, "/api/tasks/ops", write, JSON, true).await.0, 429);
-    // A request that is none is a mutation, too.
-    assert_eq!(post(&r, "/api/tasks/ops", "{}", JSON, true).await.0, 429);
+    assert_eq!(post(&r, "/api/tasks/ops", dry, JSON, false).await.0, 429);
 }
 
 #[tokio::test]
