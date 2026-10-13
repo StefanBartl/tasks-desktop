@@ -34,6 +34,10 @@ Start the hub with your login (the Run key of the current user).
 .PARAMETER Shortcut
 Put a link "Tasks" on the desktop.
 
+.PARAMETER AllowElevated
+Install although the session is elevated (for a build machine; the program is then installed for the
+administrator account, not for you).
+
 .EXAMPLE
 .\install.ps1 -Autostart -Shortcut
 #>
@@ -45,23 +49,24 @@ param(
     [string] $Sums = '',
     [string] $Sha256 = '',
     [switch] $Autostart,
-    [switch] $Shortcut
+    [switch] $Shortcut,
+    [switch] $AllowElevated
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Stop-Install([string] $Message) {
+function Exit-Install([string] $Message) {
     throw "install.ps1: $Message"
 }
 
 # The program belongs to one user: elevated, it would be the administrator account.
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Stop-Install 'do not run this elevated: it installs for one user, without administrator rights'
+if (-not $AllowElevated -and $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Exit-Install 'do not run this elevated: it installs for one user, without administrator rights (-AllowElevated for a build machine)'
 }
 if ($Repo -notmatch '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$') {
-    Stop-Install '-Repo must be OWNER/NAME'
+    Exit-Install '-Repo must be OWNER/NAME'
 }
 
 $work = Join-Path ([IO.Path]::GetTempPath()) ('tasks-desktop-install-' + [Guid]::NewGuid().ToString('N'))
@@ -70,7 +75,7 @@ try {
     if ($Archive -eq '') {
         $cpu = $env:PROCESSOR_ARCHITECTURE
         if ($cpu -ne 'AMD64') {
-            Stop-Install "no release for Windows on $cpu"
+            Exit-Install "no release for Windows on $cpu"
         }
         $triple = 'x86_64-pc-windows-msvc'
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -78,11 +83,11 @@ try {
             Write-Output "looking for the latest release of $Repo"
             $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -UseBasicParsing
             $Version = [string] $latest.tag_name
-            if ($Version -eq '') { Stop-Install 'no published release found (pass -Version TAG)' }
+            if ($Version -eq '') { Exit-Install 'no published release found (pass -Version TAG)' }
         }
         # A tag is a plain word: it goes into a URL and a file name.
         if ($Version -notmatch '^[A-Za-z0-9._-]+$') {
-            Stop-Install "the version has a character that is not allowed: $Version"
+            Exit-Install "the version has a character that is not allowed: $Version"
         }
         $name = 'tasks-hub-{0}-{1}.zip' -f $Version.TrimStart('v'), $triple
         $base = "https://github.com/$Repo/releases/download/$Version"
@@ -93,7 +98,7 @@ try {
         $Sums = Join-Path $work 'SHA256SUMS'
     }
     elseif (-not (Test-Path -LiteralPath $Archive -PathType Leaf)) {
-        Stop-Install "no such file: $Archive"
+        Exit-Install "no such file: $Archive"
     }
 
     # The checksum: never skipped. A file you have already needs one of the three sources.
@@ -103,8 +108,8 @@ try {
             $beside = Join-Path (Split-Path -Parent (Resolve-Path -LiteralPath $Archive)) 'SHA256SUMS'
             if (Test-Path -LiteralPath $beside -PathType Leaf) { $Sums = $beside }
         }
-        if ($Sums -eq '') { Stop-Install "no checksum for ${Archive}: give -Sums FILE or -Sha256 HEX" }
-        if (-not (Test-Path -LiteralPath $Sums -PathType Leaf)) { Stop-Install "no such file: $Sums" }
+        if ($Sums -eq '') { Exit-Install "no checksum for ${Archive}: give -Sums FILE or -Sha256 HEX" }
+        if (-not (Test-Path -LiteralPath $Sums -PathType Leaf)) { Exit-Install "no such file: $Sums" }
         $file = Split-Path -Leaf $Archive
         foreach ($line in Get-Content -LiteralPath $Sums) {
             # Lines are "<hash>  <file>"; the file name must match whole.
@@ -113,22 +118,37 @@ try {
                 break
             }
         }
-        if ($Sha256 -eq '') { Stop-Install "$file is not listed in $Sums" }
+        if ($Sha256 -eq '') { Exit-Install "$file is not listed in $Sums" }
     }
     $expected = $Sha256.ToLowerInvariant()
     if ($actual -ne $expected) {
-        Stop-Install "the checksum of $Archive does not match (expected $expected, got $actual): nothing was installed"
+        Exit-Install "the checksum of $Archive does not match (expected $expected, got $actual): nothing was installed"
     }
     Write-Output 'checksum ok'
+
+    # A path that leaves the folder it is unpacked into is refused before anything is written (the
+    # Expand-Archive of Windows PowerShell 5.1 does not look).
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $Archive).Path)
+    try {
+        foreach ($entry in $zip.Entries) {
+            if ($entry.FullName -match '(^|[\\/])\.\.([\\/]|$)' -or [IO.Path]::IsPathRooted($entry.FullName)) {
+                Exit-Install "the archive holds a path that leaves its folder ($($entry.FullName)): nothing was installed"
+            }
+        }
+    }
+    finally {
+        $zip.Dispose()
+    }
 
     $unpacked = Join-Path $work 'unpacked'
     Expand-Archive -LiteralPath $Archive -DestinationPath $unpacked
     $program = Join-Path $unpacked 'tasks-hub.exe'
     if (-not (Test-Path -LiteralPath $program -PathType Leaf)) {
-        Stop-Install 'the archive holds no tasks-hub.exe'
+        Exit-Install 'the archive holds no tasks-hub.exe'
     }
     $newVersion = (& $program --version)
-    if ($LASTEXITCODE -ne 0) { Stop-Install 'the program in the archive does not run' }
+    if ($LASTEXITCODE -ne 0) { Exit-Install 'the program in the archive does not run' }
 
     # An installation that is there: told, then replaced in place (repair or update).
     if ($env:TASKS_DESKTOP_INSTALL_DIR) {
@@ -155,7 +175,7 @@ try {
     if ($Autostart) { $flags += '--autostart' }
     if ($Shortcut) { $flags += '--shortcut' }
     & $program install @flags
-    if ($LASTEXITCODE -ne 0) { Stop-Install 'tasks-hub install failed (see above)' }
+    if ($LASTEXITCODE -ne 0) { Exit-Install 'tasks-hub install failed (see above)' }
 
     Write-Output ''
     Write-Output "installed $newVersion in $dir"

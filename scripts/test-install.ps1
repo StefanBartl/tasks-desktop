@@ -37,10 +37,17 @@ function Write-Check([bool] $Passed, [string] $Name) {
     else { Write-Output "FAIL $Name"; $script:failures++ }
 }
 
+# A build machine runs elevated (the runners of GitHub do): the scripts refuse that unless they are
+# told it is meant, and the refusal itself is checked below.
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$elevated = ([Security.Principal.WindowsPrincipal] $identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
 # Run a script in a child PowerShell (its exit and its output are the answer, not ours).
-function Invoke-Script([string] $Script, [string[]] $Arguments) {
+function Invoke-Script([string] $Script, [string[]] $Arguments, [switch] $Bare) {
     $shell = (Get-Process -Id $PID).Path
-    $output = & $shell -NoProfile -NonInteractive -File (Join-Path $here $Script) @Arguments 2>&1 | Out-String
+    $extra = @()
+    if ($elevated -and -not $Bare) { $extra = @('-AllowElevated') }
+    $output = & $shell -NoProfile -NonInteractive -File (Join-Path $here $Script) @Arguments @extra 2>&1 | Out-String
     return [pscustomobject]@{ Code = $LASTEXITCODE; Text = $output }
 }
 
@@ -64,6 +71,33 @@ try {
     $r = Invoke-Script 'install.ps1' @('-Archive', (Join-Path $tmp 'loose.zip'), '-Sums', (Join-Path $tmp 'release\SHA256SUMS'))
     Write-Check ($r.Code -ne 0 -and $r.Text -match 'not listed') 'a file that is not listed is refused'
     Write-Check (-not (Test-Path -LiteralPath $bin)) 'nothing was installed by any of them'
+
+    # 1b. An archive with a path that leaves its folder is refused before anything is written.
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $evil = Join-Path $tmp 'release\evil.zip'
+    $zip = [IO.Compression.ZipFile]::Open($evil, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        $entry = $zip.CreateEntry('../evil.txt')
+        $writer = New-Object IO.StreamWriter($entry.Open())
+        $writer.Write('x')
+        $writer.Dispose()
+    }
+    finally {
+        $zip.Dispose()
+    }
+    $evilHash = (Get-FileHash -LiteralPath $evil -Algorithm SHA256).Hash
+    $r = Invoke-Script 'install.ps1' @('-Archive', $evil, '-Sha256', $evilHash)
+    Write-Check ($r.Code -ne 0 -and $r.Text -match 'leaves its folder') 'an archive with a path that leaves its folder is refused'
+    Write-Check (-not (Test-Path -LiteralPath $bin)) 'and nothing was installed'
+
+    # 1c. An elevated session is refused unless it is told that it is meant.
+    if ($elevated) {
+        $r = Invoke-Script 'install.ps1' @('-Archive', $archive) -Bare
+        Write-Check ($r.Code -ne 0 -and $r.Text -match 'elevated') 'an elevated session is refused'
+        $r = Invoke-Script 'uninstall.ps1' @() -Bare
+        Write-Check ($r.Code -ne 0 -and $r.Text -match 'elevated') 'an elevated uninstall is refused'
+        Write-Check (-not (Test-Path -LiteralPath $bin)) 'and nothing was installed by it'
+    }
 
     # 2. A good archive installs, with the sums beside it.
     $r = Invoke-Script 'install.ps1' @('-Archive', $archive)

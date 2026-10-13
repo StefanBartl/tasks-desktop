@@ -143,7 +143,8 @@ jobs:
             (cd stage && 7z a -tzip "../${name}.zip" . >/dev/null)
             echo "file=${name}.zip" >> "$GITHUB_OUTPUT"
           else
-            tar -czf "${name}.tar.gz" -C stage .
+            # No AppleDouble files (._name) for the extended attributes of a file on a Mac.
+            COPYFILE_DISABLE=1 tar -czf "${name}.tar.gz" -C stage .
             echo "file=${name}.tar.gz" >> "$GITHUB_OUTPUT"
           fi
       # What the archive holds, without installing it (REL-12): unpack it elsewhere, ask the

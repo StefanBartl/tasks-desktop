@@ -92,8 +92,10 @@ if [ "$(id -u)" = "0" ]; then
     fail "do not run this as root: it installs for one user, without administrator rights"
 fi
 
+# One owner and one name of plain characters: it goes into a URL.
 case "$REPO" in
-    */* ) ;;
+    *[!A-Za-z0-9._/-]* | */*/* | /* | */ | "") fail "--repo must be OWNER/NAME" ;;
+    */*) ;;
     *) fail "--repo must be OWNER/NAME" ;;
 esac
 
@@ -105,7 +107,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 fetch() { # fetch URL FILE
     if have curl; then
-        curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --output "$2" "$1"
+        curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --output "$2" "$1"
     elif have wget; then
         wget --quiet --https-only --output-document="$2" "$1"
     else
@@ -176,11 +178,16 @@ if [ "$actual" != "$expected" ]; then
 fi
 say "checksum ok"
 
+# A path that leaves the folder it is unpacked into is refused before anything is written.
+if tar -tzf "$ARCHIVE" 2>/dev/null | grep -E '(^|/)\.\.(/|$)|^/' >/dev/null; then
+    fail "the archive holds a path that leaves its folder: nothing was installed"
+fi
 mkdir -p "$WORK/unpacked"
 tar -xzf "$ARCHIVE" -C "$WORK/unpacked" || fail "cannot unpack $ARCHIVE"
 program=""
 for candidate in "$WORK/unpacked/tasks-hub" "$WORK/unpacked/tasks-hub.exe"; do
-    if [ -f "$candidate" ]; then
+    # A plain file: a link in the archive could point at any program of the machine.
+    if [ -f "$candidate" ] && [ ! -L "$candidate" ]; then
         program="$candidate"
         break
     fi

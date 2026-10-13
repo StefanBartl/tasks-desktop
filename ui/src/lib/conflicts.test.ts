@@ -100,6 +100,39 @@ describe('wanted and now', () => {
   });
 });
 
+describe('try again for a bulk change of tags', () => {
+  const patchOf = (op: Op | null) => (op && op.op === 'set' ? op.patch : undefined);
+  const bulk = (tags: string[]) => ({ op: 'set', id: 'a/x', patch: { tags }, if_match: 'old' }) as Op;
+  const wish = { add: ['n'], remove: ['y'] };
+
+  it('works the tags out anew from the tags the task has, so that a tag added meanwhile stays', () => {
+    // At the time: tags were [x, y], the wish gave [x, n]. Meanwhile somebody added m.
+    const conflict = conflictsOf([bulk(['x', 'n'])], result([failed(1, 'conflict')]), NOW, wish)[0] as Conflict;
+    const now = task('a/x', { tags: ['x', 'y', 'm'] });
+    expect(retryOp(conflict, now)).toEqual({ op: 'set', id: 'a/x', patch: { tags: ['x', 'm', 'n'] }, if_match: 'new' });
+    expect(differences(conflict, now)).toEqual([{ key: 'tags', wanted: 'x, m, n', now: 'x, y, m' }]);
+  });
+
+  it('is done when the tags are right already, and takes the key away when none is left', () => {
+    const conflict = conflictsOf([bulk(['x', 'n'])], result([failed(1, 'conflict')]), NOW, wish)[0] as Conflict;
+    expect(alreadyDone(conflict, task('a/x', { tags: ['x', 'n'] }))).toBe(true);
+    expect(retryOp(conflict, task('a/x', { tags: ['x', 'n'] }))).toBeNull();
+    const last = conflictsOf([bulk(['n'])], result([failed(1, 'conflict')]), NOW, { add: [], remove: ['n'] })[0] as Conflict;
+    expect(patchOf(retryOp(last, task('a/x', { tags: ['n'] })))).toEqual({ tags: null });
+  });
+
+  it('keeps the other keys of the change when the tags are right already', () => {
+    const op = { op: 'set', id: 'a/x', patch: { effort: 'S', tags: ['n'] }, if_match: 'old' } as Op;
+    const conflict = conflictsOf([op], result([failed(1, 'conflict')]), NOW, { add: ['n'], remove: [] })[0] as Conflict;
+    expect(patchOf(retryOp(conflict, task('a/x', { tags: ['n'] })))).toEqual({ effort: 'S' });
+  });
+
+  it('does not carry the wish into a change without tags', () => {
+    const conflict = conflictsOf([set('a/x', { effort: 'S' })], result([failed(1, 'conflict')]), NOW, wish)[0] as Conflict;
+    expect(conflict.tags).toBeUndefined();
+  });
+});
+
 describe('try again', () => {
   it('sends the same change with the version the task has now', () => {
     const conflict = conflictsOf([set('a/x', { status: 'doing' })], result([failed(1, 'conflict')]), NOW)[0] as Conflict;

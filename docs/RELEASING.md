@@ -32,10 +32,16 @@ person without administrator rights or with a program that is not signed.
      another folder to ask it for its version, and runs the install and uninstall scripts against
      it in a folder of their own (`build`, rule `REL-12`),
    - adds `SHA256SUMS` and the scripts (`sums`).
-5. **Open the draft on a clean user account** and, per system you have: download `install.*` from
-   the draft, run it, start the hub, run it again (repair), run `uninstall.*` with and without
-   `--purge-settings`. A green build is not a program that was tried (`REL-07`). Do this in a
-   normal terminal of the user, not from an agent session (`WIN-03`).
+5. **Open the draft on a clean user account** and, per system you have. The files of a draft can
+   be downloaded only by people who may write to the repository (logged in, in the browser), so the
+   script cannot fetch them by itself yet: download the archive of your system, `SHA256SUMS` and
+   `install.*` into one folder and run `install.* --archive <the archive>` there (the sums are
+   found beside it). Start the hub, run it again (repair), run `uninstall.*` with and without
+   `--purge-settings`. The download path of the scripts (`--version <tag>`, no `--archive`) is tried
+   after publishing, once: `install.sh --version vX.Y.Z`. A green build is not a program that was
+   tried (`REL-07`). Do this in a normal terminal of the user, not from an agent session
+   (`WIN-03`). A build machine that runs elevated needs `-AllowElevated` (PowerShell) for the
+   scripts; a user session does not and should not.
 6. **Publish the draft** within about a day (`REL-09`). If the tree moved on, delete the draft and
    the tag and cut again from `main`.
 7. A **published release is never cut again** (`REL-10`): a mistake is fixed in the next patch

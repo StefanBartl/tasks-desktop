@@ -768,7 +768,9 @@ End If\r\n";
         .is_ok_and(|s| s.success());
     let _ = std::fs::remove_file(&path);
     if ok {
-        Ok("the link \"Tasks\" is not on the desktop (any that was ours is removed)\n".to_owned())
+        // A link of the person's own with that name is not ours and stays: the text does not
+        // claim that the desktop is free of any "Tasks".
+        Ok("no link \"Tasks\" of ours is on the desktop (one that was is removed)\n".to_owned())
     } else {
         Err("the link on the desktop could not be checked".to_owned())
     }

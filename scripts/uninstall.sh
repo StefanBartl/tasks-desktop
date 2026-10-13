@@ -67,8 +67,27 @@ if [ -z "$program" ]; then
     exit 0
 fi
 
+# The program takes the system entries away itself (it knows where they are). A program from before
+# the command existed answers with its usage text: then the older commands do what they can.
 # shellcheck disable=SC2086 # the flag is one word or empty
-"$program" uninstall $PURGE || fail "tasks-hub uninstall failed (see above): the program stays in $dir"
+if out="$("$program" uninstall $PURGE 2>&1)"; then
+    printf '%s
+' "$out"
+else
+    printf '%s
+' "$out"
+    case "$out" in
+        *usage:*)
+            say "this program is older than the uninstall command: stopping it and taking away the login entry the older way"
+            "$program" stop || fail "tasks-hub stop failed (see above): the program stays in $dir"
+            "$program" autostart off || fail "tasks-hub autostart off failed (see above): the program stays in $dir"
+            say "(a link or launcher it made, and its settings, are not touched by an older program: delete them by hand)"
+            ;;
+        *)
+            fail "tasks-hub uninstall failed (see above): the program stays in $dir"
+            ;;
+    esac
+fi
 
 # Only the files the installer puts there; a folder that holds anything else stays.
 # A file that cannot be removed is an error, not a "removed" (rule RS-07).

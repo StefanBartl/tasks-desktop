@@ -270,7 +270,8 @@ export class App {
    */
   async retryConflict(key: string): Promise<void> {
     const conflict = this.conflicts.find((c) => c.key === key);
-    if (!conflict || this.saving) return;
+    // Not now (a write is under way, or the page is not connected): the entry stays, nothing is lost.
+    if (!conflict || this.saving || this.phase !== 'ready') return;
     const op = retryOp(conflict, this.tasks.find((t) => t.id === conflict.id));
     if (op === null) return;
     this.conflicts = this.conflicts.filter((c) => c.key !== key);
@@ -344,7 +345,7 @@ export class App {
    * operation; whatever the answer, the list is read again, so the page
    * never stands on a state it guessed.
    */
-  async write(ops: Op[], opts: { undoable?: boolean } = {}): Promise<Result | null> {
+  async write(ops: Op[], opts: { undoable?: boolean; tags?: TagEdit } = {}): Promise<Result | null> {
     if (this.saving || this.phase !== 'ready') return null;
     this.saving = true;
     this.answering = true;
@@ -353,7 +354,7 @@ export class App {
     try {
       const result = await this.env.hub.ops({ client_op_id: this.opId(), ops });
       this.answering = false;
-      this.conflicts = mergeConflicts(this.conflicts, conflictsOf(ops, result, Date.now()));
+      this.conflicts = mergeConflicts(this.conflicts, conflictsOf(ops, result, Date.now(), opts.tags));
       const failed = result.results.find((r) => !r.ok);
       if (failed) {
         const code = failed.error?.code ?? 'failed';
@@ -379,7 +380,7 @@ export class App {
       if (error instanceof ApiError && error.code === 'outcome_unknown') {
         this.say('error', 'write.unknown');
       } else if (error instanceof ApiError && error.status === 409) {
-        this.conflicts = mergeConflicts(this.conflicts, conflictsOfRequest(ops, Date.now()));
+        this.conflicts = mergeConflicts(this.conflicts, conflictsOfRequest(ops, Date.now(), opts.tags));
         this.say('error', 'write.conflict');
       } else if (error instanceof ApiError && error.status === 400) {
         this.say('error', 'write.invalid', { message: error.message });
@@ -520,7 +521,7 @@ export class App {
       return;
     }
     const sent = new Set(ops.map((o) => o.id));
-    const result = await this.write(ops);
+    const result = await this.write(ops, tags ? { tags } : {});
     if (!result) return;
     // A failed entry names its operation (`n`), not always the task: the position in the batch says which one.
     const failedIds = new Set<string>();

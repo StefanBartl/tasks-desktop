@@ -3,6 +3,7 @@
 // can try again on the version that is there (which is a decision, so it is never done by itself) or let it go.
 
 import type { Op } from './api';
+import { editedTags, type TagEdit } from './bulk';
 import type { Result, TaskEntry } from './contract';
 
 /** The kinds of operation whose refusal is kept. */
@@ -22,6 +23,11 @@ export interface Conflict {
   code: string;
   /** When it was refused (ms since the epoch). */
   at: number;
+  /**
+   * What was wanted of the tags, when the change came from a bulk change of tags: a trying again works out
+   * the tags anew from the tags the task has then, so that a tag somebody added meanwhile is not taken away.
+   */
+  tags?: TagEdit;
 }
 
 function keyOf(op: Kept): string {
@@ -34,7 +40,7 @@ function kept(op: Op | undefined): op is Kept {
 }
 
 /** The refusals in the answer of a write, with the operation each one was. */
-export function conflictsOf(ops: readonly Op[], result: Result, now: number): Conflict[] {
+export function conflictsOf(ops: readonly Op[], result: Result, now: number, tags?: TagEdit): Conflict[] {
   const out: Conflict[] = [];
   for (const entry of result.results) {
     if (entry.ok) continue;
@@ -43,14 +49,21 @@ export function conflictsOf(ops: readonly Op[], result: Result, now: number): Co
     // The entry names its operation by position: that is the one that was sent.
     const op = ops[entry.n - 1];
     if (!kept(op)) continue;
-    out.push({ key: keyOf(op), id: op.id, op, code, at: now });
+    out.push({ key: keyOf(op), id: op.id, op, code, at: now, ...tagsOf(op, tags) });
   }
   return out;
 }
 
 /** Every change of a request that the engine refused as a whole (a `409`): the tasks it named are all in doubt. */
-export function conflictsOfRequest(ops: readonly Op[], now: number): Conflict[] {
-  return ops.filter(kept).map((op) => ({ key: keyOf(op), id: op.id, op, code: 'conflict', at: now }));
+export function conflictsOfRequest(ops: readonly Op[], now: number, tags?: TagEdit): Conflict[] {
+  return ops
+    .filter(kept)
+    .map((op) => ({ key: keyOf(op), id: op.id, op, code: 'conflict', at: now, ...tagsOf(op, tags) }));
+}
+
+/** The tag wish belongs to the changes that carry tags. */
+function tagsOf(op: Kept, tags: TagEdit | undefined): { tags?: TagEdit } {
+  return tags && op.op === 'set' && 'tags' in op.patch ? { tags } : {};
 }
 
 /** `add` in front of `list`: a newer refusal of the same change replaces the older, the newest come first. */
@@ -73,11 +86,27 @@ export interface Difference {
   now: string;
 }
 
+/**
+ * What a `set` would write now: its patch, with the tags worked out from the tags the task has (a key whose wish the
+ * task meets already drops out). `null` for a change that is no `set`.
+ */
+function patchNow(conflict: Conflict, task: TaskEntry | undefined): Record<string, unknown> | null {
+  if (conflict.op.op !== 'set') return null;
+  const patch: Record<string, unknown> = { ...conflict.op.patch };
+  if (conflict.tags && 'tags' in patch) {
+    const next = editedTags(task?.tags, conflict.tags);
+    if (next === null) delete patch.tags;
+    else patch.tags = next.length === 0 ? null : next;
+  }
+  return patch;
+}
+
 /** For a `set`: each key that was wanted, what was wanted and what the task has now. A `reorder` has none. */
 export function differences(conflict: Conflict, task: TaskEntry | undefined): Difference[] {
-  if (conflict.op.op !== 'set') return [];
+  const patch = patchNow(conflict, task);
+  if (patch === null) return [];
   const current = task as unknown as Record<string, unknown> | undefined;
-  return Object.entries(conflict.op.patch).map(([key, wanted]) => ({
+  return Object.entries(patch).map(([key, wanted]) => ({
     key,
     wanted: formatValue(wanted),
     now: current ? formatValue(current[key]) : '-',
@@ -86,8 +115,10 @@ export function differences(conflict: Conflict, task: TaskEntry | undefined): Di
 
 /** Whether the change is already what the task has (a retry would write nothing). */
 export function alreadyDone(conflict: Conflict, task: TaskEntry | undefined): boolean {
-  const diff = differences(conflict, task);
-  return diff.length > 0 && diff.every((d) => d.wanted === d.now);
+  const patch = patchNow(conflict, task);
+  if (patch === null) return false;
+  // Nothing is left to write: every key of the wish is met (the tags too, by the tags it has).
+  return differences(conflict, task).every((d) => d.wanted === d.now);
 }
 
 /**
@@ -96,11 +127,12 @@ export function alreadyDone(conflict: Conflict, task: TaskEntry | undefined): bo
  * moved on. A task that is not there has nothing to try.
  */
 export function retryOp(conflict: Conflict, task: TaskEntry | undefined): Op | null {
-  if (conflict.op.op !== 'set' || task === undefined) return null;
+  const patch = patchNow(conflict, task);
+  if (patch === null || task === undefined || Object.keys(patch).length === 0) return null;
   return {
     op: 'set',
     id: conflict.id,
-    patch: { ...conflict.op.patch },
+    patch,
     ...(task.etag ? { if_match: task.etag } : {}),
   };
 }
