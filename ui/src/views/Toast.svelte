@@ -14,7 +14,7 @@
     <div class="toast" class:error={toast.kind === 'error'}>
       <span>{toast.text}</span>
       {#if toast.undo}
-        <button type="button" disabled={app.saving} onclick={() => void app.undo()}>{t('write.undo')}</button>
+        <button type="button" onclick={() => void app.undo()}>{t('write.undo')}</button>
       {/if}
       <button type="button" class="close" aria-label={t('write.dismiss')} onclick={() => app.dismissToast()}
         >×</button

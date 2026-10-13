@@ -106,6 +106,8 @@ export class App {
   today = $state(localToday());
   /** A write is under way: the controls wait. */
   saving = $state(false);
+  /** Settles when the write under way has ended, its re-read included. */
+  private settling: Promise<void> | null = null;
   /**
    * How many writes have ended. A control that shows a value the person chose
    * is drawn again from the model after each one: a change that was not made
@@ -262,6 +264,8 @@ export class App {
   async write(ops: Op[], opts: { undoable?: boolean } = {}): Promise<Result | null> {
     if (this.saving || this.phase !== 'ready') return null;
     this.saving = true;
+    let settle!: () => void;
+    this.settling = new Promise<void>((resolve) => (settle = resolve));
     try {
       const result = await this.env.hub.ops({ client_op_id: this.opId(), ops });
       const failed = result.results.find((r) => !r.ok);
@@ -300,7 +304,9 @@ export class App {
       return null;
     } finally {
       this.saving = false;
+      this.settling = null;
       this.writes += 1;
+      settle();
     }
   }
 
@@ -337,6 +343,8 @@ export class App {
     const ops = this.toast?.undo;
     if (!ops) return;
     this.toast = null;
+    // A click while the write under way still re-reads the list is queued, not lost.
+    if (this.settling) await this.settling;
     const result = await this.write(ops, { undoable: false });
     if (result && result.ok) this.say('ok', 'write.undone');
   }

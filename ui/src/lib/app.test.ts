@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ApiError, type Hub, type HubArea, type OpsRequest } from './api';
 import { App, type Env } from './app.svelte';
 import type { CachedList, ListStore } from './cache';
@@ -887,6 +887,26 @@ describe('writing', () => {
     expect(hub.sent[1]?.ops[0]).toMatchObject({ op: 'set', id: 'pub/a', patch: { status: 'open' } });
     // Undoing is not undoable again.
     expect(app.toast?.undo).toBeUndefined();
+  });
+
+  it('queues an undo that comes while the write still re-reads the list', async () => {
+    const { app, hub } = await ready();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const read = hub.snapshot.bind(hub);
+    hub.snapshot = async (etag: string | null) => {
+      await held;
+      return read(etag);
+    };
+    const first = app.setField('pub/a', 'prio', 1);
+    await vi.waitFor(() => expect(app.toast?.undo).toBeDefined());
+    const undone = app.undo();
+    expect(hub.sent).toHaveLength(1);
+    release();
+    await first;
+    await undone;
+    expect(hub.sent).toHaveLength(2);
+    expect(hub.sent[1]?.ops[0]).toMatchObject({ op: 'set', id: 'pub/a', patch: { status: 'open' } });
   });
 
   it('says a conflict and keeps nothing it guessed', async () => {
