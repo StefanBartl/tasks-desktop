@@ -26,6 +26,9 @@ export function parseTags(text: string): string[] {
   return out;
 }
 
+/** A list the same way (ids, references): comma separated, trimmed, no duplicate. */
+export const parseList = parseTags;
+
 /** Tags the way the field shows them. */
 export function tagsText(tags: readonly string[] | undefined): string {
   return (tags ?? []).join(', ');
