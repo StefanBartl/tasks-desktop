@@ -8,6 +8,14 @@ describe('a list as one line', () => {
     expect(listEditable(['docs/a.md', 'repo@abc1234'])).toBe(true);
     expect(listEditable(['docs/a,b.md'])).toBe(false);
   });
+
+  it('is not editable when typing the line back would clean the list up (blanks, empty, repeated)', () => {
+    expect(listEditable(['a.md', 'a.md'])).toBe(false);
+    expect(listEditable([' a.md'])).toBe(false);
+    expect(listEditable(['a.md '])).toBe(false);
+    expect(listEditable(['a.md', ''])).toBe(false);
+    expect(listEditable([' '])).toBe(false);
+  });
 });
 
 describe('tags', () => {

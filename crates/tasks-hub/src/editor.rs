@@ -173,15 +173,46 @@ pub fn file_in_vault(vault: &Path, name: &str) -> Result<PathBuf, &'static str> 
     Ok(strip_verbatim(real))
 }
 
-/// On Windows `canonicalize` answers `\\?\C:\dir\file`; Neovim and most programs want `C:\dir\file`. A path of a
-/// network share (`\\?\UNC\...`) keeps its form, as does anything else.
+/// The longest plain path Windows takes without long-path support (`MAX_PATH` is 260 with the terminating NUL).
+const PLAIN_PATH_LIMIT: usize = 259;
+
+/// On Windows `canonicalize` answers `\\?\C:\dir\file`; Neovim and most programs want `C:\dir\file`. The prefix stays
+/// where the plain form would not do: a network share (`\\?\UNC\...`), a path too long to be plain, and a name Windows
+/// reads differently without it (a device name such as `con.md`, a trailing dot or space). Anything else keeps its form.
 #[must_use]
 pub fn strip_verbatim(path: PathBuf) -> PathBuf {
     let text = path.to_string_lossy();
     match text.strip_prefix("\\\\?\\") {
-        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+        Some(rest)
+            if rest.as_bytes().get(1) == Some(&b':')
+                && rest.chars().count() <= PLAIN_PATH_LIMIT
+                && rest.split('\\').skip(1).all(is_plain_name) =>
+        {
+            PathBuf::from(rest)
+        }
         _ => path,
     }
+}
+
+/// A file or folder name that means the same with and without the verbatim prefix.
+fn is_plain_name(name: &str) -> bool {
+    if name.ends_with('.') || name.ends_with(' ') {
+        return false;
+    }
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(' ')
+        .to_ascii_uppercase();
+    let device = matches!(
+        stem.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) || ["COM", "LPT"].iter().any(|prefix| {
+        stem.strip_prefix(prefix)
+            .is_some_and(|n| n.len() == 1 && n.as_bytes()[0].is_ascii_digit())
+    });
+    !device
 }
 
 #[cfg(test)]
@@ -260,6 +291,34 @@ mod tests {
         );
         for same in ["\\\\?\\UNC\\server\\share\\a.md", "C:\\v\\a.md", "/v/a.md"] {
             assert_eq!(strip_verbatim(PathBuf::from(same)), PathBuf::from(same));
+        }
+        // Where the plain form would be read differently or not at all, the prefix stays.
+        let long = format!("\\\\?\\C:\\{}\\a.md", "d".repeat(260));
+        let edge = format!("\\\\?\\C:\\{}", "e".repeat(259 - 3));
+        for kept in [
+            long.as_str(),
+            "\\\\?\\C:\\v\\con.md",
+            "\\\\?\\C:\\v\\NUL",
+            "\\\\?\\C:\\v\\com1.txt",
+            "\\\\?\\C:\\v\\LPT9.md",
+            "\\\\?\\C:\\v\\a.md.",
+            "\\\\?\\C:\\v\\a.md ",
+            "\\\\?\\C:\\aux\\a.md",
+        ] {
+            assert_eq!(strip_verbatim(PathBuf::from(kept)), PathBuf::from(kept));
+        }
+        // 259 characters still go plain, and names that only look like devices do.
+        assert_eq!(
+            strip_verbatim(PathBuf::from(&edge)),
+            PathBuf::from(&edge[4..])
+        );
+        for plain in ["console.md", "com10.md", "auxiliary", "a.con"] {
+            let verbatim = format!("\\\\?\\C:\\v\\{plain}");
+            assert_eq!(
+                strip_verbatim(PathBuf::from(&verbatim)),
+                PathBuf::from(format!("C:\\v\\{plain}")),
+                "{plain}"
+            );
         }
     }
 
