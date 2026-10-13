@@ -19,6 +19,7 @@ const env: Env = {
   now: () => Date.now(),
   fetchFn,
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  reload: () => window.location.reload(),
 };
 
 const state = new AppState(env);

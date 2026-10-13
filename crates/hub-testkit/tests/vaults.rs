@@ -1,0 +1,373 @@
+//! The vault routes: the list shows names and the last part of a folder, adding
+//! must be confirmed, choosing a vault swaps what the hub reads (the snapshot,
+//! the streams that were open), and a vault that does not work changes nothing.
+
+mod common;
+
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use app_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
+use common::Sse;
+use serde_json::Value;
+use tasks_hub::classes::AreaPolicy;
+use tasks_hub::client;
+use tasks_hub::config::Env;
+use tasks_hub::engine::{CliEngine, CliEngineConfig, Engine};
+use tasks_hub::server::{
+    start, start_with, BoxFuture, HubStatus, Limits, RunningServer, ServerConfig, VaultAdmin,
+    VaultInfo, VaultList, VaultTarget, WatchConfig,
+};
+use tasks_hub::store::RefreshOptions;
+
+fn engine_for(vault: &Path) -> Arc<dyn Engine> {
+    Arc::new(CliEngine::new(CliEngineConfig {
+        nvim: PathBuf::from(env!("CARGO_BIN_EXE_fake-nvim")),
+        script: vault.join("scripts").join("tasks.lua"),
+        vault: vault.to_path_buf(),
+        lib_dir: None,
+        extra_areas: vec![],
+        env: Env::from_process(),
+        timeout: Duration::from_secs(10),
+        max_queue: 16,
+        max_reply_bytes: 4 * 1024 * 1024,
+    }))
+}
+
+/// A list of vaults kept in memory: `a` is read first, `b` is a second vault
+/// with more tasks, `broken` cannot be read.
+struct Fake {
+    a: PathBuf,
+    b: PathBuf,
+    active: Mutex<String>,
+    added: Mutex<Vec<String>>,
+}
+
+impl VaultAdmin for Fake {
+    fn list(&self) -> VaultList {
+        let mut vaults = vec![
+            VaultInfo {
+                name: "main".to_owned(),
+                label: self.a.file_name().unwrap().to_string_lossy().into_owned(),
+                main: true,
+            },
+            VaultInfo {
+                name: "b".to_owned(),
+                label: self.b.file_name().unwrap().to_string_lossy().into_owned(),
+                main: false,
+            },
+        ];
+        for name in self.added.lock().unwrap().iter() {
+            vaults.push(VaultInfo {
+                name: name.clone(),
+                label: name.clone(),
+                main: false,
+            });
+        }
+        VaultList {
+            active: self.active.lock().unwrap().clone(),
+            vaults,
+        }
+    }
+
+    fn add<'a>(&'a self, name: &'a str, _path: &'a str) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            if name == "bad" {
+                return Err("the name is not fit".to_owned());
+            }
+            self.added.lock().unwrap().push(name.to_owned());
+            Ok(())
+        })
+    }
+
+    fn remove<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            if *self.active.lock().unwrap() == name {
+                return Err("the vault that is read cannot be removed".to_owned());
+            }
+            self.added.lock().unwrap().retain(|n| n != name);
+            Ok(())
+        })
+    }
+
+    fn select<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<VaultTarget, String>> {
+        Box::pin(async move {
+            let vault = match name {
+                "main" => &self.a,
+                "b" => &self.b,
+                _ => return Err("this vault cannot be read (vault_empty)".to_owned()),
+            };
+            *self.active.lock().unwrap() = name.to_owned();
+            Ok(VaultTarget {
+                engine: Some(engine_for(vault)),
+                status: HubStatus {
+                    engine_ready: true,
+                    problem: None,
+                    capabilities: Vec::new(),
+                },
+                vault: Some(vault.clone()),
+            })
+        })
+    }
+}
+
+struct Rig {
+    server: RunningServer,
+    token: String,
+    fake: Arc<Fake>,
+    folder: String,
+}
+
+fn vault(name: &str, n: u32) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "tasks-desktop-vaults-{name}-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("alpha.nvim").join("ROADMAP").join("tasks")).unwrap();
+    std::fs::write(dir.join(".fake-n"), n.to_string()).unwrap();
+    dir
+}
+
+async fn rig(name: &str, with_admin: bool) -> Rig {
+    let a = vault(&format!("{name}-a"), 1);
+    let b = vault(&format!("{name}-b"), 4);
+    let fake = Arc::new(Fake {
+        a: a.clone(),
+        b,
+        active: Mutex::new("main".to_owned()),
+        added: Mutex::new(Vec::new()),
+    });
+    let control = Secret::generate(TOKEN_BYTES).unwrap();
+    let cfg = ServerConfig {
+        addr: "127.0.0.1:0".parse().unwrap(),
+        limits: Limits {
+            snapshot_max_age: None,
+            ..Limits::default()
+        },
+        clock: Arc::new(ManualClock::new()),
+        pairing_ttl: Duration::from_secs(60),
+        control_secret: control.clone(),
+        instance: Secret::generate(CODE_BYTES).unwrap(),
+        status: HubStatus {
+            engine_ready: true,
+            problem: None,
+            capabilities: Vec::new(),
+        },
+        engine: Some(engine_for(&a)),
+        policy: Arc::new(AreaPolicy::default()),
+        usage: None,
+        ui: tasks_hub::ui::UiFiles::none(),
+        watch: Some(WatchConfig {
+            vault: a.clone(),
+            refresh: RefreshOptions {
+                debounce: Duration::from_millis(100),
+                max_wait: Duration::from_secs(1),
+                interval: Duration::from_secs(300),
+            },
+        }),
+    };
+    let server = if with_admin {
+        let admin: Arc<dyn VaultAdmin> = Arc::clone(&fake) as Arc<dyn VaultAdmin>;
+        start_with(cfg, Some(admin)).await.unwrap()
+    } else {
+        start(cfg).await.unwrap()
+    };
+    let port = server.addr().port();
+    let auth = format!("Bearer {}", control.to_hex());
+    let reply = client::request(
+        port,
+        "POST",
+        "/api/control/pair",
+        &[
+            ("Content-Type", "application/json"),
+            ("Authorization", &auth),
+        ],
+        "{}",
+    )
+    .await
+    .unwrap();
+    let code = serde_json::from_str::<Value>(&reply.body).unwrap()["code"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let origin = format!("http://127.0.0.1:{port}");
+    let reply = client::request(
+        port,
+        "POST",
+        "/auth/exchange",
+        &[("Content-Type", "application/json"), ("Origin", &origin)],
+        &format!(r#"{{"code":"{code}"}}"#),
+    )
+    .await
+    .unwrap();
+    let token = serde_json::from_str::<Value>(&reply.body).unwrap()["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let folder = a.parent().unwrap().to_string_lossy().into_owned();
+    Rig {
+        server,
+        token,
+        fake,
+        folder,
+    }
+}
+
+const JSON: &str = "application/json";
+
+async fn post(r: &Rig, path: &str, body: &str, session: bool) -> (u16, Value) {
+    let auth = format!("Bearer {}", r.token);
+    let origin = format!("http://127.0.0.1:{}", r.server.addr().port());
+    let mut headers: Vec<(&str, &str)> = vec![("Content-Type", JSON), ("Origin", &origin)];
+    if session {
+        headers.push(("Authorization", &auth));
+    }
+    let reply = client::request(r.server.addr().port(), "POST", path, &headers, body)
+        .await
+        .unwrap();
+    (
+        reply.status,
+        serde_json::from_str(&reply.body).unwrap_or(Value::Null),
+    )
+}
+
+async fn get(r: &Rig, path: &str) -> (u16, String) {
+    let auth = format!("Bearer {}", r.token);
+    let reply = client::request(
+        r.server.addr().port(),
+        "GET",
+        path,
+        &[("Authorization", &auth)],
+        "",
+    )
+    .await
+    .unwrap();
+    (reply.status, reply.body)
+}
+
+async fn listed(r: &Rig) -> usize {
+    let (status, body) = get(r, "/api/tasks/snapshot").await;
+    assert_eq!(status, 200, "{body}");
+    serde_json::from_str::<Value>(&body).unwrap()["tasks"]
+        .as_array()
+        .unwrap()
+        .len()
+}
+
+#[tokio::test]
+async fn a_hub_without_a_list_of_vaults_says_so() {
+    let r = rig("none", false).await;
+    let (status, body) = get(&r, "/api/vaults").await;
+    assert_eq!(status, 404, "{body}");
+    assert!(body.contains("vaults_unavailable"));
+    assert_eq!(
+        post(&r, "/api/vaults/select", r#"{"name":"b"}"#, true)
+            .await
+            .0,
+        404
+    );
+}
+
+#[tokio::test]
+async fn the_list_names_the_vaults_and_shows_no_path() {
+    let r = rig("list", true).await;
+    let (status, body) = get(&r, "/api/vaults").await;
+    assert_eq!(status, 200, "{body}");
+    let doc: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(doc["active"], "main");
+    let names: Vec<&str> = doc["vaults"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["main", "b"]);
+    assert!(!body.contains(&r.folder), "the list names a folder: {body}");
+    // No session, no list.
+    let reply = client::request(r.server.addr().port(), "GET", "/api/vaults", &[], "")
+        .await
+        .unwrap();
+    assert_eq!(reply.status, 401);
+}
+
+#[tokio::test]
+async fn choosing_a_vault_changes_what_is_read_and_ends_the_streams_of_the_old_one() {
+    let r = rig("select", true).await;
+    assert_eq!(listed(&r).await, 2, "vault a has the tasks 0 and 1");
+    let mut stream = Sse::open(r.server.addr(), Some(&r.token)).await.unwrap();
+    assert!(
+        stream.next(Duration::from_secs(5)).await.is_some(),
+        "the hello of the stream"
+    );
+
+    let (status, doc) = post(&r, "/api/vaults/select", r#"{"name":"b"}"#, true).await;
+    assert_eq!((status, doc["active"].as_str()), (200, Some("b")), "{doc}");
+    assert_eq!(listed(&r).await, 5, "vault b has the tasks 0 to 4");
+    assert!(
+        stream.ended(Duration::from_secs(5)).await,
+        "the stream of the old vault is still open"
+    );
+    // The new vault has a stream of its own.
+    let mut again = Sse::open(r.server.addr(), Some(&r.token)).await.unwrap();
+    assert!(again.next(Duration::from_secs(5)).await.is_some());
+    let (_, body) = get(&r, "/api/vaults").await;
+    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["active"], "b");
+}
+
+#[tokio::test]
+async fn a_vault_that_cannot_be_read_is_refused_and_the_old_one_stays() {
+    let r = rig("refuse", true).await;
+    let (status, doc) = post(&r, "/api/vaults/select", r#"{"name":"nowhere"}"#, true).await;
+    assert_eq!(status, 400);
+    assert_eq!(doc["error"]["code"], "vault_refused");
+    assert_eq!(listed(&r).await, 2, "still the first vault");
+}
+
+#[tokio::test]
+async fn adding_must_be_confirmed_and_the_form_is_checked() {
+    let r = rig("add", true).await;
+    let folder = r.folder.replace('\\', "/");
+    let body = |extra: &str| format!(r#"{{"name":"n1","path":"{folder}"{extra}}}"#);
+    // Without the confirmation nothing is added.
+    for bad in [
+        body(""),
+        body(r#","confirm":false"#),
+        body(r#","confirm":"yes""#),
+        body(r#","confirm":true,"surprise":1"#),
+        r#"[1]"#.to_owned(),
+        "{not json".to_owned(),
+        format!(r#"{{"name":"","path":"{folder}","confirm":true}}"#),
+        format!(r#"{{"name":"a\u0007b","path":"{folder}","confirm":true}}"#),
+    ] {
+        let (status, _) = post(&r, "/api/vaults/add", &bad, true).await;
+        assert_eq!(status, 400, "{bad}");
+    }
+    assert!(
+        r.fake.added.lock().unwrap().is_empty(),
+        "something was added"
+    );
+    // No session: the credential comes before everything else.
+    let (status, _) = post(&r, "/api/vaults/add", &body(r#","confirm":true"#), false).await;
+    assert_eq!(status, 401);
+    // The program refuses a name: its reason is told, nothing is added.
+    let refused = format!(r#"{{"name":"bad","path":"{folder}","confirm":true}}"#);
+    let (status, doc) = post(&r, "/api/vaults/add", &refused, true).await;
+    assert_eq!(
+        (status, doc["error"]["code"].as_str()),
+        (400, Some("vault_refused"))
+    );
+    // Confirmed: added, and the list has it.
+    let (status, _) = post(&r, "/api/vaults/add", &body(r#","confirm":true"#), true).await;
+    assert_eq!(status, 200);
+    let (_, list) = get(&r, "/api/vaults").await;
+    assert!(list.contains("\"n1\""), "{list}");
+    // Removing the vault that is read is refused, another one goes.
+    let (status, _) = post(&r, "/api/vaults/remove", r#"{"name":"main"}"#, true).await;
+    assert_eq!(status, 400);
+    let (status, _) = post(&r, "/api/vaults/remove", r#"{"name":"n1"}"#, true).await;
+    assert_eq!(status, 200);
+    let (_, list) = get(&r, "/api/vaults").await;
+    assert!(!list.contains("\"n1\""), "{list}");
+}

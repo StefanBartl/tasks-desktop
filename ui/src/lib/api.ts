@@ -33,6 +33,12 @@ export type Op =
       slug?: string;
     };
 
+/** The vaults the hub can read, and the one it reads. A folder is shown by its last part only. */
+export interface VaultList {
+  active: string;
+  vaults: { name: string; label: string; main: boolean }[];
+}
+
 export interface OpsRequest {
   client_op_id: string;
   dry_run?: boolean;
@@ -185,6 +191,34 @@ export class Hub {
 
   areas(): Promise<HubAreas & Areas> {
     return this.json<HubAreas & Areas>('/api/tasks/areas');
+  }
+
+  /** The vaults the hub can read; the hub answers 404 when it has no list. */
+  vaults(): Promise<VaultList> {
+    return this.json<VaultList>('/api/vaults');
+  }
+
+  private async vaultPost(path: string, body: Record<string, unknown>): Promise<void> {
+    const response = await this.request(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) throw await failure(response);
+  }
+
+  /** Remember a folder as a vault; the page has asked the person first. */
+  addVault(name: string, path: string): Promise<void> {
+    return this.vaultPost('/api/vaults/add', { name, path, confirm: true });
+  }
+
+  removeVault(name: string): Promise<void> {
+    return this.vaultPost('/api/vaults/remove', { name });
+  }
+
+  /** Read another vault; the hub swaps what it holds and the page reads everything again. */
+  selectVault(name: string): Promise<void> {
+    return this.vaultPost('/api/vaults/select', { name });
   }
 
   /** The tasks whose text holds every word of `query` (the hub searches the text it keeps). */

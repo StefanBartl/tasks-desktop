@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, type Hub, type HubArea, type OpsRequest } from './api';
+import { ApiError, type Hub, type HubArea, type OpsRequest, type VaultList } from './api';
 import { App, type Env } from './app.svelte';
 import type { CachedList, ListStore } from './cache';
 import type { DonePreview, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
@@ -86,6 +86,37 @@ class FakeHub {
   async rescan() {
     this.rescans += 1;
   }
+  vaultDoc: VaultList | null = {
+    active: 'main',
+    vaults: [
+      { name: 'main', label: 'tasks-vault', main: true },
+      { name: 'native', label: 'wkdbook-native', main: false },
+    ],
+  };
+  vaultCalls: string[] = [];
+  vaultError: ApiError | null = null;
+  async vaults(): Promise<VaultList> {
+    if (!this.vaultDoc) throw new ApiError(404, 'vaults_unavailable', 'no list');
+    return this.vaultDoc;
+  }
+  async addVault(name: string, path: string): Promise<void> {
+    this.vaultCalls.push(`add ${name} ${path}`);
+    if (this.vaultError) throw this.vaultError;
+    if (this.vaultDoc) {
+      this.vaultDoc = { ...this.vaultDoc, vaults: [...this.vaultDoc.vaults, { name, label: 'x', main: false }] };
+    }
+  }
+  async removeVault(name: string): Promise<void> {
+    this.vaultCalls.push(`remove ${name}`);
+    if (this.vaultError) throw this.vaultError;
+    if (this.vaultDoc) {
+      this.vaultDoc = { ...this.vaultDoc, vaults: this.vaultDoc.vaults.filter((v) => v.name !== name) };
+    }
+  }
+  async selectVault(name: string): Promise<void> {
+    this.vaultCalls.push(`select ${name}`);
+    if (this.vaultError) throw this.vaultError;
+  }
   sent: OpsRequest[] = [];
   /** What the next write answers (an error to throw, or a result). */
   next_ops: Result | ApiError | null = null;
@@ -125,6 +156,7 @@ function make(
   const hub = new FakeHub();
   const saved: CachedList[] = [];
   let cleared = 0;
+  let reloads = 0;
   const cache: ListStore = {
     load: async () => overrides.cached ?? null,
     save: async (l) => void saved.push(l),
@@ -152,8 +184,9 @@ function make(
     sleep: async () => {
       await new Promise((r) => setTimeout(r, 1));
     },
+    reload: () => void (reloads += 1),
   };
-  return { app: new App(env), hub, saved, session, prefs, cleared: () => cleared };
+  return { app: new App(env), hub, saved, session, prefs, cleared: () => cleared, reloads: () => reloads };
 }
 
 describe('App', () => {
@@ -1448,6 +1481,72 @@ describe('writing', () => {
       const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
       hub.next_ops = new ApiError(502, 'outcome_unknown', 'x');
       expect(await app.addNote('pub/a', 'a line')).toBe(false);
+    });
+  });
+
+  describe('the vaults', () => {
+    /** The list is read after the page is shown, in the background: wait for it. */
+    async function readyVaults() {
+      const m = await ready();
+      await vi.waitFor(() => expect(m.app.vaultList).not.toBeNull());
+      return m;
+    }
+
+    it('reads the list after the page is ready, and has none when the hub has none', async () => {
+      const { app } = await readyVaults();
+      expect(app.vaultList?.active).toBe('main');
+      expect(app.vaultList?.vaults.map((v) => v.name)).toEqual(['main', 'native']);
+      const none = make({ token: 't' });
+      none.hub.vaultDoc = null;
+      await none.app.start(null);
+      none.app.stop();
+      await vi.waitFor(() => expect(none.hub.snapshotCalls.length).toBeGreaterThan(0));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(none.app.vaultList).toBeNull();
+      none.app.openVaults();
+      expect(none.app.managingVaults).toBe(false);
+    });
+
+    it('chooses another vault: the hub is asked, the cached list of the old one goes, the page loads again', async () => {
+      const { app, hub, cleared, reloads } = await readyVaults();
+      const before = cleared();
+      await app.selectVault('native');
+      expect(hub.vaultCalls).toEqual(['select native']);
+      expect(cleared()).toBe(before + 1);
+      expect(reloads()).toBe(1);
+    });
+
+    it('does nothing for the vault that is read, and leaves the page alone when the hub refuses', async () => {
+      const { app, hub, cleared, reloads } = await readyVaults();
+      await app.selectVault('main');
+      expect(hub.vaultCalls).toEqual([]);
+      const before = cleared();
+      hub.vaultError = new ApiError(400, 'vault_refused', 'this vault cannot be read (vault_empty)');
+      await app.selectVault('native');
+      expect(reloads()).toBe(0);
+      expect(cleared()).toBe(before);
+      expect(app.toast?.kind).toBe('error');
+      expect(app.toast?.text).toContain('vault_empty');
+      expect(app.vaultBusy).toBe(false);
+    });
+
+    it('adds a vault with its name and folder, reads the list again, and says when the hub refuses', async () => {
+      const { app, hub } = await readyVaults();
+      expect(await app.addVault(' work ', ' C:/repos/work ')).toBe(true);
+      expect(hub.vaultCalls).toEqual(['add work C:/repos/work']);
+      expect(app.vaultList?.vaults.map((v) => v.name)).toContain('work');
+      expect(app.toast?.kind).toBe('ok');
+      hub.vaultError = new ApiError(400, 'vault_refused', 'there is no such folder');
+      expect(await app.addVault('gone', 'C:/nope')).toBe(false);
+      expect(app.toast?.kind).toBe('error');
+      expect(app.toast?.text).toContain('there is no such folder');
+    });
+
+    it('forgets a vault and reads the list again', async () => {
+      const { app, hub } = await readyVaults();
+      await app.removeVault('native');
+      expect(hub.vaultCalls).toEqual(['remove native']);
+      expect(app.vaultList?.vaults.map((v) => v.name)).toEqual(['main']);
     });
   });
 });
