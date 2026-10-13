@@ -7,6 +7,7 @@
 //! port says the instance of `hub.json`: a stale file never makes `stop` kill
 //! a process that merely got the same number.
 
+use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -277,19 +278,54 @@ pub fn autostart_for(what: Autostart, exe: &Path) -> Result<String, String> {
         };
         return loginitems::login_entry(platform, action, exe, &Env::from_process());
     }
-    let reg = system_program("reg.exe")?;
+    run_key(what, exe, &RegExe(system_program("reg.exe")?))
+}
+
+/// What one call of `reg.exe` came to: whether it succeeded and what it printed.
+struct RegOutput {
+    success: bool,
+    stdout: String,
+}
+
+/// The registry, as far as the login entry needs it: one call of `reg.exe` with
+/// these arguments. The seam lets the tests stand in for the real registry,
+/// which they must never change.
+trait Registry {
+    /// # Errors
+    ///
+    /// The program could not be run at all (a refusal of `reg.exe` is no error here).
+    fn run(&self, args: &[OsString]) -> Result<RegOutput, String>;
+}
+
+/// The real thing: `reg.exe` of the system folder.
+struct RegExe(PathBuf);
+
+impl Registry for RegExe {
+    fn run(&self, args: &[OsString]) -> Result<RegOutput, String> {
+        let out = Command::new(&self.0)
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|e| format!("reg.exe did not run: {e}"))?;
+        Ok(RegOutput {
+            success: out.status.success(),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        })
+    }
+}
+
+fn args(list: &[&str]) -> Vec<OsString> {
+    list.iter().map(OsString::from).collect()
+}
+
+/// The login entry in the `Run` key: on, off or its state.
+fn run_key(what: Autostart, exe: &Path, reg: &dyn Registry) -> Result<String, String> {
     match what {
         Autostart::On => {
-            let ok = Command::new(reg)
-                .args(["add", RUN_KEY, "/v", RUN_VALUE, "/t", "REG_SZ", "/d"])
-                .arg(run_command(exe))
-                .arg("/f")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .map_err(|e| format!("reg.exe did not run: {e}"))?
-                .success();
-            if ok {
+            let mut add = args(&["add", RUN_KEY, "/v", RUN_VALUE, "/t", "REG_SZ", "/d"]);
+            add.push(OsString::from(run_command(exe)));
+            add.push(OsString::from("/f"));
+            if reg.run(&add)?.success {
                 Ok(format!(
                     "the hub starts with your login: {}\n",
                     run_command(exe)
@@ -299,30 +335,23 @@ pub fn autostart_for(what: Autostart, exe: &Path) -> Result<String, String> {
             }
         }
         Autostart::Off => {
-            let deleted = Command::new(&reg)
-                .args(["delete", RUN_KEY, "/v", RUN_VALUE, "/f"])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .map_err(|e| format!("reg.exe did not run: {e}"))?
-                .success();
+            let deleted = reg
+                .run(&args(&["delete", RUN_KEY, "/v", RUN_VALUE, "/f"]))?
+                .success;
             // A missing value is not an error: it is what was asked for. One that
             // is still there is (a policy or an ACL on the key). `reg delete` exits
             // the same for both, so the key is asked.
-            if !deleted && login_value_present(&reg)? {
+            if !deleted && login_value_present(reg)? {
                 return Err("the entry could not be removed".to_owned());
             }
             Ok("the hub does not start with your login\n".to_owned())
         }
         Autostart::Status => {
-            let out = Command::new(reg)
-                .args(["query", RUN_KEY, "/v", RUN_VALUE])
-                .output()
-                .map_err(|e| format!("reg.exe did not run: {e}"))?;
-            if out.status.success() {
+            let out = reg.run(&args(&["query", RUN_KEY, "/v", RUN_VALUE]))?;
+            if out.success {
                 Ok(format!(
                     "on: {}\n",
-                    String::from_utf8_lossy(&out.stdout)
+                    out.stdout
                         .lines()
                         .find(|l| l.contains(RUN_VALUE))
                         .unwrap_or("")
@@ -336,14 +365,10 @@ pub fn autostart_for(what: Autostart, exe: &Path) -> Result<String, String> {
 }
 
 /// Whether the `Run` key holds the value of the hub (`reg query` finds it).
-fn login_value_present(reg: &Path) -> Result<bool, String> {
-    Command::new(reg)
-        .args(["query", RUN_KEY, "/v", RUN_VALUE])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .map_err(|e| format!("reg.exe did not run: {e}"))
+fn login_value_present(reg: &dyn Registry) -> Result<bool, String> {
+    Ok(reg
+        .run(&args(&["query", RUN_KEY, "/v", RUN_VALUE]))?
+        .success)
 }
 
 /// Windows keeps what a *packaged* app (an MSIX, like the Claude app) and its
@@ -744,5 +769,154 @@ mod tests {
     fn the_registered_command_quotes_the_program() {
         let cmd = run_command(Path::new(r"C:\Program Files\tasks\tasks-hub.exe"));
         assert_eq!(cmd, r#""C:\Program Files\tasks\tasks-hub.exe" start"#);
+    }
+
+    /// A registry that holds one value in memory and says what it was asked.
+    struct FakeRegistry {
+        value: std::cell::RefCell<Option<String>>,
+        calls: std::cell::RefCell<Vec<Vec<String>>>,
+        /// A policy or an ACL: `add` and `delete` fail and change nothing.
+        locked: bool,
+        /// `reg.exe` is not there.
+        missing: bool,
+    }
+
+    impl FakeRegistry {
+        fn new(value: Option<&str>) -> Self {
+            Self {
+                value: std::cell::RefCell::new(value.map(str::to_owned)),
+                calls: std::cell::RefCell::new(Vec::new()),
+                locked: false,
+                missing: false,
+            }
+        }
+        fn calls(&self) -> Vec<Vec<String>> {
+            self.calls.borrow().clone()
+        }
+    }
+
+    impl Registry for FakeRegistry {
+        fn run(&self, args: &[OsString]) -> Result<RegOutput, String> {
+            let args: Vec<String> = args
+                .iter()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect();
+            self.calls.borrow_mut().push(args.clone());
+            if self.missing {
+                return Err("reg.exe did not run: not found".to_owned());
+            }
+            let answer = |success: bool, stdout: String| Ok(RegOutput { success, stdout });
+            match args.first().map(String::as_str) {
+                Some("add") if !self.locked => {
+                    let at = args.iter().position(|a| a == "/d").unwrap_or(0) + 1;
+                    *self.value.borrow_mut() = args.get(at).cloned();
+                    answer(true, String::new())
+                }
+                Some("delete") if !self.locked => {
+                    let had = self.value.borrow_mut().take().is_some();
+                    answer(had, String::new())
+                }
+                Some("query") => match self.value.borrow().as_deref() {
+                    Some(v) => answer(
+                        true,
+                        format!("\r\nHKEY_CURRENT_USER\\Software\r\n    {RUN_VALUE}    REG_SZ    {v}\r\n\r\n"),
+                    ),
+                    None => answer(false, String::new()),
+                },
+                _ => answer(false, String::new()),
+            }
+        }
+    }
+
+    const EXE: &str = r"C:\Program Files\tasks\tasks-hub.exe";
+
+    #[test]
+    fn turning_it_on_writes_the_quoted_command_under_the_run_key_of_the_user() {
+        let reg = FakeRegistry::new(None);
+        let text = run_key(Autostart::On, Path::new(EXE), &reg).unwrap();
+        let wanted: Vec<String> = [
+            "add",
+            RUN_KEY,
+            "/v",
+            RUN_VALUE,
+            "/t",
+            "REG_SZ",
+            "/d",
+            &run_command(Path::new(EXE)),
+            "/f",
+        ]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+        assert_eq!(reg.calls(), vec![wanted]);
+        assert!(
+            RUN_KEY.starts_with(r"HKCU\"),
+            "the key of the user needs no administrator"
+        );
+        assert!(text.contains("starts with your login"), "{text}");
+        assert_eq!(
+            reg.value.borrow().as_deref(),
+            Some(run_command(Path::new(EXE)).as_str())
+        );
+    }
+
+    #[test]
+    fn a_refused_write_is_an_error_and_a_missing_program_too() {
+        let mut reg = FakeRegistry::new(None);
+        reg.locked = true;
+        assert_eq!(
+            run_key(Autostart::On, Path::new(EXE), &reg).unwrap_err(),
+            "the entry could not be written"
+        );
+        let mut gone = FakeRegistry::new(None);
+        gone.missing = true;
+        for what in [Autostart::On, Autostart::Off, Autostart::Status] {
+            let error = run_key(what, Path::new(EXE), &gone).unwrap_err();
+            assert!(error.contains("did not run"), "{what:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn turning_it_off_removes_the_value_and_a_missing_one_is_what_was_asked_for() {
+        let reg = FakeRegistry::new(Some("x"));
+        let first = run_key(Autostart::Off, Path::new(EXE), &reg).unwrap();
+        assert!(first.contains("does not start"), "{first}");
+        assert!(reg.value.borrow().is_none());
+        // Again: the delete fails (nothing there), the key is asked, and that is fine.
+        let again = run_key(Autostart::Off, Path::new(EXE), &reg).unwrap();
+        assert!(again.contains("does not start"), "{again}");
+        let last = reg.calls().last().cloned().unwrap();
+        assert_eq!(
+            last[0], "query",
+            "a failed delete is followed by a look at the key"
+        );
+    }
+
+    #[test]
+    fn a_value_that_cannot_be_removed_is_an_error() {
+        let mut reg = FakeRegistry::new(Some("x"));
+        reg.locked = true;
+        assert_eq!(
+            run_key(Autostart::Off, Path::new(EXE), &reg).unwrap_err(),
+            "the entry could not be removed"
+        );
+        assert!(reg.value.borrow().is_some());
+    }
+
+    #[test]
+    fn the_status_names_the_value_or_says_off() {
+        let reg = FakeRegistry::new(Some(r#""C:\x\tasks-hub.exe" start"#));
+        let on = run_key(Autostart::Status, Path::new(EXE), &reg).unwrap();
+        assert!(on.starts_with("on: "), "{on}");
+        assert!(
+            on.contains(RUN_VALUE) && on.contains("tasks-hub.exe"),
+            "{on}"
+        );
+        assert!(
+            !on.contains('\r'),
+            "no line ending of reg.exe is left in it: {on:?}"
+        );
+        let off = run_key(Autostart::Status, Path::new(EXE), &FakeRegistry::new(None)).unwrap();
+        assert_eq!(off, "off\n");
     }
 }
