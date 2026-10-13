@@ -1587,3 +1587,51 @@ test('a note is added to a task, dated, below its notes; the box empties only wh
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('the title, the summary and the relations are changed in the detail, and the engine refuses what is wrong', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+
+  await page.keyboard.press('c');
+  const capture = page.getByRole('dialog', { name: 'New task' });
+  await capture.getByLabel('Title').fill('Task to rename');
+  await capture.locator('select').first().selectOption('lib.nvim');
+  await capture.getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  const id = (await page.locator('aside.detail .id').innerText()).trim();
+  const detail = page.locator('aside.detail');
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${id.split('/')[1]}.md`);
+
+  await detail.getByLabel('Title', { exact: true }).fill('Task that was renamed');
+  await detail.getByLabel('Title', { exact: true }).press('Enter');
+  await expect(page.getByRole('status').getByText('Saved.').last()).toBeVisible();
+  await expect(detail.getByRole('heading', { level: 2 })).toHaveText('Task that was renamed');
+  expect(readFileSync(file, 'utf8')).toContain('title: Task that was renamed');
+
+  await detail.getByLabel('Summary').fill('One line about it');
+  await detail.getByLabel('Summary').press('Enter');
+  await expect(detail.locator('p', { hasText: 'One line about it' })).toBeVisible();
+
+  // The title may not be empty: said on the page, nothing is sent.
+  await detail.getByLabel('Title', { exact: true }).fill('   ');
+  await detail.getByLabel('Title', { exact: true }).press('Enter');
+  await expect(page.getByRole('status').getByText('The title may not be empty.')).toBeVisible();
+  await expect(detail.getByLabel('Title', { exact: true })).toHaveValue('Task that was renamed');
+
+  // A relation to a task that is not there is refused by the engine in its words, and the file stays as it was.
+  const before = readFileSync(file, 'utf8');
+  await detail.getByLabel('After').fill('lib.nvim/does-not-exist');
+  await detail.getByLabel('After').press('Enter');
+  await expect(page.getByRole('status').getByText(/Not accepted/)).toBeVisible();
+  expect(readFileSync(file, 'utf8')).toBe(before);
+
+  // A real one is written.
+  await detail.getByLabel('After').fill('lib.nvim/alpha');
+  await detail.getByLabel('After').press('Enter');
+  await expect(page.getByRole('status').getByText('Saved.').last()).toBeVisible();
+  expect(readFileSync(file, 'utf8')).toMatch(/after: .*lib\.nvim\/alpha/);
+  await expectAccessible(page, 'the detail with the title and relation fields');
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});

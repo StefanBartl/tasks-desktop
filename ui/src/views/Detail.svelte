@@ -4,7 +4,7 @@
   import { parseMarkdown } from '../lib/markdown';
   import { hasHidden, markHidden } from '../lib/text';
   import { REMIND_CHOICES } from '../lib/remind';
-  import { EFFORT_SIZES, KINDS, VALUES, badTag, parseTags, tagsChanged, tagsText } from '../lib/fields';
+  import { EFFORT_SIZES, KINDS, VALUES, badTag, parseList, parseTags, tagsChanged, tagsText } from '../lib/fields';
   import Blocks from './Blocks.svelte';
 
   let { app }: { app: App } = $props();
@@ -28,6 +28,19 @@
   }
   function statusOf(id: string): string {
     return labelOf(app.lang, 'status', byId.get(id)?.status);
+  }
+  /** Write a text field of the task when what was typed differs from what the file has; an empty text takes the key away. */
+  function changeText(key: 'summary' | 'plan' | 'phase', current: string | undefined, typed: string): void {
+    if (!task) return;
+    const next = typed.trim();
+    if (next === (current ?? '')) return;
+    void app.setField(task.id, key, next === '' ? null : next);
+  }
+  /** Write a list field (`after`, `refs`) when the typed list differs from the one the file has. */
+  function changeList(key: 'after' | 'refs', current: readonly string[], typed: string): void {
+    if (!task || !tagsChanged(current, typed)) return;
+    const list = parseList(typed);
+    void app.setField(task.id, key, list.length === 0 ? null : list);
   }
   const steps = $derived(detail.state === 'ok' ? (detail.doc.steps ?? []) : []);
 
@@ -65,6 +78,35 @@
 
     {#key `${task.id}:${app.writes}`}
     <div class="edit" role="group" aria-label={t('detail.edit')}>
+      <label class="wide">
+        <span>{t('field.title')}</span>
+        <input
+          type="text"
+          value={task.title}
+          maxlength="300"
+          disabled={app.saving}
+          onchange={(e) => {
+            const next = e.currentTarget.value.trim();
+            if (next === task.title) return;
+            if (next === '') {
+              app.tell('error', 'field.title_empty');
+              e.currentTarget.value = task.title;
+              return;
+            }
+            void app.setField(task.id, 'title', next);
+          }}
+        />
+      </label>
+      <label class="wide">
+        <span>{t('field.summary')}</span>
+        <input
+          type="text"
+          value={task.summary}
+          maxlength="1000"
+          disabled={app.saving}
+          onchange={(e) => changeText('summary', task.summary, e.currentTarget.value)}
+        />
+      </label>
       <label>
         <span>{t('field.status')}</span>
         <select
@@ -177,6 +219,42 @@
               void app.setField(task.id, 'tags', tags.length === 0 ? null : tags);
             }
           }}
+        />
+      </label>
+      <label>
+        <span>{t('field.plan')}</span>
+        <input
+          type="text"
+          value={task.plan ?? ''}
+          disabled={app.saving}
+          onchange={(e) => changeText('plan', task.plan, e.currentTarget.value)}
+        />
+      </label>
+      <label>
+        <span>{t('field.phase')}</span>
+        <input
+          type="text"
+          value={task.phase ?? ''}
+          disabled={app.saving}
+          onchange={(e) => changeText('phase', task.phase, e.currentTarget.value)}
+        />
+      </label>
+      <label class="wide">
+        <span>{t('field.after')} <small>({t('field.tags_hint')})</small></span>
+        <input
+          type="text"
+          value={tagsText(task.after)}
+          disabled={app.saving}
+          onchange={(e) => changeList('after', task.after, e.currentTarget.value)}
+        />
+      </label>
+      <label class="wide">
+        <span>{t('field.refs')} <small>({t('field.tags_hint')})</small></span>
+        <input
+          type="text"
+          value={tagsText(task.refs)}
+          disabled={app.saving}
+          onchange={(e) => changeList('refs', task.refs, e.currentTarget.value)}
         />
       </label>
       <label>
