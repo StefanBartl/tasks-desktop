@@ -359,7 +359,18 @@ export class App {
    * operation; whatever the answer, the list is read again, so the page
    * never stands on a state it guessed.
    */
-  async write(ops: Op[], opts: { undoable?: boolean; tags?: TagEdit } = {}): Promise<Result | null> {
+  async write(
+    ops: Op[],
+    opts: {
+      undoable?: boolean;
+      tags?: TagEdit;
+      /**
+       * Told the answer as soon as it is there, before the list is read again (which takes as long as the engine
+       * does, and a busy machine makes it long). It returns true when it has said what came of the write itself.
+       */
+      onAnswer?: (result: Result) => boolean;
+    } = {},
+  ): Promise<Result | null> {
     if (this.saving || this.phase !== 'ready') return null;
     this.saving = true;
     this.answering = true;
@@ -370,7 +381,9 @@ export class App {
       this.answering = false;
       this.conflicts = mergeConflicts(this.conflicts, conflictsOf(ops, result, Date.now(), opts.tags));
       const failed = result.results.find((r) => !r.ok);
-      if (failed) {
+      if (opts.onAnswer?.(result)) {
+        // said already
+      } else if (failed) {
         const code = failed.error?.code ?? 'failed';
         // What went through before the failure can still be taken back.
         const undo = opts.undoable === false ? undefined : this.inverseOf(result);
@@ -482,10 +495,16 @@ export class App {
     this.toast = null;
     // A click while the write under way still re-reads the list is queued, not lost.
     if (this.settling) await this.settling;
-    const result = await this.write(ops, { undoable: false });
-    if (result && result.ok) this.say('ok', 'write.undone');
+    const result = await this.write(ops, {
+      undoable: false,
+      onAnswer: (answer) => {
+        if (!answer.ok) return false;
+        this.say('ok', 'write.undone');
+        return true;
+      },
+    });
     // Not sent at all (the page is not ready any more): say so, the toast is gone.
-    else if (!result && !this.toast) this.say('error', 'write.failed', { code: 'offline' });
+    if (!result && !this.toast) this.say('error', 'write.failed', { code: 'offline' });
   }
 
   /** Take a reminder away (an open task or a finished one); `etag` is the version of the file that was shown. */
@@ -570,26 +589,29 @@ export class App {
       return;
     }
     const sent = new Set(ops.map((o) => o.id));
-    const result = await this.write(ops, tags ? { tags } : {});
-    if (!result) return;
-    // A failed entry names its operation (`n`), not always the task: the position in the batch says which one.
-    const failedIds = new Set<string>();
-    for (const r of result.results) {
-      if (r.ok) continue;
-      const id = ops[r.n - 1]?.id ?? (r.error?.details as { id?: unknown } | undefined)?.id;
-      if (typeof id === 'string') failedIds.add(id);
-    }
-    if (result.results.some((r) => !r.ok) && failedIds.size === 0) {
-      // Which tasks failed is not known: the toast of the write says why, and nothing is taken off the marks.
-      return;
-    }
-    this.marks = this.marks.filter((id) => !sent.has(id) || failedIds.has(id));
-    const undo = this.inverseOf(result);
-    if (failedIds.size === 0) {
-      this.say('ok', 'bulk.saved', { n: ops.length }, undo);
-    } else {
-      this.say('error', 'bulk.partial', { done: ops.length - failedIds.size, failed: failedIds.size }, undo);
-    }
+    // Said as soon as the answer is there: the re-read of the list that follows takes as long as the engine does.
+    const onAnswer = (result: Result): boolean => {
+      // A failed entry names its operation (`n`), not always the task: the position in the batch says which one.
+      const failedIds = new Set<string>();
+      for (const r of result.results) {
+        if (r.ok) continue;
+        const id = ops[r.n - 1]?.id ?? (r.error?.details as { id?: unknown } | undefined)?.id;
+        if (typeof id === 'string') failedIds.add(id);
+      }
+      if (result.results.some((r) => !r.ok) && failedIds.size === 0) {
+        // Which tasks failed is not known: the toast of the write says why, and nothing is taken off the marks.
+        return false;
+      }
+      this.marks = this.marks.filter((id) => !sent.has(id) || failedIds.has(id));
+      const undo = this.inverseOf(result);
+      if (failedIds.size === 0) {
+        this.say('ok', 'bulk.saved', { n: ops.length }, undo);
+      } else {
+        this.say('error', 'bulk.partial', { done: ops.length - failedIds.size, failed: failedIds.size }, undo);
+      }
+      return true;
+    };
+    await this.write(ops, { ...(tags ? { tags } : {}), onAnswer });
   }
 
   // ── the board ─────────────────────────────────────────────────────────

@@ -83,6 +83,15 @@ jobs:
         shell: bash
         working-directory: ui
         run: pnpm e2e
+      # A failed browser test leaves its trace (network, DOM, console) to read instead of a guess.
+      - name: Traces of failed browser tests
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 (node24)
+        with:
+          name: playwright-traces
+          path: ui/test-results
+          if-no-files-found: ignore
+          retention-days: 14
       # The supply chain (concept 7.4): known advisories, licenses, sources.
       - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2
         with:

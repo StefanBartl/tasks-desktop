@@ -13,7 +13,7 @@ export default defineConfig({
   use: {
     channel: 'chrome',
     baseURL: 'http://127.0.0.1:17698',
-    trace: 'off',
+    trace: 'retain-on-failure',
     screenshot: 'off',
     video: 'off',
   },
