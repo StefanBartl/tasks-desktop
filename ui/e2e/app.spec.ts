@@ -1159,3 +1159,61 @@ test('the plan view narrows to the chosen plan and keeps the choice', async ({ p
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+
+test('the board: a card dropped on blocked asks for the blocker, a card dropped on the done zone asks to finish', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  for (const n of [1, 2]) await capture(page, `Block e2e ${n}`);
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Block e2e');
+  await expect(page.locator('.rows .line')).toHaveCount(2);
+  await chooseView(page, 'View', 'Board');
+
+  const column = (name: string) => page.getByRole('region', { name, exact: true });
+  const card = (title: string) => column('open').locator('.card', { hasText: title });
+  const idOf = async (title: string) => (await card(title).locator('.id').innerText()).trim();
+  const blockerId = await idOf('Block e2e 2');
+
+  let writes = 0;
+  await page.route('**/api/tasks/ops', async (route) => {
+    writes += 1;
+    await route.continue();
+  });
+
+  // To the blocked column: asked first, and "cancel" sends nothing.
+  const ask = page.getByRole('dialog', { name: 'Blocked by what?' });
+  await drag(page, card('Block e2e 1'), column('blocked'));
+  await expect(ask).toBeVisible();
+  await ask.getByRole('button', { name: 'Cancel' }).click();
+  await expect(ask).toBeHidden();
+  expect(writes).toBe(0);
+
+  // A name that is no task is told and nothing is sent.
+  await drag(page, card('Block e2e 1'), column('blocked'));
+  await ask.getByLabel(/Blocked by/).fill('nowhere/nothing');
+  await ask.getByRole('button', { name: 'Block', exact: true }).click();
+  await expect(ask.getByRole('alert')).toContainText('nowhere/nothing');
+  expect(writes).toBe(0);
+
+  // The real blocker: the card is in the blocked column and the engine has it.
+  await ask.getByLabel(/Blocked by/).fill(blockerId);
+  await ask.getByRole('button', { name: 'Block', exact: true }).click();
+  await expect(column('blocked').locator('.card', { hasText: 'Block e2e 1' })).toHaveCount(1);
+  expect(writes).toBe(1);
+  await column('blocked').locator('.card', { hasText: 'Block e2e 1' }).click();
+  await expect(page.locator('aside.detail')).toContainText(blockerId);
+
+  // To the done zone: the preview of finishing, as with the button.
+  const zone = page.getByRole('group', { name: 'Drop a card here to finish it' });
+  await drag(page, card('Block e2e 2'), zone);
+  const finish = page.getByRole('dialog', { name: 'Finish this task?' });
+  await expect(finish).toBeVisible();
+  await finish.getByRole('button', { name: 'Cancel' }).click();
+  await expect(finish).toBeHidden();
+  await expect(card('Block e2e 2')).toHaveCount(1);
+
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});

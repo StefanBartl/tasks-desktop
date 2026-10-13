@@ -125,6 +125,8 @@ export class App {
   capturing = $state(false);
   /** A card dropped among cards of another priority, waiting for the person's answer. */
   repriority = $state.raw<{ id: string; from: string; prio: number; ops: Op[] } | null>(null);
+  /** A card that goes to the blocked column and has no blocker yet, waiting for the person's answer. */
+  blocking = $state.raw<{ id: string } | null>(null);
   /** The plan wizard is open. */
   planning = $state(false);
   /** The task that is being finished, with what the engine says that does. */
@@ -503,7 +505,46 @@ export class App {
   async dropOnColumn(id: string, status: string): Promise<void> {
     const task = this.tasks.find((t) => t.id === id);
     if (!task || task.status === status || !isColumn(status)) return;
+    // Blocked with nothing that blocks it is a warning of the engine: ask for the blocker first.
+    if (status === 'blocked' && task.blocked_by.length === 0) {
+      if (this.phase === 'ready' && !this.saving) this.blocking = { id };
+      return;
+    }
     await this.setField(id, 'status', status);
+  }
+
+  cancelBlock(): void {
+    this.blocking = null;
+  }
+
+  /** The names in `ids` that are no open task of the vault (or the card itself). */
+  unknownBlockers(ids: string[]): string[] {
+    const self = this.blocking?.id;
+    const known = new Set(this.tasks.map((t) => t.id));
+    return ids.filter((id) => id === self || !known.has(id));
+  }
+
+  /** Block the card, by `ids` or by nothing the person can name. */
+  async confirmBlock(ids: string[]): Promise<void> {
+    const asking = this.blocking;
+    if (!asking) return;
+    this.blocking = null;
+    const task = this.tasks.find((t) => t.id === asking.id);
+    if (!task) return;
+    await this.write([
+      {
+        op: 'set',
+        id: asking.id,
+        patch: { status: 'blocked', ...(ids.length > 0 ? { blocked_by: ids } : {}) },
+        ...(task.etag ? { if_match: task.etag } : {}),
+      },
+    ]);
+  }
+
+  /** A card dropped on the zone for finished work: the same two steps as the button. */
+  async dropOnDone(id: string): Promise<void> {
+    if (!this.shown.some((t) => t.id === id)) return;
+    await this.startFinish(id);
   }
 
   /** `id` one column to the left or right. */
