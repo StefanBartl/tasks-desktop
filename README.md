@@ -128,7 +128,14 @@ the files are replaced each time. It is not a release (see `release.yml` for tha
 Started **without an argument**, the program starts the hub in the background if it is not running and opens
 the browser with a one-time pairing link (a second double click finds the running hub and opens a new link). If
 something is missing, the message says what, and a console opened by the double click waits for Enter before it
-closes. It needs Neovim 0.10+ and checkouts of `tasks.nvim` and `lib.nvim` (the engine), found through
+closes.
+
+The **first** double click also asks, once each, in the console: where your vault is (kept in the settings; an
+empty line skips it), whether to install the program to your user folder (no administrator rights; then
+whether to start it at login and to put a link on the desktop), and, when another version is installed, whether
+to replace it. The hub then runs from the installed copy. What was answered or declined is noted in
+`setup.json` in the settings folder, so a second click asks nothing. Without a person at the console (a pipe,
+a script) nothing is asked; `TASKS_DESKTOP_NO_SETUP=1` switches the questions off. It needs Neovim 0.10+ and checkouts of `tasks.nvim` and `lib.nvim` (the engine), found through
 `TASKS_ENGINE_DIR` and `LIB_NVIM_DIR`, `REPOS_DIR` or the settings file; the vault is `TASKS_VAULT`.
 `tasks-hub --version` names the commit of the build; `tasks-hub stop` ends the hub.
 

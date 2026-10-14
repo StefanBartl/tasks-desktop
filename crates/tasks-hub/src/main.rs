@@ -3,6 +3,7 @@
 
 use tasks_hub::app::{self, AreasCommand, ServeOptions};
 use tasks_hub::background::{self, Autostart, InstallOptions, UninstallOptions};
+use tasks_hub::setup;
 
 const USAGE: &str = "usage:
   tasks-hub                               (no argument, as a double click) start the hub in the
@@ -80,7 +81,18 @@ fn parse_areas(args: &[String]) -> Result<AreasCommand, String> {
 /// What a double click does: the hub runs in the background (a second click finds it), and the browser
 /// opens with a one-time link. `TASKS_DESKTOP_NO_LAUNCH` prints the link instead (the tests).
 async fn click() -> Result<(), String> {
-    print!("{}", background::start().await?);
+    let env = tasks_hub::config::Env::from_process();
+    // The questions of a first start (vault, install); none without a person at the console.
+    let installed = if setup::interactive(&env) {
+        setup::run(&mut setup::Console, &env).await?
+    } else {
+        None
+    };
+    match installed {
+        // The hub runs from the installed copy, not from the file that was downloaded.
+        Some(program) => print!("{}", background::start_from(&program)?),
+        None => print!("{}", background::start().await?),
+    }
     let url = app::open().await?;
     if std::env::var_os("TASKS_DESKTOP_NO_LAUNCH").is_some() {
         println!("{url}");

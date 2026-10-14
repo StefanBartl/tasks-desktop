@@ -371,6 +371,146 @@ fn a_double_click_that_cannot_start_says_why() {
     );
 }
 
+/// A double click with a person at the console: the answers are piped in, `TASKS_DESKTOP_ASSUME_TERMINAL`
+/// makes the program ask although stdin is no terminal, and there is no vault set.
+fn click_with_answers(config: &Path, bin: &Path, port: u16, answers: &str) -> std::process::Output {
+    use std::io::Write;
+    let mut child = command(config)
+        .env_remove("TASKS_VAULT")
+        .env("TASKS_DESKTOP_ASSUME_TERMINAL", "1")
+        .env("TASKS_DESKTOP_NO_LAUNCH", "1")
+        .env("TASKS_DESKTOP_INSTALL_DIR", bin)
+        .env("TASKS_DESKTOP_PORT", port.to_string())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(answers.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+fn program_name() -> &'static str {
+    if cfg!(windows) {
+        "tasks-hub.exe"
+    } else {
+        "tasks-hub"
+    }
+}
+
+#[test]
+fn a_first_double_click_asks_for_the_vault_and_the_install_and_a_second_asks_nothing() {
+    let config = temp_dir("first-click");
+    let bin = temp_dir("first-click-bin");
+    let _bin = RemoveDir(bin.clone());
+    let _guard = Background(config.clone());
+    let port = free_port();
+    let vault = fixture_vault();
+
+    // The vault, yes to the install, no to the login entry, no to the desktop link.
+    let answers = format!(
+        "{}
+y
+n
+n
+",
+        vault.display()
+    );
+    let first = click_with_answers(&config, &bin, port, &answers);
+    let text = String::from_utf8_lossy(&first.stdout).into_owned();
+    assert!(
+        first.status.success(),
+        "{text}
+{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert!(text.contains("Path of your vault"), "{text}");
+    assert!(text.contains("installed:"), "{text}");
+    assert!(text.contains("runs in the background"), "{text}");
+    assert!(text.contains("#pair="), "{text}");
+    assert!(
+        bin.join(program_name()).is_file(),
+        "the program is installed"
+    );
+    let settings = std::fs::read_to_string(config.join("config.json")).unwrap();
+    assert!(settings.contains("vault"), "{settings}");
+    assert!(config.join("setup.json").is_file());
+
+    // The second click: the same program is installed, the vault is known, nothing is asked.
+    let second = click_with_answers(&config, &bin, port, "");
+    let again = String::from_utf8_lossy(&second.stdout).into_owned();
+    assert!(
+        second.status.success(),
+        "{again}
+{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert!(
+        !again.contains("[Y/n]") && !again.contains("Path of your vault"),
+        "{again}"
+    );
+    assert!(again.contains("already running"), "{again}");
+    assert!(again.contains("#pair="), "{again}");
+}
+
+#[test]
+fn a_declined_install_and_a_skipped_vault_are_not_asked_again() {
+    let config = temp_dir("declined-click");
+    let bin = temp_dir("declined-click-bin");
+    let _bin = RemoveDir(bin.clone());
+    let _guard = Background(config.clone());
+    let port = free_port();
+
+    // An empty line skips the vault, `n` declines the install.
+    let first = click_with_answers(
+        &config, &bin, port, "
+n
+",
+    );
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert!(!bin.join(program_name()).exists(), "nothing was installed");
+    let noted = std::fs::read_to_string(config.join("setup.json")).unwrap();
+    assert!(noted.contains("\"install_declined\": true"), "{noted}");
+
+    let second = click_with_answers(&config, &bin, port, "");
+    let again = String::from_utf8_lossy(&second.stdout).into_owned();
+    assert!(second.status.success());
+    assert!(
+        !again.contains("[Y/n]") && !again.contains("Path of your vault"),
+        "{again}"
+    );
+    assert!(!bin.join(program_name()).exists());
+}
+
+#[test]
+fn nothing_is_asked_when_no_one_is_at_the_console() {
+    let config = temp_dir("pipe-click");
+    let bin = temp_dir("pipe-click-bin");
+    let _bin = RemoveDir(bin.clone());
+    let _guard = Background(config.clone());
+    // No ASSUME_TERMINAL: stdin is a pipe, so the program only starts the hub.
+    let out = command(&config)
+        .env("TASKS_DESKTOP_NO_LAUNCH", "1")
+        .env("TASKS_DESKTOP_INSTALL_DIR", &bin)
+        .env("TASKS_DESKTOP_PORT", free_port().to_string())
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(!text.contains("[Y/n]"), "{text}");
+    assert!(!bin.join(program_name()).exists());
+    assert!(!config.join("setup.json").exists());
+}
+
 #[test]
 fn open_without_a_hub_says_so() {
     let config = temp_dir("nohub");

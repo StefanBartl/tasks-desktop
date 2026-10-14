@@ -494,6 +494,17 @@ fn install_dir(env: &Env) -> Result<PathBuf, String> {
     Ok(base.join("tasks-desktop").join("bin"))
 }
 
+/// Where `install` puts this program: the install folder and the file name of the running program.
+///
+/// # Errors
+///
+/// The reason there is no install folder (no `LOCALAPPDATA`, `HOME`, or a relative `TASKS_DESKTOP_INSTALL_DIR`).
+pub fn installed_program(env: &Env) -> Result<PathBuf, String> {
+    let from = std::env::current_exe().map_err(|e| format!("own program not found: {e}"))?;
+    let name = from.file_name().ok_or("the program has no file name")?;
+    Ok(install_dir(env)?.join(name))
+}
+
 /// What `install` was asked for.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct InstallOptions {
@@ -666,7 +677,11 @@ async fn install_steps(opts: InstallOptions, out: &mut String) -> Result<(), Str
 
 /// Run `<program> start` and return what it printed. Its complaint (on
 /// stderr, a warning included) goes to the terminal as it is.
-fn start_from(program: &Path) -> Result<String, String> {
+///
+/// # Errors
+///
+/// A text for the person at the terminal.
+pub fn start_from(program: &Path) -> Result<String, String> {
     let started = Command::new(program)
         .arg("start")
         .stdin(Stdio::null())
@@ -695,8 +710,9 @@ pub struct UninstallOptions {
 }
 
 /// The files this app keeps in the config folder: nothing else is ever removed there.
-const SETTINGS_FILES: [&str; 7] = [
+const SETTINGS_FILES: [&str; 8] = [
     "config.json",
+    "setup.json",
     "areas.json",
     "areas.proposed.json",
     "usage.json",
