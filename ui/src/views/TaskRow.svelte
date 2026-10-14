@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { TaskEntry } from '../lib/contract';
-  import { labelOf, type Lang } from '../lib/i18n';
+  import { hintOf, labelOf, type Lang } from '../lib/i18n';
   import { markHidden } from '../lib/text';
   import { isDue } from '../lib/remind';
 
@@ -56,12 +56,12 @@
     {#if !task.valid}<span class="tag bad">!</span>{/if}
     {#if flagged > 0}<span class="tag bad" title={flagTitle}>⚑ {flagged}</span>{/if}
     {#if due}<span class="tag due" title={task.remind}>⏰ {task.remind}</span>{/if}
-    <span class="tag">{status}</span>
-    {#if state && task.readiness?.state !== 'unknown'}<span class="tag soft">{state}</span>{/if}
-    <span class="tag soft">{task.prio !== undefined ? `P${task.prio}` : '?'}</span>
-    {#if task.effort}<span class="tag soft">{task.effort}</span>{/if}
+    <span class="tag" data-hint={hintOf(lang, 'hint.status', task.status)}>{status}</span>
+    {#if state && task.readiness?.state !== 'unknown'}<span class="tag soft" data-hint={hintOf(lang, 'hint.state', task.readiness?.state)}>{state}</span>{/if}
+    <span class="tag soft" data-hint={hintOf(lang, 'hint', 'prio')}>{task.prio !== undefined ? `P${task.prio}` : '?'}</span>
+    {#if task.effort}<span class="tag soft" data-hint={hintOf(lang, 'hint', 'effort')}>{task.effort}</span>{/if}
     {#if task.steps && task.steps.total > 0}
-      <span class="tag soft">{task.steps.ticked}/{task.steps.total}</span>
+      <span class="tag soft" data-hint={hintOf(lang, 'hint', 'steps')}>{task.steps.ticked}/{task.steps.total}</span>
     {/if}
   </span>
 </button>

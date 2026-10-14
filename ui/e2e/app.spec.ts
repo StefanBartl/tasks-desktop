@@ -1216,6 +1216,47 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('explanations: a chip says what it means on hover, the info button on focus, Escape closes, and the days are written out', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await chooseView(page, 'View', 'Plan');
+  const tip = page.locator('#hint-tip');
+  await expect(tip).toBeHidden();
+
+  // The pointer: the first counter is "ready", and its popup says what that is.
+  const chip = page.locator('.chips .chip').first();
+  await chip.hover();
+  await expect(tip).toBeVisible();
+  await expect(tip).toContainText('No open blocker');
+  // The popup can be reached: the pointer may move onto it, and it stays.
+  const box = await tip.boundingBox();
+  if (!box) throw new Error('popup not drawn');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForTimeout(400);
+  await expect(tip).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(tip).toBeHidden();
+
+  // The keyboard: the info button after the counters shows all six meanings, and the page keeps them for a screen reader.
+  const info = page.locator('.chips .info');
+  await info.focus();
+  await expect(tip).toBeVisible();
+  await expect(tip).toContainText('freed');
+  await expect(tip).toContainText('Its status says blocked');
+  await expect(info).toHaveAttribute('aria-describedby', /\S+/);
+  await expectAccessible(page, 'the plan view with an explanation open');
+  await info.blur();
+  await expect(tip).toBeHidden();
+
+  // The unit is written out, and the critical path has its explanation.
+  await expect(page.getByRole('heading', { name: /Critical path: [\d.,]+ days?$/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Explanation: Critical path' }).focus();
+  await expect(tip).toContainText('longest chain of tasks');
+  expect(await violations(page)).toEqual([]);
+});
+
 test('the plan header: the label belongs to the choice, the button comes after it and stays inside the window', async ({
   page,
 }) => {
