@@ -731,6 +731,28 @@ test('a task that changed meanwhile fails alone in a batch; the others are saved
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('a list that typing it back would clean up is not edited as one line', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  await page.keyboard.press('c');
+  const capture = page.getByRole('dialog', { name: 'New task' });
+  await capture.getByLabel('Title').fill('Dup tags e2e');
+  await capture.locator('select').first().selectOption('lib.nvim');
+  await capture.getByRole('button', { name: 'Create' }).click();
+  await expect(capture).toHaveCount(0);
+  // Someone wrote the same tag twice in the file: the line would be cleaned up if it were typed back.
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', 'dup-tags-e2e.md');
+  writeFileSync(file, readFileSync(file, 'utf8').replace(/^status: .*$/m, (line) => `${line}
+tags: [dup, dup]`));
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Dup tags e2e');
+  await open(page, 'lib.nvim/dup-tags-e2e');
+  const tags = page.locator('aside.detail').getByLabel('Tags');
+  await expect(tags).toBeDisabled();
+  await expect(tags).toHaveAttribute('title', /change it in the file/);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
 test('a tag that was refused does not travel to the next task', async ({ page }) => {
   await watchViolations(page);
   await pair(page);

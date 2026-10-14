@@ -210,7 +210,20 @@ impl ConfigVaults {
         config::save_file(&self.dir, &next)?;
         let mut held = next;
         if !adopt_active {
-            held.active = self.current().active;
+            let reading = self.current();
+            held.active = reading.active.clone();
+            // The vault that is read is the one the hub holds, whatever the file says of it now (gone, or with
+            // another folder): the list the page sees keeps its entry.
+            if let Some(entry) = reading
+                .active
+                .as_deref()
+                .and_then(|name| reading.vaults.iter().find(|v| v.name == name))
+            {
+                match held.vaults.iter_mut().find(|v| v.name == entry.name) {
+                    Some(slot) => *slot = entry.clone(),
+                    None => held.vaults.push(entry.clone()),
+                }
+            }
         }
         *self
             .file
@@ -931,5 +944,89 @@ mod vault_tests {
         assert!(admin.remove("two").await.is_err());
         // The file keeps what the person wrote.
         assert_eq!(config::load_file(&cfg).unwrap().active, None);
+    }
+
+    #[tokio::test]
+    async fn the_vault_that_is_read_keeps_its_entry_when_the_file_forgets_or_moves_it() {
+        let (admin, cfg, vault) = admin("entry");
+        let path = vault.to_string_lossy().into_owned();
+        admin.add("two", &path).await.unwrap();
+        let mut reading = admin.current();
+        reading.active = Some("two".to_owned());
+        *admin.file.lock().unwrap() = reading;
+        // A hand edit drops the entry of the vault that is read ...
+        let mut edited = config::load_file(&cfg).unwrap();
+        edited.vaults.clear();
+        config::save_file(&cfg, &edited).unwrap();
+        admin.add("three", &path).await.unwrap();
+        let names: Vec<_> = admin.list().vaults.iter().map(|v| v.name.clone()).collect();
+        assert_eq!(names, ["main", "three", "two"].map(String::from));
+        assert_eq!(admin.list().active, "two");
+        // ... or gives it another folder: the entry the hub reads from stays.
+        let mut edited = config::load_file(&cfg).unwrap();
+        edited.vaults = vec![config::VaultEntry {
+            name: "two".to_owned(),
+            path: std::env::temp_dir().join("tasks-desktop-elsewhere"),
+        }];
+        config::save_file(&cfg, &edited).unwrap();
+        admin.add("five", &path).await.unwrap();
+        let held = admin.current();
+        let two = held.vaults.iter().find(|v| v.name == "two").unwrap();
+        assert_eq!(two.path, vault);
+    }
+
+    /// A choice is the one change that moves the vault the hub reads: it needs a real engine on the fixture vault,
+    /// so it is skipped without one (CI sets `TASKS_DESKTOP_REQUIRE_ENGINE` and makes that a failure).
+    #[tokio::test]
+    async fn a_choice_moves_the_vault_that_is_read_and_a_later_change_does_not_move_it_back() {
+        let base =
+            std::env::temp_dir().join(format!("tasks-desktop-cv-choice-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let cfg = base.join("cfg");
+        let main = base.join("main-vault");
+        std::fs::create_dir_all(&cfg).unwrap();
+        std::fs::create_dir_all(&main).unwrap();
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("e2e")
+            .join("fixture")
+            .join("vault");
+        let file = FileConfig {
+            vault: Some(main),
+            extra_areas: ["ALL", "nvim-config", "docmap-desktop", "migrate.nvim"]
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect(),
+            ..FileConfig::default()
+        };
+        config::save_file(&cfg, &file).unwrap();
+        let admin = ConfigVaults::new(cfg.clone(), Env::from_process(), file);
+        admin.add("two", &fixture.to_string_lossy()).await.unwrap();
+        if let Err(why) = admin.select("two").await {
+            assert!(
+                std::env::var_os("TASKS_DESKTOP_REQUIRE_ENGINE").is_none(),
+                "the engine is required but not usable: {why}"
+            );
+            eprintln!("skipped: {why}");
+            return;
+        }
+        // The choice moved the vault that is read, in memory and in the file.
+        assert_eq!(admin.list().active, "two");
+        assert_eq!(
+            config::load_file(&cfg).unwrap().active.as_deref(),
+            Some("two")
+        );
+        assert!(admin.remove("two").await.is_err(), "the vault that is read");
+        // A hand edit puts `active` back on disk; a later add leaves the vault that is read alone.
+        let mut edited = config::load_file(&cfg).unwrap();
+        edited.active = None;
+        config::save_file(&cfg, &edited).unwrap();
+        admin
+            .add("three", &fixture.to_string_lossy())
+            .await
+            .unwrap();
+        assert_eq!(admin.list().active, "two");
+        assert!(admin.remove("two").await.is_err());
     }
 }
