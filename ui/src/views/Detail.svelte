@@ -422,6 +422,15 @@
       {/if}
     {/if}
 
+    {#if app.findingsFor(task.id).length > 0}
+      <h3>{t('check.section')}</h3>
+      <ul class="findings">
+        {#each app.findingsFor(task.id) as f, i (i)}
+          <li><code>{f.code}</code> {markHidden(f.message)}</li>
+        {/each}
+      </ul>
+    {/if}
+
     <h3>{t('detail.file')}</h3>
     <p><code class="file">{task.file}</code></p>
     <p>
@@ -458,6 +467,11 @@
     border-radius: var(--radius);
     padding: 0.25rem 0.5rem;
     font-size: 0.9rem;
+  }
+  .findings {
+    margin: 0 0 0.6rem;
+    padding-left: 1.1rem;
+    font-size: 0.85rem;
   }
   .open-editor {
     background: var(--surface-2);

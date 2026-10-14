@@ -13,6 +13,8 @@
     onselect,
     onmark,
     markLabel,
+    flagged = 0,
+    flagTitle = '',
   }: {
     task: TaskEntry;
     lang: Lang;
@@ -22,6 +24,9 @@
     onselect: (id: string) => void;
     onmark: (id: string) => boolean;
     markLabel: string;
+    /** How many findings of the check are about this task. */
+    flagged?: number;
+    flagTitle?: string;
   } = $props();
 
   // A word this version does not know is shown as it is.
@@ -49,6 +54,7 @@
   <span class="title">{markHidden(task.title)}</span>
   <span class="meta">
     {#if !task.valid}<span class="tag bad">!</span>{/if}
+    {#if flagged > 0}<span class="tag bad" title={flagTitle}>⚑ {flagged}</span>{/if}
     {#if due}<span class="tag due" title={task.remind}>⏰ {task.remind}</span>{/if}
     <span class="tag">{status}</span>
     {#if state && task.readiness?.state !== 'unknown'}<span class="tag soft">{state}</span>{/if}

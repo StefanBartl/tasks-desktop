@@ -265,6 +265,8 @@ struct VaultRuntime {
     store: Arc<SnapshotStore>,
     search: Option<Arc<SearchIndex>>,
     details: StdMutex<Details>,
+    /// The check of the vault, run as a job: at most one at a time, and gone with the vault.
+    check: StdMutex<CheckJob>,
     jobs: StdMutex<Vec<JoinHandle<()>>>,
     // Kept alive: the refresher ends when every sender of hints is gone, and
     // the timer must keep running even if the file watcher could not start.
@@ -375,6 +377,7 @@ fn build_runtime(
         store,
         search,
         details: StdMutex::new(Details::default()),
+        check: StdMutex::new(CheckJob::default()),
         jobs: StdMutex::new(jobs),
         _hints: hints,
         _watcher: watcher,
@@ -559,6 +562,11 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/api/tasks/rescan", post(rescan))
         .route("/api/tasks/done_preview", get(done_preview))
         .route("/api/tasks/plan_for", get(plan_for))
+        .route("/api/tasks/check", get(check_state))
+        .route(
+            "/api/tasks/check",
+            post(check_start).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
+        )
         .route("/api/tasks/ops", post(ops))
         .route("/api/tasks/estimate", post(estimate))
         .route(
@@ -1758,6 +1766,167 @@ async fn done_preview(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) 
         Ok(reply) => json_response(StatusCode::OK, reply.text, None),
         Err(response) => response,
     }
+}
+
+/// The check of the vault as a job. It reads every task file and asks git for the refs, which takes longer than
+/// a question; so the page starts it, goes on, and asks for the state. At most one runs; a start while one runs is
+/// told that one. The state belongs to the vault that is read: choosing another vault drops it.
+#[derive(Default)]
+enum CheckJob {
+    #[default]
+    Idle,
+    Running {
+        id: u64,
+    },
+    Done {
+        id: u64,
+        result: serde_json::Value,
+    },
+    Failed {
+        id: u64,
+        code: String,
+        message: String,
+    },
+}
+
+/// The ids of the jobs, one after the other for the life of the hub.
+static CHECK_JOB_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+impl CheckJob {
+    fn to_json(&self) -> serde_json::Value {
+        match self {
+            Self::Idle => json!({ "job": { "state": "idle" } }),
+            Self::Running { id } => json!({ "job": { "id": id, "state": "running" } }),
+            Self::Done { id, result } => {
+                json!({ "job": { "id": id, "state": "done", "result": result } })
+            }
+            Self::Failed { id, code, message } => json!({ "job": {
+                "id": id,
+                "state": "failed",
+                "error": { "code": code, "message": message },
+            } }),
+        }
+    }
+}
+
+/// What a failed check says: the engine's own refusal in its words, or a fixed sentence (a process failure holds
+/// paths, which a page does not get).
+fn check_failure(error: &EngineError) -> (String, String) {
+    match error {
+        EngineError::Refused(r) => (
+            "engine_refused".to_owned(),
+            r.message
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(300)
+                .collect(),
+        ),
+        EngineError::Timeout => (
+            "timeout".to_owned(),
+            "the engine did not answer in time".to_owned(),
+        ),
+        EngineError::Busy => ("busy".to_owned(), "the engine queue is full".to_owned()),
+        _ => (
+            "engine_failed".to_owned(),
+            "the engine could not do the check".to_owned(),
+        ),
+    }
+}
+
+/// `GET /api/tasks/check`: the state of the check job (`idle`, `running`, `done` with the engine's `tasks.check`
+/// document, or `failed`).
+async fn check_state(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
+    if let Some(response) = no_query(query.as_deref()) {
+        return response;
+    }
+    let rt = st.rt();
+    let body = match rt.check.lock() {
+        Ok(job) => job.to_json(),
+        Err(poisoned) => poisoned.into_inner().to_json(),
+    };
+    (StatusCode::OK, axum::Json(body)).into_response()
+}
+
+/// `POST /api/tasks/check`: start the check as a job and answer at once. `{ "stale": "refs", "area": "<area>" }`,
+/// both optional. A start while a job runs does not start another: it answers that one.
+async fn check_start(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
+    let map = match vault_request(&body, &["stale", "area"]) {
+        Ok(m) => m,
+        Err(response) => return response,
+    };
+    let mut params = serde_json::Map::new();
+    if let Some(stale) = map.get("stale") {
+        if stale.as_str() != Some("refs") {
+            return error_body(StatusCode::BAD_REQUEST, "bad_request", "stale must be refs");
+        }
+        params.insert("stale".to_owned(), stale.clone());
+    }
+    if let Some(area) = map.get("area") {
+        let ok = area
+            .as_str()
+            .is_some_and(|a| crate::config::valid_area_name(a).is_ok());
+        if !ok {
+            return error_body(
+                StatusCode::BAD_REQUEST,
+                "bad_request",
+                "area must be the name of an area",
+            );
+        }
+        params.insert("area".to_owned(), area.clone());
+    }
+    let rt = st.rt();
+    let Some(engine) = rt.engine.clone() else {
+        return engine_unavailable(&st);
+    };
+    let id = {
+        let mut job = rt
+            .check
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if matches!(*job, CheckJob::Running { .. }) {
+            return (StatusCode::OK, axum::Json(job.to_json())).into_response();
+        }
+        let id = CHECK_JOB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        *job = CheckJob::Running { id };
+        id
+    };
+    let runtime = Arc::clone(&rt);
+    let handle = tokio::spawn(async move {
+        let request = serde_json::Value::Object(params);
+        let outcome = engine.call(EngineMethod::Check, Some(&request)).await;
+        let next = match outcome {
+            Ok(reply) => match serde_json::from_str::<serde_json::Value>(&reply.text) {
+                Ok(result) => CheckJob::Done { id, result },
+                Err(_) => CheckJob::Failed {
+                    id,
+                    code: "engine_failed".to_owned(),
+                    message: "the engine answered with something that is not a document".to_owned(),
+                },
+            },
+            Err(error) => {
+                let (code, message) = check_failure(&error);
+                CheckJob::Failed { id, code, message }
+            }
+        };
+        let mut job = runtime
+            .check
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Only the job that is still the one asked for sets its end.
+        if matches!(*job, CheckJob::Running { id: running } if running == id) {
+            *job = next;
+        }
+    });
+    if let Ok(mut jobs) = rt.jobs.lock() {
+        jobs.retain(|j| !j.is_finished());
+        jobs.push(handle);
+    }
+    let state = rt
+        .check
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .to_json();
+    (StatusCode::OK, axum::Json(state)).into_response()
 }
 
 /// `GET /api/tasks/plan_for?id=&direction=`: the tasks a task needs before it can start (`direction=needs`, the

@@ -148,6 +148,7 @@
       {t('list.count', { shown: shown.length, total: app.tasks.length })}
       <span class="help"
         ><button type="button" class="linkish" onclick={() => app.markShown()}>{t('bulk.all')}</button> ·
+        {#if app.can('check')}<button type="button" class="linkish" onclick={() => void app.openChecks()}>{t('check.open')}</button> ·{/if}
         {#if app.can('estimate')}<button type="button" class="linkish" onclick={() => app.openMatrix()}>{t('matrix.open')}</button> ·{/if}
         {t('list.help')}</span
       >
@@ -227,6 +228,8 @@
           onselect={(id) => app.select(id)}
           onmark={(id) => app.toggleMark(id)}
           markLabel={t('bulk.mark', { id: task.id })}
+          flagged={app.findingsFor(task.id).length}
+          flagTitle={t('check.flag', { n: app.findingsFor(task.id).length })}
         />
       {:else}
         <p class="empty">{t('list.none')}</p>

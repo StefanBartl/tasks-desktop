@@ -293,7 +293,14 @@ async fn requests_the_hub_would_never_send_are_refused_before_a_process_starts()
 #[test]
 fn only_the_listed_methods_exist() {
     assert_eq!(Method::parse("snapshot"), Some(Method::Snapshot));
-    for name in ["", "SNAPSHOT", "snapshot ", "../snapshot", "eval", "check"] {
+    for name in [
+        "",
+        "SNAPSHOT",
+        "snapshot ",
+        "../snapshot",
+        "eval",
+        "frobnicate",
+    ] {
         assert_eq!(Method::parse(name), None, "{name:?}");
     }
 }

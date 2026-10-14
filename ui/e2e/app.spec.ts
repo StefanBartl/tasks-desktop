@@ -877,6 +877,33 @@ test('the graph of a task lists what it needs and what waits for it, as a list',
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('the check runs as a job in the background and its findings reach the list and the detail', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  await page.getByRole('button', { name: 'Check...' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Check the vault' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('status')).toContainText('No check has run yet.');
+  await expectAccessible(page, 'check dialog');
+  await dialog.getByRole('button', { name: 'Check now' }).click();
+  // The engine's findings, with the task each is about; the fixture has broken tasks.
+  await expect(dialog.getByRole('status')).toContainText(/\d+ errors, \d+ warnings in \d+ task files/, { timeout: 30_000 });
+  const findings = dialog.locator('ul.findings li');
+  await expect(findings.first()).toBeVisible();
+  await expect(findings.filter({ hasText: 'lib.nvim/broken' }).first()).toContainText('bad-');
+  await expectAccessible(page, 'check findings');
+  // The jump goes to the task in the list, and the detail names the findings.
+  await findings.filter({ hasText: 'lib.nvim/broken' }).first().getByRole('button', { name: 'lib.nvim/broken' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('aside.detail .id')).toHaveText('lib.nvim/broken');
+  await expect(page.locator('aside.detail').getByRole('heading', { name: 'Findings of the check' })).toBeVisible();
+  await expect(page.locator('aside.detail ul.findings')).toContainText('bad-');
+  // The row carries a flag with the number of findings.
+  await expect(page.locator('button.row', { hasText: 'lib.nvim/broken' }).locator('.tag.bad', { hasText: '⚑' })).toBeVisible();
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
 test('a tag that was refused does not travel to the next task', async ({ page }) => {
   await watchViolations(page);
   await pair(page);
