@@ -1,6 +1,7 @@
 // Filtering the list. The UI never sorts: the order is the engine's `rank`
 // (plan order), and a filter only takes tasks out of it.
 
+import { connectsAreas } from './cross';
 import { isDue, localToday } from './remind';
 import type { TaskEntry } from './contract';
 
@@ -38,6 +39,8 @@ export interface Filter {
   fields: Partial<Record<FieldKey, string[]>>;
   updated: UpdatedWindow;
   reminder: ReminderChoice;
+  /** Only tasks that connect areas (see `cross.ts`): the chosen areas, or any. */
+  cross: boolean;
 }
 
 export const emptyFilter: Filter = {
@@ -48,6 +51,7 @@ export const emptyFilter: Filter = {
   fields: {},
   updated: '',
   reminder: '',
+  cross: false,
 };
 
 /** A task with no `actor` is chosen by this word. */
@@ -129,7 +133,12 @@ function inWindow(updated: string | undefined, window: UpdatedWindow, today: str
   return window === 'older' ? days > 90 : days <= Number(window);
 }
 
-export function matches(task: TaskEntry, filter: Filter, today: string = localToday()): boolean {
+export function matches(
+  task: TaskEntry,
+  filter: Filter,
+  today: string = localToday(),
+  touched?: ReadonlyMap<string, ReadonlySet<string>>,
+): boolean {
   if (filter.areas.length > 0 && !filter.areas.includes(task.area)) return false;
   if (filter.statuses.length > 0 && !filter.statuses.includes(task.status ?? '')) return false;
   if (filter.actors.length > 0 && !filter.actors.includes(task.actor ?? NO_ACTOR)) return false;
@@ -140,6 +149,7 @@ export function matches(task: TaskEntry, filter: Filter, today: string = localTo
   if (!inWindow(task.updated, filter.updated, today)) return false;
   if (filter.reminder === 'set' && task.remind === undefined) return false;
   if (filter.reminder === 'due' && !isDue(task.remind, today)) return false;
+  if (filter.cross && !connectsAreas(touched?.get(task.id), filter.areas)) return false;
   const query = filter.query.trim().toLowerCase();
   if (query !== '') {
     const hay = `${task.id} ${task.title}`.toLowerCase();
@@ -172,12 +182,13 @@ export function applyFilter(
   tasks: readonly TaskEntry[],
   filter: Filter,
   today: string = localToday(),
+  touched?: ReadonlyMap<string, ReadonlySet<string>>,
 ): TaskEntry[] {
-  return tasks.filter((t) => matches(t, filter, today));
+  return tasks.filter((t) => matches(t, filter, today, touched));
 }
 
 /** One thing a filter holds, for the row of chips that names what is switched on and takes it off again. */
-export type ActiveKind = 'area' | 'status' | 'actor' | FieldKey | 'updated' | 'reminder';
+export type ActiveKind = 'area' | 'status' | 'actor' | FieldKey | 'updated' | 'reminder' | 'cross';
 export interface ActiveFilter {
   kind: ActiveKind;
   value: string;
@@ -192,6 +203,7 @@ export function activeFilters(filter: Filter): ActiveFilter[] {
   for (const key of FIELD_KEYS) for (const value of filter.fields[key] ?? []) out.push({ kind: key, value });
   if (filter.updated !== '') out.push({ kind: 'updated', value: filter.updated });
   if (filter.reminder !== '') out.push({ kind: 'reminder', value: filter.reminder });
+  if (filter.cross) out.push({ kind: 'cross', value: 'on' });
   return out;
 }
 
@@ -215,6 +227,8 @@ export function without(filter: Filter, item: ActiveFilter): Filter {
       return { ...filter, updated: '' };
     case 'reminder':
       return { ...filter, reminder: '' };
+    case 'cross':
+      return { ...filter, cross: false };
     default:
       return { ...filter, fields: { ...filter.fields, [item.kind]: drop(filter.fields[item.kind] ?? []) } };
   }

@@ -12,6 +12,7 @@ import {
   type Filter,
 } from './filter';
 import type { Readiness } from './contract';
+import { touchedAreas } from './cross';
 import { task } from './fixtures';
 
 const ready = (state: Readiness['state']): Readiness => ({ state, rank: 1, leverage: 0, open_blockers: [] });
@@ -131,5 +132,30 @@ describe('what is switched on', () => {
     expect(without(f, { kind: 'updated', value: '30' }).updated).toBe('');
     expect(without(f, { kind: 'area', value: 'lib' }).areas).toEqual([]);
     expect(activeFilters(emptyFilter)).toEqual([]);
+  });
+});
+
+describe('the filter for tasks that connect areas', () => {
+  const x = task('lib/x', { blocked_by: ['rules/y'] });
+  const y = task('rules/y');
+  const z = task('cas/z');
+  const tasks = [x, y, z];
+  const touched = touchedAreas(tasks);
+  const run = (f: Filter): string[] => applyFilter(tasks, f, TODAY, touched).map((t) => t.id);
+
+  it('keeps the tasks on either end of a link between areas', () => {
+    expect(run(only({ cross: true }))).toEqual(['lib/x', 'rules/y']);
+    expect(run(only({}))).toEqual(['lib/x', 'rules/y', 'cas/z']);
+  });
+  it('counts only the chosen areas, and combines with the area filter', () => {
+    expect(run(only({ cross: true, areas: ['lib', 'rules'] }))).toEqual(['lib/x', 'rules/y']);
+    expect(run(only({ cross: true, areas: ['lib', 'cas'] }))).toEqual([]);
+    expect(run(only({ cross: true, areas: ['lib'] }))).toEqual([]);
+  });
+  it('shows nothing connected when the index is not given, and is a chip that comes off', () => {
+    expect(applyFilter(tasks, only({ cross: true }), TODAY)).toEqual([]);
+    expect(activeFilters(only({ cross: true }))).toEqual([{ kind: 'cross', value: 'on' }]);
+    expect(without(only({ cross: true }), { kind: 'cross', value: 'on' }).cross).toBe(false);
+    expect(extraCount(only({ cross: true }))).toBe(1);
   });
 });

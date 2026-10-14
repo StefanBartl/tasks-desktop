@@ -1257,6 +1257,37 @@ test('explanations: a chip says what it means on hover, the info button on focus
   expect(await violations(page)).toEqual([]);
 });
 
+test('connections: the links between areas, narrowed to the chosen areas, and the tasks that connect them in the list', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await chooseView(page, 'View', 'Connections');
+  // The fixture has one task of cascade.nvim that waits for one of lib.nvim.
+  const row = page.locator('tr', { hasText: 'cascade.nvim ↔ lib.nvim' });
+  await expect(row).toBeVisible();
+  await row.getByText('cascade.nvim ↔ lib.nvim').click();
+  await expect(row).toContainText('waits for');
+  await expectAccessible(page, 'the connections');
+
+  // Only lib.nvim chosen: no link between two chosen areas. Both chosen: the link is back.
+  await page.getByRole('region', { name: 'Links between areas' }).getByRole('button', { name: 'Areas' }).click();
+  await page.getByRole('checkbox', { name: 'lib.nvim' }).check();
+  await expect(page.getByText('No open task links two of the chosen areas.')).toBeVisible();
+  await page.getByRole('checkbox', { name: 'cascade.nvim' }).check();
+  await page.keyboard.press('Escape');
+  await expect(row).toBeVisible();
+
+  // The list, narrowed to the tasks on the two ends of a link.
+  await page.getByRole('button', { name: 'Show the connecting tasks in the list' }).click();
+  await expect(page.getByRole('list', { name: 'Filters that are on' })).toContainText('only tasks that connect areas');
+  const rows = page.locator('button.row');
+  await expect(rows.filter({ hasText: 'cascade.nvim/iota' })).toHaveCount(1);
+  await expect(rows.filter({ hasText: 'lib.nvim/alpha' })).toHaveCount(1);
+  await expect(rows.filter({ hasText: 'lib.nvim/beta' })).toHaveCount(0);
+  expect(await violations(page)).toEqual([]);
+});
+
 test('more filters: any field, switched on in a row of chips that can be taken off one by one, and reset', async ({
   page,
 }) => {

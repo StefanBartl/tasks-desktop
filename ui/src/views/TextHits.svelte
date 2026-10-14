@@ -19,7 +19,7 @@
   const hits = $derived(
     (search?.result.hits ?? []).filter((h) => {
       const task = byId.get(h.id);
-      return !!task && !inList.has(h.id) && matches(task, { ...app.filter, query: '' });
+      return !!task && !inList.has(h.id) && matches(task, { ...app.filter, query: '' }, app.today, app.crossIndex);
     }),
   );
 </script>

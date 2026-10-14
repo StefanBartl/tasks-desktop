@@ -67,6 +67,8 @@
         return `${t('filter.updated')}: ${t(`filter.updated.${item.value}` as Key)}`;
       case 'reminder':
         return `${t('filter.reminder')}: ${t(`filter.reminder.${item.value}` as Key)}`;
+      case 'cross':
+        return t('filter.cross.on');
       default:
         return `${fieldLabel(item.kind)}: ${valueLabel(item.kind, item.value)}`;
     }
@@ -211,6 +213,14 @@
             searchLabel={t('multi.search')}
           />
         {/each}
+        <label class="pick">
+          <input
+            type="checkbox"
+            checked={app.filter.cross}
+            onchange={(e) => (app.filter = { ...app.filter, cross: e.currentTarget.checked })}
+          />
+          <span>{t('filter.cross')}</span>
+        </label>
         <label class="pick">
           <span>{t('filter.updated')}</span>
           <select
