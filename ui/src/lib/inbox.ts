@@ -53,3 +53,15 @@ export function triageKey(key: string, shift: boolean): TriageKey | null {
       return null;
   }
 }
+
+/** How many rows the inbox draws before the person asks for more (a vault can hold thousands of unsorted tasks). */
+export const INBOX_PAGE = 100;
+
+/**
+ * How many of the rows are drawn: the limit grown in whole pages, and at least up to the selected row, so a key that
+ * moves the selection far down never selects a row that is not on the page.
+ */
+export function shownCount(rows: readonly { id: string }[], selectedId: string | null, limit: number): number {
+  const at = selectedId === null ? -1 : rows.findIndex((r) => r.id === selectedId);
+  return Math.min(rows.length, Math.max(limit, at + 1));
+}
