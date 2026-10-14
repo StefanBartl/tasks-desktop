@@ -2,7 +2,7 @@
 
 Öffentliches Repo. Hub und Oberfläche rechnen keine Regeln der Tasks: das tut die
 Engine (`tasks.nvim`), die Seite zeigt nur (Regel WEB-13). Übergabe und Regelwerk:
-`tasks-desktop-stand-*_HANDOVER.md`, `WKDBooks/Development/wkdbook-native/Checklists`.
+`tasks-desktop-stand-*_HANDOVER.md`, `rules-vault/rulesets/native`.
 
 ## Bauen und prüfen (vor "fertig")
 
