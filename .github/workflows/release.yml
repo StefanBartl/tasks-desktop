@@ -1,5 +1,5 @@
 # A release is a deliberate act: it starts with a tag `vX.Y.Z` and ends as a DRAFT that a person
-# opens, installs from and clicks through before publishing it (rule REL-07). Nothing here
+# opens, installs from and clicks through before publishing it (rule NREL-07). Nothing here
 # publishes.
 #
 # What it makes, for the hub (the native shell and its Setup come with the Tauri task):
@@ -7,9 +7,9 @@
 #   SHA256SUMS                            the checksums of all archives (scripts/install.* check them)
 #
 # Before anything is built: the tag, the version in crates/tasks-hub/Cargo.toml and the
-# main branch agree, and the CI of main was green for this very commit (REL-08).
+# main branch agree, and the CI of main was green for this very commit (NREL-08).
 #
-# Actions are pinned by commit (REL-03); a job gets only the rights it needs; nothing but the
+# Actions are pinned by commit (NREL-03); a job gets only the rights it needs; nothing but the
 # GitHub CLI of the runner talks to the release.
 
 name: release
@@ -84,7 +84,7 @@ jobs:
         run: |
           set -eu
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::a release $GITHUB_REF_NAME exists already: delete the draft first, a published one is never cut again (REL-09, REL-10)"
+            echo "::error::a release $GITHUB_REF_NAME exists already: delete the draft first, a published one is never cut again (NREL-09, NREL-10)"
             exit 1
           fi
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
@@ -120,7 +120,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
-      # The interface is part of the binary (REL-04): it is built first, then the program.
+      # The interface is part of the binary (NREL-04): it is built first, then the program.
       - name: Build the interface
         working-directory: ui
         run: |
@@ -147,7 +147,7 @@ jobs:
             COPYFILE_DISABLE=1 tar -czf "${name}.tar.gz" -C stage .
             echo "file=${name}.tar.gz" >> "$GITHUB_OUTPUT"
           fi
-      # What the archive holds, without installing it (REL-12): unpack it elsewhere, ask the
+      # What the archive holds, without installing it (NREL-12): unpack it elsewhere, ask the
       # program for its version (the hub is a command line program), and run the install and
       # uninstall scripts on it in a folder of their own.
       - name: Check the archive
