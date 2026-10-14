@@ -133,6 +133,31 @@ test('the link pairs the tab, the code leaves the address bar, the list is there
   expect(await violations(page)).toEqual([]);
 });
 
+test('a link pasted into the tab that is open pairs it without a reload', async ({ page }) => {
+  await watchViolations(page);
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: /not paired/i })).toBeVisible();
+  const code = pairingLink(state().config).split('#pair=')[1] ?? '';
+  // Pasting a link that differs from the address only in the fragment changes the hash and does not reload.
+  await page.evaluate((c) => {
+    window.location.hash = `#pair=${c}`;
+  }, code);
+  await showList(page);
+  expect(await page.evaluate(() => location.hash)).toBe('');
+  await expect(page.getByRole('heading', { name: /not paired/i })).toHaveCount(0);
+  expect(await violations(page)).toEqual([]);
+});
+
+test('a code that is refused is said so, with the way out', async ({ page }) => {
+  await watchViolations(page);
+  await page.goto(`/#pair=${'ab'.repeat(16)}`);
+  await expect(page.getByRole('heading', { name: /not paired/i })).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText(/not accepted/i);
+  await expect(page.getByText('tasks-hub open')).toBeVisible();
+  await expectAccessible(page, 'the refused pairing page');
+  expect(await violations(page)).toEqual([]);
+});
+
 test('the browser enforces Trusted Types and no inline or eval script', async ({ page }) => {
   await pair(page);
   const result = await page.evaluate(() => {

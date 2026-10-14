@@ -188,6 +188,8 @@ const en = {
   'state.needs_pairing.title': 'This browser is not paired with the hub',
   'state.needs_pairing.body':
     'Start the link from the hub: run the command below in a terminal. It opens this page with a one-time code that works for 60 seconds.',
+  'state.needs_pairing.refused':
+    'The code was not accepted: it is used up or older than 60 seconds. Run the command below again and open the new link.',
   'state.unavailable.title': 'The hub is up, the engine is not',
   'state.unavailable.body': 'The hub cannot reach tasks.nvim. Problem code:',
   'state.offline.title': 'The hub is not reachable',
@@ -613,6 +615,8 @@ const de: Record<Key, string> = {
   'state.needs_pairing.title': 'Dieser Browser ist nicht mit dem Hub gekoppelt',
   'state.needs_pairing.body':
     'Starte den Link vom Hub: Führe den Befehl unten in einem Terminal aus. Er öffnet diese Seite mit einem Einmal-Code, der 60 Sekunden gilt.',
+  'state.needs_pairing.refused':
+    'Der Code wurde nicht angenommen: er ist verbraucht oder älter als 60 Sekunden. Führe den Befehl unten erneut aus und öffne den neuen Link.',
   'state.unavailable.title': 'Der Hub läuft, die Engine nicht',
   'state.unavailable.body': 'Der Hub erreicht tasks.nvim nicht. Problem-Code:',
   'state.offline.title': 'Der Hub ist nicht erreichbar',

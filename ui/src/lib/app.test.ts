@@ -273,6 +273,60 @@ describe('App', () => {
     app.stop();
   });
 
+  it('says that a code was refused when there is no session to fall back on', async () => {
+    const { app, hub } = make();
+    hub.exchangeFails = true;
+    await app.start('ab'.repeat(16));
+    expect(app.phase).toBe('needs_pairing');
+    expect(app.pairRefused).toBe(true);
+    app.stop();
+  });
+
+  it('does not say it when there never was a code', async () => {
+    const { app } = make();
+    await app.start(null);
+    expect(app.pairRefused).toBe(false);
+    app.stop();
+  });
+
+  it('trades a code that is pasted into the open tab (only the fragment changed, no reload)', async () => {
+    const { app, hub, session } = make();
+    await app.start(null);
+    expect(app.phase).toBe('needs_pairing');
+    app.offerCode('cd'.repeat(16));
+    await vi.waitFor(() => expect(app.phase).toBe('ready'));
+    expect(hub.exchanged).toEqual(['cd'.repeat(16)]);
+    expect(session.get('tasks-desktop.session')).toBe('token-1');
+    expect(app.pairRefused).toBe(false);
+    app.stop();
+  });
+
+  it('keeps the refusal visible when the pasted code is refused too, and clears it when a later one works', async () => {
+    const { app, hub } = make();
+    await app.start(null);
+    hub.exchangeFails = true;
+    app.offerCode('cd'.repeat(16));
+    await vi.waitFor(() => expect(app.pairRefused).toBe(true));
+    expect(app.phase).toBe('needs_pairing');
+    hub.exchangeFails = false;
+    app.offerCode('ef'.repeat(16));
+    await vi.waitFor(() => expect(app.phase).toBe('ready'));
+    expect(app.pairRefused).toBe(false);
+    app.stop();
+  });
+
+  it('ignores a pasted code while the tab has a session', async () => {
+    const { app, hub } = make({ token: 't' });
+    await app.start(null);
+    app.offerCode('cd'.repeat(16));
+    expect(hub.exchanged).toEqual([]);
+    expect(app.phase).toBe('ready');
+    // nothing was kept back for a later start either: the session is not swapped for a stray code
+    await app.start(null);
+    expect(hub.exchanged).toEqual([]);
+    app.stop();
+  });
+
   it('trades a code for a session, keeps it in the tab and reads the list', async () => {
     const { app, hub, session } = make();
     await app.start('ab'.repeat(16));
