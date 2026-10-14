@@ -10,6 +10,7 @@ import type { Check, DonePreview, Estimate, Next, PlanFor, Result, Snapshot, Tas
 import type { Op } from './api';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
 import { inboxOf, triageKey } from './inbox';
+import { findingsByTask, groundOf, judgeFindings, type Finding, type Ground, type Judged } from './check';
 import { assumeOf, changesOf, failedIdsOf, MATRIX_MAX, matrixIds, pruneDraft, withCell, type Draft } from './estimate';
 import { bumped, parseFrecency, type Frecency } from './palette';
 import { defaultView, nextView, parseViews, type CountKey, type CountView } from './counts';
@@ -155,6 +156,14 @@ export class App {
   checking = $state(false);
   checkJob = $state.raw<CheckJobState | null>(null);
   checkProblem = $state<string | null>(null);
+  /**
+   * The ground of the check that is done: the versions of the tasks as they were when it was made, taken from the
+   * snapshot of the same `rev` (the job's id says which check). Without it the check was made for a state the page
+   * never saw whole (the vault changed while it ran), and its findings are not shown.
+   */
+  private checkGround = $state.raw<{ id: number; ground: Ground } | null>(null);
+  /** The judged findings for one job, ground and list: judged once, not once for every row that asks. */
+  private checkJudged: { job: CheckJobState; ground: Ground; tasks: readonly TaskEntry[]; judged: Judged; byTask: Map<string, Finding[]> } | null = null;
   private checkTimer: ReturnType<typeof setTimeout> | undefined;
   /** The newest start or ask of the job: an older answer does not replace it. */
   private checkSeq = 0;
@@ -673,22 +682,60 @@ export class App {
   /** Set the priority and place the card, as one batch (the way back is the inverse of both). */
   // ── the check of the vault, as a job ───────────────────────────────────
 
-  /** The findings of a check that was made for the state of the vault the page shows; none for an older one. */
-  get checkFindings(): Check['findings'] {
+  /**
+   * Take what the hub says of the job. A check that is done for the state the page shows gets its ground: the
+   * versions of the tasks now, which are the versions it read (same `rev`). A done check whose `rev` the page does
+   * not hold yet is grounded when the list that matches it is read (`readOnce`).
+   */
+  private adoptCheck(job: CheckJobState): void {
+    this.checkJob = job;
+    this.groundCheck();
+  }
+
+  private groundCheck(): void {
     const job = this.checkJob;
-    if (job?.state !== 'done' || job.result.rev !== this.snapshot?.rev) return [];
-    return job.result.findings;
+    if (job?.state !== 'done' || this.checkGround?.id === job.id) return;
+    if (job.result.rev !== this.snapshot?.rev) return;
+    this.checkGround = { id: job.id, ground: groundOf(this.tasks) };
   }
 
-  /** The findings that are about the task `id`. */
-  findingsFor(id: string): Check['findings'] {
-    return this.checkFindings.filter((f) => f.id === id);
+  /** The findings judged against the tasks as they are now (see `lib/check.ts`); nothing for a check without ground. */
+  private judged(): { judged: Judged; byTask: Map<string, Finding[]> } {
+    const job = this.checkJob;
+    const grounded = this.checkGround;
+    if (job?.state !== 'done' || grounded?.id !== job.id) return { judged: { valid: [], stale: [], changed: 0 }, byTask: new Map() };
+    const memo = this.checkJudged;
+    if (memo && memo.job === job && memo.ground === grounded.ground && memo.tasks === this.tasks) return memo;
+    const judged = judgeFindings(job.result.findings, grounded.ground, this.tasks);
+    const next = { job, ground: grounded.ground, tasks: this.tasks, judged, byTask: findingsByTask(judged.valid) };
+    this.checkJudged = next;
+    return next;
   }
 
-  /** Whether the check that is there was made for an older state of the vault (the findings are then not shown). */
+  /** The findings that hold: of tasks as they were when the check was made, and of what is no listed task. */
+  get checkFindings(): Finding[] {
+    return this.judged().judged.valid;
+  }
+
+  /** The findings of tasks that changed since the check: possibly resolved, shown as such. */
+  get checkStale(): Finding[] {
+    return this.judged().judged.stale;
+  }
+
+  /** How many tasks with findings changed or went away since the check. */
+  get checkChanged(): number {
+    return this.judged().judged.changed;
+  }
+
+  /** The findings that hold about the task `id`. */
+  findingsFor(id: string): Finding[] {
+    return this.judged().byTask.get(id) ?? [];
+  }
+
+  /** Whether the check that is done was made for a state the page never held (the vault changed while it ran). */
   get checkOutdated(): boolean {
     const job = this.checkJob;
-    return job?.state === 'done' && job.result.rev !== this.snapshot?.rev;
+    return job?.state === 'done' && this.checkGround?.id !== job.id;
   }
 
   /** Open the check dialog on what the hub knows of the job. */
@@ -710,7 +757,7 @@ export class App {
     try {
       const job = await this.env.hub.checkStart(refs ? { stale: 'refs' } : {});
       if (seq !== this.checkSeq) return;
-      this.checkJob = job;
+      this.adoptCheck(job);
     } catch (error) {
       if (seq !== this.checkSeq) return;
       this.checkProblem = error instanceof ApiError ? error.message : translate(this.lang, 'check.failed');
@@ -727,7 +774,7 @@ export class App {
     try {
       const job = await this.env.hub.checkState();
       if (seq !== this.checkSeq) return;
-      this.checkJob = job;
+      this.adoptCheck(job);
       this.checkProblem = null;
     } catch (error) {
       if (seq !== this.checkSeq) return;
@@ -1283,6 +1330,8 @@ export class App {
     this.connection = 'offline';
     this.tasks = [];
     this.snapshot = null;
+    this.checkJob = null;
+    this.checkGround = null;
     this.next = null;
     this.nextFor = null;
     this.hubAreas = [];
@@ -1329,6 +1378,7 @@ export class App {
         this.snapshot = result.doc;
         this.tasks = result.doc.tasks;
         this.etag = result.etag;
+        this.groundCheck();
       }
       this.cachedAt = null;
       this.phase = 'ready';

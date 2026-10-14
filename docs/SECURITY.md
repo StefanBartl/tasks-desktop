@@ -306,7 +306,11 @@ error never holds a path (the terminal of whoever runs the hub gets the reason).
 The check reads every task file and, with `stale: refs`, asks git, which takes longer than a question; so it runs in the
 hub as a job, and as a process of its own (ten times the usual time allowed), outside the place and the persistent host
 of the other calls: a write, a task or a question does not wait behind it. It only reads; a file changed while it reads
-is at worst a finding that is gone at the next look, and the page shows no finding of a check made for an older state.
+is at worst a finding that is gone at the next look. The page judges each finding by the task it is about, against the
+version of that task as it was when the check was made (the snapshot of the same `rev`): a finding of a task that changed
+since is shown as possibly resolved and counts for nothing, one of a task that is gone is dropped, one about no listed
+task (the index, the Backlog) stands with the time of the check. A check whose `rev` the page never held (the vault
+changed while it ran) shows no finding.
 A check whose job is given up (another vault is read, the hub stops) is stopped with its process: it runs in the future of the job,
 not on a task of its own. `POST` takes `{ "stale": "refs", "area": "<area>" }` (both optional, anything else is refused at the door),
 starts the job and answers at once; a start while a job runs answers that job and starts no second one. `GET` (no query)

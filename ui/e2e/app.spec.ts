@@ -2236,3 +2236,36 @@ test('the inbox draws a page of rows, shows more on request and keeps the select
   }
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('the findings of the check stay for the tasks that did not change and go only for the one that did', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  await page.getByRole('button', { name: 'Check...' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Check the vault' });
+  await dialog.getByRole('button', { name: 'Check now' }).click();
+  await expect(dialog.getByRole('status')).toContainText(/Checked at [0-9]/, { timeout: 30_000 });
+  // A finding about a file, not a task (the index): it has no version to go by and stands.
+  await expect(dialog.locator('ul.findings li', { hasText: 'index-stale' }).first()).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  const flag = (id: string) => page.locator('button.row', { hasText: id }).locator('.tag.bad', { hasText: '⚑' });
+  await expect(flag('lib.nvim/beta')).toBeVisible();
+  await expect(flag('lib.nvim/broken')).toBeVisible();
+  // beta is written by someone else (Neovim, a key of the inbox): only its findings are in question.
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', 'beta.md');
+  const text = readFileSync(file, 'utf8');
+  writeFileSync(file, text + '\nChanged after the check.\n');
+  try {
+    await expect(flag('lib.nvim/beta')).toHaveCount(0);
+    await expect(flag('lib.nvim/broken')).toBeVisible();
+    await page.getByRole('button', { name: 'Check...' }).click();
+    await expect(dialog.getByRole('status')).toContainText('1 task(s) changed since this check');
+    await expect(dialog.locator('ul.findings li.stale', { hasText: 'lib.nvim/beta' })).toBeVisible();
+    await expect(dialog.locator('ul.findings li:not(.stale)', { hasText: 'lib.nvim/broken' }).first()).toBeVisible();
+    await expect(dialog.locator('ul.findings li', { hasText: 'index-stale' }).first()).toBeVisible();
+    await expectAccessible(page, 'check after a change');
+  } finally {
+    writeFileSync(file, text);
+  }
+  expect(consoleProblems.get(page)).toEqual([]);
+});
