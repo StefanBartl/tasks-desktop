@@ -301,9 +301,16 @@ fn help_prints_the_usage_and_succeeds() {
 
 #[test]
 fn a_rolling_build_says_its_commit_and_a_release_does_not() {
+    let v = tasks_hub::VERSION;
+    // The release workflow compares this exact line with the tag; the rolling workflow looks for the build.
+    assert_eq!(tasks_hub::version_line_for(None), format!("tasks-hub {v}"));
     assert_eq!(
-        tasks_hub::version_line(),
-        format!("tasks-hub {}", tasks_hub::VERSION)
+        tasks_hub::version_line_for(Some("")),
+        format!("tasks-hub {v}")
+    );
+    assert_eq!(
+        tasks_hub::version_line_for(Some("abc1234")),
+        format!("tasks-hub {v} (build abc1234)")
     );
     let config = temp_dir("version");
     let out = command(&config).arg("--version").output().unwrap();
@@ -364,8 +371,10 @@ fn a_double_click_that_cannot_start_says_why() {
         "{}",
         String::from_utf8_lossy(&out.stdout)
     );
+    // The cause of the click, not the usage that no argument used to print.
     assert!(
-        String::from_utf8_lossy(&out.stderr).starts_with("tasks-hub: "),
+        String::from_utf8_lossy(&out.stderr).contains("config folder")
+            && !String::from_utf8_lossy(&out.stderr).contains("usage:"),
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
@@ -509,6 +518,42 @@ fn nothing_is_asked_when_no_one_is_at_the_console() {
     assert!(!text.contains("[Y/n]"), "{text}");
     assert!(!bin.join(program_name()).exists());
     assert!(!config.join("setup.json").exists());
+}
+
+#[test]
+fn the_program_is_installed_under_one_name_whatever_the_download_was_called() {
+    // The rolling build is `tasks-hub-windows-x86_64.exe`; the scripts, the link and `uninstall` look for `tasks-hub.exe`.
+    let config = temp_dir("install-name");
+    let bin = temp_dir("install-name-bin");
+    let _bin = RemoveDir(bin.clone());
+    let downloaded = temp_dir("install-name-download").join(if cfg!(windows) {
+        "tasks-hub-windows-x86_64.exe"
+    } else {
+        "tasks-hub-linux-x86_64"
+    });
+    std::fs::copy(binary(), &downloaded).unwrap();
+    let out = Command::new(&downloaded)
+        .env("TASKS_DESKTOP_CONFIG_DIR", &config)
+        .env("TASKS_DESKTOP_INSTALL_DIR", &bin)
+        .env("TASKS_DESKTOP_NO_LOGIN_SYNC", "1")
+        .arg("install")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        bin.join(program_name()).is_file(),
+        "installed as {}",
+        program_name()
+    );
+    let names: Vec<_> = std::fs::read_dir(&bin)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, vec![program_name().to_owned()], "{names:?}");
 }
 
 #[test]

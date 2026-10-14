@@ -1443,21 +1443,28 @@ export class App {
     }
 
     let token = stored;
-    // The code of the address, or a newer one that was pasted while this waited for the hub.
-    const offered = this.pendingCode;
+    // The code of the address, or a newer one that was pasted while this waited for the hub or for the answer
+    // to the one before. A code that works ends it; one that is refused makes room for the next.
+    let offered = this.pendingCode;
     this.pendingCode = null;
-    if (offered) {
+    let refused = false;
+    while (offered) {
       try {
         const fresh = await this.env.hub.exchange(offered);
         safe(() => this.env.session.setItem(TOKEN_KEY, fresh));
         token = fresh;
-        this.pairRefused = false;
-      } catch {
-        // A code that is spent or too old: the session of this tab, if it
-        // has one, is still good; without one the page says the code was refused.
-        this.pairRefused = true;
+        this.pendingCode = null;
+        break;
+      } catch (error) {
+        // A code that is spent or too old: the session of this tab, if it has one, is still good. Only a
+        // refusal of the hub (a 4xx) says "used up or too old"; a hub that did not answer says nothing of it.
+        refused = error instanceof ApiError && error.status >= 400 && error.status < 500;
       }
+      offered = this.pendingCode;
+      this.pendingCode = null;
     }
+    // Said only when the code left the tab without a session.
+    this.pairRefused = !token && refused;
     if (!token) {
       this.phase = 'needs_pairing';
       this.tasks = [];
@@ -1494,6 +1501,8 @@ export class App {
   }
 
   private lostSession(): void {
+    // The loss is not about a code that was refused at the start.
+    this.pairRefused = false;
     // What was asked of the hub is not valid without the session: the dialogs and the graph close, the job is forgotten.
     this.closeGraph();
     this.closeMatrix();
