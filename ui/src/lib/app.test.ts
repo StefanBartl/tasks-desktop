@@ -1595,18 +1595,17 @@ describe('writing', () => {
       expect(app.toast?.text).toContain('the note is empty');
     });
 
-    it('discards a task by parking it and noting the reason in one request, with no way back', async () => {
+    it('discards a task by parking it, and writes the note only when the status was written', async () => {
       const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
       app.setLang('en');
       expect(await app.discard('pub/a', '   ', 'e1')).toBe(false);
       expect(hub.sent).toHaveLength(0);
       expect(await app.discard('pub/a', ' not needed any more ', 'e1')).toBe(true);
-      expect(hub.sent[0]?.ops).toEqual([
-        { op: 'set', id: 'pub/a', patch: { status: 'parked' }, if_match: 'e1' },
-        { op: 'append_note', id: 'pub/a', text: 'Discarded: not needed any more' },
+      expect(hub.sent.map((r) => r.ops)).toEqual([
+        [{ op: 'set', id: 'pub/a', patch: { status: 'parked' }, if_match: 'e1' }],
+        [{ op: 'append_note', id: 'pub/a', text: 'Discarded: not needed any more' }],
       ]);
-      expect(app.toast?.undo).toBeUndefined();
-      // A conflict on the status: nothing is claimed.
+      // A conflict on the status: the note is not written at all.
       hub.next_ops = answer({
         n: 1,
         op: 'set',
@@ -1617,6 +1616,11 @@ describe('writing', () => {
         error: { code: 'conflict', message: 'x', retryable: false },
       });
       expect(await app.discard('pub/a', 'x', 'e1')).toBe(false);
+      expect(hub.sent).toHaveLength(3);
+      // A line the engine would refuse is told before the status is written.
+      expect(await app.discard('pub/a', 'y'.repeat(1000), 'e1')).toBe(false);
+      expect(hub.sent).toHaveLength(3);
+      expect(app.toast?.kind).toBe('error');
     });
 
     it('moves a task to another area with the version it was read from, follows it and takes it back', async () => {
