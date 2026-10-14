@@ -52,7 +52,7 @@ BAD = re.compile(
 # Files that carry such characters on purpose.
 ALLOWED: dict[str, str] = {}
 
-# A TAB belongs to the format of these files (rule REL-14); everywhere else it is refused, since
+# A TAB belongs to the format of these files (rule NREL-14); everywhere else it is refused, since
 # a tab in a text is nearly always a lost backslash-t (rule APP-02).
 TAB_FILE_NAMES = ("Makefile", "GNUmakefile", ".gitmodules")
 TAB_FILE_SUFFIXES = (".mk", ".tsv")
