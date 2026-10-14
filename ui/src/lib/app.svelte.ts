@@ -8,6 +8,7 @@ import { ApiError, type CheckJobState, type Hub, type HubArea, type HubAreas, ty
 import { cacheableClass, cacheableList, type ListStore } from './cache';
 import type { Check, DonePreview, Estimate, MovePlan, Next, PlanFor, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import type { Op } from './api';
+import { touchedAreas } from './cross';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
 import { inboxOf, triageKey } from './inbox';
 import { findingsByTask, groundOf, judgeFindings, type Finding, type Ground, type Judged } from './check';
@@ -25,7 +26,7 @@ const NOTE_MAX = 1000;
 
 export type Phase = 'starting' | 'needs_pairing' | 'offline' | 'unavailable' | 'ready';
 export type Connection = 'live' | 'reconnecting' | 'offline';
-export type View = 'today' | 'list' | 'board' | 'plan' | 'inbox';
+export type View = 'today' | 'list' | 'board' | 'plan' | 'inbox' | 'cross';
 export type Theme = 'auto' | 'light' | 'dark';
 /** The blocks of the Today view that a person may hide. */
 export const TILES = ['next', 'waiting', 'remind', 'cdx', 'counts'] as const;
@@ -251,13 +252,17 @@ export class App {
     this.frecency = parseFrecency(safe(() => env.prefs.getItem('tasks-desktop.frecency')));
     // The page opens on the view it was left on.
     const view = safe(() => env.prefs.getItem('tasks-desktop.view'));
-    this.view = view === 'list' || view === 'board' || view === 'plan' || view === 'inbox' ? view : 'today';
+    this.view =
+      view === 'list' || view === 'board' || view === 'plan' || view === 'inbox' || view === 'cross' ? view : 'today';
   }
 
   // ── derived ───────────────────────────────────────────────────────────
 
+  /** For every task the areas it touches (its own and those of the tasks it is linked with). */
+  crossIndex = $derived.by(() => touchedAreas(this.tasks));
+
   get shown(): TaskEntry[] {
-    return applyFilter(this.tasks, this.filter, this.today);
+    return applyFilter(this.tasks, this.filter, this.today, this.crossIndex);
   }
 
   get areaNames(): string[] {
