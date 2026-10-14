@@ -1257,6 +1257,56 @@ test('explanations: a chip says what it means on hover, the info button on focus
   expect(await violations(page)).toEqual([]);
 });
 
+test('more filters: any field, switched on in a row of chips that can be taken off one by one, and reset', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  const count = page.locator('p.count').first();
+  const total = async (): Promise<number> => {
+    const m = /(\d+) of (\d+)/.exec((await count.textContent()) ?? '');
+    if (!m) throw new Error('no count');
+    return Number(m[1]);
+  };
+  const all = await total();
+
+  await page.getByText('More filters', { exact: false }).first().click();
+  // Priority: the values the tasks have, with how many.
+  await page.getByRole('button', { name: 'Priority' }).click();
+  const group = page.getByRole('group', { name: 'Priority' });
+  await expect(group.getByRole('checkbox').first()).toBeVisible();
+  const first = group.getByRole('checkbox').first();
+  const label = (await first.evaluate((el) => el.closest('label')?.textContent ?? '')).trim();
+  await first.check();
+  await page.keyboard.press('Escape');
+
+  // The chip says what is on; the list got shorter (or stayed when every task has it).
+  const chips = page.getByRole('list', { name: 'Filters that are on' });
+  await expect(chips).toContainText('Priority');
+  const narrowed = await total();
+  // The option said how many tasks have it: that many are left.
+  const said = Number(/\((\d+)\)/.exec(label)?.[1]);
+  expect(said).toBeGreaterThan(0);
+  expect(narrowed).toBe(said);
+  expect(narrowed).toBeLessThan(all);
+  await expectAccessible(page, 'the list with more filters on');
+
+  // A second field combines with it; taking its chip off leaves the first.
+  await page.getByRole('combobox', { name: 'Changed' }).selectOption('7');
+  await expect(chips).toContainText('Changed');
+  expect(await total()).toBeLessThanOrEqual(narrowed);
+  await page.getByRole('button', { name: /^Switch off: Changed/ }).click();
+  await expect(chips).not.toContainText('Changed');
+  expect(await total()).toBe(narrowed);
+
+  // Reset takes every chip away and the whole list is back.
+  await page.getByRole('button', { name: 'Reset all filters' }).click();
+  await expect(chips).toHaveCount(0);
+  expect(await total()).toBe(all);
+  expect(await violations(page)).toEqual([]);
+});
+
 test('the plan header: the label belongs to the choice, the button comes after it and stays inside the window', async ({
   page,
 }) => {
