@@ -76,18 +76,20 @@
           {/each}
         {/if}
       </div>
-      <button type="button" class="newplan" disabled={!app.can('plan_new')} onclick={() => app.openPlanWizard()}>{t('plan.new.button')}</button>
-      {#if plans.length > 0}
-        <label class="plan-select">
-          <span>{t('plan.which')}</span>
-          <select bind:value={app.planChoice}>
-            <option value="">{t('plan.all')}</option>
-            {#each plans as p (p.id)}
-              <option value={p.id}>{markHidden(p.title)}</option>
-            {/each}
-          </select>
-        </label>
-      {/if}
+      <div class="toolbar">
+        {#if plans.length > 0}
+          <label class="plan-select">
+            <span>{t('plan.which')}</span>
+            <select bind:value={app.planChoice}>
+              <option value="">{t('plan.all')}</option>
+              {#each plans as p (p.id)}
+                <option value={p.id}>{markHidden(p.title)}</option>
+              {/each}
+            </select>
+          </label>
+        {/if}
+        <button type="button" class="newplan" disabled={!app.can('plan_new')} onclick={() => app.openPlanWizard()}>{t('plan.new.button')}</button>
+      </div>
       {#if phases.length > 0}
         <p class="phases">
           {#each phases as ph (ph.phase)}<span class="chip soft">{markHidden(ph.phase)}: {ph.n}</span>{/each}
@@ -199,6 +201,14 @@
   .card.warn {
     border-color: var(--warn);
   }
+  /* The plan and its button are one row: the label belongs to the choice, the button comes after it. */
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    margin: 0.5rem 0;
+  }
   .newplan {
     background: var(--surface-2);
     color: var(--text);
@@ -206,7 +216,6 @@
     border-radius: var(--radius);
     padding: 0.25rem 0.6rem;
     cursor: pointer;
-    margin: 0.2rem 0;
   }
   .chips,
   .phases {
@@ -226,13 +235,17 @@
     color: var(--muted);
   }
   .plan-select {
-    display: inline-grid;
-    gap: 0.15rem;
-    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    max-width: 100%;
+    font-size: 0.85rem;
     color: var(--muted);
-    margin-top: 0.4rem;
   }
   .plan-select select {
+    min-width: 0;
+    max-width: 100%;
     background: var(--surface-2);
     color: var(--text);
     border: 1px solid var(--border);
