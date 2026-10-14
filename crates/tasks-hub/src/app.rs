@@ -290,8 +290,20 @@ impl VaultAdmin for ConfigVaults {
                 return Err("there is no such folder".to_owned());
             }
             let mut next = self.fresh()?;
-            if next.vaults.iter().any(|v| v.name == name) {
+            // The vault the hub reads keeps its entry in memory whatever the file says: its name is taken too, and it
+            // counts against the limit.
+            let reading = self.current();
+            let taken_in_memory = reading.vaults.iter().any(|v| v.name == name);
+            if next.vaults.iter().any(|v| v.name == name) || taken_in_memory {
                 return Err("a vault of this name is there already".to_owned());
+            }
+            let held_only = reading
+                .vaults
+                .iter()
+                .filter(|v| !next.vaults.iter().any(|n| n.name == v.name))
+                .count();
+            if next.vaults.len() + held_only >= config::MAX_VAULTS {
+                return Err(format!("at most {} vaults", config::MAX_VAULTS));
             }
             if next.vaults.len() >= config::MAX_VAULTS {
                 return Err(format!("at most {} vaults", config::MAX_VAULTS));
@@ -1004,11 +1016,17 @@ mod vault_tests {
         let admin = ConfigVaults::new(cfg.clone(), Env::from_process(), file);
         admin.add("two", &fixture.to_string_lossy()).await.unwrap();
         if let Err(why) = admin.select("two").await {
+            // Only a vault the engine cannot read is a reason to skip; any other refusal is a bug of the choice.
+            assert!(
+                why.starts_with("this vault cannot be read"),
+                "the choice was refused for another reason: {why}"
+            );
             assert!(
                 std::env::var_os("TASKS_DESKTOP_REQUIRE_ENGINE").is_none(),
                 "the engine is required but not usable: {why}"
             );
             eprintln!("skipped: {why}");
+            let _ = std::fs::remove_dir_all(&base);
             return;
         }
         // The choice moved the vault that is read, in memory and in the file.
@@ -1028,5 +1046,27 @@ mod vault_tests {
             .unwrap();
         assert_eq!(admin.list().active, "two");
         assert!(admin.remove("two").await.is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn a_name_the_hub_reads_from_is_taken_even_when_the_file_forgot_it() {
+        let (admin, cfg, vault) = admin("taken");
+        let path = vault.to_string_lossy().into_owned();
+        admin.add("two", &path).await.unwrap();
+        let mut reading = admin.current();
+        reading.active = Some("two".to_owned());
+        *admin.file.lock().unwrap() = reading;
+        // A hand edit drops the entry; adding the name again, with another folder, must not take the place of the
+        // vault that is read (the page would claim a folder the engine does not read).
+        let mut edited = config::load_file(&cfg).unwrap();
+        edited.vaults.clear();
+        config::save_file(&cfg, &edited).unwrap();
+        let why = admin.add("two", &path).await.unwrap_err();
+        assert!(why.contains("there already"), "{why}");
+        assert!(
+            config::load_file(&cfg).unwrap().vaults.is_empty(),
+            "nothing was written"
+        );
     }
 }

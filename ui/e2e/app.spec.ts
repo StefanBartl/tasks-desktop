@@ -851,10 +851,16 @@ test('the graph of a task lists what it needs and what waits for it, as a list',
   await pair(page);
   await showList(page);
   await open(page, 'cascade.nvim/iota');
+  // How often the graph is asked for: once when it opens, once more when the vault changed, never in between.
+  const asked: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/api/tasks/plan_for')) asked.push(r.url());
+  });
   await page.locator('aside.detail').getByRole('button', { name: 'What do I need for this?' }).click();
   const graph = page.locator('section.graph');
   await expect(graph).toBeVisible();
-  await expect(graph.getByRole('heading', { name: 'What cascade.nvim/iota needs' })).toBeVisible();
+  // The panel takes the focus when it opens (the button that opened it is gone from the page).
+  await expect(graph.getByRole('heading', { name: 'What cascade.nvim/iota needs' })).toBeFocused();
   await expect(graph.getByRole('status')).toContainText('2 tasks');
   // The task itself first, then what it needs, one step in; the edge is the engine's.
   const nodes = graph.locator('ol.nodes > li');
@@ -868,12 +874,24 @@ test('the graph of a task lists what it needs and what waits for it, as a list',
   await nodes.nth(0).getByRole('button').focus();
   await page.keyboard.press('ArrowDown');
   await expect(nodes.nth(1).getByRole('button')).toBeFocused();
+  // Nothing asks again by itself (an effect that listened to its own answer asked for ever) ...
+  await page.waitForTimeout(900);
+  expect(asked).toHaveLength(1);
+  // ... and a change of the vault asks once more.
+  writeFileSync(
+    join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', 'graph-reload-e2e.md'),
+    '---\ntitle: Graph reload e2e\nstatus: open\n---\n\n## Kontext\n',
+  );
+  await expect.poll(() => asked.length, { timeout: 15_000 }).toBe(2);
+  await page.waitForTimeout(900);
+  expect(asked).toHaveLength(2);
   // The other way: nothing waits for this task.
   await graph.getByRole('button', { name: 'Unlocks' }).click();
   await expect(graph.getByRole('heading', { name: 'What waits for cascade.nvim/iota' })).toBeVisible();
   await expect(nodes).toHaveCount(1);
   await graph.getByRole('button', { name: 'Close' }).click();
   await expect(graph).toHaveCount(0);
+  await expect(page.locator('section.stages')).toBeFocused();
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
@@ -901,6 +919,64 @@ test('the check runs as a job in the background and its findings reach the list 
   await expect(page.locator('aside.detail ul.findings')).toContainText('bad-');
   // The row carries a flag with the number of findings.
   await expect(page.locator('button.row', { hasText: 'lib.nvim/broken' }).locator('.tag.bad', { hasText: '⚑' })).toBeVisible();
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('the keys of the inbox stay out of fields and dialogs, ignore a held key and read the letter without its case', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  for (const n of [1, 2]) {
+    await page.keyboard.press('c');
+    const capture = page.getByRole('dialog', { name: 'New task' });
+    await capture.getByLabel('Title').fill(`Inbox keys ${n}`);
+    await capture.locator('select').first().selectOption('lib.nvim');
+    await capture.getByRole('button', { name: 'Create' }).click();
+    await expect(capture).toHaveCount(0);
+  }
+  await page.keyboard.press('g');
+  await page.keyboard.press('i');
+  const inbox = page.locator('section.inbox');
+  await expect(inbox).toBeVisible();
+  const writes: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/api/tasks/ops') && r.method() === 'POST') writes.push(r.url());
+  });
+  const row = inbox.locator('.row', { hasText: 'lib.nvim/inbox-keys-1' });
+  await row.click();
+  await expect(page.locator('aside.detail .id')).toHaveText('lib.nvim/inbox-keys-1');
+  // Typing in a field of the detail writes nothing to the task: m, s and 1 are letters there.
+  const tags = page.locator('aside.detail').getByLabel('Tags');
+  await tags.focus();
+  await page.keyboard.type('ms1');
+  await page.keyboard.press('Control+a');
+  await page.keyboard.press('Backspace');
+  // A dialog takes the keys too.
+  await page.keyboard.press('Control+k');
+  const palette = page.getByRole('dialog');
+  await expect(palette).toBeVisible();
+  await page.keyboard.type('ms1');
+  await page.keyboard.press('Escape');
+  await expect(palette).toHaveCount(0);
+  await row.click();
+  expect(writes).toHaveLength(0);
+  // A held key is not written again: the repeat is ignored.
+  await page.evaluate(() => {
+    document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: '2', repeat: true, bubbles: true }));
+  });
+  await page.waitForTimeout(300);
+  expect(writes).toHaveLength(0);
+  // With CapsLock on, j arrives as J without Shift: it still moves the selection.
+  const current = inbox.locator('.row[aria-current="true"] .id');
+  const before = await current.innerText();
+  await page.keyboard.press('J');
+  await expect(current).not.toHaveText(before);
+  await page.keyboard.press('K');
+  await expect(current).toHaveText(before);
+  // And the real key writes once.
+  await page.keyboard.press('2');
+  await expect(page.getByRole('status').getByText('Saved')).toBeVisible();
+  expect(writes).toHaveLength(1);
   expect(consoleProblems.get(page)).toEqual([]);
 });
 

@@ -1797,7 +1797,7 @@ describe('the inbox', () => {
   it('holds the tasks that lack something, and a key writes the field it names on the selected task', async () => {
     const { app, hub } = await inboxApp([unsorted('pub/a'), unsorted('pub/b', sorted), unsorted('pub/c', { prio: 1 })]);
     expect(app.inbox.map((t) => t.id)).toEqual(['pub/a', 'pub/c']);
-    app.moveSelectionInbox(1);
+    // Entering the view puts the selection on the first row.
     expect(app.selectedId).toBe('pub/a');
     await app.triage('1', false);
     expect(hub.sent).toHaveLength(1);
@@ -1810,6 +1810,7 @@ describe('the inbox', () => {
 
   it('sends nothing for a key that names nothing, without a selection, or while a write is under way', async () => {
     const { app, hub } = await inboxApp([unsorted('pub/a'), unsorted('pub/b')]);
+    app.select(null);
     await app.triage('1', false);
     expect(hub.sent).toHaveLength(0);
     app.moveSelectionInbox(1);
@@ -1937,7 +1938,7 @@ describe('the estimate matrix', () => {
     } as unknown as Result;
     await app.applyMatrix();
     expect(app.matrix).not.toBeNull();
-    expect(app.matrixDraft).toEqual({ 'pub/b': { value: 5 } });
+    expect(app.matrixDraft).toEqual({ 'pub/b': { value: 5, etag: 'e-pub/b' } });
     expect(app.toast?.kind).toBe('error');
     expect(app.toast?.text).toMatch(/1\D+1/);
   });
@@ -2091,5 +2092,161 @@ describe('the check of the vault', () => {
     hub.checkError = new ApiError(503, 'engine_unavailable', 'the engine is not available');
     await app.runCheck(false);
     expect(app.checkProblem).toBe('the engine is not available');
+  });
+});
+
+describe('what the reviews of the matrix, the inbox and the check found', () => {
+  const planned = (id: string, extra: Partial<TaskEntry> = {}) => task(id, { etag: `e-${id}`, ...extra });
+  async function started(tasks: TaskEntry[]) {
+    const m = make({ token: 't' });
+    m.hub.doc = snapshot(tasks);
+    await m.app.start(null);
+    m.app.stop();
+    return m;
+  }
+
+  it('writes a cell with the version of the file as it was when the cell was chosen, not as it is now', async () => {
+    const { app, hub } = await started([planned('pub/a'), planned('pub/b')]);
+    app.openMatrix();
+    app.setCell('pub/a', 'value', 3);
+    // Someone changes the file of the task meanwhile: the list that is read next carries its new version.
+    hub.doc = snapshot([planned('pub/a', { etag: 'e-new' }), planned('pub/b')], 'rev:2');
+    await app.refresh();
+    await app.applyMatrix();
+    expect(hub.sent[0]?.ops).toEqual([{ op: 'set', id: 'pub/a', patch: { value: 3 }, if_match: 'e-pub/a' }]);
+  });
+
+  it('leaves a task that is gone out of the question and the draft, so the engine is not refused for ever', async () => {
+    const { app, hub } = await started([planned('pub/a'), planned('pub/b')]);
+    app.openMatrix();
+    await vi.waitFor(() => expect(app.matrixFigures).not.toBeNull());
+    app.setCell('pub/a', 'value', 2);
+    app.setCell('pub/b', 'value', 4);
+    // pub/b is finished in Neovim while the dialog is open.
+    hub.doc = snapshot([planned('pub/a')], 'rev:2');
+    await app.refresh();
+    app.setCell('pub/a', 'effort', 'M');
+    await vi.waitFor(() => expect(hub.estimates.at(-1)?.ids).toEqual(['pub/a']));
+    expect(hub.estimates.at(-1)?.assume).toEqual([{ id: 'pub/a', effort: 'M', value: 2 }]);
+    expect(Object.keys(app.matrixDraft)).toEqual(['pub/a']);
+    expect(app.matrixChanges).toBe(1);
+  });
+
+  it('counts the tasks that change, not the cells that were touched', async () => {
+    const { app } = await started([planned('pub/a', { effort: 'S' })]);
+    app.openMatrix();
+    app.setCell('pub/a', 'effort', 'S');
+    expect(app.matrixChanges).toBe(0);
+    app.setCell('pub/a', 'value', 2);
+    expect(app.matrixChanges).toBe(1);
+  });
+
+  it('keeps the draft when it is opened a second time, and says the figures are pending until they come', async () => {
+    const { app } = await started([planned('pub/a')]);
+    app.openMatrix();
+    await vi.waitFor(() => expect(app.matrixPending).toBe(false));
+    app.setCell('pub/a', 'value', 2);
+    expect(app.matrixPending).toBe(true);
+    app.openMatrix();
+    expect(app.matrixDraft).toEqual({ 'pub/a': { value: 2, etag: 'e-pub/a' } });
+    await vi.waitFor(() => expect(app.matrixPending).toBe(false));
+  });
+
+  it('tells when the matrix holds fewer tasks than were asked for', async () => {
+    const many = Array.from({ length: 105 }, (_, i) => planned(`pub/t${i}`));
+    const { app } = await started(many);
+    app.openMatrix();
+    expect(app.matrix?.ids).toHaveLength(100);
+    expect(app.toast?.text).toMatch(/100\D+105/);
+  });
+
+  it('keeps the selection the person made during the write of the inbox', async () => {
+    const { app, hub } = await started([planned('pub/a', { prio: 1, effort: 'S' }), planned('pub/b'), planned('pub/c')]);
+    app.setView('inbox');
+    expect(app.selectedId).toBe('pub/a');
+    const ops = hub.ops.bind(hub);
+    hub.ops = async (request) => {
+      const result = await ops(request);
+      hub.doc = snapshot([planned('pub/a', { prio: 1, effort: 'S', actor: 'me', actor_written: true }), planned('pub/b'), planned('pub/c')], 'rev:2');
+      // The person clicks another row while the write is under way.
+      app.select('pub/c');
+      return result;
+    };
+    await app.triage('m', false);
+    expect(app.selectedId).toBe('pub/c');
+  });
+
+  it('puts the selection on a row of the inbox when the selected task is not in it', async () => {
+    const { app } = await started([planned('pub/a', { prio: 1, effort: 'S', actor: 'me', actor_written: true }), planned('pub/b')]);
+    app.select('pub/a');
+    app.setView('inbox');
+    expect(app.selectedId).toBe('pub/b');
+  });
+
+  it('forgets the graph, the matrix and the check when the session is lost', async () => {
+    const { app, hub } = await started([planned('pub/a')]);
+    app.openGraph('pub/a');
+    app.openMatrix();
+    hub.checkAnswers = [{ state: 'running', id: 1 }];
+    await app.openChecks();
+    expect(app.graph).not.toBeNull();
+    hub.onUnauthorized();
+    expect(app.graph).toBeNull();
+    expect(app.matrix).toBeNull();
+    expect(app.checking).toBe(false);
+    expect(app.checkJob).toBeNull();
+  });
+
+  it('shows no list of a graph that could not be read again', async () => {
+    const { app, hub } = await started([planned('pub/a')]);
+    app.openGraph('pub/a');
+    await vi.waitFor(() => expect(app.graphDoc).not.toBeNull());
+    hub.graphError = new ApiError(404, 'not_found', 'no such open task: pub/a');
+    app.reloadGraph();
+    await vi.waitFor(() => expect(app.graphProblem).toBe('no such open task: pub/a'));
+    expect(app.graphDoc).toBeNull();
+  });
+
+  it('asks for the state of a running check again after one ask failed, and lets the person run it', async () => {
+    vi.useFakeTimers();
+    try {
+      const { app, hub } = await started([planned('pub/a')]);
+      hub.checkAnswers = [{ state: 'running', id: 1 }];
+      await app.openChecks();
+      expect(app.checkJob?.state).toBe('running');
+      hub.checkError = new ApiError(503, 'busy', 'the engine queue is full');
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(app.checkProblem).toBe('the engine queue is full');
+      // The job may still run: it is asked again a little later, and now the answer comes.
+      hub.checkError = null;
+      hub.checkAnswers = [{ state: 'running', id: 1 }];
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(app.checkProblem).toBeNull();
+      expect(app.checkJob?.state).toBe('running');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves no timer of the check behind when the app is stopped while an ask is out', async () => {
+    vi.useFakeTimers();
+    try {
+      const { app, hub } = await started([planned('pub/a')]);
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      const state = hub.checkState.bind(hub);
+      hub.checkState = async () => {
+        await held;
+        return state();
+      };
+      hub.checkAnswers = [{ state: 'running', id: 1 }];
+      const opening = app.openChecks();
+      app.stop();
+      release();
+      await opening;
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -125,12 +125,21 @@
       return;
     }
     // The inbox: a single key writes a field of the selected task. Holding a key does not write it again.
-    if (app.view === 'inbox' && event.key !== 'j' && event.key !== 'k' && event.key !== 'g') {
-      if (event.key === 'u') {
+    if (app.view === 'inbox') {
+      // The letter's case is not trusted here either: with CapsLock on, j and u arrive as J and U (without Shift).
+      const letter = event.key.length === 1 && !event.shiftKey ? event.key.toLowerCase() : event.key;
+      if (letter === 'j' || letter === 'k') {
+        event.preventDefault();
+        app.moveSelectionInbox(letter === 'j' ? 1 : -1);
+        return;
+      }
+      if (letter === 'u') {
         event.preventDefault();
         if (!event.repeat) void app.undo();
         return;
       }
+    }
+    if (app.view === 'inbox' && event.key !== 'g' && event.key !== 'G') {
       if (triageKey(event.key, event.shiftKey)) {
         event.preventDefault();
         if (!event.repeat) void app.triage(event.key, event.shiftKey);

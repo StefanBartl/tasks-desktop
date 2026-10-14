@@ -304,12 +304,16 @@ error never holds a path (the terminal of whoever runs the hub gets the reason).
 ## The check as a job (`POST` and `GET /api/tasks/check`)
 
 The check reads every task file and, with `stale: refs`, asks git, which takes longer than a question; so it runs in the
-hub as a job. `POST` takes `{ "stale": "refs", "area": "<area>" }` (both optional, anything else is refused at the door),
+hub as a job, and as a process of its own (ten times the usual time allowed), outside the place and the persistent host
+of the other calls: a write, a task or a question does not wait behind it. It only reads; a file changed while it reads
+is at worst a finding that is gone at the next look, and the page shows no finding of a check made for an older state. `POST` takes `{ "stale": "refs", "area": "<area>" }` (both optional, anything else is refused at the door),
 starts the job and answers at once; a start while a job runs answers that job and starts no second one. `GET` (no query)
 answers the state: `idle`, `running`, `done` with the engine's `tasks.check` document, or `failed` with a code and one
 short sentence. The sentence of a failure is the engine's own refusal or a fixed text: what a failed process wrote on its
 error output (it holds paths) never reaches the page. The state belongs to the vault that is read: choosing another vault
-drops it, and a job of the old vault ends without setting anything. There is no cancel: closing the dialog only stops the
+drops it (a start that comes after is refused with `vault_changed`), and a job of the old vault ends without setting
+anything. What the engine writes to its error output is logged by the hub for whoever runs it and never sent to the page;
+hidden characters (bidirectional, zero width) are taken out of the sentence that is. There is no cancel: closing the dialog only stops the
 page from looking, and the job ends by itself (the engine is not killed in the middle of a read). A `POST` counts against
 the limit of mutations like every `POST`. The findings are the engine's words and are shown as text only.
 
@@ -327,7 +331,9 @@ an `id` and, if wanted, a short `effort` word and a whole `value`); anything els
 process is asked. What the values may be is the engine's judgement, and its words come back as they are. Nothing is
 written and nothing is scanned. The route needs a session and JSON like every route with a body, and has the coarse limit
 of `ops` in the guard (300 in 10 s), not the strict one of the writes: choosing a cell in the matrix is a question, and
-asking again must not use up what the writes may do. The sums are the engine's; the page never reckons one.
+asking again must not use up what the writes may do. The sums are the engine's; the page never reckons one. A question that is
+out when the next choice is made is abandoned (the page aborts it), and the draft holds the version of each file as it was when
+the cell was chosen: Apply writes with that version, so a change made in Neovim meanwhile is a conflict and not overwritten.
 
 ## Opening a task in Neovim (`POST /api/tasks/open`)
 

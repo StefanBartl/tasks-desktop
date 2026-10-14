@@ -12,29 +12,57 @@ export const MATRIX_MAX = 100;
 export interface Cell {
   effort?: string;
   value?: number;
+  /** The version of the file when the person first chose a cell of this task: a change made since is a conflict. */
+  etag?: string;
 }
 
 export type Draft = Record<string, Cell>;
 
-/** `id` with `field` set to `value`, or put back to "as the file has it" (`undefined`). Empty cells are dropped. */
-export function withCell(draft: Draft, id: string, field: keyof Cell, value: string | number | undefined): Draft {
+export function withCell(
+  draft: Draft,
+  id: string,
+  field: 'effort' | 'value',
+  value: string | number | undefined,
+  /** The version of the task's file as it is now; kept from the first choice on. */
+  etag?: string,
+): Draft {
   const cell: Cell = { ...draft[id] };
   if (value === undefined) delete cell[field];
   else (cell as Record<string, string | number>)[field] = value;
+  if (cell.etag === undefined && etag !== undefined) cell.etag = etag;
   const next = { ...draft };
   if (cell.effort === undefined && cell.value === undefined) delete next[id];
   else next[id] = cell;
   return next;
 }
 
-/** The assumptions to ask the engine about: the cells of the draft, nothing else. */
-export function assumeOf(draft: Draft): { id: string; effort?: string; value?: number }[] {
-  return Object.entries(draft).map(([id, cell]) => ({ id, ...cell }));
+/** The assumptions to ask the engine about: the cells of the draft that name a task of `ids`, nothing else. */
+export function assumeOf(
+  draft: Draft,
+  ids?: readonly string[],
+): { id: string; effort?: string; value?: number }[] {
+  const out: { id: string; effort?: string; value?: number }[] = [];
+  for (const [id, cell] of Object.entries(draft)) {
+    if (ids && !ids.includes(id)) continue;
+    out.push({
+      id,
+      ...(cell.effort !== undefined ? { effort: cell.effort } : {}),
+      ...(cell.value !== undefined ? { value: cell.value } : {}),
+    });
+  }
+  return out;
+}
+
+/** The draft without the tasks that are not there any more (finished, moved: the engine would refuse them). */
+export function pruneDraft(draft: Draft, ids: readonly string[]): Draft {
+  const keep = new Set(ids);
+  return Object.fromEntries(Object.entries(draft).filter(([id]) => keep.has(id)));
 }
 
 /**
- * One `set` for every task whose draft differs from its file, with only the keys that differ and the version that was
- * shown (a task changed since is a conflict of its own). A cell equal to what the file has writes nothing.
+ * One `set` for every task whose draft differs from its file, with only the keys that differ and the version the file
+ * had when the cell was chosen (a task changed since is a conflict of its own, also one changed while the dialog was
+ * open). A cell equal to what the file has writes nothing.
  */
 export function changesOf(tasks: readonly TaskEntry[], draft: Draft): Op[] {
   const ops: Op[] = [];
@@ -45,7 +73,8 @@ export function changesOf(tasks: readonly TaskEntry[], draft: Draft): Op[] {
     if (cell.effort !== undefined && cell.effort !== task.effort) patch.effort = cell.effort;
     if (cell.value !== undefined && cell.value !== task.value) patch.value = cell.value;
     if (Object.keys(patch).length > 0) {
-      ops.push({ op: 'set', id: task.id, patch, ...(task.etag ? { if_match: task.etag } : {}) });
+      const seen = cell.etag ?? task.etag;
+      ops.push({ op: 'set', id: task.id, patch, ...(seen ? { if_match: seen } : {}) });
     }
   }
   return ops;

@@ -10,7 +10,7 @@ import type { Check, DonePreview, Estimate, Next, PlanFor, Result, Snapshot, Tas
 import type { Op } from './api';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
 import { inboxOf, triageKey } from './inbox';
-import { assumeOf, changesOf, failedIdsOf, matrixIds, withCell, type Cell, type Draft } from './estimate';
+import { assumeOf, changesOf, failedIdsOf, MATRIX_MAX, matrixIds, pruneDraft, withCell, type Draft } from './estimate';
 import { bumped, parseFrecency, type Frecency } from './palette';
 import { defaultView, nextView, parseViews, type CountKey, type CountView } from './counts';
 import { conflictsOf, conflictsOfRequest, mergeConflicts, retryOp, type Conflict } from './conflicts';
@@ -152,8 +152,13 @@ export class App {
   checkJob = $state.raw<CheckJobState | null>(null);
   checkProblem = $state<string | null>(null);
   private checkTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The newest start or ask of the job: an older answer does not replace it. */
+  private checkSeq = 0;
+  /** The figures shown are for an older draft than the table: a question is due or under way. */
+  matrixPending = $state(false);
   private matrixSeq = 0;
   private matrixTimer: ReturnType<typeof setTimeout> | undefined;
+  private matrixAbort: AbortController | undefined;
   /** A card that goes to the blocked column and has no blocker yet, waiting for the person's answer. */
   blocking = $state.raw<{ id: string } | null>(null);
   /** The changes the engine refused because the file moved on: the conflict center lists them. */
@@ -696,9 +701,14 @@ export class App {
   /** Start the check; it runs in the hub and the page goes on. */
   async runCheck(refs: boolean): Promise<void> {
     this.checkProblem = null;
+    this.checkSeq += 1;
+    const seq = this.checkSeq;
     try {
-      this.checkJob = await this.env.hub.checkStart(refs ? { stale: 'refs' } : {});
+      const job = await this.env.hub.checkStart(refs ? { stale: 'refs' } : {});
+      if (seq !== this.checkSeq) return;
+      this.checkJob = job;
     } catch (error) {
+      if (seq !== this.checkSeq) return;
       this.checkProblem = error instanceof ApiError ? error.message : translate(this.lang, 'check.failed');
       return;
     }
@@ -708,11 +718,21 @@ export class App {
   /** Ask for the state of the job, and again a second later while it runs. */
   private async pollCheck(): Promise<void> {
     clearTimeout(this.checkTimer);
+    this.checkSeq += 1;
+    const seq = this.checkSeq;
     try {
-      this.checkJob = await this.env.hub.checkState();
+      const job = await this.env.hub.checkState();
+      if (seq !== this.checkSeq) return;
+      this.checkJob = job;
       this.checkProblem = null;
     } catch (error) {
+      if (seq !== this.checkSeq) return;
       this.checkProblem = error instanceof ApiError ? error.message : translate(this.lang, 'check.failed');
+      // A job that was running may well still run: one failed question ends neither it nor the asking. The next
+      // try is a little later (the hub may be busy), and the run button is not held back by the old state.
+      if (this.checkJob?.state === 'running' && this.phase === 'ready') {
+        this.checkTimer = setTimeout(() => void this.pollCheck(), 3000);
+      }
       return;
     }
     this.watchCheck();
@@ -761,7 +781,9 @@ export class App {
       this.graphProblem = null;
     } catch (error) {
       if (seq !== this.graphSeq || !this.graph) return;
-      // The engine's words, as they are (a task that is finished meanwhile is "no such open task").
+      // The engine's words, as they are (a task that is finished meanwhile is "no such open task"); the list that was
+      // there is not left standing under them.
+      this.graphDoc = null;
       this.graphProblem = error instanceof ApiError ? error.message : translate(this.lang, 'graph.failed');
     }
   }
@@ -770,12 +792,15 @@ export class App {
 
   /** Open the matrix on the marked tasks, else on those the list shows. */
   openMatrix(): void {
-    if (this.phase !== 'ready' || !this.can('estimate')) return;
+    // One that is open keeps its draft: a second call (the palette) does not throw the choices away.
+    if (this.phase !== 'ready' || !this.can('estimate') || this.matrix) return;
     const ids = matrixIds(this.marks, this.shown);
     if (ids.length === 0) {
       this.say('ok', 'matrix.none');
       return;
     }
+    const wanted = this.marks.length > 0 ? this.marks.length : this.shown.length;
+    if (wanted > MATRIX_MAX) this.say('ok', 'matrix.cut', { n: MATRIX_MAX, total: wanted });
     this.matrix = { ids };
     this.matrixDraft = {};
     this.matrixFigures = null;
@@ -785,7 +810,9 @@ export class App {
 
   closeMatrix(): void {
     clearTimeout(this.matrixTimer);
+    this.matrixAbort?.abort();
     this.matrixSeq += 1;
+    this.matrixPending = false;
     this.matrix = null;
     this.matrixDraft = {};
     this.matrixFigures = null;
@@ -802,28 +829,52 @@ export class App {
     });
   }
 
+  /** How many tasks the draft would change (a cell equal to its file changes nothing). */
+  get matrixChanges(): number {
+    return changesOf(this.matrixRows, this.matrixDraft).length;
+  }
+
   /** Choose a cell (or put it back with `undefined`); the figures are asked for again a moment later. */
-  setCell(id: string, field: keyof Cell, value: string | number | undefined): void {
+  setCell(id: string, field: 'effort' | 'value', value: string | number | undefined): void {
     if (!this.matrix) return;
-    this.matrixDraft = withCell(this.matrixDraft, id, field, value);
+    const task = this.tasks.find((t) => t.id === id);
+    this.matrixDraft = withCell(this.matrixDraft, id, field, value, task?.etag);
+    // What was asked for the older draft is no answer to this one: it is dropped at once, not when the next
+    // question starts, and the figures say they are being reckoned.
+    this.matrixAbort?.abort();
+    this.matrixSeq += 1;
+    this.matrixPending = true;
     clearTimeout(this.matrixTimer);
     this.matrixTimer = setTimeout(() => void this.askFigures(), 250);
   }
 
   private async askFigures(): Promise<void> {
-    const matrix = this.matrix;
-    if (!matrix) return;
+    if (!this.matrix) return;
+    // The tasks that are there now: one that was finished or moved meanwhile would make the engine refuse every
+    // question from here on (`no open task`), so it leaves the question and the draft.
+    const ids = this.matrixRows.map((t) => t.id);
+    this.matrixDraft = pruneDraft(this.matrixDraft, ids);
+    this.matrixAbort?.abort();
+    const abort = new AbortController();
+    this.matrixAbort = abort;
     this.matrixSeq += 1;
     const seq = this.matrixSeq;
-    const assume = assumeOf(this.matrixDraft);
+    if (ids.length === 0) {
+      this.matrixFigures = null;
+      this.matrixPending = false;
+      return;
+    }
+    const assume = assumeOf(this.matrixDraft, ids);
     try {
-      const figures = await this.env.hub.estimate({ ids: matrix.ids, ...(assume.length > 0 ? { assume } : {}) });
+      const figures = await this.env.hub.estimate({ ids, ...(assume.length > 0 ? { assume } : {}) }, abort.signal);
       // An older answer does not replace a newer question's.
       if (seq !== this.matrixSeq || !this.matrix) return;
       this.matrixFigures = figures;
       this.matrixProblem = null;
+      this.matrixPending = false;
     } catch (error) {
-      if (seq !== this.matrixSeq || !this.matrix) return;
+      if (seq !== this.matrixSeq || !this.matrix || abort.signal.aborted) return;
+      this.matrixPending = false;
       // The engine's words, as they are: the page does not interpret them.
       this.matrixProblem = error instanceof ApiError ? error.message : translate(this.lang, 'matrix.failed');
     }
@@ -1196,12 +1247,22 @@ export class App {
 
   stop(): void {
     this.stopped = true;
+    this.checkSeq += 1;
+    this.matrixSeq += 1;
+    this.graphSeq += 1;
     clearTimeout(this.checkTimer);
     clearTimeout(this.matrixTimer);
     this.abort?.abort();
   }
 
   private lostSession(): void {
+    // What was asked of the hub is not valid without the session: the dialogs and the graph close, the job is forgotten.
+    this.closeGraph();
+    this.closeMatrix();
+    this.closeChecks();
+    this.checkSeq += 1;
+    this.checkJob = null;
+    clearTimeout(this.checkTimer);
     safe(() => this.env.session.removeItem(TOKEN_KEY));
     this.env.hub.setToken(null);
     this.abort?.abort();
@@ -1380,6 +1441,7 @@ export class App {
     // The board writes with `reorder`: an engine without it does not get one.
     if (view === 'board' && !this.can('reorder')) return;
     this.view = view;
+    if (view === 'inbox') this.ensureInboxSelection();
     safe(() => this.env.prefs.setItem('tasks-desktop.view', view));
     if (view === 'today' && this.phase === 'ready') void this.loadNext();
   }
@@ -1475,7 +1537,17 @@ export class App {
     if (at === -1) return;
     await this.setField(id, choice.field, choice.value);
     const after = this.inbox;
-    if (!after.some((t) => t.id === id)) this.select(after[Math.min(at, after.length - 1)]?.id ?? null);
+    // Only when the person is still on that task: a click or a j made during the write is theirs.
+    if (this.selectedId === id && !after.some((t) => t.id === id)) {
+      this.select(after[Math.min(at, after.length - 1)]?.id ?? null);
+    }
+  }
+
+  /** Put the selection on a row of the inbox when it is on none (entering the view, or the task was sorted elsewhere). */
+  ensureInboxSelection(): void {
+    const rows = this.inbox;
+    if (rows.length === 0) return;
+    if (this.selectedId === null || !rows.some((t) => t.id === this.selectedId)) this.select(rows[0]?.id ?? null);
   }
 
   private async loadDetail(id: string): Promise<void> {
