@@ -9,6 +9,7 @@ import { cacheableClass, cacheableList, type ListStore } from './cache';
 import type { DonePreview, Next, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import type { Op } from './api';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
+import { inboxOf, triageKey } from './inbox';
 import { bumped, parseFrecency, type Frecency } from './palette';
 import { defaultView, nextView, parseViews, type CountKey, type CountView } from './counts';
 import { conflictsOf, conflictsOfRequest, mergeConflicts, retryOp, type Conflict } from './conflicts';
@@ -18,7 +19,7 @@ import { localToday } from './remind';
 
 export type Phase = 'starting' | 'needs_pairing' | 'offline' | 'unavailable' | 'ready';
 export type Connection = 'live' | 'reconnecting' | 'offline';
-export type View = 'today' | 'list' | 'board' | 'plan';
+export type View = 'today' | 'list' | 'board' | 'plan' | 'inbox';
 export type Theme = 'auto' | 'light' | 'dark';
 /** The blocks of the Today view that a person may hide. */
 export const TILES = ['next', 'waiting', 'remind', 'cdx', 'counts'] as const;
@@ -189,7 +190,7 @@ export class App {
     this.frecency = parseFrecency(safe(() => env.prefs.getItem('tasks-desktop.frecency')));
     // The page opens on the view it was left on.
     const view = safe(() => env.prefs.getItem('tasks-desktop.view'));
-    this.view = view === 'list' || view === 'board' || view === 'plan' ? view : 'today';
+    this.view = view === 'list' || view === 'board' || view === 'plan' || view === 'inbox' ? view : 'today';
   }
 
   // ── derived ───────────────────────────────────────────────────────────
@@ -1228,6 +1229,33 @@ export class App {
   moveSelection(delta: number): void {
     const id = moveSelection(this.shown, this.selectedId, delta);
     if (id !== null && id !== this.selectedId) this.select(id);
+  }
+
+  /** The tasks the inbox view shows: those that lack a priority, an effort or a written actor. */
+  get inbox(): TaskEntry[] {
+    return inboxOf(this.tasks);
+  }
+
+  moveSelectionInbox(delta: number): void {
+    const id = moveSelection(this.inbox, this.selectedId, delta);
+    if (id !== null && id !== this.selectedId) this.select(id);
+  }
+
+  /**
+   * A key of the inbox: write the field it names on the selected task. Nothing is sent while another write is under
+   * way, or for a key that names nothing. When the task is sorted by it and leaves the inbox, the selection stays
+   * at the same place, on the task that took its row.
+   */
+  async triage(key: string, shift: boolean): Promise<void> {
+    const choice = triageKey(key, shift);
+    const id = this.selectedId;
+    if (!choice || id === null || this.saving || this.phase !== 'ready') return;
+    const before = this.inbox;
+    const at = before.findIndex((t) => t.id === id);
+    if (at === -1) return;
+    await this.setField(id, choice.field, choice.value);
+    const after = this.inbox;
+    if (!after.some((t) => t.id === id)) this.select(after[Math.min(at, after.length - 1)]?.id ?? null);
   }
 
   private async loadDetail(id: string): Promise<void> {

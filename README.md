@@ -161,7 +161,7 @@ and a filter that hides a task also takes its mark; one batch, each task with th
 was shown, so a task changed meanwhile fails alone), undo that, see the tasks as a board (a column for each status, the cards in the
 engine's order; a card is dragged to another column to set its status or among
 the cards of its priority to reorder, or moved with `Shift` and `j` `k` `h` `l`; `g b` opens
-the board; the order holds inside one priority and one stage only, which the board says), make a plan with a wizard (a title and an area are enough; the engine names the
+the board; the order holds inside one priority and one stage only, which the board says), sort the tasks that lack a priority, an effort or a who in the inbox (`g i`: `j` `k` move, `1` `2` `3` set the priority, `a` `s` `d` `f` the effort XS S M L and `Shift`+`f` XL, `m` `p` `i` the who me, pair and cdx, `u` takes the last change back; one key is one change the engine judges), make a plan with a wizard (a title and an area are enough; the engine names the
 plan in a dry run while you type, tells a name that is taken and refuses what is not a plan),
 find an action or a task in the command palette (`Ctrl`+`K`: a few letters in order are enough, what you chose before comes first; it changes the status or priority of the selected task, goes to a view, and more), finish a task after a preview of
 what it does, and set a reminder (a date on which a task comes back on the

@@ -753,6 +753,53 @@ tags: [dup, dup]`));
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('the inbox sorts tasks with single keys and nothing else', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  for (const n of [1, 2, 3]) {
+    await page.keyboard.press('c');
+    const capture = page.getByRole('dialog', { name: 'New task' });
+    await capture.getByLabel('Title').fill(`Inbox e2e ${n}`);
+    await capture.locator('select').first().selectOption('lib.nvim');
+    await capture.getByRole('button', { name: 'Create' }).click();
+    await expect(capture).toHaveCount(0);
+  }
+  // g i opens the inbox: the new tasks lack everything.
+  await page.keyboard.press('g');
+  await page.keyboard.press('i');
+  const inbox = page.locator('section.inbox');
+  await expect(inbox).toBeVisible();
+  for (const n of [1, 2, 3]) {
+    await expect(inbox.locator('.row', { hasText: `inbox-e2e-${n}` })).toContainText(/no priority.*no effort.*no who/);
+  }
+  await expectAccessible(page, 'inbox');
+  const toast = page.getByRole('status');
+  for (const n of [1, 2, 3]) {
+    const row = inbox.locator('.row', { hasText: `lib.nvim/inbox-e2e-${n}` });
+    await row.click();
+    await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/inbox-e2e-${n}`);
+    // Priority, effort and who, each with one key; the row loses a chip after each, and leaves with the last.
+    await page.keyboard.press('2');
+    await expect(toast.getByText('Saved')).toBeVisible();
+    await expect(row).not.toContainText('no priority');
+    await page.keyboard.press(n === 3 ? 'Shift+f' : 's');
+    await expect(row).not.toContainText('no effort');
+    await page.keyboard.press(n === 2 ? 'p' : 'm');
+    await expect(row).toHaveCount(0);
+  }
+  // What the keys wrote is in the files.
+  const text = (n: number) => readFileSync(join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `inbox-e2e-${n}.md`), 'utf8');
+  expect(text(1)).toMatch(/prio: 2[\s\S]*effort: S[\s\S]*actor: me/);
+  expect(text(2)).toMatch(/actor: pair/);
+  expect(text(3)).toMatch(/effort: XL/);
+  // u takes the last one back: the task is in the inbox again, without a who.
+  await page.keyboard.press('u');
+  await expect(toast.getByText('Undone.')).toBeVisible();
+  await expect(inbox.locator('.row', { hasText: 'lib.nvim/inbox-e2e-3' })).toContainText('no who');
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
 test('a tag that was refused does not travel to the next task', async ({ page }) => {
   await watchViolations(page);
   await pair(page);
