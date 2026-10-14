@@ -1949,6 +1949,43 @@ test('a task is discarded with a reason: it is parked and the reason is noted, n
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('a task is moved to another area: the id changes, the file follows, the selection too, and undo brings it back', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+
+  await page.keyboard.press('c');
+  const capture = page.getByRole('dialog', { name: 'New task' });
+  await capture.getByLabel('Title').fill('Task that changes its area');
+  await capture.locator('select').first().selectOption('lib.nvim');
+  await capture.getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  const id = (await page.locator('aside.detail .id').innerText()).trim();
+  const slug = id.split('/')[1];
+  const detail = page.locator('aside.detail');
+  const from = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
+  const to = join(state().vault, 'cascade.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
+
+  const target = detail.getByRole('combobox', { name: 'Move to another area' });
+  await target.selectOption('cascade.nvim');
+  await detail.getByRole('button', { name: 'Check the move' }).click();
+  await expect(detail.getByRole('button', { name: `Move (becomes cascade.nvim/${slug})` })).toBeVisible();
+  expect(existsSync(from)).toBe(true);
+  expect(existsSync(to)).toBe(false);
+  await detail.getByRole('button', { name: `Move (becomes cascade.nvim/${slug})` }).click();
+  await expect(page.getByRole('status').getByText('Saved.').last()).toBeVisible();
+  await expect(page.locator('aside.detail .id')).toHaveText(`cascade.nvim/${slug}`);
+  expect(existsSync(from)).toBe(false);
+  expect(existsSync(to)).toBe(true);
+
+  await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
+  await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/${slug}`);
+  expect(existsSync(from)).toBe(true);
+  expect(existsSync(to)).toBe(false);
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
 test('the title, the summary and the relations are changed in the detail, and the engine refuses what is wrong', async ({ page }) => {
   await watchViolations(page);
   await pair(page);
@@ -2349,6 +2386,21 @@ test('the findings of the check stay for the tasks that did not change and go on
   await watchViolations(page);
   await pair(page);
   await showList(page);
+  // The index is made stale on purpose: other tests regenerate it, and this one must not depend on what they left.
+  const indexFile = join(state().vault, 'lib.nvim', 'ROADMAP', 'TASKS.md');
+  const indexText = existsSync(indexFile) ? readFileSync(indexFile, 'utf8') : null;
+  writeFileSync(indexFile, `${indexText ?? ''}
+<!-- edited by hand -->
+`);
+  try {
+    await checkFindingsStay(page);
+  } finally {
+    if (indexText === null) rmSync(indexFile, { force: true });
+    else writeFileSync(indexFile, indexText);
+  }
+});
+
+async function checkFindingsStay(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Check...' }).click();
   const dialog = page.getByRole('dialog', { name: 'Check the vault' });
   await dialog.getByRole('button', { name: 'Check now' }).click();
@@ -2376,4 +2428,4 @@ test('the findings of the check stay for the tasks that did not change and go on
     writeFileSync(file, text);
   }
   expect(consoleProblems.get(page)).toEqual([]);
-});
+}

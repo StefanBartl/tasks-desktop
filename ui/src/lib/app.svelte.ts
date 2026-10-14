@@ -6,7 +6,7 @@ import { planOp, type PlanForm, type PlanPreview } from './planwizard';
 import { columnsOf, isColumn, neighbourColumn, placeNear, stepInGroup, type Move } from './board';
 import { ApiError, type CheckJobState, type Hub, type HubArea, type HubAreas, type SearchResult, type VaultList } from './api';
 import { cacheableClass, cacheableList, type ListStore } from './cache';
-import type { Check, DonePreview, Estimate, Next, PlanFor, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
+import type { Check, DonePreview, Estimate, MovePlan, Next, PlanFor, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import type { Op } from './api';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
 import { inboxOf, triageKey } from './inbox';
@@ -532,6 +532,11 @@ export class App {
         });
         continue;
       }
+      if (inv.op === 'move_area') {
+        if (typeof inv.to_area !== 'string') return undefined;
+        inverses.push({ op: 'move_area', id: inv.id, to_area: inv.to_area, ...(inv.if_match ? { if_match: inv.if_match } : {}) });
+        continue;
+      }
       if (inv.op === 'set_body') {
         if (typeof inv.body !== 'string') return undefined;
         inverses.push({ op: 'set_body', id: inv.id, body: inv.body, ...(inv.if_match ? { if_match: inv.if_match } : {}) });
@@ -553,6 +558,8 @@ export class App {
     // While a write waits for its answer the toast is an older one: what it would undo may be touched by that write.
     if (!ops || this.answering) return;
     this.toast = null;
+    // The list is read again inside the write and drops a selection that has no task any more: look before.
+    const selectedBefore = this.selectedId;
     // A click while the write under way still re-reads the list is queued, not lost.
     if (this.settling) await this.settling;
     const result = await this.write(ops, {
@@ -563,6 +570,9 @@ export class App {
         return true;
       },
     });
+    // A move taken back: the task has its old id again, the selection follows it.
+    const back = result?.results.find((r) => r.ok && r.outcome === 'moved' && typeof r.new_id === 'string');
+    if (back?.new_id && ops.some((o) => o.op === 'move_area' && o.id === selectedBefore)) this.select(back.new_id);
     // Not sent at all (the page is not ready any more): say so, the toast is gone.
     if (!result && !this.toast) this.say('error', 'write.failed', { code: 'offline' });
   }
@@ -617,6 +627,47 @@ export class App {
       { undoable: false },
     );
     return result?.ok === true && result.results.every((r) => r.ok);
+  }
+
+  /**
+   * Ask the engine what moving `id` to `toArea` would break (a dry run: nothing is written). The report is the
+   * engine's: a taken slug is a conflict in it, what names the old id is in `references`.
+   */
+  async previewMove(
+    id: string,
+    toArea: string,
+    signal?: AbortSignal,
+  ): Promise<{ kind: 'ok'; move: MovePlan } | { kind: 'refused'; message: string } | { kind: 'unknown' }> {
+    try {
+      const result = await this.env.hub.ops(
+        { client_op_id: this.opId(), dry_run: true, ops: [{ op: 'move_area', id, to_area: toArea }] },
+        signal,
+      );
+      const entry = result.results[0];
+      if (entry?.move) return { kind: 'ok', move: entry.move };
+      return { kind: 'refused', message: entry?.error?.message ?? '' };
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 400) {
+        return { kind: 'refused', message: error.message };
+      }
+      return { kind: 'unknown' };
+    }
+  }
+
+  /**
+   * Move `id` to `toArea`: the id changes, what named the old id names the new one, all or nothing (the engine).
+   * `etag` is the version of the file that was shown. The selection follows the task. Taking it back is the inverse
+   * the engine gave. Says whether it was written.
+   */
+  async moveArea(id: string, toArea: string, etag?: string): Promise<boolean> {
+    const selectedBefore = this.selectedId;
+    const result = await this.write([
+      { op: 'move_area', id, to_area: toArea, ...(etag ? { if_match: etag } : {}) },
+    ]);
+    const entry = result?.results[0];
+    if (!entry?.ok || entry.outcome !== 'moved' || typeof entry.new_id !== 'string') return false;
+    if (selectedBefore === id) this.select(entry.new_id);
+    return true;
   }
 
   /**
