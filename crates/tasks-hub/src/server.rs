@@ -1573,9 +1573,9 @@ async fn search_route(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) 
 
 /// The operations the page may ask for. `move_area` only as a dry run (the
 /// engine says so itself); a dry run of `plan_new` names the plan without
-/// making it. `tick_step` and `append_note` change the text of one open task
-/// (a step, a line of the notes); the engine checks the version and the text.
-const OPS_ALLOWED: [&str; 9] = [
+/// making it. `tick_step`, `append_note` and `set_body` change the text of one open task
+/// (a step, a line of the notes, the text); the engine checks the version and the text.
+const OPS_ALLOWED: [&str; 10] = [
     "set",
     "new",
     "reorder",
@@ -1585,6 +1585,7 @@ const OPS_ALLOWED: [&str; 9] = [
     "tick_step",
     "append_note",
     "reopen",
+    "set_body",
 ];
 /// The fields of a request of `ops` (the engine checks the rest, strictly).
 const OPS_FIELDS: [&str; 4] = ["schema", "client_op_id", "dry_run", "ops"];

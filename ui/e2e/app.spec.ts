@@ -2136,6 +2136,53 @@ test('a task is made with a text: the file holds it as written, and the detail s
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('the text of a task is edited in the detail: written whole, taken back by undo, and a change in between is a conflict that keeps the draft', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+
+  await page.keyboard.press('c');
+  const capture = page.getByRole('dialog', { name: 'New task' });
+  await capture.getByLabel('Title').fill('Task whose text is edited');
+  await capture.locator('select').first().selectOption('lib.nvim');
+  await capture.getByLabel(/^Text/).fill('The old text.');
+  await capture.getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  const id = (await page.locator('aside.detail .id').innerText()).trim();
+  const detail = page.locator('aside.detail');
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${id.split('/')[1]}.md`);
+
+  await detail.getByRole('button', { name: 'Edit text' }).click();
+  const box = detail.getByRole('textbox', { name: /Text of the task/ });
+  await expect(box).toHaveValue('The old text.');
+  await expectAccessible(page, 'the detail with the text editor');
+  await box.fill('The new text.\n\n- with a list');
+  await detail.getByRole('button', { name: 'Save text' }).click();
+  await expect(page.getByRole('status').getByText('Saved.').last()).toBeVisible();
+  await expect(box).toHaveCount(0);
+  await expect(detail.locator('.prose, pre.body')).toContainText('The new text.');
+  expect(readFileSync(file, 'utf8')).toContain('\nThe new text.\n\n- with a list\n');
+  expect(readFileSync(file, 'utf8')).not.toContain('The old text.');
+
+  // The undo brings the old text back.
+  await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
+  await expect(detail.locator('.prose, pre.body')).toContainText('The old text.');
+  expect(readFileSync(file, 'utf8')).toContain('\nThe old text.\n');
+
+  // The file changes while the draft is open: the save is a conflict, the file keeps the other change, the draft stays.
+  await detail.getByRole('button', { name: 'Edit text' }).click();
+  await detail.getByRole('textbox', { name: /Text of the task/ }).fill('My draft.');
+  writeFileSync(file, readFileSync(file, 'utf8').replace('The old text.', 'Changed elsewhere.'));
+  await detail.getByRole('button', { name: 'Save text' }).click();
+  await expect(page.getByRole('status').getByText(/Not accepted|changed/i).last()).toBeVisible();
+  expect(readFileSync(file, 'utf8')).toContain('Changed elsewhere.');
+  await expect(detail.getByRole('textbox', { name: /Text of the task/ })).toHaveValue('My draft.');
+  await detail.getByRole('button', { name: 'Cancel' }).click();
+  await expect(detail.getByRole('textbox', { name: /Text of the task/ })).toHaveCount(0);
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
 test('a finished task is brought back by the undo of the finish and from the reminder, and the backlog loses its row', async ({ page }) => {
   await watchViolations(page);
   await pair(page);

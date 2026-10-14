@@ -21,6 +21,7 @@ export type Op =
   | { op: 'reopen'; id: string; status?: string; if_match?: string }
   | { op: 'tick_step'; id: string; n: number; done?: boolean; if_match?: string }
   | { op: 'append_note'; id: string; text: string; if_match?: string }
+  | { op: 'set_body'; id: string; body: string; if_match?: string }
   | {
       op: 'plan_new';
       area: string;

@@ -58,10 +58,27 @@
   let note = $state('');
   // The id as a value of its own: a refresh gives `task` a new object with the same id, and the draft must stay.
   const taskId = $derived(task?.id);
+  // The text of the task being edited: a draft that stays until it is written or given up, and goes with the task.
+  let editing = $state(false);
+  let draft = $state('');
+  // The version of the file the draft was started from: a change in between is a conflict, not overwritten.
+  let draftEtag = $state<string | undefined>(undefined);
   $effect(() => {
     void taskId;
     note = '';
+    editing = false;
+    draft = '';
   });
+  function editBody(): void {
+    if (detail.state !== 'ok') return;
+    draft = detail.doc.body.trim();
+    draftEtag = detail.doc.task.etag;
+    editing = true;
+  }
+  async function saveBody(): Promise<void> {
+    if (!task || detail.state !== 'ok') return;
+    if (await app.setBody(task.id, draft, draftEtag)) editing = false;
+  }
   async function addNote(): Promise<void> {
     if (!task || detail.state !== 'ok' || note.trim() === '') return;
     if (await app.addNote(task.id, note, detail.doc.task.etag)) note = '';
@@ -386,11 +403,34 @@
         <button type="button" class="switch" aria-pressed={raw} onclick={() => (raw = !raw)}
           >{raw ? t('detail.view_rendered') : t('detail.view_raw')}</button
         >
+        {#if app.can('set_body') && !detail.doc.body_truncated && !editing}
+          <button type="button" class="switch" disabled={app.saving} onclick={editBody}>{t('detail.edit_body')}</button>
+        {/if}
       </h3>
       {#if hasHidden(body)}<p class="warn">{t('detail.invisible')}</p>{/if}
       <!-- The body is untrusted: it is read into a tree and drawn as
            elements; it never becomes an HTML string. -->
-      {#if raw}
+      {#if editing}
+        <label class="edit">
+          <span class="muted">{t('detail.body_label')} <small>({t('detail.body_hint')})</small></span>
+          <textarea
+            bind:value={draft}
+            rows="14"
+            maxlength="100000"
+            disabled={app.saving}
+            onkeydown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation();
+                editing = false;
+              }
+            }}
+          ></textarea>
+        </label>
+        <div class="edit-actions">
+          <button type="button" disabled={app.saving} onclick={() => void saveBody()}>{t('detail.body_save')}</button>
+          <button type="button" disabled={app.saving} onclick={() => (editing = false)}>{t('detail.body_cancel')}</button>
+        </div>
+      {:else if raw}
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <pre class="body" tabindex="0">{markHidden(body)}</pre>
       {:else}
@@ -534,6 +574,28 @@
     gap: 0.4rem;
     align-items: baseline;
     cursor: pointer;
+  }
+  .edit {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .edit textarea {
+    width: 100%;
+    box-sizing: border-box;
+    font: inherit;
+    font-family: var(--mono, monospace);
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.5rem;
+    resize: vertical;
+  }
+  .edit-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
   }
   .note {
     display: flex;
