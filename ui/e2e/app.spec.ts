@@ -1216,6 +1216,37 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('the plan header: the label belongs to the choice, the button comes after it and stays inside the window', async ({
+  page,
+}) => {
+  await pair(page);
+  await chooseView(page, 'View', 'Plan');
+  const label = page.locator('.plan-select > span');
+  const select = page.locator('.plan-select select');
+  const button = page.getByRole('button', { name: 'Create a plan' });
+  await expect(select).toBeVisible();
+  await expect(button).toBeVisible();
+
+  const box = async (l: Locator): Promise<{ x: number; y: number; width: number; height: number }> => {
+    const b = await l.boundingBox();
+    if (!b) throw new Error('not drawn');
+    return b;
+  };
+  for (const width of [1280, 360]) {
+    await page.setViewportSize({ width, height: 800 });
+    const [l, c, b] = [await box(label), await box(select), await box(button)];
+    // The label is in the line of the choice (its middle lies between the top and the bottom of it), before it.
+    expect(l.y + l.height / 2).toBeGreaterThan(c.y);
+    expect(l.y + l.height / 2).toBeLessThan(c.y + c.height);
+    expect(l.x).toBeLessThan(c.x);
+    // The button is not between the label and the choice: it is after the choice (right of it, or in the line below).
+    expect(b.y >= c.y + c.height - 1 || b.x >= c.x + c.width - 1).toBe(true);
+    // Nothing leaves the window.
+    expect(c.x + c.width).toBeLessThanOrEqual(width + 1);
+    expect(b.x + b.width).toBeLessThanOrEqual(width + 1);
+  }
+});
+
 test('the plan wizard names the plan with a dry run, refuses what the engine refuses and makes the file', async ({
   page,
 }) => {
@@ -1223,10 +1254,10 @@ test('the plan wizard names the plan with a dry run, refuses what the engine ref
   await pair(page);
   await showList(page);
 
-  const dialog = page.getByRole('dialog', { name: 'New plan' });
+  const dialog = page.getByRole('dialog', { name: 'Create a plan' });
   const open = async (): Promise<void> => {
     await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
-    await page.getByRole('menuitem', { name: 'New plan ...' }).click();
+    await page.getByRole('menuitem', { name: 'Create a plan' }).click();
     await expect(dialog).toBeVisible();
   };
   await open();
@@ -1399,9 +1430,9 @@ test('the plan wizard does not make a plan from a name the engine has not confir
   await watchViolations(page);
   await pair(page);
   await showList(page);
-  const dialog = page.getByRole('dialog', { name: 'New plan' });
+  const dialog = page.getByRole('dialog', { name: 'Create a plan' });
   await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'New plan ...' }).click();
+  await page.getByRole('menuitem', { name: 'Create a plan' }).click();
   await dialog.getByLabel('Title', { exact: true }).fill('Stale one');
   await dialog.getByLabel('Area of the plan file').selectOption('lib.nvim');
   await expect(dialog.getByRole('status')).toHaveText('The plan will be lib.nvim/stale-one');
