@@ -314,7 +314,7 @@ changed while it ran) shows no finding. A finding that names another task as wel
 about only: it stays when just the task it points to changes.
 Once a person has started a check without `refs`, the hub runs it again by itself after the vault changed: 10 seconds
 without a change first, at least 30 seconds after the last start (a person's too), at most one at a time, only while a
-client holds an event stream, never with `refs` (a check that was started with `refs` switches this off, since running it
+client holds an event stream, with the area the person asked for, never with `refs` (a check that was started with `refs` switches this off, since running it
 again would take those findings out), never in a vault that is no longer read. Changes within the quiet time or the gap
 are folded into the one check that follows, so a folder that changes all the time (a sync tool) costs one check per
 30 seconds at most, and none for a hub nobody is looking at. The page finds such a check by asking now and then (every 15

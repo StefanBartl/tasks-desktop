@@ -272,6 +272,8 @@ struct VaultRuntime {
     /// Whether the hub runs the check again after the vault was changed (see `follow_changes`): on once a person
     /// started a check without `refs`, off when one with `refs` was started (running it again would take those out).
     auto_check: std::sync::atomic::AtomicBool,
+    /// The parameters of the last check a person started (the area), which the hub's own runs repeat.
+    check_params: StdMutex<serde_json::Map<String, serde_json::Value>>,
     /// The follower of the changes is started once for a runtime.
     auto_check_started: std::sync::atomic::AtomicBool,
     /// Set when the runtime is retired (another vault was chosen): nothing is started in it any more.
@@ -393,6 +395,7 @@ fn build_runtime(
         check: StdMutex::new(CheckJob::default()),
         check_started: StdMutex::new(None),
         auto_check: std::sync::atomic::AtomicBool::new(false),
+        check_params: StdMutex::new(serde_json::Map::new()),
         auto_check_started: std::sync::atomic::AtomicBool::new(false),
         retired: std::sync::atomic::AtomicBool::new(false),
         jobs: StdMutex::new(jobs),
@@ -1896,8 +1899,12 @@ async fn check_start(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
         return engine_unavailable(&st);
     };
     let with_refs = params.contains_key("stale");
+    let asked = params.clone();
     match start_check_job(&rt, engine.clone(), params) {
         Ok(state) => {
+            *rt.check_params
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = asked;
             rt.auto_check
                 .store(!with_refs, std::sync::atomic::Ordering::Release);
             if !with_refs {
@@ -2037,7 +2044,12 @@ async fn follow_changes(
             );
             if !running {
                 // A refusal (retired, lock) ends the round; the next change tries again.
-                let _ = start_check_job(&rt, Arc::clone(&engine), serde_json::Map::new());
+                let again = rt
+                    .check_params
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone();
+                let _ = start_check_job(&rt, Arc::clone(&engine), again);
                 break;
             }
             drop(rt);
@@ -2647,6 +2659,49 @@ mod tests {
         // Quiet and gap pass while the first still runs? The gap holds it back past its end (150 ms): it then starts one.
         tokio::time::sleep(Duration::from_millis(900)).await;
         assert_eq!(asked(&engine), 2);
+    }
+
+    /// An engine that keeps what it was asked.
+    struct Recording(StdMutex<Vec<Option<serde_json::Value>>>);
+
+    impl Engine for Recording {
+        fn call<'a>(
+            &'a self,
+            _method: EngineMethod,
+            params: Option<&'a serde_json::Value>,
+        ) -> crate::engine::CallFuture<'a> {
+            Box::pin(async move {
+                self.0.lock().unwrap().push(params.cloned());
+                Ok(crate::engine::Reply {
+                    kind: "tasks.check".to_owned(),
+                    text: r#"{"kind":"tasks.check","findings":[]}"#.to_owned(),
+                })
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn the_check_of_the_hub_asks_for_the_area_the_person_asked_for() {
+        let rt = bare_runtime();
+        rt.auto_check
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        rt.check_params
+            .lock()
+            .unwrap()
+            .insert("area".to_owned(), serde_json::json!("lib.nvim"));
+        let engine = Arc::new(Recording(StdMutex::new(Vec::new())));
+        let (tx, rx) = broadcast::channel(16);
+        let _handle = tokio::spawn(follow_changes(
+            Arc::downgrade(&rt),
+            engine.clone(),
+            rx,
+            FAST,
+            || true,
+        ));
+        tx.send(change(1)).unwrap();
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let asked = engine.0.lock().unwrap().clone();
+        assert_eq!(asked, vec![Some(serde_json::json!({ "area": "lib.nvim" }))]);
     }
 
     #[tokio::test]
