@@ -23,6 +23,7 @@ export function paletteActions(app: App): PaletteAction[] {
   if (selected) {
     const id = selected.id;
     add('task.finish', t('palette.finish'), () => app.startFinish(id), id);
+    if (app.can('plan_for')) add('task.graph', t('graph.button'), () => app.openGraph(id), id);
     for (const status of STATUSES) {
       if (status === selected.status) continue;
       add(`task.status.${status}`, t('palette.status', { status: t(`status.${status}` as Key) }), () => app.dropOnColumn(id, status), id);

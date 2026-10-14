@@ -531,3 +531,48 @@ async fn an_estimate_is_one_state_with_the_snapshot_and_takes_assumptions_withou
         "{refused:?}"
     );
 }
+
+#[tokio::test]
+async fn the_graph_of_a_task_is_one_state_with_the_snapshot() {
+    let Some((engine, _)) = engine().await else {
+        return;
+    };
+    let snapshot: Value = serde_json::from_str(
+        &engine
+            .call(Method::Snapshot, None)
+            .await
+            .expect("snapshot")
+            .text,
+    )
+    .unwrap();
+    // A task that waits on another: the graph names both, with the edge between them.
+    let waiting = snapshot["tasks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| {
+            t["readiness"]["open_blockers"]
+                .as_array()
+                .is_some_and(|b| !b.is_empty())
+        })
+        .expect("the fixture has a task that waits");
+    let id = waiting["id"].as_str().unwrap();
+    let reply = engine
+        .call(Method::PlanFor, Some(&json!({ "id": id })))
+        .await
+        .expect("plan_for");
+    assert_eq!(reply.kind, "tasks.planfor");
+    let doc: Value = serde_json::from_str(&reply.text).unwrap();
+    assert_eq!(doc["rev"], snapshot["rev"], "one state");
+    assert_eq!(doc["nodes"][0]["id"], id);
+    assert_eq!(doc["nodes"][0]["distance"], 0);
+    assert!(doc["total"].as_u64().unwrap() >= 2);
+    assert!(!doc["edges"].as_array().unwrap().is_empty());
+    let unknown = engine
+        .call(Method::PlanFor, Some(&json!({ "id": "nope.nvim/missing" })))
+        .await;
+    assert!(
+        matches!(unknown, Err(EngineError::Refused(_))),
+        "{unknown:?}"
+    );
+}

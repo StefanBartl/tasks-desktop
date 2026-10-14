@@ -6,7 +6,7 @@ import { planOp, type PlanForm, type PlanPreview } from './planwizard';
 import { columnsOf, isColumn, neighbourColumn, placeNear, stepInGroup, type Move } from './board';
 import { ApiError, type Hub, type HubArea, type HubAreas, type SearchResult, type VaultList } from './api';
 import { cacheableClass, cacheableList, type ListStore } from './cache';
-import type { DonePreview, Estimate, Next, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
+import type { DonePreview, Estimate, Next, PlanFor, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import type { Op } from './api';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
 import { inboxOf, triageKey } from './inbox';
@@ -142,6 +142,11 @@ export class App {
   matrixFigures = $state.raw<Estimate | null>(null);
   /** Why the figures are not there (the engine's words), or null. */
   matrixProblem = $state<string | null>(null);
+  /** The graph of one task in the plan view: which task, which way, what the engine says, and why it does not. */
+  graph = $state.raw<{ id: string; direction: 'needs' | 'unlocks' } | null>(null);
+  graphDoc = $state.raw<PlanFor | null>(null);
+  graphProblem = $state<string | null>(null);
+  private graphSeq = 0;
   private matrixSeq = 0;
   private matrixTimer: ReturnType<typeof setTimeout> | undefined;
   /** A card that goes to the blocked column and has no blocker yet, waiting for the person's answer. */
@@ -652,6 +657,47 @@ export class App {
   }
 
   /** Set the priority and place the card, as one batch (the way back is the inverse of both). */
+  // ── the graph of a task ────────────────────────────────────────────────
+
+  /** Show what `id` needs (or what waits for it) in the plan view. */
+  openGraph(id: string, direction: 'needs' | 'unlocks' = 'needs'): void {
+    if (this.phase !== 'ready' || !this.can('plan_for')) return;
+    this.graph = { id, direction };
+    this.graphDoc = null;
+    this.graphProblem = null;
+    this.setView('plan');
+    void this.askGraph();
+  }
+
+  closeGraph(): void {
+    this.graphSeq += 1;
+    this.graph = null;
+    this.graphDoc = null;
+    this.graphProblem = null;
+  }
+
+  /** Ask again for the graph that is open, after the vault changed (the old one stays until the new one is there). */
+  reloadGraph(): void {
+    if (this.graph && this.graphDoc !== null) void this.askGraph();
+  }
+
+  private async askGraph(): Promise<void> {
+    const graph = this.graph;
+    if (!graph) return;
+    this.graphSeq += 1;
+    const seq = this.graphSeq;
+    try {
+      const doc = await this.env.hub.planFor(graph.id, graph.direction);
+      if (seq !== this.graphSeq || !this.graph) return;
+      this.graphDoc = doc;
+      this.graphProblem = null;
+    } catch (error) {
+      if (seq !== this.graphSeq || !this.graph) return;
+      // The engine's words, as they are (a task that is finished meanwhile is "no such open task").
+      this.graphProblem = error instanceof ApiError ? error.message : translate(this.lang, 'graph.failed');
+    }
+  }
+
   // ── the estimate matrix ───────────────────────────────────────────────
 
   /** Open the matrix on the marked tasks, else on those the list shows. */

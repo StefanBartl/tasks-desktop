@@ -301,6 +301,12 @@ The data classes are per area name (`areas.json`) and apply to every vault: an a
 may do: a page that is paired could point the hub at any folder, so adding is a deliberate step with a confirmation, and an
 error never holds a path (the terminal of whoever runs the hub gets the reason).
 
+## The graph of a task (`GET /api/tasks/plan_for?id=&direction=`)
+
+A read like `done_preview`: the id must be `<area>/<slug>` and the direction `needs` (the default) or `unlocks`; any other
+query is refused at the door. The tasks it names, the edges between them and the walk of the graph are the engine's; the
+page lists what it is given and reckons nothing. The answer holds at most 500 tasks, which the page draws in steps.
+
 ## The estimate question (`POST /api/tasks/estimate`)
 
 A read that is a POST, because its question (a list of ids and some assumed efforts and values) is too long for a query.

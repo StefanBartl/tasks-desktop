@@ -1,0 +1,202 @@
+<script lang="ts">
+  // The graph of one task, as a list: what it needs before it can start, or what waits for it. The list is the
+  // plain form (Tab and the arrow keys, a screen reader reads it as a list, the steps from the task are the indent);
+  // the engine walks the graph, this only shows it.
+  import type { App } from '../lib/app.svelte';
+  import { labelOf, translate, type Key } from '../lib/i18n';
+  import { markHidden } from '../lib/text';
+
+  let { app }: { app: App } = $props();
+  const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
+
+  const graph = $derived(app.graph);
+  const doc = $derived(app.graphDoc);
+
+  // Asked again when the vault changed under the graph.
+  $effect(() => {
+    void app.snapshot?.rev;
+    app.reloadGraph();
+  });
+
+  // The ids a node waits for, as the engine's edges say (`from` is finished first, `to` waits).
+  const waitsFor = $derived.by(() => {
+    const out = new Map<string, string[]>();
+    for (const edge of doc?.edges ?? []) {
+      const list = out.get(edge.to);
+      if (list) list.push(edge.from);
+      else out.set(edge.to, [edge.from]);
+    }
+    return out;
+  });
+
+  // Nodes are drawn in steps, like the plan: a graph of five hundred is not one block of work.
+  const FIRST = 100;
+  const STEP = 200;
+  let grown = $state({ key: '', n: FIRST });
+  const key = $derived(`${graph?.id ?? ''}|${graph?.direction ?? ''}`);
+  const limit = $derived(grown.key === key ? grown.n : FIRST);
+  const nodes = $derived(doc?.nodes ?? []);
+  const drawn = $derived(nodes.slice(0, limit));
+  $effect(() => {
+    if (limit >= nodes.length) return;
+    const k = key;
+    const frame = requestAnimationFrame(() => {
+      grown = { key: k, n: Math.min(nodes.length, limit + STEP) };
+    });
+    return () => cancelAnimationFrame(frame);
+  });
+
+  function onKey(event: KeyboardEvent): void {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    const buttons = [...(event.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('button.node')];
+    const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    if (at === -1) return;
+    const next = buttons[at + (event.key === 'ArrowDown' ? 1 : -1)];
+    if (next) {
+      event.preventDefault();
+      next.focus();
+    }
+  }
+</script>
+
+{#if graph}
+  <section class="graph card" aria-label={t(graph.direction === 'needs' ? 'graph.title.needs' : 'graph.title.unlocks', { id: graph.id })}>
+    <header>
+      <h2>{t(graph.direction === 'needs' ? 'graph.title.needs' : 'graph.title.unlocks', { id: graph.id })}</h2>
+      <div class="dir" role="group" aria-label={t('graph.direction')}>
+        <button type="button" aria-pressed={graph.direction === 'needs'} onclick={() => app.openGraph(graph.id, 'needs')}>{t('graph.dir.needs')}</button>
+        <button type="button" aria-pressed={graph.direction === 'unlocks'} onclick={() => app.openGraph(graph.id, 'unlocks')}>{t('graph.dir.unlocks')}</button>
+        <button type="button" onclick={() => app.closeGraph()}>{t('graph.close')}</button>
+      </div>
+    </header>
+    <div role="status" aria-live="polite">
+      {#if app.graphProblem}
+        <p class="problem">{app.graphProblem}</p>
+      {:else if doc}
+        <p class="count">
+          {t('graph.count', { n: doc.total })}{doc.truncated ? ` - ${t('graph.truncated', { n: doc.nodes.length })}` : ''}
+        </p>
+      {:else}
+        <p class="count">{t('state.loading')}</p>
+      {/if}
+    </div>
+    {#each doc?.cycles ?? [] as cycle, i (i)}
+      <p class="cycle">{t('graph.cycle', { ids: cycle.join(', ') })}</p>
+    {/each}
+    <!-- The keys come from the buttons inside the list (arrow keys move between them); the list itself takes no input. -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <ol class="nodes" onkeydown={onKey}>
+      {#each drawn as node (node.id)}
+        <li style:padding-left={`${Math.min(node.distance, 8) * 1.25}rem`} aria-level={node.distance + 1}>
+          <button type="button" class="node" class:target={node.distance === 0} onclick={() => app.reveal(node.id)}>
+            <span class="title">{markHidden(node.title)}</span>
+            <span class="id">{node.id}</span>
+          </button>
+          <span class="meta">
+            <span class="tag">{labelOf(app.lang, 'status', node.status)}</span>
+            {#if node.state}<span class="tag soft">{labelOf(app.lang, 'state', node.state)}</span>{/if}
+            {#if node.on_critical_path}<span class="tag crit">{t('plan.on_path')}</span>{/if}
+          </span>
+          {#if waitsFor.get(node.id)}
+            <span class="waits">{t('graph.waits', { ids: (waitsFor.get(node.id) ?? []).join(', ') })}</span>
+          {/if}
+        </li>
+      {/each}
+    </ol>
+  </section>
+{/if}
+
+<style>
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.9rem 1rem;
+  }
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+  h2 {
+    margin: 0;
+    font-size: 1rem;
+  }
+  .dir {
+    display: flex;
+    gap: 0.4rem;
+  }
+  .dir button {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.2rem 0.6rem;
+    cursor: pointer;
+  }
+  .dir button[aria-pressed='true'] {
+    border-color: var(--accent);
+  }
+  .count,
+  .cycle,
+  .waits {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin: 0.3rem 0;
+  }
+  .cycle,
+  .problem {
+    color: var(--warn);
+  }
+  .nodes {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: baseline;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .node {
+    background: none;
+    border: 0;
+    padding: 0;
+    text-align: left;
+    color: inherit;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+  }
+  .node.target .title {
+    font-weight: 600;
+  }
+  .id {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .meta {
+    display: flex;
+    gap: 0.3rem;
+  }
+  .tag {
+    font-size: 0.75rem;
+    padding: 0 0.4rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+  }
+  .tag.soft {
+    color: var(--muted);
+  }
+  .tag.crit {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+</style>

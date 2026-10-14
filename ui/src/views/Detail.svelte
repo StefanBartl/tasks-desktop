@@ -428,6 +428,9 @@
       <button type="button" class="open-editor" onclick={() => void app.openInEditor(task.id)}
         >{t('editor.button')}</button
       >
+      {#if app.can('plan_for')}
+        <button type="button" class="open-editor" onclick={() => app.openGraph(task.id)}>{t('graph.button')}</button>
+      {/if}
     </p>
   {/if}
 </aside>
