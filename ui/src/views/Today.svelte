@@ -3,7 +3,7 @@
   import type { TaskBrief } from '../lib/contract';
   import { waitingForMe } from '../lib/filter';
   import { dueItems } from '../lib/remind';
-  import { labelOf, translate, type Key } from '../lib/i18n';
+  import { hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
   import { tasksOf, type CountKey } from '../lib/counts';
   import CountPanel from './CountPanel.svelte';
@@ -140,7 +140,7 @@
             data-count={tile.count}
             aria-expanded={app.countOpen === tile.count}
             aria-controls="count-panel"
-            title={t('count.hint')}
+            data-hint={`${hintOf(app.lang, 'hint.tile', tile.count)}\n${t('count.hint')}`}
             onclick={() => app.toggleCount(tile.count)}
             onkeydown={(e) => onTileKey(e, tile.count)}
           >

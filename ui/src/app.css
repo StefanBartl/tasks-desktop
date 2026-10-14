@@ -70,6 +70,41 @@ code,
 pre {
   font-family: var(--mono);
 }
+.hint-tip {
+  position: fixed;
+  z-index: 1000;
+  max-width: min(26rem, 92vw);
+  padding: 0.45rem 0.65rem;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.25);
+  font-size: 0.85rem;
+  line-height: 1.35;
+  white-space: pre-line;
+}
+.hint-tip[hidden],
+.hint-host[hidden] {
+  display: none;
+}
+.info {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: help;
+}
+.info:hover {
+  color: var(--text);
+}
 .sr-only {
   position: absolute;
   width: 1px;

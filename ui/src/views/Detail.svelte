@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { App } from '../lib/app.svelte';
-  import { formatNumber, labelOf, translate, type Key } from '../lib/i18n';
+  import { formatNumber, hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import { parseMarkdown } from '../lib/markdown';
   import { editableBody, hasHidden, markHidden, MAX_BODY_EDIT } from '../lib/text';
   import { REMIND_CHOICES } from '../lib/remind';
@@ -175,7 +175,7 @@
         />
       </label>
       <label>
-        <span>{t('field.status')}</span>
+        <span data-hint={hintOf(app.lang, 'hint.field', 'status')}>{t('field.status')}</span>
         <select
           value={task.status ?? ''}
           disabled={app.saving}
@@ -187,7 +187,7 @@
         </select>
       </label>
       <label>
-        <span>{t('field.prio')}</span>
+        <span data-hint={hintOf(app.lang, 'hint.field', 'prio')}>{t('field.prio')}</span>
         <select
           value={task.prio === undefined ? '' : String(task.prio)}
           disabled={app.saving}
@@ -205,7 +205,7 @@
         </select>
       </label>
       <label>
-        <span>{t('field.actor')}</span>
+        <span data-hint={hintOf(app.lang, 'hint.field', 'actor')}>{t('field.actor')}</span>
         <select
           value={task.actor ?? ''}
           disabled={app.saving}
@@ -219,7 +219,7 @@
         </select>
       </label>
       <label>
-        <span>{t('field.kind')}</span>
+        <span data-hint={hintOf(app.lang, 'hint.field', 'kind')}>{t('field.kind')}</span>
         <select
           value={task.kind ?? ''}
           disabled={app.saving}
@@ -233,7 +233,7 @@
         </select>
       </label>
       <label>
-        <span>{t('field.effort')}</span>
+        <span data-hint={hintOf(app.lang, 'hint.field', 'effort')}>{t('field.effort')}</span>
         <select
           value={task.effort ?? ''}
           disabled={app.saving}
@@ -250,7 +250,7 @@
         </select>
       </label>
       <label>
-        <span>{t('field.value')}</span>
+        <span data-hint={hintOf(app.lang, 'hint.field', 'value')}>{t('field.value')}</span>
         <select
           value={task.value === undefined ? '' : String(task.value)}
           disabled={app.saving}
@@ -268,7 +268,7 @@
         </select>
       </label>
       <label class="wide">
-        <span>{t('field.tags')} <small>({t('field.tags_hint')})</small></span>
+        <span data-hint={hintOf(app.lang, 'hint.field', 'tags')}>{t('field.tags')} <small>({t('field.tags_hint')})</small></span>
         <input
           type="text"
           value={tagsText(task.tags)}
@@ -290,7 +290,7 @@
         />
       </label>
       <label>
-        <span>{t('field.plan')}</span>
+        <span data-hint={hintOf(app.lang, 'hint.field', 'plan')}>{t('field.plan')}</span>
         <input
           type="text"
           value={task.plan ?? ''}
@@ -299,7 +299,7 @@
         />
       </label>
       <label>
-        <span>{t('field.phase')}</span>
+        <span data-hint={hintOf(app.lang, 'hint.field', 'phase')}>{t('field.phase')}</span>
         <input
           type="text"
           value={task.phase ?? ''}
@@ -308,7 +308,7 @@
         />
       </label>
       <label class="wide">
-        <span>{t('field.after')} <small>({t('field.tags_hint')})</small></span>
+        <span data-hint={hintOf(app.lang, 'hint.field', 'after')}>{t('field.after')} <small>({t('field.tags_hint')})</small></span>
         <input
           type="text"
           value={tagsText(task.after)}
@@ -318,7 +318,7 @@
         />
       </label>
       <label class="wide">
-        <span>{t('field.refs')} <small>({t('field.tags_hint')})</small></span>
+        <span data-hint={hintOf(app.lang, 'hint.field', 'refs')}>{t('field.refs')} <small>({t('field.tags_hint')})</small></span>
         <input
           type="text"
           value={tagsText(task.refs)}
@@ -356,22 +356,22 @@
     <dl>
       <dt>{t('prop.status')}</dt>
       <dd>{labelOf(app.lang, 'status', task.status)}</dd>
-      <dt>{t('prop.state')}</dt>
+      <dt data-hint={hintOf(app.lang, 'hint.field', 'state')}>{t('prop.state')}</dt>
       <dd>{task.readiness ? labelOf(app.lang, 'state', task.readiness.state) : unknown}</dd>
       <dt>{t('prop.area')}</dt>
       <dd>{task.area}</dd>
-      <dt>{t('prop.prio')}</dt>
+      <dt data-hint={hintOf(app.lang, 'hint.field', 'prio')}>{t('prop.prio')}</dt>
       <dd>{task.prio === undefined ? unknown : `P${task.prio}`}</dd>
-      <dt>{t('prop.effort')}</dt>
+      <dt data-hint={hintOf(app.lang, 'hint.field', 'effort')}>{t('prop.effort')}</dt>
       <dd>{show(task.effort)}</dd>
-      <dt>{t('prop.value')}</dt>
+      <dt data-hint={hintOf(app.lang, 'hint.field', 'value')}>{t('prop.value')}</dt>
       <dd>{show(task.value)}</dd>
-      <dt>{t('prop.roi')}</dt>
+      <dt data-hint={hintOf(app.lang, 'hint.field', 'roi')}>{t('prop.roi')}</dt>
       <dd>{task.roi === undefined ? unknown : formatNumber(app.lang, task.roi)}</dd>
-      <dt>{t('prop.actor')}</dt>
+      <dt data-hint={hintOf(app.lang, 'hint.field', 'actor')}>{t('prop.actor')}</dt>
       <dd>{labelOf(app.lang, 'actor', task.actor)}</dd>
       {#if task.plan}
-        <dt>{t('prop.plan')}</dt>
+        <dt data-hint={hintOf(app.lang, 'hint.field', 'plan')}>{t('prop.plan')}</dt>
         <dd>{task.plan}{task.phase ? ` · ${task.phase}` : ''}</dd>
       {/if}
       <dt>{t('prop.updated')}</dt>

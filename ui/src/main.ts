@@ -5,6 +5,7 @@ import { Hub } from './lib/api';
 import { App as AppState, type Env } from './lib/app.svelte';
 import { indexedDbStore } from './lib/cache';
 import { takePairingCode } from './lib/pair';
+import { installTooltips } from './lib/tooltip';
 
 // The code leaves the address bar before anything else happens.
 const code = takePairingCode(window.location, window.history);
@@ -21,6 +22,8 @@ const env: Env = {
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   reload: () => window.location.reload(),
 };
+
+installTooltips(document, window);
 
 const state = new AppState(env);
 mount(App, { target: document.getElementById('app') as HTMLElement, props: { app: state, code } });

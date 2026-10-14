@@ -2,7 +2,8 @@
   // The plan, read only: what can be worked on at once (a stage), what holds
   // the rest up (the critical path) and what the plan warns about.
   import type { App } from '../lib/app.svelte';
-  import { formatNumber, labelOf, translate, type Key } from '../lib/i18n';
+  import { formatNumber, hintOf, labelOf, translate, type Key } from '../lib/i18n';
+  import Info from './Info.svelte';
   import { chosenPlan, criticalIds, firstTasks, phaseCounts, stagesOf, warningsOf } from '../lib/plan';
   import { markHidden } from '../lib/text';
   import GraphPanel from './GraphPanel.svelte';
@@ -56,6 +57,14 @@
     app.reveal(id);
   }
 
+  // What the six counters mean, in one text for the button that can be reached with the keyboard.
+  const STATES = ['ready', 'decision', 'waiting', 'stuck', 'freed', 'parked'] as const;
+  const statesLegend = $derived(
+    STATES.map((s) => `${labelOf(app.lang, 'state', s)}: ${hintOf(app.lang, 'hint.state', s)}`).join('\n'),
+  );
+  const daysText = (days: number): string =>
+    t(days === 1 ? 'plan.day' : 'plan.days', { days: formatNumber(app.lang, days) });
+
   const narrowed = $derived(warningsOf(snapshot?.plan, app.tasks, planId === '' ? null : planId));
   const warnings = $derived(narrowed.warnings);
   const cycles = $derived(narrowed.cycles);
@@ -70,10 +79,11 @@
       <div class="chips">
         {#if summary}
           {#each [['ready', summary.ready], ['decision', summary.decision], ['waiting', summary.waiting], ['stuck', summary.stuck], ['freed', summary.freed], ['parked', summary.parked]] as [state, n] (state)}
-            <span class="chip"
+            <span class="chip" data-hint={hintOf(app.lang, 'hint.state', String(state))}
               ><strong>{n}</strong> {labelOf(app.lang, 'state', String(state))}</span
             >
           {/each}
+          <Info hint={statesLegend} label={t('hint.about', { what: t('plan.summary') })} />
         {/if}
       </div>
       <div class="toolbar">
@@ -92,7 +102,9 @@
       </div>
       {#if phases.length > 0}
         <p class="phases">
+          <span class="label">{t('plan.phases')}</span>
           {#each phases as ph (ph.phase)}<span class="chip soft">{markHidden(ph.phase)}: {ph.n}</span>{/each}
+          <Info hint={t('hint.phases')} label={t('hint.about', { what: t('plan.phases') })} />
         </p>
       {/if}
       {#if planId !== ''}
@@ -105,15 +117,17 @@
             total: estimate.tasks,
             days: formatNumber(app.lang, estimate.days),
           })}
+          <Info hint={t('hint.estimate')} label={t('hint.about', { what: t('plan.summary') })} />
         </p>
       {/if}
     </section>
 
     {#if path && path.path.length > 0}
       <section class="card" aria-label={t('plan.critical')}>
-        <h2 class="eyebrow">
-          {t('plan.critical')}: {t('plan.days', { days: formatNumber(app.lang, path.days) })}
-        </h2>
+        <div class="headline">
+          <h2 class="eyebrow">{t('plan.critical')}: {daysText(path.days)}</h2>
+          <Info hint={t('hint.critical')} label={t('hint.about', { what: t('plan.critical') })} />
+        </div>
         <ol class="path">
           {#each path.path as id (id)}
             <li>
@@ -131,7 +145,10 @@
 
     {#if warnings.length > 0 || cycles.length > 0 || sameFile.length > 0}
       <section class="card warn" aria-label={t('plan.warnings')} role="note">
-        <h2 class="eyebrow">{t('plan.warnings')}</h2>
+        <div class="headline">
+          <h2 class="eyebrow">{t('plan.warnings')}</h2>
+          <Info hint={t('hint.warnings')} label={t('hint.about', { what: t('plan.warnings') })} />
+        </div>
         <ul class="plain">
           {#each cycles as cycle, i (i)}
             <li>{t('plan.cycle')}: <code>{markHidden(cycle.join(' → '))}</code></li>
@@ -140,6 +157,7 @@
             <li>
               {t('plan.same_file', { stage: group.stage })}: <code>{markHidden(group.file)}</code>
               ({markHidden(group.ids.join(', '))})
+              <Info hint={t('hint.same_file')} label={t('hint.about', { what: t('plan.warnings') })} />
             </li>
           {/each}
           {#each warnings as w, i (i)}
@@ -217,8 +235,22 @@
     padding: 0.25rem 0.6rem;
     cursor: pointer;
   }
+  .headline {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5em;
+  }
+  .headline .eyebrow {
+    margin: 0;
+  }
+  .label {
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
   .chips,
   .phases {
+    align-items: center;
     display: flex;
     flex-wrap: wrap;
     gap: 0.4rem;
