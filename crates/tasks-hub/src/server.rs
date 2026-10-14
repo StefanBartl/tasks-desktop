@@ -1816,15 +1816,6 @@ impl CheckJob {
     }
 }
 
-/// The invisible characters that can reorder or hide a line of text (bidirectional controls, zero width ones).
-fn is_invisible(c: char) -> bool {
-    matches!(
-        c,
-        '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}'
-            | '\u{2066}'..='\u{2069}' | '\u{feff}'
-    )
-}
-
 /// What a failed check says: the engine's own refusal in its words, or a fixed sentence (a process failure holds
 /// paths, which a page does not get).
 fn check_failure(error: &EngineError) -> (String, String) {
@@ -1833,7 +1824,7 @@ fn check_failure(error: &EngineError) -> (String, String) {
             "engine_refused".to_owned(),
             r.message
                 .chars()
-                .filter(|c| !c.is_control() && !is_invisible(*c))
+                .filter(|c| !crate::engine::is_unprintable(*c))
                 .take(300)
                 .collect(),
         ),
@@ -1894,34 +1885,56 @@ async fn check_start(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
     let Some(engine) = rt.engine.clone() else {
         return engine_unavailable(&st);
     };
+    match start_check_job(&rt, engine, params) {
+        Ok(state) => (StatusCode::OK, axum::Json(state)).into_response(),
+        Err(CheckStart::Retired) => error_body(
+            StatusCode::CONFLICT,
+            "vault_changed",
+            "another vault is read now: ask again",
+        ),
+        Err(CheckStart::Unavailable) => engine_unavailable(&st),
+    }
+}
+
+/// Why a check was not started.
+#[derive(Debug, PartialEq, Eq)]
+enum CheckStart {
+    /// The runtime was retired (another vault is read now): nothing is started in it.
+    Retired,
+    /// The jobs of the runtime cannot be reached (a lock that a panic poisoned).
+    Unavailable,
+}
+
+/// Start the check as a job of `rt`, or answer the one that runs. The state it returns is the one to send.
+fn start_check_job(
+    rt: &Arc<VaultRuntime>,
+    engine: Arc<dyn Engine>,
+    params: serde_json::Map<String, serde_json::Value>,
+) -> Result<serde_json::Value, CheckStart> {
+    // The handle goes into the jobs under the lock the retiring of the runtime takes, so that a start never slips
+    // in after it: a job of a vault that is no longer read is not started.
+    let Ok(mut jobs) = rt.jobs.lock() else {
+        return Err(CheckStart::Unavailable);
+    };
+    if rt.retired.load(std::sync::atomic::Ordering::Acquire) {
+        if let Ok(mut job) = rt.check.lock() {
+            *job = CheckJob::Idle;
+        }
+        return Err(CheckStart::Retired);
+    }
     let id = {
         let mut job = rt
             .check
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if matches!(*job, CheckJob::Running { .. }) {
-            return (StatusCode::OK, axum::Json(job.to_json())).into_response();
+            return Ok(job.to_json());
         }
         let id = CHECK_JOB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         *job = CheckJob::Running { id };
         id
     };
-    let runtime = Arc::clone(&rt);
-    // The handle goes into the jobs under the lock the retiring of the runtime takes, so that a start never slips
-    // in after it: a job of a vault that is no longer read is not started.
-    let Ok(mut jobs) = rt.jobs.lock() else {
-        return engine_unavailable(&st);
-    };
-    if rt.retired.load(std::sync::atomic::Ordering::Acquire) {
-        if let Ok(mut job) = rt.check.lock() {
-            *job = CheckJob::Idle;
-        }
-        return error_body(
-            StatusCode::CONFLICT,
-            "vault_changed",
-            "another vault is read now: ask again",
-        );
-    }
+    let runtime = Arc::clone(rt);
     let handle = tokio::spawn(async move {
         let request = serde_json::Value::Object(params);
         let outcome = engine.call(EngineMethod::Check, Some(&request)).await;
@@ -1936,7 +1949,20 @@ async fn check_start(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
             },
             Err(error) => {
                 // The page gets a sentence; whoever runs the hub gets the cause (already scrubbed of paths).
-                eprintln!("engine check: {error}");
+                // (a refusal holds the engine's words as they are: controls and hidden characters are taken out of the
+                // log line too, a file name in a hostile vault must not write into a terminal)
+                let line: String = error
+                    .to_string()
+                    .chars()
+                    .map(|c| {
+                        if crate::engine::is_unprintable(c) {
+                            ' '
+                        } else {
+                            c
+                        }
+                    })
+                    .collect();
+                eprintln!("engine check: {line}");
                 let (code, message) = check_failure(&error);
                 CheckJob::Failed { id, code, message }
             }
@@ -1953,12 +1979,11 @@ async fn check_start(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
     jobs.retain(|j| !j.is_finished());
     jobs.push(handle);
     drop(jobs);
-    let state = rt
+    Ok(rt
         .check
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .to_json();
-    (StatusCode::OK, axum::Json(state)).into_response()
+        .to_json())
 }
 
 /// `GET /api/tasks/plan_for?id=&direction=`: the tasks a task needs before it can start (`direction=needs`, the
@@ -2297,6 +2322,90 @@ mod tests {
         assert!(message.chars().count() <= 512, "{}", message.len());
         assert!(!message.contains(|c: char| c.is_control()));
         assert_eq!(doc["error"]["retryable"], true);
+    }
+
+    /// An engine that answers `tasks.check` after a moment, and counts the questions.
+    struct SlowCheck(std::sync::atomic::AtomicUsize);
+
+    impl Engine for SlowCheck {
+        fn call<'a>(
+            &'a self,
+            _method: EngineMethod,
+            _params: Option<&'a serde_json::Value>,
+        ) -> crate::engine::CallFuture<'a> {
+            Box::pin(async move {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(150)).await;
+                Ok(crate::engine::Reply {
+                    kind: "tasks.check".to_owned(),
+                    text: r#"{"kind":"tasks.check","findings":[]}"#.to_owned(),
+                })
+            })
+        }
+    }
+
+    fn bare_runtime() -> Arc<VaultRuntime> {
+        let status = HubStatus {
+            engine_ready: true,
+            problem: None,
+            capabilities: Vec::new(),
+        };
+        Arc::new(build_runtime(
+            None,
+            status,
+            None,
+            None,
+            RefreshOptions::default(),
+        ))
+    }
+
+    #[tokio::test]
+    async fn a_check_is_started_once_and_ends_with_the_engine_s_document() {
+        let rt = bare_runtime();
+        let engine = Arc::new(SlowCheck(std::sync::atomic::AtomicUsize::new(0)));
+        let first = start_check_job(&rt, engine.clone(), serde_json::Map::new()).unwrap();
+        assert_eq!(first["job"]["state"], "running");
+        // A second start answers the job that runs and asks the engine nothing more.
+        let again = start_check_job(&rt, engine.clone(), serde_json::Map::new()).unwrap();
+        assert_eq!(again["job"]["id"], first["job"]["id"]);
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let state = rt.check.lock().unwrap().to_json();
+        assert_eq!(state["job"]["state"], "done", "{state}");
+        assert_eq!(state["job"]["result"]["kind"], "tasks.check");
+        assert_eq!(engine.0.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn no_check_is_started_in_a_runtime_that_was_retired() {
+        let rt = bare_runtime();
+        let engine = Arc::new(SlowCheck(std::sync::atomic::AtomicUsize::new(0)));
+        // Another vault was chosen: the old runtime is stopped ...
+        rt.stop();
+        // ... and a start that was on its way (it took the runtime before the swap) is refused.
+        let refused = start_check_job(&rt, engine.clone(), serde_json::Map::new());
+        assert_eq!(refused.unwrap_err(), CheckStart::Retired);
+        assert_eq!(rt.check.lock().unwrap().to_json()["job"]["state"], "idle");
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            engine.0.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "no process was asked"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_check_that_is_running_when_the_runtime_is_stopped_is_stopped_with_it() {
+        let rt = bare_runtime();
+        let engine = Arc::new(SlowCheck(std::sync::atomic::AtomicUsize::new(0)));
+        start_check_job(&rt, engine, serde_json::Map::new()).unwrap();
+        rt.stop();
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        // The job was aborted before it set its end: the state is still the running one of the retired runtime,
+        // which nobody reads any more.
+        assert_eq!(
+            rt.check.lock().unwrap().to_json()["job"]["state"],
+            "running"
+        );
     }
 
     #[test]

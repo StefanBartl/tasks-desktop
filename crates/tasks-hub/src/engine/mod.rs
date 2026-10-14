@@ -17,6 +17,7 @@ use serde_json::Value;
 
 use crate::config::Env;
 
+pub(crate) use cli::is_unprintable;
 pub use cli::{CliEngine, CliEngineConfig, EngineVars};
 pub use host::Failure as HostFailure;
 pub use wire::ascii_json;

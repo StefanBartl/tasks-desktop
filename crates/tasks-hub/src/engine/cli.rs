@@ -133,7 +133,7 @@ const CHECK_TIMEOUT_FACTOR: u32 = 10;
 
 /// Characters that are no use in a line of text shown to a person: controls
 /// and the invisible ones that can reorder or hide text.
-fn is_unprintable(c: char) -> bool {
+pub(crate) fn is_unprintable(c: char) -> bool {
     c.is_control()
         || matches!(
             c,
@@ -464,6 +464,13 @@ impl CliEngine {
                 .and_then(Value::as_bool)
                 != Some(true);
         let place = Place::take(&self.inner).ok_or(EngineError::Busy)?;
+        // The check only reads and can run for minutes: it runs in the future of its caller, so that a caller that is
+        // given up (the vault was changed, the hub stops) takes the process down with it (`kill_on_drop`) instead of
+        // leaving it to run on beside a new one.
+        if method == Method::Check {
+            let _place = place;
+            return self.inner.execute(method, stdin, false, || false).await;
+        }
         let (tx, rx) = oneshot::channel();
         let inner = Arc::clone(&self.inner);
         // The work runs on its own task: dropping the caller's future does

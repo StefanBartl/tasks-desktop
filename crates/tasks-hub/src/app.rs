@@ -293,16 +293,15 @@ impl VaultAdmin for ConfigVaults {
             // The vault the hub reads keeps its entry in memory whatever the file says: its name is taken too, and it
             // counts against the limit.
             let reading = self.current();
-            let taken_in_memory = reading.vaults.iter().any(|v| v.name == name);
-            if next.vaults.iter().any(|v| v.name == name) || taken_in_memory {
+            let held = reading
+                .active
+                .as_deref()
+                .and_then(|active| reading.vaults.iter().find(|v| v.name == active))
+                .filter(|v| !next.vaults.iter().any(|n| n.name == v.name));
+            if next.vaults.iter().any(|v| v.name == name) || held.is_some_and(|v| v.name == name) {
                 return Err("a vault of this name is there already".to_owned());
             }
-            let held_only = reading
-                .vaults
-                .iter()
-                .filter(|v| !next.vaults.iter().any(|n| n.name == v.name))
-                .count();
-            if next.vaults.len() + held_only >= config::MAX_VAULTS {
+            if next.vaults.len() + usize::from(held.is_some()) >= config::MAX_VAULTS {
                 return Err(format!("at most {} vaults", config::MAX_VAULTS));
             }
             if next.vaults.len() >= config::MAX_VAULTS {
@@ -1047,6 +1046,19 @@ mod vault_tests {
         assert_eq!(admin.list().active, "two");
         assert!(admin.remove("two").await.is_err());
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn a_vault_the_file_forgot_that_is_not_read_may_be_added_again() {
+        let (admin, cfg, vault) = admin("ghost");
+        let path = vault.to_string_lossy().into_owned();
+        admin.add("two", &path).await.unwrap();
+        // A hand edit drops "two" from the file; the hub reads the main vault, so "two" is no vault of the hub's.
+        let mut edited = config::load_file(&cfg).unwrap();
+        edited.vaults.clear();
+        config::save_file(&cfg, &edited).unwrap();
+        admin.add("two", &path).await.unwrap();
+        assert_eq!(config::load_file(&cfg).unwrap().vaults.len(), 1);
     }
 
     #[tokio::test]

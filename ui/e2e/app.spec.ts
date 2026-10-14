@@ -892,6 +892,15 @@ test('the graph of a task lists what it needs and what waits for it, as a list',
   await graph.getByRole('button', { name: 'Close' }).click();
   await expect(graph).toHaveCount(0);
   await expect(page.locator('section.stages')).toBeFocused();
+  // The palette opens it again (the task is still selected); Escape closes it from inside and gives the focus back.
+  await page.keyboard.press('Control+k');
+  await page.keyboard.type('What do I need');
+  await page.keyboard.press('Enter');
+  await expect(graph).toBeVisible();
+  await expect(graph.getByRole('heading', { name: 'What cascade.nvim/iota needs' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(graph).toHaveCount(0);
+  await expect(page.locator('section.stages')).toBeFocused();
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
@@ -977,6 +986,51 @@ test('the keys of the inbox stay out of fields and dialogs, ignore a held key an
   await page.keyboard.press('2');
   await expect(page.getByRole('status').getByText('Saved')).toBeVisible();
   expect(writes).toHaveLength(1);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('the inbox keeps the selection at the place of a task that was sorted, and a selection of none stays', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  for (const n of [1, 2, 3]) {
+    await page.keyboard.press('c');
+    const capture = page.getByRole('dialog', { name: 'New task' });
+    await capture.getByLabel('Title').fill(`Inbox mid ${n}`);
+    await capture.locator('select').first().selectOption('lib.nvim');
+    await capture.getByRole('button', { name: 'Create' }).click();
+    await expect(capture).toHaveCount(0);
+  }
+  await page.keyboard.press('g');
+  await page.keyboard.press('i');
+  const inbox = page.locator('section.inbox');
+  await expect(inbox).toBeVisible();
+  const middle = inbox.locator('.row', { hasText: 'lib.nvim/inbox-mid-2' });
+  await middle.click();
+  // Sorted from the middle of the list: the selection stays where the task was, on the one that took its place.
+  await page.keyboard.press('2');
+  await expect(middle).not.toContainText('no priority');
+  await page.keyboard.press('s');
+  await expect(middle).not.toContainText('no effort');
+  // (the engine's order moves a task when its priority is set: the neighbour is looked at before the last key)
+  const ids = await inbox.locator('.row .id').allInnerTexts();
+  const at = ids.indexOf('lib.nvim/inbox-mid-2');
+  expect(at).toBeGreaterThanOrEqual(0);
+  const next = ids[at + 1];
+  expect(next).toBeDefined();
+  await page.keyboard.press('m');
+  await expect(middle).toHaveCount(0);
+  await expect(inbox.locator('.row[aria-current="true"] .id')).toHaveText(next as string);
+  // Escape selects none; a change of the vault does not put the selection back.
+  await page.keyboard.press('Escape');
+  await expect(inbox.locator('.row[aria-current="true"]')).toHaveCount(0);
+  writeFileSync(
+    join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', 'inbox-mid-later-e2e.md'),
+    '---\ntitle: Inbox mid later\nstatus: open\n---\n\n## Kontext\n',
+  );
+  await expect(inbox.locator('.row', { hasText: 'inbox-mid-later-e2e' })).toBeVisible({ timeout: 15_000 });
+  await page.waitForTimeout(500);
+  await expect(inbox.locator('.row[aria-current="true"]')).toHaveCount(0);
   expect(consoleProblems.get(page)).toEqual([]);
 });
 

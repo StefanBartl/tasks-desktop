@@ -1,7 +1,7 @@
 <script lang="ts">
   // The inbox: the open tasks that are not sorted yet, one single key for each field (see `lib/inbox.ts`). The keys
   // are read in `App.svelte`, with the others; this view shows the list, what each task still lacks, and the keys.
-  import { untrack } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import type { App } from '../lib/app.svelte';
   import { missingOf } from '../lib/inbox';
   import { translate, type Key } from '../lib/i18n';
@@ -18,6 +18,8 @@
     void rows.map((t) => t.id).join('|');
     untrack(() => app.ensureInboxSelection());
   });
+  // The view was restored on page load (no click, no key): the selection starts on a row.
+  onMount(() => app.ensureInboxSelection(true));
   // The selected row stays in view while the keys move it.
   $effect(() => {
     if (app.selectedId === null) return;

@@ -306,12 +306,14 @@ error never holds a path (the terminal of whoever runs the hub gets the reason).
 The check reads every task file and, with `stale: refs`, asks git, which takes longer than a question; so it runs in the
 hub as a job, and as a process of its own (ten times the usual time allowed), outside the place and the persistent host
 of the other calls: a write, a task or a question does not wait behind it. It only reads; a file changed while it reads
-is at worst a finding that is gone at the next look, and the page shows no finding of a check made for an older state. `POST` takes `{ "stale": "refs", "area": "<area>" }` (both optional, anything else is refused at the door),
+is at worst a finding that is gone at the next look, and the page shows no finding of a check made for an older state.
+A check whose job is given up (another vault is read, the hub stops) is stopped with its process: it runs in the future of the job,
+not on a task of its own. `POST` takes `{ "stale": "refs", "area": "<area>" }` (both optional, anything else is refused at the door),
 starts the job and answers at once; a start while a job runs answers that job and starts no second one. `GET` (no query)
 answers the state: `idle`, `running`, `done` with the engine's `tasks.check` document, or `failed` with a code and one
 short sentence. The sentence of a failure is the engine's own refusal or a fixed text: what a failed process wrote on its
 error output (it holds paths) never reaches the page. The state belongs to the vault that is read: choosing another vault
-drops it (a start that comes after is refused with `vault_changed`), and a job of the old vault ends without setting
+drops it (a start that comes after is refused with `vault_changed`), and a job of the old vault is aborted before it sets
 anything. What the engine writes to its error output is logged by the hub for whoever runs it and never sent to the page;
 hidden characters (bidirectional, zero width) are taken out of the sentence that is. There is no cancel: closing the dialog only stops the
 page from looking, and the job ends by itself (the engine is not killed in the middle of a read). A `POST` counts against
