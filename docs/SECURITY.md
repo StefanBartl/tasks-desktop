@@ -301,6 +301,18 @@ The data classes are per area name (`areas.json`) and apply to every vault: an a
 may do: a page that is paired could point the hub at any folder, so adding is a deliberate step with a confirmation, and an
 error never holds a path (the terminal of whoever runs the hub gets the reason).
 
+## The check as a job (`POST` and `GET /api/tasks/check`)
+
+The check reads every task file and, with `stale: refs`, asks git, which takes longer than a question; so it runs in the
+hub as a job. `POST` takes `{ "stale": "refs", "area": "<area>" }` (both optional, anything else is refused at the door),
+starts the job and answers at once; a start while a job runs answers that job and starts no second one. `GET` (no query)
+answers the state: `idle`, `running`, `done` with the engine's `tasks.check` document, or `failed` with a code and one
+short sentence. The sentence of a failure is the engine's own refusal or a fixed text: what a failed process wrote on its
+error output (it holds paths) never reaches the page. The state belongs to the vault that is read: choosing another vault
+drops it, and a job of the old vault ends without setting anything. There is no cancel: closing the dialog only stops the
+page from looking, and the job ends by itself (the engine is not killed in the middle of a read). A `POST` counts against
+the limit of mutations like every `POST`. The findings are the engine's words and are shown as text only.
+
 ## The graph of a task (`GET /api/tasks/plan_for?id=&direction=`)
 
 A read like `done_preview`: the id must be `<area>/<slug>` and the direction `needs` (the default) or `unlocks`; any other

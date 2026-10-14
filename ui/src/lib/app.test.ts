@@ -24,7 +24,7 @@ class FakeHub {
   areaList: HubArea[] = [{ name: 'pub', data_class: 'public' }];
   snapshotCalls: (string | null)[] = [];
   engineReady = true;
-  capabilities: string[] | null = ['reorder', 'plan_new', 'eff_prio', 'estimate', 'plan_for'];
+  capabilities: string[] | null = ['reorder', 'plan_new', 'eff_prio', 'estimate', 'plan_for', 'check'];
   hubDown = false;
   exchanged: string[] = [];
   exchangeFails = false;
@@ -52,6 +52,21 @@ class FakeHub {
     this.exchanged.push(code);
     if (this.exchangeFails) throw new ApiError(401, 'bad_code', 'x');
     return 'token-1';
+  }
+  /** What the check job answers, one answer for each start and each ask of the state, in the order given. */
+  checkAnswers: unknown[] = [];
+  checkStarts: { stale?: string }[] = [];
+  checkStates = 0;
+  checkError: ApiError | null = null;
+  async checkState() {
+    this.checkStates += 1;
+    if (this.checkError) throw this.checkError;
+    return (this.checkAnswers.shift() ?? { state: 'idle' }) as never;
+  }
+  async checkStart(request: { stale?: string }) {
+    this.checkStarts.push(request);
+    if (this.checkError) throw this.checkError;
+    return (this.checkAnswers.shift() ?? { state: 'running', id: 1 }) as never;
   }
   graphs: { id: string; direction: string }[] = [];
   graphError: ApiError | null = null;
@@ -2001,5 +2016,80 @@ describe('the graph of a task', () => {
     await vi.waitFor(() => expect(app.graphDoc).not.toBeNull());
     app.reloadGraph();
     await vi.waitFor(() => expect(hub.graphs).toHaveLength(2));
+  });
+});
+
+describe('the check of the vault', () => {
+  const finding = (id: string, severity = 'warn') => ({ code: 'doing-while-blocked', severity, area: 'pub', id, file: `pub/ROADMAP/tasks/${id.split('/')[1]}.md`, message: 'status is doing but x is still open' });
+  const done = (rev: string, findings: unknown[]) => ({
+    state: 'done',
+    id: 1,
+    result: { kind: 'tasks.check', rev, findings, errors: 0, warnings: findings.length, tasks: 3, total: findings.length, truncated: false, notes: [] },
+  });
+
+  async function checkApp(capabilities?: string[]) {
+    const m = make({ token: 't' });
+    if (capabilities) m.hub.capabilities = capabilities;
+    m.hub.doc = snapshot([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' })]);
+    await m.app.start(null);
+    m.app.stop();
+    return m;
+  }
+
+  it('opens on the state the hub has, and does not open without the capability', async () => {
+    const { app, hub } = await checkApp();
+    hub.checkAnswers = [done('rev:1', [finding('pub/a')])];
+    await app.openChecks();
+    expect(app.checking).toBe(true);
+    expect(hub.checkStates).toBe(1);
+    expect(app.findingsFor('pub/a')).toHaveLength(1);
+    expect(app.findingsFor('pub/b')).toEqual([]);
+    const other = await checkApp(['reorder']);
+    other.app.capabilities = ['reorder'];
+    await other.app.openChecks();
+    expect(other.app.checking).toBe(false);
+  });
+
+  it('starts the job and asks for its state while it runs, a second later each time', async () => {
+    vi.useFakeTimers();
+    try {
+      const { app, hub } = await checkApp();
+      hub.checkAnswers = [{ state: 'running', id: 1 }, { state: 'running', id: 1 }, done('rev:1', [finding('pub/b', 'error')])];
+      await app.runCheck(true);
+      expect(hub.checkStarts).toEqual([{ stale: 'refs' }]);
+      expect(app.checkJob?.state).toBe('running');
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(hub.checkStates).toBe(1);
+      expect(app.checkJob?.state).toBe('running');
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(app.checkJob?.state).toBe('done');
+      // Done: no more asking.
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(hub.checkStates).toBe(2);
+      expect(app.findingsFor('pub/b').map((f) => f.severity)).toEqual(['error']);
+      await app.runCheck(false);
+      expect(hub.checkStarts[1]).toEqual({});
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('shows no finding of a check that was made for an older state of the vault', async () => {
+    const { app, hub } = await checkApp();
+    hub.checkAnswers = [done('rev:old', [finding('pub/a')])];
+    await app.openChecks();
+    expect(app.checkOutdated).toBe(true);
+    expect(app.checkFindings).toEqual([]);
+    expect(app.findingsFor('pub/a')).toEqual([]);
+  });
+
+  it('keeps the words of a job that failed and of a hub that did not answer', async () => {
+    const { app, hub } = await checkApp();
+    hub.checkAnswers = [{ state: 'failed', id: 1, error: { code: 'timeout', message: 'the engine did not answer in time' } }];
+    await app.openChecks();
+    expect(app.checkJob).toMatchObject({ state: 'failed', error: { message: 'the engine did not answer in time' } });
+    hub.checkError = new ApiError(503, 'engine_unavailable', 'the engine is not available');
+    await app.runCheck(false);
+    expect(app.checkProblem).toBe('the engine is not available');
   });
 });

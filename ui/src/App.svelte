@@ -7,6 +7,7 @@
   import BoardView from './views/BoardView.svelte';
   import InboxView from './views/InboxView.svelte';
   import Matrix from './views/Matrix.svelte';
+  import CheckDialog from './views/CheckDialog.svelte';
   import { triageKey } from './lib/inbox';
   import MenuBar, { type Menu } from './views/MenuBar.svelte';
   import PlanView from './views/PlanView.svelte';
@@ -444,6 +445,7 @@
     <DoneDialog {app} />
     <PrioDialog {app} />
     <Matrix {app} />
+    <CheckDialog {app} />
     <BlockDialog {app} />
     <Palette {app} />
     <ConflictCenter {app} />

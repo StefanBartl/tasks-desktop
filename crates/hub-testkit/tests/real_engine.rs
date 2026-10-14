@@ -576,3 +576,42 @@ async fn the_graph_of_a_task_is_one_state_with_the_snapshot() {
         "{unknown:?}"
     );
 }
+
+#[tokio::test]
+async fn a_check_is_one_state_with_the_snapshot_and_names_what_is_wrong_without_a_path() {
+    let Some((engine, _)) = engine().await else {
+        return;
+    };
+    let snapshot: Value = serde_json::from_str(
+        &engine
+            .call(Method::Snapshot, None)
+            .await
+            .expect("snapshot")
+            .text,
+    )
+    .unwrap();
+    let reply = engine
+        .call(Method::Check, Some(&json!({})))
+        .await
+        .expect("check");
+    assert_eq!(reply.kind, "tasks.check");
+    let doc: Value = serde_json::from_str(&reply.text).unwrap();
+    assert_eq!(doc["rev"], snapshot["rev"], "one state");
+    let findings = doc["findings"].as_array().unwrap();
+    assert!(!findings.is_empty(), "the fixture has things to find");
+    assert_eq!(doc["total"].as_u64().unwrap() as usize, findings.len());
+    for f in findings {
+        let file = f["file"].as_str().unwrap();
+        assert!(
+            !file.contains(':') && !file.starts_with('/'),
+            "relative: {file}"
+        );
+    }
+    let refused = engine
+        .call(Method::Check, Some(&json!({ "stale": "all" })))
+        .await;
+    assert!(
+        matches!(refused, Err(EngineError::Refused(_))),
+        "{refused:?}"
+    );
+}

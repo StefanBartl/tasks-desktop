@@ -139,6 +139,19 @@ fn respond(method: &str, raw: &[u8], started: u64) -> Value {
             std::thread::sleep(Duration::from_millis(text.trim().parse().unwrap_or(0)));
         }
     }
+    // `<vault>/.fake-check-ms` makes a `check` take that long, and `<vault>/.fake-check-fail` makes it fail (with the
+    // vault in what it says on stderr, as a real failure would).
+    if method == "check" {
+        let vault = std::env::var("TASKS_VAULT").unwrap_or_default();
+        let base = std::path::Path::new(&vault);
+        if let Ok(text) = std::fs::read_to_string(base.join(".fake-check-ms")) {
+            std::thread::sleep(Duration::from_millis(text.trim().parse().unwrap_or(0)));
+        }
+        if base.join(".fake-check-fail").exists() {
+            eprintln!("fake-nvim check failed in {vault}");
+            std::process::exit(1);
+        }
+    }
     if let Some(ms) = fake.get("sleep_ms").and_then(Value::as_u64) {
         std::thread::sleep(Duration::from_millis(ms));
     }

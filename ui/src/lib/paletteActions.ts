@@ -39,6 +39,7 @@ export function paletteActions(app: App): PaletteAction[] {
   if (app.can('reorder')) add('go.board', t('palette.go', { view: t('nav.board') }), () => app.setView('board'));
   add('go.plan', t('palette.go', { view: t('nav.plan') }), () => app.setView('plan'));
   add('go.inbox', t('palette.go', { view: t('nav.inbox') }), () => app.setView('inbox'));
+  if (app.can('check')) add('check.open', t('check.open'), () => app.openChecks());
   if (app.can('estimate')) add('matrix.open', t('matrix.open'), () => app.openMatrix());
 
   if (app.conflicts.length > 0) add('conflicts.show', t('palette.conflicts', { n: app.conflicts.length }), () => app.openConflicts());

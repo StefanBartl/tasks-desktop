@@ -461,3 +461,95 @@ async fn the_graph_of_a_task_is_a_read_that_checks_the_id_and_the_direction() {
         "2"
     );
 }
+
+/// Ask for the state of the check job until it is no longer running (or fail after a few seconds).
+async fn check_until_over(r: &Rig) -> Value {
+    for _ in 0..100 {
+        let (status, doc) = get(r, "/api/tasks/check").await;
+        assert_eq!(status, 200, "{doc}");
+        if doc["job"]["state"] != "running" {
+            return doc;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the check job never ended");
+}
+
+#[tokio::test]
+async fn the_check_is_a_job_that_answers_at_once_and_runs_one_at_a_time() {
+    let r = rig("check-job").await;
+    // Nothing has run yet.
+    let (status, doc) = get(&r, "/api/tasks/check").await;
+    assert_eq!((status, doc["job"]["state"].as_str()), (200, Some("idle")));
+    // A slow check: the start answers at once, a second start is told the same job.
+    std::fs::write(r.vault.join(".fake-check-ms"), "600").unwrap();
+    let (status, first) = post(&r, "/api/tasks/check", r#"{"stale":"refs"}"#, JSON, true).await;
+    assert_eq!(status, 200, "{first}");
+    assert_eq!(first["job"]["state"], "running");
+    let id = first["job"]["id"].clone();
+    let (_, again) = post(&r, "/api/tasks/check", "{}", JSON, true).await;
+    assert_eq!(again["job"]["id"], id, "one job at a time");
+    // Reads go on while it runs.
+    let (status, _) = get(&r, "/api/tasks/snapshot").await;
+    assert_eq!(status, 200);
+    let over = check_until_over(&r).await;
+    assert_eq!(over["job"]["state"], "done", "{over}");
+    assert_eq!(over["job"]["id"], id);
+    assert_eq!(over["job"]["result"]["kind"], "tasks.check");
+    // The next start is a new job.
+    std::fs::remove_file(r.vault.join(".fake-check-ms")).unwrap();
+    let (_, next) = post(&r, "/api/tasks/check", "{}", JSON, true).await;
+    assert_ne!(next["job"]["id"], id);
+}
+
+#[tokio::test]
+async fn a_check_that_fails_says_so_in_words_that_hold_no_path() {
+    let r = rig("check-fail").await;
+    std::fs::write(r.vault.join(".fake-check-fail"), "").unwrap();
+    let (status, _) = post(&r, "/api/tasks/check", "{}", JSON, true).await;
+    assert_eq!(status, 200);
+    let over = check_until_over(&r).await;
+    assert_eq!(over["job"]["state"], "failed", "{over}");
+    assert_eq!(over["job"]["error"]["code"], "engine_failed");
+    let text = over.to_string();
+    let vault = r.vault.to_string_lossy().replace('\\', "/");
+    // A path is told with doubled backslashes in JSON: look for both spellings.
+    assert!(
+        !text.replace("\\\\", "/").contains(&vault),
+        "no path: {text}"
+    );
+    assert!(
+        !text.contains("fake-nvim check failed"),
+        "no stderr: {text}"
+    );
+}
+
+#[tokio::test]
+async fn the_check_start_refuses_what_is_not_a_question_and_the_state_takes_no_query() {
+    let r = rig("check-door").await;
+    let cases = [
+        ("not json", "{not json"),
+        ("a list", "[]"),
+        ("unknown field", r#"{"colour":1}"#),
+        ("stale all", r#"{"stale":"all"}"#),
+        ("stale not text", r#"{"stale":1}"#),
+        ("a bad area", r#"{"area":"../x"}"#),
+        ("an area that is no text", r#"{"area":1}"#),
+    ];
+    for (name, body) in cases {
+        let (status, doc) = post(&r, "/api/tasks/check", body, JSON, true).await;
+        assert_eq!(status, 400, "{name}: {doc}");
+    }
+    assert_eq!(get(&r, "/api/tasks/check?x=1").await.0, 400);
+    // It needs a session and JSON like every route with a body.
+    assert_eq!(post(&r, "/api/tasks/check", "{}", JSON, false).await.0, 401);
+    assert_eq!(
+        post(&r, "/api/tasks/check", "{}", "text/plain", true)
+            .await
+            .0,
+        415
+    );
+    // Nothing of that started a job.
+    let (_, doc) = get(&r, "/api/tasks/check").await;
+    assert_eq!(doc["job"]["state"], "idle");
+}

@@ -4,9 +4,9 @@
 import { type TagEdit, bulkSetOps, markAll, pruneMarks, toggleMark } from './bulk';
 import { planOp, type PlanForm, type PlanPreview } from './planwizard';
 import { columnsOf, isColumn, neighbourColumn, placeNear, stepInGroup, type Move } from './board';
-import { ApiError, type Hub, type HubArea, type HubAreas, type SearchResult, type VaultList } from './api';
+import { ApiError, type CheckJobState, type Hub, type HubArea, type HubAreas, type SearchResult, type VaultList } from './api';
 import { cacheableClass, cacheableList, type ListStore } from './cache';
-import type { DonePreview, Estimate, Next, PlanFor, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
+import type { Check, DonePreview, Estimate, Next, PlanFor, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import type { Op } from './api';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
 import { inboxOf, triageKey } from './inbox';
@@ -147,6 +147,11 @@ export class App {
   graphDoc = $state.raw<PlanFor | null>(null);
   graphProblem = $state<string | null>(null);
   private graphSeq = 0;
+  /** The check dialog and the job behind it: what the hub says of it, and why it cannot say. */
+  checking = $state(false);
+  checkJob = $state.raw<CheckJobState | null>(null);
+  checkProblem = $state<string | null>(null);
+  private checkTimer: ReturnType<typeof setTimeout> | undefined;
   private matrixSeq = 0;
   private matrixTimer: ReturnType<typeof setTimeout> | undefined;
   /** A card that goes to the blocked column and has no blocker yet, waiting for the person's answer. */
@@ -657,6 +662,69 @@ export class App {
   }
 
   /** Set the priority and place the card, as one batch (the way back is the inverse of both). */
+  // ── the check of the vault, as a job ───────────────────────────────────
+
+  /** The findings of a check that was made for the state of the vault the page shows; none for an older one. */
+  get checkFindings(): Check['findings'] {
+    const job = this.checkJob;
+    if (job?.state !== 'done' || job.result.rev !== this.snapshot?.rev) return [];
+    return job.result.findings;
+  }
+
+  /** The findings that are about the task `id`. */
+  findingsFor(id: string): Check['findings'] {
+    return this.checkFindings.filter((f) => f.id === id);
+  }
+
+  /** Whether the check that is there was made for an older state of the vault (the findings are then not shown). */
+  get checkOutdated(): boolean {
+    const job = this.checkJob;
+    return job?.state === 'done' && job.result.rev !== this.snapshot?.rev;
+  }
+
+  /** Open the check dialog on what the hub knows of the job. */
+  async openChecks(): Promise<void> {
+    if (this.phase !== 'ready' || !this.can('check')) return;
+    this.checking = true;
+    await this.pollCheck();
+  }
+
+  closeChecks(): void {
+    this.checking = false;
+  }
+
+  /** Start the check; it runs in the hub and the page goes on. */
+  async runCheck(refs: boolean): Promise<void> {
+    this.checkProblem = null;
+    try {
+      this.checkJob = await this.env.hub.checkStart(refs ? { stale: 'refs' } : {});
+    } catch (error) {
+      this.checkProblem = error instanceof ApiError ? error.message : translate(this.lang, 'check.failed');
+      return;
+    }
+    this.watchCheck();
+  }
+
+  /** Ask for the state of the job, and again a second later while it runs. */
+  private async pollCheck(): Promise<void> {
+    clearTimeout(this.checkTimer);
+    try {
+      this.checkJob = await this.env.hub.checkState();
+      this.checkProblem = null;
+    } catch (error) {
+      this.checkProblem = error instanceof ApiError ? error.message : translate(this.lang, 'check.failed');
+      return;
+    }
+    this.watchCheck();
+  }
+
+  private watchCheck(): void {
+    clearTimeout(this.checkTimer);
+    if (this.checkJob?.state === 'running' && this.phase === 'ready') {
+      this.checkTimer = setTimeout(() => void this.pollCheck(), 1000);
+    }
+  }
+
   // ── the graph of a task ────────────────────────────────────────────────
 
   /** Show what `id` needs (or what waits for it) in the plan view. */
@@ -1128,6 +1196,8 @@ export class App {
 
   stop(): void {
     this.stopped = true;
+    clearTimeout(this.checkTimer);
+    clearTimeout(this.matrixTimer);
     this.abort?.abort();
   }
 

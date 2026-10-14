@@ -1,6 +1,6 @@
 // The hub's routes, as typed calls. Only the shapes the UI needs.
 
-import type { Areas, DonePreview, Estimate, Next, PlanFor, Result, Snapshot, TaskDocument } from './contract';
+import type { Areas, Check, DonePreview, Estimate, Next, PlanFor, Result, Snapshot, TaskDocument } from './contract';
 
 export class ApiError extends Error {
   constructor(
@@ -53,6 +53,13 @@ export interface Hello {
 }
 
 /** One area as `GET /api/tasks/areas` tells it, with the class it is shown with. */
+/** The check job of the hub: nothing yet, running, done with the engine's document, or failed in words. */
+export type CheckJobState =
+  | { state: 'idle' }
+  | { state: 'running'; id: number }
+  | { state: 'done'; id: number; result: Check }
+  | { state: 'failed'; id: number; error: { code: string; message: string } };
+
 export interface HubArea {
   name: string;
   data_class: 'public' | 'internal' | 'private' | 'unclassified';
@@ -261,6 +268,22 @@ export class Hub {
     });
     if (!response.ok) throw await failure(response);
     return (await response.json()) as Estimate;
+  }
+
+  /** The state of the check job (the check of the vault runs in the hub, not in the page). */
+  async checkState(): Promise<CheckJobState> {
+    return (await this.json<{ job: CheckJobState }>('/api/tasks/check')).job;
+  }
+
+  /** Start the check as a job; a job that runs already is answered instead of a second one. */
+  async checkStart(request: { stale?: 'refs'; area?: string } = {}): Promise<CheckJobState> {
+    const response = await this.request('/api/tasks/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) throw await failure(response);
+    return ((await response.json()) as { job: CheckJobState }).job;
   }
 
   /** The tasks a task needs before it can start, or that wait for it (the engine walks the graph). */
