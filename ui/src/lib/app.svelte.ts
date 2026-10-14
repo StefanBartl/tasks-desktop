@@ -146,6 +146,10 @@ export class App {
   graph = $state.raw<{ id: string; direction: 'needs' | 'unlocks' } | null>(null);
   graphDoc = $state.raw<PlanFor | null>(null);
   graphProblem = $state<string | null>(null);
+  /** The panel takes the focus once, when the graph is opened (not when it is drawn again after a change of view). */
+  graphWantsFocus = false;
+  /** The rev of the snapshot the graph on the screen was asked for. */
+  private graphRev: string | undefined;
   private graphSeq = 0;
   /** The check dialog and the job behind it: what the hub says of it, and why it cannot say. */
   checking = $state(false);
@@ -753,6 +757,7 @@ export class App {
     this.graph = { id, direction };
     this.graphDoc = null;
     this.graphProblem = null;
+    this.graphWantsFocus = true;
     this.setView('plan');
     void this.askGraph();
   }
@@ -766,7 +771,7 @@ export class App {
 
   /** Ask again for the graph that is open, after the vault changed (the old one stays until the new one is there). */
   reloadGraph(): void {
-    if (this.graph && this.graphDoc !== null) void this.askGraph();
+    if (this.graph && this.graphDoc !== null && this.snapshot?.rev !== this.graphRev) void this.askGraph();
   }
 
   private async askGraph(): Promise<void> {
@@ -774,6 +779,7 @@ export class App {
     if (!graph) return;
     this.graphSeq += 1;
     const seq = this.graphSeq;
+    this.graphRev = this.snapshot?.rev;
     try {
       const doc = await this.env.hub.planFor(graph.id, graph.direction);
       if (seq !== this.graphSeq || !this.graph) return;
@@ -896,7 +902,14 @@ export class App {
       const sent = new Set(ops.map((o) => ('id' in o ? o.id : '')));
       const rest: Draft = {};
       for (const [id, cell] of Object.entries(this.matrixDraft)) {
-        if (!sent.has(id) || failed.has(id)) rest[id] = cell;
+        if (!sent.has(id)) {
+          rest[id] = cell;
+        } else if (failed.has(id)) {
+          // The row shows the task as it is now (the list is read next): its cells are written with that version,
+          // not with the old one, which would conflict again for ever.
+          const { etag: _old, ...kept } = cell;
+          rest[id] = kept;
+        }
       }
       const undo = this.inverseOf(result);
       if (failed.size === 0) {
@@ -1441,7 +1454,7 @@ export class App {
     // The board writes with `reorder`: an engine without it does not get one.
     if (view === 'board' && !this.can('reorder')) return;
     this.view = view;
-    if (view === 'inbox') this.ensureInboxSelection();
+    if (view === 'inbox') this.ensureInboxSelection(true);
     safe(() => this.env.prefs.setItem('tasks-desktop.view', view));
     if (view === 'today' && this.phase === 'ready') void this.loadNext();
   }
@@ -1543,11 +1556,17 @@ export class App {
     }
   }
 
-  /** Put the selection on a row of the inbox when it is on none (entering the view, or the task was sorted elsewhere). */
-  ensureInboxSelection(): void {
+  /**
+   * Put the selection on a row of the inbox when it is on a task that left it (sorted elsewhere, in Neovim), and, when
+   * the view is entered (`entering`), also when it is on none. A selection of none that the person made (Escape) is
+   * left alone by a later change of the rows. Not while a write is under way: `triage` knows where the selection goes.
+   */
+  ensureInboxSelection(entering = false): void {
+    if (this.saving) return;
     const rows = this.inbox;
     if (rows.length === 0) return;
-    if (this.selectedId === null || !rows.some((t) => t.id === this.selectedId)) this.select(rows[0]?.id ?? null);
+    const gone = this.selectedId !== null && !rows.some((t) => t.id === this.selectedId);
+    if (gone || (entering && this.selectedId === null)) this.select(rows[0]?.id ?? null);
   }
 
   private async loadDetail(id: string): Promise<void> {

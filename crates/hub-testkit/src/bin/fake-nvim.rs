@@ -146,6 +146,8 @@ fn respond(method: &str, raw: &[u8], started: u64) -> Value {
         let base = std::path::Path::new(&vault);
         if let Ok(text) = std::fs::read_to_string(base.join(".fake-check-ms")) {
             std::thread::sleep(Duration::from_millis(text.trim().parse().unwrap_or(0)));
+            // Only a check that ran to its end leaves this: one that was stopped did not.
+            let _ = std::fs::write(base.join(".fake-check-done"), b"done");
         }
         if base.join(".fake-check-fail").exists() {
             eprintln!("fake-nvim check failed in {vault}");

@@ -440,3 +440,51 @@ async fn an_answer_is_returned_without_its_line_ending() {
     assert!(!reply.text.ends_with('\n') && !reply.text.ends_with('\r'));
     assert!(reply.text.starts_with('{') && reply.text.ends_with('}'));
 }
+
+/// A vault folder of its own (the fake reads `.fake-check-ms` in it), and an engine on it with `timeout`.
+fn check_engine(name: &str, timeout: Duration) -> (CliEngine, PathBuf) {
+    let dir =
+        std::env::temp_dir().join(format!("tasks-desktop-check-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut cfg = config(Env::from_process());
+    cfg.vault = dir.clone();
+    cfg.timeout = timeout;
+    (CliEngine::new(cfg), dir)
+}
+
+#[tokio::test]
+async fn a_check_may_take_ten_times_the_usual_time() {
+    let (engine, dir) = check_engine("factor", Duration::from_millis(500));
+    std::fs::write(dir.join(".fake-check-ms"), "1200").unwrap();
+    // 1.2 s is more than the usual 0.5 s ...
+    let check = engine.call(Method::Check, Some(&json!({}))).await;
+    assert!(check.is_ok(), "{check:?}");
+    assert!(dir.join(".fake-check-done").exists());
+    // ... and a question of the usual kind is not given that long.
+    std::fs::write(dir.join(".fake-task-ms"), "1200").unwrap();
+    let task = engine
+        .call(Method::Task, Some(&json!({ "id": "a/b" })))
+        .await;
+    assert!(matches!(task, Err(EngineError::Timeout)), "{task:?}");
+}
+
+#[tokio::test]
+async fn a_check_that_is_given_up_is_stopped_with_its_process() {
+    let (engine, dir) = check_engine("given-up", Duration::from_secs(10));
+    std::fs::write(dir.join(".fake-check-ms"), "1500").unwrap();
+    let engine = std::sync::Arc::new(engine);
+    let runner = std::sync::Arc::clone(&engine);
+    let job = tokio::spawn(async move { runner.call(Method::Check, Some(&json!({}))).await });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    job.abort();
+    let _ = job.await;
+    // The process would have finished by now, and left its mark, if it had been left to run.
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    assert!(
+        !dir.join(".fake-check-done").exists(),
+        "the check ran on after its caller was given up"
+    );
+    // The place is free again.
+    wait_for_queued(&engine, 0).await;
+}

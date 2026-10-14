@@ -13,29 +13,32 @@
   const graph = $derived(app.graph);
   const doc = $derived(app.graphDoc);
 
-  // Asked again when the vault changed under the graph: only a rev that differs from the one seen before, and the
-  // call is not tracked (it reads the graph state, and an effect that listened to that would ask again after every
-  // answer, for ever).
-  let seenRev: string | undefined;
+  // Asked again when the vault changed under the graph. The app knows the rev the graph was asked for (also after
+  // the view was left and the panel is drawn again), and the call is not tracked: it reads the graph state, and an
+  // effect that listened to that would ask again after every answer, for ever.
   $effect(() => {
-    const rev = app.snapshot?.rev;
-    if (seenRev !== undefined && rev !== seenRev) untrack(() => app.reloadGraph());
-    seenRev = rev;
+    void app.snapshot?.rev;
+    untrack(() => app.reloadGraph());
   });
 
   // The panel takes the focus when it opens (the button that opened it is gone from the page), and gives it back to
   // the stages when it closes.
   let heading: HTMLElement | undefined = $state();
-  let focusedFor = '';
+  let hadGraph = false;
   $effect(() => {
-    // The heading exists only once the panel is drawn: the effect runs again when it is there.
-    if (graph && heading && focusedFor !== graph.id) {
-      heading.focus();
-      focusedFor = graph.id;
+    // The heading exists only once the panel is drawn: the effect runs again when it is there. The focus is taken
+    // once, when the graph was opened.
+    if (graph && heading && app.graphWantsFocus) {
+      app.graphWantsFocus = false;
+      const target = heading;
+      // After the frame: a dialog that opened it (the palette) gives the focus back to what it took it from when it
+      // closes, and that must not be the last word.
+      requestAnimationFrame(() => target.focus());
     }
-    if (!graph && focusedFor !== '') {
+    if (graph) hadGraph = true;
+    else if (hadGraph) {
       document.querySelector<HTMLElement>('section.stages')?.focus();
-      focusedFor = '';
+      hadGraph = false;
     }
   });
 

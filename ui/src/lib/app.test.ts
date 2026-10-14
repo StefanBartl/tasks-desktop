@@ -1938,7 +1938,8 @@ describe('the estimate matrix', () => {
     } as unknown as Result;
     await app.applyMatrix();
     expect(app.matrix).not.toBeNull();
-    expect(app.matrixDraft).toEqual({ 'pub/b': { value: 5, etag: 'e-pub/b' } });
+    // The cell that stays has no old version: it is written with the one that is current at the next Apply.
+    expect(app.matrixDraft).toEqual({ 'pub/b': { value: 5 } });
     expect(app.toast?.kind).toBe('error');
     expect(app.toast?.text).toMatch(/1\D+1/);
   });
@@ -2015,6 +2016,8 @@ describe('the graph of a task', () => {
     expect(hub.graphs).toHaveLength(0);
     app.openGraph('pub/a');
     await vi.waitFor(() => expect(app.graphDoc).not.toBeNull());
+    hub.doc = snapshot([task('pub/a', { etag: 'e1' }), task('pub/z')], 'rev:2');
+    await app.refresh();
     app.reloadGraph();
     await vi.waitFor(() => expect(hub.graphs).toHaveLength(2));
   });
@@ -2202,6 +2205,8 @@ describe('what the reviews of the matrix, the inbox and the check found', () => 
     app.openGraph('pub/a');
     await vi.waitFor(() => expect(app.graphDoc).not.toBeNull());
     hub.graphError = new ApiError(404, 'not_found', 'no such open task: pub/a');
+    hub.doc = snapshot([planned('pub/a'), planned('pub/z')], 'rev:2');
+    await app.refresh();
     app.reloadGraph();
     await vi.waitFor(() => expect(app.graphProblem).toBe('no such open task: pub/a'));
     expect(app.graphDoc).toBeNull();
@@ -2248,5 +2253,92 @@ describe('what the reviews of the matrix, the inbox and the check found', () => 
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('what the second review of the matrix, the inbox and the graph found', () => {
+  const planned = (id: string, extra: Partial<TaskEntry> = {}) => task(id, { etag: `e-${id}`, ...extra });
+  const done = { prio: 1, effort: 'S' } as Partial<TaskEntry>;
+  async function started(tasks: TaskEntry[]) {
+    const m = make({ token: 't' });
+    m.hub.doc = snapshot(tasks);
+    await m.app.start(null);
+    m.app.stop();
+    return m;
+  }
+
+  it('keeps the selection of the write at its place when the effect of the view fires during the write', async () => {
+    const { app, hub } = await started([planned('pub/x0'), planned('pub/x1', done), planned('pub/x2'), planned('pub/x3')]);
+    app.setView('inbox');
+    app.select('pub/x1');
+    const ops = hub.ops.bind(hub);
+    hub.ops = async (request) => {
+      const result = await ops(request);
+      hub.doc = snapshot(
+        [planned('pub/x0'), planned('pub/x1', { ...done, actor: 'me', actor_written: true }), planned('pub/x2'), planned('pub/x3')],
+        'rev:2',
+      );
+      await app.refresh();
+      // The rows changed under the write: the effect of the view runs now, before the write has returned.
+      app.ensureInboxSelection();
+      return result;
+    };
+    await app.triage('m', false);
+    expect(app.selectedId).toBe('pub/x2');
+  });
+
+  it('leaves a selection of none alone when the rows change, and fixes one that points at a task that left', async () => {
+    const { app, hub } = await started([planned('pub/a'), planned('pub/b')]);
+    app.setView('inbox');
+    app.select(null);
+    hub.doc = snapshot([planned('pub/a'), planned('pub/b'), planned('pub/c')], 'rev:2');
+    await app.refresh();
+    app.ensureInboxSelection();
+    expect(app.selectedId).toBeNull();
+    // Entering the view puts it on the first row.
+    app.ensureInboxSelection(true);
+    expect(app.selectedId).toBe('pub/a');
+    // The selected task is sorted elsewhere: the selection moves to a row.
+    hub.doc = snapshot([planned('pub/a', { ...done, actor: 'me', actor_written: true }), planned('pub/b'), planned('pub/c')], 'rev:3');
+    await app.refresh();
+    app.ensureInboxSelection();
+    expect(app.selectedId).toBe('pub/b');
+  });
+
+  it('writes a cell that stayed after a conflict with the version of the file that is current then', async () => {
+    const { app, hub } = await started([planned('pub/a')]);
+    app.openMatrix();
+    app.setCell('pub/a', 'value', 4);
+    hub.next_ops = {
+      kind: 'tasks.result',
+      ok: false,
+      dry_run: false,
+      results: [{ n: 1, op: 'set', id: 'pub/a', ok: false, error: { code: 'conflict', message: 'changed meanwhile', retryable: false } }],
+    } as unknown as Result;
+    await app.applyMatrix();
+    expect(hub.sent[0]?.ops[0]).toMatchObject({ if_match: 'e-pub/a' });
+    expect(app.matrixDraft).toEqual({ 'pub/a': { value: 4 } });
+    // The list is read again with the new version of the file; the second Apply is written with that.
+    hub.doc = snapshot([planned('pub/a', { etag: 'e-new' })], 'rev:2');
+    await app.refresh();
+    await app.applyMatrix();
+    expect(hub.sent[1]?.ops[0]).toMatchObject({ patch: { value: 4 }, if_match: 'e-new' });
+  });
+
+  it('asks for the graph again only when the vault changed since it was asked for', async () => {
+    const { app, hub } = await started([planned('pub/a')]);
+    app.openGraph('pub/a');
+    await vi.waitFor(() => expect(app.graphDoc).not.toBeNull());
+    app.reloadGraph();
+    app.reloadGraph();
+    expect(hub.graphs).toHaveLength(1);
+    // The view is left and entered again, the vault changed meanwhile: the first call asks.
+    hub.doc = snapshot([planned('pub/a'), planned('pub/b')], 'rev:2');
+    await app.refresh();
+    app.reloadGraph();
+    await vi.waitFor(() => expect(hub.graphs).toHaveLength(2));
+    await vi.waitFor(() => expect(app.graphDoc).not.toBeNull());
+    app.reloadGraph();
+    expect(hub.graphs).toHaveLength(2);
   });
 });
