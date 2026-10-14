@@ -2172,6 +2172,9 @@ test('the text of a task is edited in the detail: written whole, taken back by u
   // The file changes while the draft is open: the save is a conflict, the file keeps the other change, the draft stays.
   await detail.getByRole('button', { name: 'Edit text' }).click();
   await detail.getByRole('textbox', { name: /Text of the task/ }).fill('My draft.');
+  // Escape does not throw a draft away that holds typing; the button does.
+  await detail.getByRole('textbox', { name: /Text of the task/ }).press('Escape');
+  await expect(detail.getByRole('textbox', { name: /Text of the task/ })).toHaveValue('My draft.');
   writeFileSync(file, readFileSync(file, 'utf8').replace('The old text.', 'Changed elsewhere.'));
   await detail.getByRole('button', { name: 'Save text' }).click();
   await expect(page.getByRole('status').getByText(/Not accepted|changed/i).last()).toBeVisible();

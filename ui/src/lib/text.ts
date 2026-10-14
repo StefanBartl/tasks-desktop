@@ -18,3 +18,11 @@ export function markHidden(text: string): string {
     return `⟦U+${code.toString(16).toUpperCase().padStart(4, '0')}⟧`;
   });
 }
+
+/** The longest text the engine takes for a task (`set_body`), in characters. */
+export const MAX_BODY_EDIT = 100_000;
+
+/** Whether the text of a task may be offered for editing: whole (not cut by the engine) and not longer than the engine takes back. */
+export function editableBody(body: string, truncated: boolean): boolean {
+  return !truncated && [...body.trim()].length <= MAX_BODY_EDIT;
+}
