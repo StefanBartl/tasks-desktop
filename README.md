@@ -113,6 +113,25 @@ To not decide area by area, `areas.json` may carry `"default": "internal"`
 An entry still wins, so `"secret": {"class": "private"}` stays private. Without
 `default` an area with no entry is unclassified. See [docs/SECURITY.md](docs/SECURITY.md).
 
+## The rolling build (the newest `main`, one click)
+
+After every green CI run on `main`, the workflow `rolling` builds the program of that commit for Windows and
+Linux and puts it on the pre-release [`latest`](https://github.com/StefanBartl/tasks-desktop/releases/tag/latest);
+the files are replaced each time. It is not a release (see `release.yml` for that): not signed, not tried by hand.
+
+| File | Use |
+| --- | --- |
+| `tasks-hub-windows-x86_64.exe` | double click (SmartScreen warns about an unsigned program: "More info", "Run anyway") |
+| `tasks-hub-linux-x86_64.tar.gz` | unpack, run `./tasks-hub` |
+| `SHA256SUMS` | the checksums of both |
+
+Started **without an argument**, the program starts the hub in the background if it is not running and opens
+the browser with a one-time pairing link (a second double click finds the running hub and opens a new link). If
+something is missing, the message says what, and a console opened by the double click waits for Enter before it
+closes. It needs Neovim 0.10+ and checkouts of `tasks.nvim` and `lib.nvim` (the engine), found through
+`TASKS_ENGINE_DIR` and `LIB_NVIM_DIR`, `REPOS_DIR` or the settings file; the vault is `TASKS_VAULT`.
+`tasks-hub --version` names the commit of the build; `tasks-hub stop` ends the hub.
+
 ## Look at the current state
 
 `tools/dev-hub.ps1` builds this checkout (UI, then the hub with the interface embedded) and runs the hub from

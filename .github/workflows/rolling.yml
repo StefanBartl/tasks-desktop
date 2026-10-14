@@ -1,0 +1,154 @@
+# The rolling build: after every green CI run on main, the program of exactly that commit is built for
+# Windows and Linux and put on the pre-release `latest`, whose assets are replaced each time. It is
+# for looking at the newest state with a click, not a release: no version tag, not signed, no
+# checksums beyond SHA256SUMS. A release stays a deliberate act (release.yml, rule NREL-07).
+#
+#   tasks-hub-windows-x86_64.exe        a double click starts the hub in the background and opens the browser
+#   tasks-hub-linux-x86_64.tar.gz       the same program for Linux (the archive keeps the executable bit)
+#   SHA256SUMS                          the checksums of both
+#
+# Actions are pinned by commit (NREL-03); a job gets only the rights it needs; `latest` is moved to the
+# commit through the API (no token is left in a checkout).
+
+name: rolling
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+
+# A newer commit replaces a build that is still running: the pre-release must end on the newest one.
+concurrency:
+  group: rolling
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare:
+    # Only a green run that came from a push to main (not a pull request).
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.facts.outputs.sha }}
+      short: ${{ steps.facts.outputs.short }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Move latest to this commit and open the pre-release
+        id: facts
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -eu
+          short="$(git rev-parse --short=7 "$SHA")"
+          # The tag follows the build: the page of the release says which commit the files are from.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/latest" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/latest" -f sha="$SHA" -F force=true >/dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/latest" -f sha="$SHA" >/dev/null
+          fi
+          {
+            cat .github/rolling-notes.md
+            printf '\nBuilt from commit `%s`.\n' "$SHA"
+          } > notes.md
+          if gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit latest --repo "$GITHUB_REPOSITORY" --prerelease --latest=false \
+              --title "Rolling build ($short)" --notes-file notes.md
+          else
+            gh release create latest --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --verify-tag \
+              --title "Rolling build ($short)" --notes-file notes.md
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "short=$short" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            program: tasks-hub.exe
+            asset: tasks-hub-windows-x86_64.exe
+          - os: ubuntu-22.04
+            program: tasks-hub
+            asset: tasks-hub-linux-x86_64.tar.gz
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+      # The interface is part of the binary (NREL-04): it is built first, then the program.
+      - name: Build the interface
+        working-directory: ui
+        run: |
+          npm install --global pnpm@11.28.2
+          pnpm install --frozen-lockfile
+          pnpm build
+      - name: Build the program
+        env:
+          TASKS_HUB_BUILD: ${{ needs.prepare.outputs.short }}
+        run: cargo build --release --locked -p tasks-hub
+      - name: Pack and look at what it says
+        id: pack
+        env:
+          SHORT: ${{ needs.prepare.outputs.short }}
+        run: |
+          set -eu
+          got="$(target/release/${{ matrix.program }} --version)"
+          case "$got" in
+            *"(build ${SHORT})") ;;
+            *) echo "::error::the program says '$got', it should name the build ${SHORT}"; exit 1 ;;
+          esac
+          if [ "${{ matrix.program }}" = "tasks-hub.exe" ]; then
+            cp target/release/tasks-hub.exe "${{ matrix.asset }}"
+          else
+            mkdir -p stage
+            cp target/release/tasks-hub LICENSE stage/
+            COPYFILE_DISABLE=1 tar -czf "${{ matrix.asset }}" -C stage .
+          fi
+      - name: Replace the asset of the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload latest "${{ matrix.asset }}" --repo "$GITHUB_REPOSITORY" --clobber
+
+  sums:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: The checksums of both files
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          mkdir -p assets
+          gh release download latest --repo "$GITHUB_REPOSITORY" --dir assets --pattern 'tasks-hub-*' --clobber
+          count="$(ls assets | wc -l)"
+          if [ "$count" -ne 2 ]; then
+            echo "::error::$count file(s) instead of 2: a system is missing"
+            exit 1
+          fi
+          (cd assets && sha256sum tasks-hub-* > SHA256SUMS && cat SHA256SUMS)
+          gh release upload latest assets/SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
