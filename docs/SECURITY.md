@@ -310,7 +310,8 @@ is at worst a finding that is gone at the next look. The page judges each findin
 version of that task as it was when the check was made (the snapshot of the same `rev`): a finding of a task that changed
 since is shown as possibly resolved and counts for nothing, one of a task that is gone is dropped, one about no listed
 task (the index, the Backlog) stands with the time of the check. A check whose `rev` the page never held (the vault
-changed while it ran) shows no finding.
+changed while it ran) shows no finding. A finding that names another task as well (a stale reference) is judged by the task it is
+about only: it stays when just the task it points to changes.
 A check whose job is given up (another vault is read, the hub stops) is stopped with its process: it runs in the future of the job,
 not on a task of its own. `POST` takes `{ "stale": "refs", "area": "<area>" }` (both optional, anything else is refused at the door),
 starts the job and answers at once; a start while a job runs answers that job and starts no second one. `GET` (no query)
