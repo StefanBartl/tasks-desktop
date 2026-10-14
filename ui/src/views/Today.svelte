@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { App, Tile } from '../lib/app.svelte';
+  import { ORDERED_TILES, type App, type OrderedTile, type Tile } from '../lib/app.svelte';
   import type { TaskBrief } from '../lib/contract';
   import { waitingForMe } from '../lib/filter';
   import { dueItems } from '../lib/remind';
@@ -57,6 +57,40 @@
     }
   }
 
+  const visible = $derived(
+    app.tileOrder.filter(
+      (tile) =>
+        shown(tile) && (tile !== 'remind' || reminders.length > 0) && (tile !== 'cdx' || (next !== null && next.cdx.length > 0)),
+    ),
+  );
+  const rank = (tile: OrderedTile) => app.tileOrder.indexOf(tile) + 1;
+  let dragging: OrderedTile | null = $state(null);
+  let over: OrderedTile | null = $state(null);
+
+  function dragOver(event: DragEvent, tile: OrderedTile): void {
+    if (!dragging || dragging === tile) return;
+    event.preventDefault();
+    over = tile;
+  }
+
+  function drop(event: DragEvent, tile: OrderedTile): void {
+    event.preventDefault();
+    const from = dragging;
+    dragging = null;
+    over = null;
+    if (!from || from === tile) return;
+    app.moveTile(from, tile, app.tileOrder.indexOf(from) < app.tileOrder.indexOf(tile), visible);
+  }
+
+  function handleKey(event: KeyboardEvent, tile: OrderedTile): void {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+    event.preventDefault();
+    const up = event.key === 'ArrowUp';
+    const at = visible.indexOf(tile);
+    const target = visible[at + (up ? -1 : 1)];
+    if (target) app.moveTile(tile, target, !up, visible);
+  }
+
   function open(id: string): void {
     app.reveal(id);
   }
@@ -65,6 +99,25 @@
     return brief.reason ? t(`today.why.${brief.reason}` as Key) : '';
   }
 </script>
+
+{#snippet handle(tile: OrderedTile)}
+  <button
+    type="button"
+    class="grip"
+    draggable="true"
+    aria-label={`${t('today.move')}: ${t(tile === 'remind' ? 'remind.title' : (`today.${tile}` as Key))}`}
+    title={t('today.move')}
+    ondragstart={(e) => {
+      dragging = tile;
+      e.dataTransfer?.setData('text/plain', tile);
+    }}
+    ondragend={() => {
+      dragging = null;
+      over = null;
+    }}
+    onkeydown={(e) => handleKey(e, tile)}>⠿</button
+  >
+{/snippet}
 
 <div class="today" class:solo={!showOverview}>
   {#if showOverview}
@@ -103,6 +156,12 @@
     {#if opened}
       <CountPanel {app} key={opened.key} label={t(opened.label)} tasks={opened.tasks} total={opened.total} />
     {/if}
+    <p class="sr-only" aria-live="polite">{app.tileNote}</p>
+    {#if app.tileOrder.some((tile, i) => tile !== ORDERED_TILES[i])}
+      <p class="restore">
+        <button type="button" class="link" onclick={() => app.resetTileOrder()}>{t('today.reset_order')}</button>
+      </p>
+    {/if}
     {#if app.hiddenTiles.length > 0}
       <p class="restore">
         <button type="button" class="link" onclick={() => app.showTiles()}
@@ -111,9 +170,10 @@
       </p>
     {/if}
     {#if shown('next')}
-      <section class="card next" aria-label={t('today.next')}>
+      <section data-tile="next" style:order={rank('next')} class:drop={over === 'next'} ondragover={(e) => dragOver(e, 'next')} ondragleave={() => (over = null)} ondrop={(e) => drop(e, 'next')} class="card next" aria-label={t('today.next')}>
         <header>
           <h2 class="eyebrow">{t('today.next')}</h2>
+          {@render handle('next')}
           <button
             type="button"
             class="hide"
@@ -168,9 +228,10 @@
     {/if}
 
     {#if shown('waiting')}
-      <section class="card" aria-label={t('today.waiting')}>
+      <section data-tile="waiting" style:order={rank('waiting')} class:drop={over === 'waiting'} ondragover={(e) => dragOver(e, 'waiting')} ondragleave={() => (over = null)} ondrop={(e) => drop(e, 'waiting')} class="card" aria-label={t('today.waiting')}>
         <header>
           <h2 class="eyebrow">{t('today.waiting')} ({waiting.length})</h2>
+          {@render handle('waiting')}
           <button
             type="button"
             class="hide"
@@ -193,9 +254,10 @@
     {/if}
 
     {#if shown('remind') && reminders.length > 0}
-      <section class="card" aria-label={t('remind.title')}>
+      <section data-tile="remind" style:order={rank('remind')} class:drop={over === 'remind'} ondragover={(e) => dragOver(e, 'remind')} ondragleave={() => (over = null)} ondrop={(e) => drop(e, 'remind')} class="card" aria-label={t('remind.title')}>
         <header>
           <h2 class="eyebrow">{t('remind.title')} ({reminders.length})</h2>
+          {@render handle('remind')}
           <button
             type="button"
             class="hide"
@@ -241,9 +303,10 @@
     {/if}
 
     {#if shown('cdx') && next && next.cdx.length > 0}
-      <section class="card" aria-label={t('today.cdx')}>
+      <section data-tile="cdx" style:order={rank('cdx')} class:drop={over === 'cdx'} ondragover={(e) => dragOver(e, 'cdx')} ondragleave={() => (over = null)} ondrop={(e) => drop(e, 'cdx')} class="card" aria-label={t('today.cdx')}>
         <header>
           <h2 class="eyebrow">{t('today.cdx')} ({next.cdx.length})</h2>
+          {@render handle('cdx')}
           <button
             type="button"
             class="hide"
@@ -328,6 +391,22 @@
     line-height: 1;
     padding: 0 0.25rem;
     border-radius: var(--radius);
+  }
+  .grip {
+    background: none;
+    border: 0;
+    color: var(--muted);
+    cursor: grab;
+    margin-left: auto;
+    padding: 0 0.3rem;
+    border-radius: var(--radius);
+  }
+  .grip:hover {
+    color: var(--text);
+    background: var(--surface-2);
+  }
+  section.drop {
+    outline: 2px dashed var(--accent);
   }
   .hide:hover {
     color: var(--text);

@@ -2404,3 +2404,20 @@ describe('what the second review of the matrix, the inbox and the graph found', 
     expect(hub.graphs).toHaveLength(2);
   });
 });
+
+describe('the order of the tiles of the overview', () => {
+  it('is remembered, taken from a damaged memory as the standard, and reset', async () => {
+    const { app, prefs } = make({ token: 't' });
+    app.moveTile('cdx', 'next', false, ['next', 'waiting', 'remind', 'cdx']);
+    expect(app.tileOrder).toEqual(['cdx', 'next', 'waiting', 'remind']);
+    expect(app.tileNote).toBe('Eine KI-Sitzung könnte übernehmen ist jetzt Nummer 1 von 4');
+    expect(prefs.get('tasks-desktop.tiles-order')).toBe('["cdx","next","waiting","remind"]');
+    app.resetTileOrder();
+    expect(app.tileOrder).toEqual(['next', 'waiting', 'remind', 'cdx']);
+
+    const kept = make({ token: 't', prefs: new Map([['tasks-desktop.tiles-order', '["waiting","x","waiting"]']]) });
+    expect(kept.app.tileOrder).toEqual(['waiting', 'next', 'remind', 'cdx']);
+    const broken = make({ token: 't', prefs: new Map([['tasks-desktop.tiles-order', '{']]) });
+    expect(broken.app.tileOrder).toEqual(['next', 'waiting', 'remind', 'cdx']);
+  });
+});
