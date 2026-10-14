@@ -2078,13 +2078,61 @@ describe('the check of the vault', () => {
     }
   });
 
-  it('shows no finding of a check that was made for an older state of the vault', async () => {
+  it('shows no finding of a check that was made for a state the page never held', async () => {
     const { app, hub } = await checkApp();
     hub.checkAnswers = [done('rev:old', [finding('pub/a')])];
     await app.openChecks();
     expect(app.checkOutdated).toBe(true);
     expect(app.checkFindings).toEqual([]);
     expect(app.findingsFor('pub/a')).toEqual([]);
+  });
+
+  it('judges each finding by its task: one that is as it was holds, one that changed is greyed, one that is gone drops', async () => {
+    const { app, hub } = await checkApp();
+    const file = { ...finding('pub/a', 'error'), id: undefined, code: 'index-stale', file: 'pub/ROADMAP/TASKS.md' };
+    const unlisted = { ...finding('pub/odd', 'error'), code: 'unknown-status' };
+    hub.checkAnswers = [done('rev:3', [finding('pub/a'), finding('pub/b'), finding('pub/c'), file, unlisted])];
+    hub.doc = snapshot([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' }), task('pub/c', { etag: 'e3' })], 'rev:3');
+    await app.refresh();
+    await app.openChecks();
+    expect(app.checkOutdated).toBe(false);
+    expect(app.checkChanged).toBe(0);
+    expect(app.checkFindings).toHaveLength(5);
+    // pub/b is written (a key of the inbox, Neovim), pub/c is finished: the others are untouched.
+    hub.doc = snapshot([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2-new' })], 'rev:2');
+    await app.refresh();
+    expect(app.checkOutdated).toBe(false);
+    expect(app.findingsFor('pub/a')).toHaveLength(1);
+    expect(app.findingsFor('pub/b')).toEqual([]);
+    expect(app.findingsFor('pub/c')).toEqual([]);
+    expect(app.checkStale.map((f) => f.id)).toEqual(['pub/b']);
+    expect(app.checkChanged).toBe(2);
+    // A finding about a file or an unlisted task has no version to go by: it stands.
+    expect(app.checkFindings.map((f) => f.code)).toEqual(['doing-while-blocked', 'index-stale', 'unknown-status']);
+    // The judged list is made once for a state, not once for every row that asks.
+    expect(app.findingsFor('pub/a')).toBe(app.findingsFor('pub/a'));
+  });
+
+  it('grounds a check whose state the page reads only afterwards, and a new run starts from its own ground', async () => {
+    const { app, hub } = await checkApp();
+    // The job is done for rev:2 before the page has read that list.
+    hub.checkAnswers = [done('rev:2', [finding('pub/a')])];
+    await app.openChecks();
+    expect(app.checkOutdated).toBe(true);
+    hub.doc = snapshot([task('pub/a', { etag: 'e1-new' }), task('pub/b', { etag: 'e2' })], 'rev:2');
+    await app.refresh();
+    expect(app.checkOutdated).toBe(false);
+    expect(app.findingsFor('pub/a')).toHaveLength(1);
+    // A second run: its findings are judged on the versions of its own time, not the first run's.
+    hub.doc = snapshot([task('pub/a', { etag: 'e1-newer' }), task('pub/b', { etag: 'e2' })], 'rev:3');
+    await app.refresh();
+    expect(app.findingsFor('pub/a')).toEqual([]);
+    hub.checkAnswers = [{ ...done('rev:3', [finding('pub/a'), finding('pub/b')]), id: 2 }];
+    await app.runCheck(false);
+    expect(app.checkOutdated).toBe(false);
+    expect(app.checkChanged).toBe(0);
+    expect(app.findingsFor('pub/a')).toHaveLength(1);
+    expect(app.findingsFor('pub/b')).toHaveLength(1);
   });
 
   it('keeps the words of a job that failed and of a hub that did not answer', async () => {

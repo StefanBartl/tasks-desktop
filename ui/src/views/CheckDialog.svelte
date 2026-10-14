@@ -4,6 +4,7 @@
   import type { App } from '../lib/app.svelte';
   import { translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
+  import { timeOf } from '../lib/check';
 
   let { app }: { app: App } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
@@ -13,6 +14,8 @@
   const job = $derived(app.checkJob);
   const running = $derived(job?.state === 'running');
   const findings = $derived(app.checkFindings);
+  const stale = $derived(app.checkStale);
+  const checkedAt = $derived(job?.state === 'done' ? timeOf(job.result.generated_at, app.lang) : null);
 
   $effect(() => {
     if (!dialog) return;
@@ -47,19 +50,22 @@
           <p class="problem">{t('check.outdated')}</p>
         {:else}
           <p class="summary">{t('check.summary', { errors: job.result.errors, warnings: job.result.warnings, tasks: job.result.tasks })}</p>
+          {#if checkedAt}<p class="muted">{t('check.as_of', { time: checkedAt })}</p>{/if}
+          {#if app.checkChanged > 0}<p class="notice">{t('check.changed', { n: app.checkChanged })}</p>{/if}
           {#if job.result.truncated}<p class="muted">{t('check.truncated', { n: job.result.findings.length, total: job.result.total })}</p>{/if}
           {#each job.result.notes as note, i (i)}<p class="muted">{markHidden(note)}</p>{/each}
-          {#if findings.length === 0}<p class="muted">{t('check.clean')}</p>{/if}
+          {#if findings.length === 0 && stale.length === 0}<p class="muted">{t('check.clean')}</p>{/if}
         {/if}
       {:else}
         <p class="muted">{t('check.idle')}</p>
       {/if}
     </div>
-    {#if findings.length > 0}
+    {#if findings.length > 0 || stale.length > 0}
       <ul class="findings">
-        {#each findings as f, i (i)}
-          <li>
+        {#each [...findings, ...stale] as f, i (i)}
+          <li class:stale={i >= findings.length}>
             <span class="tag" class:err={f.severity === 'error'}>{f.severity === 'error' ? t('check.error') : t('check.warn')}</span>
+            {#if i >= findings.length}<span class="tag">{t('check.stale_task')}</span>{/if}
             <code>{markHidden(f.code)}</code>
             {#if f.id}
               <button type="button" class="linkish" onclick={() => jump(f.id as string)}>{markHidden(f.id)}</button>
@@ -111,6 +117,13 @@
   }
   .summary {
     font-weight: 600;
+  }
+  .notice {
+    margin: 0.2rem 0;
+    font-size: 0.85rem;
+  }
+  .findings li.stale {
+    color: var(--muted);
   }
   .problem {
     color: var(--warn);
