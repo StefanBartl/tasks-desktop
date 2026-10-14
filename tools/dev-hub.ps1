@@ -45,6 +45,11 @@ $root = Split-Path -Parent $PSScriptRoot
 $repos = if ($env:REPOS_DIR) { $env:REPOS_DIR } else { 'E:/repos' }
 $buildProfile = if ($Release) { 'release' } else { 'debug' }
 
+# What was set before: the script changes the environment of this process only while it runs.
+$envNames = @('TASKS_ENGINE_DIR', 'LIB_NVIM_DIR', 'TASKS_VAULT')
+$envBefore = @{}
+foreach ($name in $envNames) { $envBefore[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+
 # The engine and its library from the local checkouts, so the hub sees their newest commits
 # (engine.lock pins the commit the CI checks out, not the one you run here).
 if (-not $env:TASKS_ENGINE_DIR) { $env:TASKS_ENGINE_DIR = "$repos/tasks.nvim" }
@@ -52,9 +57,6 @@ if (-not $env:LIB_NVIM_DIR) { $env:LIB_NVIM_DIR = "$repos/lib.nvim" }
 if ($Vault) { $env:TASKS_VAULT = $Vault }
 elseif (-not $env:TASKS_VAULT) { $env:TASKS_VAULT = "$repos/tasks-vault" }
 
-foreach ($dir in @($env:TASKS_ENGINE_DIR, $env:LIB_NVIM_DIR, $env:TASKS_VAULT)) {
-  if (-not (Test-Path -LiteralPath $dir -PathType Container)) { throw "Folder not found: $dir" }
-}
 
 function Invoke-Step([string]$Label, [scriptblock]$Body) {
   Write-Host "==> $Label" -ForegroundColor Cyan
@@ -64,6 +66,10 @@ function Invoke-Step([string]$Label, [scriptblock]$Body) {
 
 Push-Location $root
 try {
+  foreach ($dir in @($env:TASKS_ENGINE_DIR, $env:LIB_NVIM_DIR, $env:TASKS_VAULT)) {
+    if (-not (Test-Path -LiteralPath $dir -PathType Container)) { throw "Folder not found: $dir" }
+  }
+
   if (-not $NoBuild) {
     Invoke-Step 'ui: pnpm build' { pnpm --dir ui build }
     # Without this the binary keeps the interface it embedded last time.
@@ -79,7 +85,13 @@ try {
   Write-Host "engine: $env:TASKS_ENGINE_DIR"
   Write-Host "vault:  $env:TASKS_VAULT"
   if ($Background) {
-    Invoke-Step 'tasks-hub start --open' { & $exe start --open }
+    # A hub that runs already (an earlier run, the installed copy) is found and kept: it may be an older build.
+    $started = & $exe start --open | Out-String
+    if ($LASTEXITCODE -ne 0) { throw "tasks-hub start --open failed (exit code $LASTEXITCODE)" }
+    Write-Host $started
+    if ($started -match 'already running') {
+        Write-Warning "A hub was already running, so this is not necessarily the build above. Stop it with: & '$exe' stop, then run this again."
+    }
     Write-Host "Running in the background. Stop it with: & '$exe' stop"
   }
   else {
@@ -89,4 +101,5 @@ try {
 }
 finally {
   Pop-Location
+  foreach ($name in $envNames) { [Environment]::SetEnvironmentVariable($name, $envBefore[$name], 'Process') }
 }

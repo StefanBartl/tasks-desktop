@@ -28,6 +28,12 @@ class FakeHub {
   hubDown = false;
   exchanged: string[] = [];
   exchangeFails = false;
+  /** The next n trades are refused (a 401), the ones after are not. */
+  failNext = 0;
+  /** A trade that fails the way a dead network does, with no answer from the hub. */
+  exchangeNetworkFail = false;
+  /** A trade waits for this before it answers. */
+  exchangeGate: Promise<void> | null = null;
   rescans = 0;
   areasCalls = 0;
   nextCalls = 0;
@@ -50,6 +56,12 @@ class FakeHub {
   }
   async exchange(code: string) {
     this.exchanged.push(code);
+    if (this.exchangeGate) await this.exchangeGate;
+    if (this.exchangeNetworkFail) throw new TypeError('network');
+    if (this.failNext > 0) {
+      this.failNext -= 1;
+      throw new ApiError(401, 'bad_code', 'x');
+    }
     if (this.exchangeFails) throw new ApiError(401, 'bad_code', 'x');
     return 'token-1';
   }
@@ -312,6 +324,66 @@ describe('App', () => {
     app.offerCode('ef'.repeat(16));
     await vi.waitFor(() => expect(app.phase).toBe('ready'));
     expect(app.pairRefused).toBe(false);
+    app.stop();
+  });
+
+  it('does not say a code was refused when the tab kept its session, or when the hub did not answer', async () => {
+    const paired = make({ token: 't' });
+    paired.hub.exchangeFails = true;
+    await paired.app.start('ab'.repeat(16));
+    expect(paired.app.phase).toBe('ready');
+    expect(paired.app.pairRefused).toBe(false);
+    paired.app.stop();
+
+    // Not a refusal of the hub (no answer at all): the page does not claim the code was used up.
+    const down = make();
+    down.hub.exchangeNetworkFail = true;
+    await down.app.start('ab'.repeat(16));
+    expect(down.app.phase).toBe('needs_pairing');
+    expect(down.app.pairRefused).toBe(false);
+    down.app.stop();
+  });
+
+  it('forgets a refusal when the session is lost later', async () => {
+    const { app, hub } = make({ token: 't' });
+    await app.start(null);
+    app.pairRefused = true;
+    hub.onUnauthorized();
+    expect(app.phase).toBe('needs_pairing');
+    expect(app.pairRefused).toBe(false);
+    app.stop();
+  });
+
+  it('trades a code that arrives while the answer to the one before is awaited', async () => {
+    const { app, hub } = make();
+    let release: () => void = () => {};
+    hub.exchangeGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    hub.failNext = 1; // the first code is refused
+    const started = app.start('aa'.repeat(16));
+    await vi.waitFor(() => expect(hub.exchanged).toEqual(['aa'.repeat(16)]));
+    app.offerCode('bb'.repeat(16)); // pasted while the first is still out
+    hub.exchangeGate = null;
+    release();
+    await started;
+    expect(hub.exchanged).toEqual(['aa'.repeat(16), 'bb'.repeat(16)]);
+    expect(app.phase).toBe('ready');
+    expect(app.pairRefused).toBe(false);
+    app.stop();
+  });
+
+  it('trades a code that is pasted while the page waits for the hub', async () => {
+    const { app, hub } = make();
+    hub.hubDown = true;
+    const started = app.start(null);
+    await vi.waitFor(() => expect(app.phase).toBe('offline'));
+    app.offerCode('cc'.repeat(16));
+    expect(hub.exchanged).toEqual([]); // the page is not paired yet: it keeps the code for when the hub answers
+    hub.hubDown = false;
+    await started;
+    expect(hub.exchanged).toEqual(['cc'.repeat(16)]);
+    expect(app.phase).toBe('ready');
     app.stop();
   });
 

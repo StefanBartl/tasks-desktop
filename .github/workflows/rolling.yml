@@ -3,9 +3,17 @@
 # for looking at the newest state with a click, not a release: no version tag, not signed, no
 # checksums beyond SHA256SUMS. A release stays a deliberate act (release.yml, rule NREL-07).
 #
-#   tasks-hub-windows-x86_64.exe        a double click starts the hub in the background and opens the browser
+#   tasks-hub-windows-x86_64.exe        a double click sets up and starts the hub, and opens the browser
 #   tasks-hub-linux-x86_64.tar.gz       the same program for Linux (the archive keeps the executable bit)
 #   SHA256SUMS                          the checksums of both
+#
+# What the release page says (the tag `latest`, the title, the notes) moves LAST, after both files and
+# their checksums are in place: a run that fails or is cancelled in between leaves the page naming the
+# previous commit, never a new one with files of two commits. SHA256SUMS is taken away first, so a
+# page with files of two commits has none rather than a stale one.
+#
+# Only the newest commit of main is built: a CI run of an older commit (finished late, or re-run by hand)
+# does not move `latest` backwards.
 #
 # Actions are pinned by commit (NREL-03); a job gets only the rights it needs; `latest` is moved to the
 # commit through the API (no token is left in a checkout).
@@ -18,9 +26,10 @@ on:
     types: [completed]
     branches: [main]
 
-# A newer commit replaces a build that is still running: the pre-release must end on the newest one.
+# A newer commit replaces a build that is still running: the pre-release must end on the newest one. The
+# runs that do nothing (a failed CI, a pull request) have a group of their own: they must not cancel a build.
 concurrency:
-  group: rolling
+  group: rolling-${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
   cancel-in-progress: true
 
 permissions:
@@ -37,14 +46,11 @@ jobs:
     permissions:
       contents: write
     outputs:
+      current: ${{ steps.facts.outputs.current }}
       sha: ${{ steps.facts.outputs.sha }}
       short: ${{ steps.facts.outputs.short }}
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          persist-credentials: false
-      - name: Move latest to this commit and open the pre-release
+      - name: Is this the newest commit of main, and does the pre-release exist
         id: facts
         shell: bash
         env:
@@ -52,29 +58,27 @@ jobs:
           SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -eu
-          short="$(git rev-parse --short=7 "$SHA")"
-          # The tag follows the build: the page of the release says which commit the files are from.
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/latest" >/dev/null 2>&1; then
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/latest" -f sha="$SHA" -F force=true >/dev/null
-          else
-            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/latest" -f sha="$SHA" >/dev/null
-          fi
-          {
-            cat .github/rolling-notes.md
-            printf '\nBuilt from commit `%s`.\n' "$SHA"
-          } > notes.md
-          if gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release edit latest --repo "$GITHUB_REPOSITORY" --prerelease --latest=false \
-              --title "Rolling build ($short)" --notes-file notes.md
-          else
-            gh release create latest --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --verify-tag \
-              --title "Rolling build ($short)" --notes-file notes.md
-          fi
+          short="$(printf '%s' "$SHA" | cut -c1-7)"
+          tip="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "short=$short" >> "$GITHUB_OUTPUT"
+          if [ "$tip" != "$SHA" ]; then
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$short is not the tip of main ($tip): nothing is built for it"
+            exit 0
+          fi
+          echo "current=true" >> "$GITHUB_OUTPUT"
+          # The release page is made once (at this commit); afterwards only its files and, last, its words change.
+          if ! gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create latest --repo "$GITHUB_REPOSITORY" --prerelease --latest=false --target "$SHA" \
+              --title "Rolling build (starting)" --notes "The first rolling build is being made."
+          fi
+          # No checksums for files that are about to change.
+          gh release delete-asset latest SHA256SUMS --repo "$GITHUB_REPOSITORY" --yes 2>/dev/null || true
 
   build:
     needs: prepare
+    if: ${{ needs.prepare.outputs.current == 'true' }}
     permissions:
       contents: write
     strategy:
@@ -152,3 +156,30 @@ jobs:
           fi
           (cd assets && sha256sum tasks-hub-* > SHA256SUMS && cat SHA256SUMS)
           gh release upload latest assets/SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
+
+  # The words of the release page, last: only now does the page name this commit.
+  announce:
+    needs: [prepare, sums]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - name: Move latest to this commit and name it on the page
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.prepare.outputs.sha }}
+          SHORT: ${{ needs.prepare.outputs.short }}
+        run: |
+          set -eu
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/latest" -f sha="$SHA" -F force=true >/dev/null
+          {
+            cat .github/rolling-notes.md
+            printf '\nBuilt from commit `%s`.\n' "$SHA"
+          } > notes.md
+          gh release edit latest --repo "$GITHUB_REPOSITORY" --prerelease --latest=false \
+            --title "Rolling build ($SHORT)" --notes-file notes.md

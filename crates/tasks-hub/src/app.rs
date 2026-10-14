@@ -237,7 +237,7 @@ impl ConfigVaults {
 /// Windows reads `/` and `\` alike, so the separators are made one before the start is looked at (`/\host\share` is
 /// a share too). Every prefix but a drive letter (a share, a device, a verbatim or an NT form) begins with two
 /// separators, or with `/??/` once they are one, so this is the whole test.
-fn is_remote_path(text: &str) -> bool {
+pub(crate) fn is_remote_path(text: &str) -> bool {
     let flat = text.replace('\\', "/");
     flat.starts_with("//") || flat.starts_with("/??/")
 }

@@ -50,8 +50,10 @@ const NO_SETUP: &str = "TASKS_DESKTOP_NO_SETUP";
 /// Whether there is a person to ask.
 #[must_use]
 pub fn interactive(env: &Env) -> bool {
+    // Both ends at a terminal: with the output in a file or a pipe the questions would go where nobody reads them.
     env.get(NO_SETUP).is_none()
-        && (env.get(ASSUME_TERMINAL).is_some() || std::io::stdin().is_terminal())
+        && (env.get(ASSUME_TERMINAL).is_some()
+            || (std::io::stdin().is_terminal() && std::io::stdout().is_terminal()))
 }
 
 /// What was asked already. A missing or unreadable file is "nothing yet": the worst case is a question twice.
@@ -100,7 +102,8 @@ const VAULT_TRIES: usize = 3;
 /// An empty line skips; the page then says what is missing.
 fn ask_vault(io: &mut dyn Io, env: &Env, dir: &Path) -> Result<(), String> {
     let mut file = config::load_file(dir).map_err(|e| e.to_string())?;
-    if file.vault.is_some() || env.path("TASKS_VAULT").is_some() {
+    // What the hub would read: the main vault, or the active one of the named vaults.
+    if file.effective().vault.is_some() || env.path("TASKS_VAULT").is_some() {
         return Ok(());
     }
     io.say(
@@ -114,7 +117,18 @@ fn ask_vault(io: &mut dyn Io, env: &Env, dir: &Path) -> Result<(), String> {
         if answer.is_empty() {
             return Ok(());
         }
-        let path = PathBuf::from(answer);
+        // Looked at before anything touches it: opening a network share (`\\host\share`) makes Windows sign in to that host.
+        if crate::app::is_remote_path(answer) {
+            io.say("A network folder is not accepted: use a drive or a mounted folder.");
+            continue;
+        }
+        // The console's folder means something to the person, the hub's does not: keep the whole path.
+        let typed = PathBuf::from(answer);
+        let path = if typed.is_absolute() {
+            typed
+        } else {
+            std::env::current_dir().map_or(typed.clone(), |cwd| cwd.join(&typed))
+        };
         if !path.is_dir() {
             io.say(&format!("{} is not a folder.", path.display()));
             continue;
@@ -165,10 +179,11 @@ async fn ask_install(
                 true,
             )
         {
+            // Once is enough: the next double click does not ask the same question again.
+            asked.install_declined = true;
             return Ok(None);
         }
-        io.say(&background::install(InstallOptions::default()).await?);
-        return Ok(Some(target));
+        return Ok(install_or_warn(io, InstallOptions::default(), target).await);
     }
     if asked.install_declined {
         return Ok(None);
@@ -185,8 +200,47 @@ async fn ask_install(
         autostart: yes_no(io, "Start it when you log in?", false),
         shortcut: yes_no(io, "Put a link on the desktop?", true),
     };
-    io.say(&background::install(opts).await?);
-    Ok(Some(target))
+    Ok(install_or_warn(io, opts, target).await)
+}
+
+/// Install, and say what was done. A step that fails (the link, the login entry) is told and does not stop the
+/// double click: the hub still starts, from the program that was clicked.
+async fn install_or_warn(
+    io: &mut dyn Io,
+    opts: InstallOptions,
+    target: PathBuf,
+) -> Option<PathBuf> {
+    match background::install(opts).await {
+        Ok(text) => {
+            io.say(&text);
+            Some(target)
+        }
+        Err(e) => {
+            io.say(&format!(
+                "The installation did not finish: {e}\nThe hub starts from this program anyway; `tasks-hub install` tries again."
+            ));
+            None
+        }
+    }
+}
+
+/// An [`Io`] that notes when the input ran out (Ctrl-Z, a closed console): an answer that was never given is
+/// not remembered as one.
+struct Watch<'a> {
+    inner: &'a mut dyn Io,
+    ended: bool,
+}
+
+impl Io for Watch<'_> {
+    fn ask(&mut self, question: &str) -> Option<String> {
+        let answer = self.inner.ask(question);
+        self.ended |= answer.is_none();
+        answer
+    }
+
+    fn say(&mut self, text: &str) {
+        self.inner.say(text);
+    }
 }
 
 /// The questions of a first start. Returns the installed program to start the hub from, when there is one.
@@ -198,13 +252,22 @@ pub async fn run(io: &mut dyn Io, env: &Env) -> Result<Option<PathBuf>, String> 
     let dir = config::config_dir(env)
         .ok_or("no config folder: set TASKS_DESKTOP_CONFIG_DIR (APPDATA, XDG_CONFIG_HOME or HOME is missing)")?;
     let mut asked = load_asked(&dir);
+    let mut io = Watch {
+        inner: io,
+        ended: false,
+    };
     if !asked.vault {
-        ask_vault(io, env, &dir)?;
+        ask_vault(&mut io, env, &dir)?;
+        if io.ended {
+            return Ok(None); // nothing was answered: ask again next time
+        }
         asked.vault = true;
         save_asked(&dir, &asked)?;
     }
-    let program = ask_install(io, env, &mut asked).await?;
-    save_asked(&dir, &asked)?;
+    let program = ask_install(&mut io, env, &mut asked).await?;
+    if !io.ended {
+        save_asked(&dir, &asked)?;
+    }
     Ok(program)
 }
 
@@ -344,5 +407,105 @@ mod tests {
         assert!(!interactive(&off));
         let piped = Env::from_pairs([(ASSUME_TERMINAL, "1")]);
         assert!(interactive(&piped));
+    }
+
+    #[test]
+    fn a_relative_vault_is_kept_with_its_whole_path() {
+        let dir = temp("vault-relative");
+        let env = Env::from_pairs([("TASKS_DESKTOP_CONFIG_DIR", dir.display().to_string())]);
+        // `.` is a folder of the console: what the hub reads later must not depend on where it is started.
+        let mut io = Script::new(&["."]);
+        ask_vault(&mut io, &env, &dir).unwrap();
+        let kept = vault_in_settings(&dir).expect("kept");
+        assert!(kept.is_absolute(), "{}", kept.display());
+    }
+
+    #[test]
+    fn a_network_folder_is_refused_before_anything_touches_it() {
+        let dir = temp("vault-remote");
+        let env = Env::from_pairs([("TASKS_DESKTOP_CONFIG_DIR", dir.display().to_string())]);
+        let share = format!("{0}{0}no-such-host{0}share", '\\');
+        let mut io = Script::new(&[Box::leak(share.into_boxed_str()), ""]);
+        ask_vault(&mut io, &env, &dir).unwrap();
+        assert!(
+            io.said.iter().any(|s| s.contains("network folder")),
+            "{:?}",
+            io.said
+        );
+        assert_eq!(vault_in_settings(&dir), None);
+    }
+
+    #[test]
+    fn a_vault_among_the_named_vaults_counts_as_set() {
+        let dir = temp("vault-named");
+        let other = temp("vault-named-folder");
+        let file = FileConfig {
+            vaults: vec![config::VaultEntry {
+                name: "work".to_owned(),
+                path: other,
+            }],
+            active: Some("work".to_owned()),
+            ..FileConfig::default()
+        };
+        config::save_file(&dir, &file).unwrap();
+        let env = Env::from_pairs([("TASKS_DESKTOP_CONFIG_DIR", dir.display().to_string())]);
+        let mut io = Script::new(&[]);
+        ask_vault(&mut io, &env, &dir).unwrap();
+        assert!(
+            io.asked.is_empty(),
+            "the active vault is a vault: {:?}",
+            io.asked
+        );
+    }
+
+    /// The environment of a run: a config folder, an install folder and a vault, all of the test's own.
+    fn run_env(name: &str) -> (Env, PathBuf, PathBuf) {
+        let config = temp(&format!("run-{name}"));
+        let bin = temp(&format!("run-{name}-bin"));
+        let env = Env::from_pairs([
+            ("TASKS_DESKTOP_CONFIG_DIR", config.display().to_string()),
+            ("TASKS_DESKTOP_INSTALL_DIR", bin.display().to_string()),
+            ("TASKS_VAULT", config.display().to_string()),
+        ]);
+        (env, config, bin)
+    }
+
+    #[tokio::test]
+    async fn an_input_that_ran_out_is_not_remembered_as_an_answer() {
+        let config = temp("run-eof");
+        let bin = temp("run-eof-bin");
+        // No vault is set, so the first question is the vault; the input ends there.
+        let env = Env::from_pairs([
+            ("TASKS_DESKTOP_CONFIG_DIR", config.display().to_string()),
+            ("TASKS_DESKTOP_INSTALL_DIR", bin.display().to_string()),
+        ]);
+        let mut io = Script::new(&[]);
+        let program = run(&mut io, &env).await.unwrap();
+        assert_eq!(program, None);
+        assert!(
+            !asked_path(&config).exists(),
+            "nothing was answered, nothing is noted"
+        );
+
+        // The install question: the input ends at it, so it is not noted as declined either.
+        let (env, config, _bin) = run_env("eof-install");
+        let mut io = Script::new(&[]);
+        assert_eq!(run(&mut io, &env).await.unwrap(), None);
+        assert!(!load_asked(&config).install_declined);
+    }
+
+    #[tokio::test]
+    async fn declining_the_replacement_of_another_version_is_remembered() {
+        let (env, config, bin) = run_env("replace");
+        // Another version is installed already (other bytes than this test program).
+        std::fs::write(bin.join(background::PROGRAM_FILE), "an older program").unwrap();
+        let mut io = Script::new(&["n"]);
+        assert_eq!(run(&mut io, &env).await.unwrap(), None);
+        assert_eq!(io.asked.len(), 1, "{:?}", io.asked);
+        assert!(load_asked(&config).install_declined);
+
+        let mut again = Script::new(&[]);
+        assert_eq!(run(&mut again, &env).await.unwrap(), None);
+        assert!(again.asked.is_empty(), "asked again: {:?}", again.asked);
     }
 }

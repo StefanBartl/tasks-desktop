@@ -33,7 +33,13 @@ pub const BUILD: Option<&str> = option_env!("TASKS_HUB_BUILD");
 /// A release is exactly the first form (the release workflow compares it with the tag).
 #[must_use]
 pub fn version_line() -> String {
-    match BUILD {
+    version_line_for(BUILD)
+}
+
+/// [`version_line`] for a given build (so that both forms are testable: `BUILD` is fixed at compile time).
+#[must_use]
+pub fn version_line_for(build: Option<&str>) -> String {
+    match build {
         Some(build) if !build.is_empty() => format!("tasks-hub {VERSION} (build {build})"),
         _ => format!("tasks-hub {VERSION}"),
     }

@@ -500,10 +500,17 @@ fn install_dir(env: &Env) -> Result<PathBuf, String> {
 ///
 /// The reason there is no install folder (no `LOCALAPPDATA`, `HOME`, or a relative `TASKS_DESKTOP_INSTALL_DIR`).
 pub fn installed_program(env: &Env) -> Result<PathBuf, String> {
-    let from = std::env::current_exe().map_err(|e| format!("own program not found: {e}"))?;
-    let name = from.file_name().ok_or("the program has no file name")?;
-    Ok(install_dir(env)?.join(name))
+    Ok(install_dir(env)?.join(PROGRAM_FILE))
 }
+
+/// The file name the program has once installed, whatever the downloaded file was called
+/// (`tasks-hub-windows-x86_64.exe`, `tasks-hub (1).exe`): the scripts, the login entry, the link and
+/// `uninstall` all look for this one name.
+pub const PROGRAM_FILE: &str = if cfg!(windows) {
+    "tasks-hub.exe"
+} else {
+    "tasks-hub"
+};
 
 /// What `install` was asked for.
 #[derive(Debug, Clone, Copy, Default)]
@@ -587,10 +594,7 @@ async fn install_steps(opts: InstallOptions, out: &mut String) -> Result<(), Str
     let env = Env::from_process();
     let dir = install_dir(&env)?;
     let from = std::env::current_exe().map_err(|e| format!("own program not found: {e}"))?;
-    let name = from
-        .file_name()
-        .ok_or("the program has no file name")?
-        .to_owned();
+    let name = std::ffi::OsString::from(PROGRAM_FILE);
     let target = dir.join(&name);
 
     // A program that is the one being installed (run from the install
