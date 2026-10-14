@@ -351,3 +351,76 @@ async fn the_preview_of_finishing_a_task_is_read_only_and_checks_the_id() {
         "2"
     );
 }
+
+#[tokio::test]
+async fn the_estimate_route_refuses_what_is_plainly_not_a_question_and_asks_the_engine_otherwise() {
+    let r = rig("estimate").await;
+    let many: String = (0..1001)
+        .map(|i| format!(r#""alpha.nvim/t{i}""#))
+        .collect::<Vec<_>>()
+        .join(",");
+    let cases: Vec<(&str, String)> = vec![
+        ("not json", "{not json".to_owned()),
+        ("a list", "[]".to_owned()),
+        ("unknown field", r#"{"colour":1}"#.to_owned()),
+        ("ids not a list", r#"{"ids":"alpha.nvim/t1"}"#.to_owned()),
+        ("a bad id", r#"{"ids":["not an id"]}"#.to_owned()),
+        ("an id that is no text", r#"{"ids":[1]}"#.to_owned()),
+        ("too many ids", format!(r#"{{"ids":[{many}]}}"#)),
+        ("assume not a list", r#"{"assume":{}}"#.to_owned()),
+        ("assume entry not an object", r#"{"assume":[1]}"#.to_owned()),
+        (
+            "assume without an id",
+            r#"{"assume":[{"value":3}]}"#.to_owned(),
+        ),
+        (
+            "assume with an unknown field",
+            r#"{"assume":[{"id":"alpha.nvim/t1","colour":"red"}]}"#.to_owned(),
+        ),
+        (
+            "an effort that is no short word",
+            r#"{"assume":[{"id":"alpha.nvim/t1","effort":"a very long word indeed"}]}"#.to_owned(),
+        ),
+        (
+            "a value that is no whole number",
+            r#"{"assume":[{"id":"alpha.nvim/t1","value":2.5}]}"#.to_owned(),
+        ),
+    ];
+    for (name, body) in cases {
+        let (status, doc) = post(&r, "/api/tasks/estimate", &body, JSON, true).await;
+        assert_eq!(status, 400, "{name}: {doc}");
+        assert_eq!(doc["error"]["code"], "bad_request", "{name}");
+    }
+    // A question the form allows goes to the engine and its document comes back as it is.
+    let body =
+        r#"{"ids":["alpha.nvim/t1"],"assume":[{"id":"alpha.nvim/t1","effort":"M","value":4}]}"#;
+    let (status, doc) = post(&r, "/api/tasks/estimate", body, JSON, true).await;
+    assert_eq!(status, 200, "{doc}");
+    assert_eq!(doc["kind"], "tasks.estimate");
+    // It needs a session and JSON, like every route that takes a body, and a GET is no question.
+    assert_eq!(
+        post(&r, "/api/tasks/estimate", body, JSON, false).await.0,
+        401
+    );
+    assert_eq!(
+        post(&r, "/api/tasks/estimate", body, "text/plain", true)
+            .await
+            .0,
+        415
+    );
+    assert_eq!(get(&r, "/api/tasks/estimate").await.0, 405);
+}
+
+#[tokio::test]
+async fn a_question_of_estimate_costs_the_writes_nothing() {
+    let r = rig("estimate-limit").await;
+    // More questions than the strict limit of the writes (60 in the window) are answered ...
+    for i in 0..80 {
+        let (status, doc) = post(&r, "/api/tasks/estimate", "{}", JSON, true).await;
+        assert_eq!(status, 200, "question {i}: {doc}");
+    }
+    // ... and a write still goes through.
+    let body = r#"{"ops":[{"op":"set","id":"alpha.nvim/t1","patch":{"prio":1}}]}"#;
+    let (status, doc) = post(&r, "/api/tasks/ops", body, JSON, true).await;
+    assert_eq!(status, 200, "{doc}");
+}

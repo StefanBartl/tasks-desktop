@@ -6,6 +6,7 @@
   import ListView from './views/ListView.svelte';
   import BoardView from './views/BoardView.svelte';
   import InboxView from './views/InboxView.svelte';
+  import Matrix from './views/Matrix.svelte';
   import { triageKey } from './lib/inbox';
   import MenuBar, { type Menu } from './views/MenuBar.svelte';
   import PlanView from './views/PlanView.svelte';
@@ -165,6 +166,12 @@
         if (app.view === 'list' && app.selectedId !== null && !event.repeat) {
           const id = app.selectedId;
           if (app.shown.some((t) => t.id === id)) app.toggleMark(id);
+        }
+        break;
+      case 'e':
+        if (app.view === 'list' && !event.repeat) {
+          event.preventDefault();
+          app.openMatrix();
         }
         break;
       case '/':
@@ -436,6 +443,7 @@
     <PlanWizard {app} />
     <DoneDialog {app} />
     <PrioDialog {app} />
+    <Matrix {app} />
     <BlockDialog {app} />
     <Palette {app} />
     <ConflictCenter {app} />

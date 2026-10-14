@@ -800,6 +800,52 @@ test('the inbox sorts tasks with single keys and nothing else', async ({ page })
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('the estimate matrix sets effort and value of several tasks, with the figures of the engine, in one batch', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  for (const n of [1, 2]) {
+    await page.keyboard.press('c');
+    const capture = page.getByRole('dialog', { name: 'New task' });
+    await capture.getByLabel('Title').fill(`Matrix e2e ${n}`);
+    await capture.locator('select').first().selectOption('lib.nvim');
+    await capture.getByRole('button', { name: 'Create' }).click();
+    await expect(capture).toHaveCount(0);
+  }
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Matrix e2e');
+  await expect(page.locator('.rows .line')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Mark all shown' }).click();
+  // The key e opens the matrix on the marked tasks.
+  await page.locator('body').press('e');
+  const matrix = page.getByRole('dialog', { name: 'Estimate' });
+  await expect(matrix).toBeVisible();
+  await expect(matrix.getByRole('row')).toHaveCount(3);
+  const figures = matrix.getByRole('status');
+  await expect(figures).toContainText('0 of 2 have an effort, 0 of 2 a value');
+  await expectAccessible(page, 'estimate matrix');
+  // Nothing is written by choosing: the engine only reckons.
+  const file = (n: number) => join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `matrix-e2e-${n}.md`);
+  await matrix.getByLabel('Effort: lib.nvim/matrix-e2e-1').selectOption('M');
+  await matrix.getByLabel('Value: lib.nvim/matrix-e2e-1').selectOption('4');
+  await matrix.getByLabel('Effort: lib.nvim/matrix-e2e-2').selectOption('XL');
+  // M and XL: the engine reckons the sum and the range of the sizes, the page shows them.
+  await expect(figures).toContainText('2 tasks - 6 days (between 3.7 and 9.5) - value 4');
+  await expect(figures).toContainText('2 of 2 have an effort, 1 of 2 a value');
+  expect(readFileSync(file(1), 'utf8')).not.toMatch(/effort:/);
+  await expect(matrix.getByRole('button', { name: 'Apply' })).toBeEnabled();
+  await matrix.getByRole('button', { name: 'Apply' }).click();
+  await expect(matrix).toHaveCount(0);
+  expect(readFileSync(file(1), 'utf8')).toMatch(/effort: M[\s\S]*value: 4|value: 4[\s\S]*effort: M/);
+  expect(readFileSync(file(2), 'utf8')).toMatch(/effort: XL/);
+  expect(readFileSync(file(2), 'utf8')).not.toMatch(/value:/);
+  // The way back takes both back, as one batch.
+  const toast = page.getByRole('status').filter({ hasText: 'Undo' });
+  await toast.getByRole('button', { name: 'Undo' }).click();
+  await expect(page.getByRole('status').getByText('Undone.')).toBeVisible();
+  expect(readFileSync(file(2), 'utf8')).not.toMatch(/effort:/);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
 test('a tag that was refused does not travel to the next task', async ({ page }) => {
   await watchViolations(page);
   await pair(page);

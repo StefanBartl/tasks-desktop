@@ -6,10 +6,11 @@ import { planOp, type PlanForm, type PlanPreview } from './planwizard';
 import { columnsOf, isColumn, neighbourColumn, placeNear, stepInGroup, type Move } from './board';
 import { ApiError, type Hub, type HubArea, type HubAreas, type SearchResult, type VaultList } from './api';
 import { cacheableClass, cacheableList, type ListStore } from './cache';
-import type { DonePreview, Next, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
+import type { DonePreview, Estimate, Next, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import type { Op } from './api';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
 import { inboxOf, triageKey } from './inbox';
+import { assumeOf, changesOf, failedIdsOf, matrixIds, withCell, type Cell, type Draft } from './estimate';
 import { bumped, parseFrecency, type Frecency } from './palette';
 import { defaultView, nextView, parseViews, type CountKey, type CountView } from './counts';
 import { conflictsOf, conflictsOfRequest, mergeConflicts, retryOp, type Conflict } from './conflicts';
@@ -135,6 +136,14 @@ export class App {
   capturing = $state(false);
   /** A card dropped among cards of another priority, waiting for the person's answer. */
   repriority = $state.raw<{ id: string; from: string; prio: number; ops: Op[] } | null>(null);
+  /** The estimate matrix: the ids it holds (null: closed), what was chosen in it, and what the engine says it adds up to. */
+  matrix = $state.raw<{ ids: string[] } | null>(null);
+  matrixDraft = $state.raw<Draft>({});
+  matrixFigures = $state.raw<Estimate | null>(null);
+  /** Why the figures are not there (the engine's words), or null. */
+  matrixProblem = $state<string | null>(null);
+  private matrixSeq = 0;
+  private matrixTimer: ReturnType<typeof setTimeout> | undefined;
   /** A card that goes to the blocked column and has no blocker yet, waiting for the person's answer. */
   blocking = $state.raw<{ id: string } | null>(null);
   /** The changes the engine refused because the file moved on: the conflict center lists them. */
@@ -643,6 +652,101 @@ export class App {
   }
 
   /** Set the priority and place the card, as one batch (the way back is the inverse of both). */
+  // ── the estimate matrix ───────────────────────────────────────────────
+
+  /** Open the matrix on the marked tasks, else on those the list shows. */
+  openMatrix(): void {
+    if (this.phase !== 'ready' || !this.can('estimate')) return;
+    const ids = matrixIds(this.marks, this.shown);
+    if (ids.length === 0) {
+      this.say('ok', 'matrix.none');
+      return;
+    }
+    this.matrix = { ids };
+    this.matrixDraft = {};
+    this.matrixFigures = null;
+    this.matrixProblem = null;
+    void this.askFigures();
+  }
+
+  closeMatrix(): void {
+    clearTimeout(this.matrixTimer);
+    this.matrixSeq += 1;
+    this.matrix = null;
+    this.matrixDraft = {};
+    this.matrixFigures = null;
+    this.matrixProblem = null;
+  }
+
+  /** The tasks of the matrix that are still there, in the order they were asked for. */
+  get matrixRows(): TaskEntry[] {
+    const ids = this.matrix?.ids ?? [];
+    const byId = new Map(this.tasks.map((t) => [t.id, t] as const));
+    return ids.flatMap((id) => {
+      const task = byId.get(id);
+      return task ? [task] : [];
+    });
+  }
+
+  /** Choose a cell (or put it back with `undefined`); the figures are asked for again a moment later. */
+  setCell(id: string, field: keyof Cell, value: string | number | undefined): void {
+    if (!this.matrix) return;
+    this.matrixDraft = withCell(this.matrixDraft, id, field, value);
+    clearTimeout(this.matrixTimer);
+    this.matrixTimer = setTimeout(() => void this.askFigures(), 250);
+  }
+
+  private async askFigures(): Promise<void> {
+    const matrix = this.matrix;
+    if (!matrix) return;
+    this.matrixSeq += 1;
+    const seq = this.matrixSeq;
+    const assume = assumeOf(this.matrixDraft);
+    try {
+      const figures = await this.env.hub.estimate({ ids: matrix.ids, ...(assume.length > 0 ? { assume } : {}) });
+      // An older answer does not replace a newer question's.
+      if (seq !== this.matrixSeq || !this.matrix) return;
+      this.matrixFigures = figures;
+      this.matrixProblem = null;
+    } catch (error) {
+      if (seq !== this.matrixSeq || !this.matrix) return;
+      // The engine's words, as they are: the page does not interpret them.
+      this.matrixProblem = error instanceof ApiError ? error.message : translate(this.lang, 'matrix.failed');
+    }
+  }
+
+  /**
+   * Write the cells that differ from the files, in one batch, each task with the version that was shown. A task that
+   * changed meanwhile fails alone and stays in the matrix with its cells; the others are written and leave the draft.
+   */
+  async applyMatrix(): Promise<void> {
+    const ops = changesOf(this.matrixRows, this.matrixDraft);
+    if (ops.length === 0) {
+      this.say('ok', 'bulk.nothing');
+      return;
+    }
+    const onAnswer = (result: Result): boolean => {
+      const failed = failedIdsOf(ops, result.results);
+      if (failed === null) return false;
+      const sent = new Set(ops.map((o) => ('id' in o ? o.id : '')));
+      const rest: Draft = {};
+      for (const [id, cell] of Object.entries(this.matrixDraft)) {
+        if (!sent.has(id) || failed.has(id)) rest[id] = cell;
+      }
+      const undo = this.inverseOf(result);
+      if (failed.size === 0) {
+        this.say('ok', 'bulk.saved', { n: ops.length }, undo);
+        this.closeMatrix();
+      } else {
+        this.matrixDraft = rest;
+        this.say('error', 'bulk.partial', { done: ops.length - failed.size, failed: failed.size }, undo);
+        void this.askFigures();
+      }
+      return true;
+    };
+    await this.write(ops, { onAnswer });
+  }
+
   async confirmRepriority(): Promise<void> {
     const asking = this.repriority;
     if (!asking) return;
