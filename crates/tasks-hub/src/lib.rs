@@ -16,6 +16,7 @@ pub mod engine;
 pub mod loginitems;
 pub mod search;
 pub mod server;
+pub mod setup;
 pub mod store;
 pub mod ui;
 pub mod usage;
