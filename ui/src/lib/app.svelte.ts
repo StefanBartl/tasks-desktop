@@ -111,6 +111,10 @@ function parseTiles(text: string | null): Tile[] {
 
 export class App {
   phase = $state<Phase>('starting');
+  /** The last pairing code was refused (spent or older than its minute): the page says so and what to do. */
+  pairRefused = $state(false);
+  /** A code that arrived while the page was still starting: the pending start trades it. */
+  private pendingCode: string | null = null;
   problem = $state<string | null>(null);
   connection = $state<Connection>('offline');
   view = $state<View>('today');
@@ -1399,6 +1403,7 @@ export class App {
   async start(code: string | null): Promise<void> {
     this.stopped = false;
     this.phase = 'starting';
+    if (code) this.pendingCode = code;
     const stored = safe(() => this.env.session.getItem(TOKEN_KEY));
 
     // The first picture comes from the cache, before the hub has answered
@@ -1438,14 +1443,19 @@ export class App {
     }
 
     let token = stored;
-    if (code) {
+    // The code of the address, or a newer one that was pasted while this waited for the hub.
+    const offered = this.pendingCode;
+    this.pendingCode = null;
+    if (offered) {
       try {
-        const fresh = await this.env.hub.exchange(code);
+        const fresh = await this.env.hub.exchange(offered);
         safe(() => this.env.session.setItem(TOKEN_KEY, fresh));
         token = fresh;
+        this.pairRefused = false;
       } catch {
         // A code that is spent or too old: the session of this tab, if it
-        // has one, is still good.
+        // has one, is still good; without one the page says the code was refused.
+        this.pairRefused = true;
       }
     }
     if (!token) {
@@ -1460,6 +1470,17 @@ export class App {
     await this.refresh();
     if (!this.env.hub.hasToken || this.stopped) return;
     void this.followStream();
+  }
+
+  /**
+   * A pairing code that arrives after the page was loaded (a link pasted into the tab that is open: the
+   * browser then changes only the fragment and does not reload). Without a session it is traded at once; a
+   * page that is still starting picks it up when it gets there; a paired page keeps its session.
+   */
+  offerCode(code: string): void {
+    if (this.env.hub.hasToken) return;
+    this.pendingCode = code;
+    if (this.phase === 'needs_pairing') void this.start(code);
   }
 
   stop(): void {

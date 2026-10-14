@@ -387,6 +387,9 @@
       {:else if app.phase === 'needs_pairing'}
         <section class="card centered">
           <h1>{t('state.needs_pairing.title')}</h1>
+          {#if app.pairRefused}
+            <p role="alert">{t('state.needs_pairing.refused')}</p>
+          {/if}
           <p>{t('state.needs_pairing.body')}</p>
           <pre><code>tasks-hub open</code></pre>
         </section>

@@ -24,3 +24,9 @@ const env: Env = {
 
 const state = new AppState(env);
 mount(App, { target: document.getElementById('app') as HTMLElement, props: { app: state, code } });
+
+// A link from `tasks-hub open` pasted into a tab that is already open changes only the fragment: no reload.
+window.addEventListener('hashchange', () => {
+  const later = takePairingCode(window.location, window.history);
+  if (later) state.offerCode(later);
+});
