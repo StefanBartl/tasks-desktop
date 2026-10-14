@@ -2197,3 +2197,42 @@ test('a note that is being typed survives a change of the vault that arrives mea
   await expect(detail.getByRole('textbox', { name: /Add a note/ })).toHaveValue('');
   writeFileSync(file, text);
 });
+
+test('the inbox draws a page of rows, shows more on request and keeps the selected row drawn', async ({ page }) => {
+  await watchViolations(page);
+  const dir = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks');
+  const files: string[] = [];
+  // More unsorted tasks than one page takes, made the way another tool would make them.
+  for (let n = 1; n <= 130; n++) {
+    const file = join(dir, `inbox-page-e2e-${String(n).padStart(3, '0')}.md`);
+    writeFileSync(file, `---\ntitle: Inbox page e2e ${String(n).padStart(3, '0')}\nstatus: open\n---\n`);
+    files.push(file);
+  }
+  try {
+    await pair(page);
+    await showList(page);
+    await page.keyboard.press('g');
+    await page.keyboard.press('i');
+    const inbox = page.locator('section.inbox');
+    await expect(inbox).toBeVisible();
+    const more = inbox.getByRole('button', { name: /Show more/ });
+    // The count says how many there are; the page draws 100 of them.
+    await expect(more).toBeVisible();
+    await expect(inbox.locator('.row')).toHaveCount(100);
+    await expect(inbox.locator('.count')).toContainText(/to sort/);
+    expect(await violations(page)).toEqual([]);
+
+    // The keys walk past the page: the selected row is drawn, and the button counts what is still left.
+    for (let n = 0; n < 104; n++) await page.keyboard.press('j');
+    await expect(inbox.locator('.row')).toHaveCount(105);
+    await expect(inbox.locator('.row[aria-current="true"]')).toHaveCount(1);
+
+    // "Show more" draws another page (or the rest), and the button goes when nothing is left.
+    await more.click();
+    expect(await inbox.locator('.row').count()).toBeGreaterThan(105);
+    await expect(inbox.locator('.row[aria-current="true"]')).toHaveCount(1);
+  } finally {
+    for (const file of files) rmSync(file, { force: true });
+  }
+  expect(consoleProblems.get(page)).toEqual([]);
+});

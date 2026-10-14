@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TaskEntry } from './contract';
-import { inboxOf, missingOf, triageKey } from './inbox';
+import { INBOX_PAGE, inboxOf, missingOf, shownCount, triageKey } from './inbox';
 
 const t = (id: string, extra: Partial<TaskEntry> = {}) => ({ id, ...extra }) as unknown as TaskEntry;
 
@@ -44,5 +44,31 @@ describe('the keys', () => {
     for (const key of ['0', '4', 'j', 'k', 'g', 'c', 'x', 'Enter', 'Escape', ' ']) {
       expect(triageKey(key, false), key).toBeNull();
     }
+  });
+});
+
+describe('the page of the inbox', () => {
+  const rows = Array.from({ length: 250 }, (_, i) => ({ id: `pub/t${i}` }));
+
+  it('draws one page, or all rows when there are fewer', () => {
+    expect(INBOX_PAGE).toBe(100);
+    expect(shownCount(rows, null, INBOX_PAGE)).toBe(100);
+    expect(shownCount(rows.slice(0, 7), null, INBOX_PAGE)).toBe(7);
+    expect(shownCount([], null, INBOX_PAGE)).toBe(0);
+  });
+
+  it('grows with the limit and stops at the end of the list', () => {
+    expect(shownCount(rows, null, 200)).toBe(200);
+    expect(shownCount(rows, null, 300)).toBe(250);
+  });
+
+  it('draws the selected row, however far down it is, and the rows above it', () => {
+    expect(shownCount(rows, 'pub/t99', INBOX_PAGE)).toBe(100);
+    expect(shownCount(rows, 'pub/t100', INBOX_PAGE)).toBe(101);
+    expect(shownCount(rows, 'pub/t249', INBOX_PAGE)).toBe(250);
+  });
+
+  it('ignores a selection that is not in the list', () => {
+    expect(shownCount(rows, 'pub/gone', INBOX_PAGE)).toBe(100);
   });
 });
