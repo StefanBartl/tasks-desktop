@@ -601,6 +601,25 @@ export class App {
   }
 
   /**
+   * Drop a task that will not be done: it is parked and the reason goes into its notes, as ONE request (the engine has
+   * no verb of its own for it, and `done` would count it as finished). The status is written with the version that was
+   * shown; the line follows in the same file. The note has no inverse, so there is no undo: the status is set again by
+   * hand. Says whether it was written (the box is emptied only then).
+   */
+  async discard(id: string, reason: string, etag?: string): Promise<boolean> {
+    const text = reason.trim();
+    if (text === '') return false;
+    const result = await this.write(
+      [
+        { op: 'set', id, patch: { status: 'parked' }, ...(etag ? { if_match: etag } : {}) },
+        { op: 'append_note', id, text: translate(this.lang, 'discard.note', { reason: text }) },
+      ],
+      { undoable: false },
+    );
+    return result?.ok === true && result.results.every((r) => r.ok);
+  }
+
+  /**
    * Replace the text of a task by `text`. `etag` is the version of the file the text was read from: if the file moved
    * on, the engine refuses and the draft stays with the person. Says whether it was written (the editor closes only then).
    */

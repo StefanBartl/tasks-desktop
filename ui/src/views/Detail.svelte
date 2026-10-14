@@ -56,6 +56,8 @@
 
   // The line for the notes: kept while the task stays selected, emptied only when the engine wrote it.
   let note = $state('');
+  // The reason for dropping the task: kept like the note, emptied only when the engine wrote it.
+  let reason = $state('');
   // The id as a value of its own: a refresh gives `task` a new object with the same id, and the draft must stay.
   const taskId = $derived(task?.id);
   // The text of the task being edited: a draft that stays until it is written or given up, and goes with the task.
@@ -68,6 +70,7 @@
   $effect(() => {
     void taskId;
     note = '';
+    reason = '';
     editing = false;
     draft = '';
   });
@@ -81,6 +84,10 @@
   async function saveBody(): Promise<void> {
     if (!task || detail.state !== 'ok') return;
     if (await app.setBody(task.id, draft, draftEtag)) editing = false;
+  }
+  async function discard(): Promise<void> {
+    if (!task || detail.state !== 'ok' || reason.trim() === '') return;
+    if (await app.discard(task.id, reason, detail.doc.task.etag)) reason = '';
   }
   async function addNote(): Promise<void> {
     if (!task || detail.state !== 'ok' || note.trim() === '') return;
@@ -460,6 +467,28 @@
           </label>
           <button type="button" disabled={app.saving || note.trim() === ''} onclick={() => void addNote()}
             >{t('detail.note_button')}</button
+          >
+        </div>
+      {/if}
+      {#if app.can('append_note') && app.can('ops') && task.status !== 'done' && task.status !== 'parked'}
+        <div class="note" role="group" aria-label={t('discard.label')}>
+          <label>
+            <span>{t('discard.label')} <small>({t('discard.hint')})</small></span>
+            <input
+              type="text"
+              bind:value={reason}
+              maxlength="1000"
+              disabled={app.saving}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void discard();
+                }
+              }}
+            />
+          </label>
+          <button type="button" disabled={app.saving || reason.trim() === ''} onclick={() => void discard()}
+            >{t('discard.button')}</button
           >
         </div>
       {/if}
