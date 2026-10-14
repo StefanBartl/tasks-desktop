@@ -12,6 +12,7 @@ import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
 import { inboxOf, triageKey } from './inbox';
 import { findingsByTask, groundOf, judgeFindings, type Finding, type Ground, type Judged } from './check';
 import { assumeOf, changesOf, failedIdsOf, MATRIX_MAX, matrixIds, pruneDraft, withCell, type Draft } from './estimate';
+import { moved, parseOrder } from './tiles';
 import { bumped, parseFrecency, type Frecency } from './palette';
 import { defaultView, nextView, parseViews, type CountKey, type CountView } from './counts';
 import { conflictsOf, conflictsOfRequest, mergeConflicts, retryOp, type Conflict } from './conflicts';
@@ -26,6 +27,9 @@ export type Theme = 'auto' | 'light' | 'dark';
 /** The blocks of the Today view that a person may hide. */
 export const TILES = ['next', 'waiting', 'remind', 'cdx', 'counts'] as const;
 export type Tile = (typeof TILES)[number];
+/** The blocks of the column that can be put in another order (the counts have a column of their own). */
+export const ORDERED_TILES = ['next', 'waiting', 'remind', 'cdx'] as const satisfies readonly Tile[];
+export type OrderedTile = (typeof ORDERED_TILES)[number];
 
 /** What the last write did, in one line; `undo` is the way back, when there is one. */
 export interface Toast {
@@ -85,6 +89,8 @@ function safe<T>(work: () => T): T | null {
 }
 
 /** The remembered hidden blocks; anything that is not a known block is dropped. */
+const TILE_LABELS = { next: 'today.next', waiting: 'today.waiting', remind: 'remind.title', cdx: 'today.cdx' } as const;
+
 function parseTiles(text: string | null): Tile[] {
   if (!text) return [];
   try {
@@ -108,6 +114,9 @@ export class App {
   filter = $state<Filter>({ ...emptyFilter, areas: [], statuses: [], actors: [] });
   /** Blocks of the Today view the person put away. */
   hiddenTiles = $state<Tile[]>([]);
+  tileOrder = $state<OrderedTile[]>([...ORDERED_TILES]);
+  /** What a move of a block says to a screen reader. */
+  tileNote = $state('');
   /** The number of the overview whose tasks are shown (none: closed). */
   countOpen = $state<CountKey | null>(null);
   /** The view chosen for each number; what is not here has the default. */
@@ -224,6 +233,7 @@ export class App {
     this.shortAreas = safe(() => env.prefs.getItem('tasks-desktop.short-areas')) !== 'off';
     const hidden = safe(() => env.prefs.getItem('tasks-desktop.tiles-hidden'));
     this.hiddenTiles = parseTiles(hidden);
+    this.tileOrder = parseOrder(safe(() => env.prefs.getItem('tasks-desktop.tiles-order')), ORDERED_TILES);
     this.countViews = parseViews(safe(() => env.prefs.getItem('tasks-desktop.count-views')));
     this.frecency = parseFrecency(safe(() => env.prefs.getItem('tasks-desktop.frecency')));
     // The page opens on the view it was left on.
@@ -1236,6 +1246,30 @@ export class App {
     if (key !== 'doing' && key !== 'blocked') return;
     this.filter = { ...emptyFilter, areas: [], statuses: [key], actors: [] };
     this.setView('list');
+  }
+
+  /** Put the block `tile` before (or after) `target`; `visible` are the blocks on the page, for the number said aloud. */
+  moveTile(tile: OrderedTile, target: OrderedTile, after: boolean, visible: readonly OrderedTile[]): void {
+    const order = moved(this.tileOrder, tile, target, after);
+    if (order.every((t, i) => t === this.tileOrder[i])) return;
+    this.tileOrder = order;
+    this.saveOrder();
+    const now = order.filter((t) => visible.includes(t));
+    this.tileNote = translate(this.lang, 'today.moved', {
+      tile: translate(this.lang, TILE_LABELS[tile]),
+      n: now.indexOf(tile) + 1,
+      total: now.length,
+    });
+  }
+
+  resetTileOrder(): void {
+    this.tileOrder = [...ORDERED_TILES];
+    this.saveOrder();
+    this.tileNote = translate(this.lang, 'today.order_reset');
+  }
+
+  private saveOrder(): void {
+    safe(() => this.env.prefs.setItem('tasks-desktop.tiles-order', JSON.stringify(this.tileOrder)));
   }
 
   showTiles(): void {

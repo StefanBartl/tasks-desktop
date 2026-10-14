@@ -465,6 +465,33 @@ test('the overview is at the top right, tiles can be put away, choices combine',
   await expect(page.getByRole('checkbox', { name: 'doing' })).toHaveCount(0);
 });
 
+test('the tiles of the overview can be put in another order with the keys, the order stays, and is reset', async ({ page }) => {
+  await pair(page);
+  await expect(page.getByText('Next task')).toBeVisible();
+  const order = () => page.locator('section[data-tile]').evaluateAll((els) =>
+    els.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top).map((e) => (e as HTMLElement).dataset.tile));
+  const before = (await order()) as string[];
+  expect(before.length).toBeGreaterThan(1);
+
+  // The first block goes one place down: the grip takes the arrow key and a screen reader hears where it is now.
+  const grip = page.locator(`section[data-tile="${before[0]}"] button.grip`);
+  await grip.focus();
+  await page.keyboard.press('ArrowDown');
+  const after = (await order()) as string[];
+  expect(after[1]).toBe(before[0]);
+  expect(after[0]).toBe(before[1]);
+  await expect(page.locator('p.sr-only[aria-live]')).toContainText(`is now number 2 of ${before.length}`);
+  await expect(grip).toBeFocused();
+
+  // The order is remembered, and goes back to the standard on request.
+  await page.reload();
+  await expect(page.getByText(/Next task|Waits for you/).first()).toBeVisible();
+  expect(await order()).toEqual(after);
+  await page.getByRole('button', { name: 'Reset the order of the tiles' }).click();
+  expect(await order()).toEqual(before);
+  await expect(page.getByRole('button', { name: 'Reset the order of the tiles' })).toHaveCount(0);
+});
+
 test('the menu bar opens with the keyboard, switches views, language and theme', async ({ page }) => {
   await watchViolations(page);
   await pair(page);
