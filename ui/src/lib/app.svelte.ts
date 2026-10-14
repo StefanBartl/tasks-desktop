@@ -89,6 +89,10 @@ function safe<T>(work: () => T): T | null {
 }
 
 /** The remembered hidden blocks; anything that is not a known block is dropped. */
+/** The pause between two looks for a check the hub started by itself, and how many looks. */
+const CHECK_WAIT_MS = 15_000;
+const CHECK_WAITS = 12;
+
 const TILE_LABELS = { next: 'today.next', waiting: 'today.waiting', remind: 'remind.title', cdx: 'today.cdx' } as const;
 
 function parseTiles(text: string | null): Tile[] {
@@ -174,6 +178,8 @@ export class App {
   /** The judged findings for one job, ground and list: judged once, not once for every row that asks. */
   private checkJudged: { job: CheckJobState; ground: Ground; tasks: readonly TaskEntry[]; judged: Judged; byTask: Map<string, Finding[]> } | null = null;
   private heldGrounds = new Map<string, Ground>();
+  /** How often the page looked for a check the hub started by itself since the list last changed. */
+  private checkWaits = 0;
   private checkTimer: ReturnType<typeof setTimeout> | undefined;
   /** The newest start or ask of the job: an older answer does not replace it. */
   private checkSeq = 0;
@@ -699,13 +705,15 @@ export class App {
    * not hold yet is grounded when the list that matches it is read (`readOnce`).
    */
   private adoptCheck(job: CheckJobState): void {
+    if (job.state === 'running') this.checkWaits = 0;
     this.checkJob = job;
     this.groundCheck();
   }
 
   private groundCheck(): void {
     const job = this.checkJob;
-    this.holdGround(job?.state === 'running');
+    // Also a check that is done: the hub may run the next one by itself, and the page never sees it run.
+    this.holdGround(job !== null);
     if (job?.state !== 'done' || this.checkGround?.id === job.id) return;
     // The page may have read a newer list before it saw the job done: the ground of the rev the check read was held
     // while the job ran.
@@ -817,8 +825,16 @@ export class App {
 
   private watchCheck(): void {
     clearTimeout(this.checkTimer);
-    if (this.checkJob?.state === 'running' && this.phase === 'ready') {
+    if (this.phase !== 'ready') return;
+    const job = this.checkJob;
+    if (job?.state === 'running') {
       this.checkTimer = setTimeout(() => void this.pollCheck(), 1000);
+    } else if (job?.state === 'done' && job.result.rev !== this.snapshot?.rev && this.checkWaits < CHECK_WAITS) {
+      // The vault changed since the check. The hub runs it again by itself after a quiet time (and a gap since the last
+      // one), so the page looks now and then for a job it did not start; it gives up after a while, since the hub may
+      // not run it (no client at the time, a check with refs, a vault that never rests).
+      this.checkWaits += 1;
+      this.checkTimer = setTimeout(() => void this.pollCheck(), CHECK_WAIT_MS);
     }
   }
 
@@ -1430,6 +1446,8 @@ export class App {
         this.tasks = result.doc.tasks;
         this.etag = result.etag;
         this.groundCheck();
+        this.checkWaits = 0;
+        this.watchCheck();
       }
       this.cachedAt = null;
       this.phase = 'ready';
