@@ -164,6 +164,7 @@ export class App {
   private checkGround = $state.raw<{ id: number; ground: Ground } | null>(null);
   /** The judged findings for one job, ground and list: judged once, not once for every row that asks. */
   private checkJudged: { job: CheckJobState; ground: Ground; tasks: readonly TaskEntry[]; judged: Judged; byTask: Map<string, Finding[]> } | null = null;
+  private heldGrounds = new Map<string, Ground>();
   private checkTimer: ReturnType<typeof setTimeout> | undefined;
   /** The newest start or ask of the job: an older answer does not replace it. */
   private checkSeq = 0;
@@ -694,9 +695,22 @@ export class App {
 
   private groundCheck(): void {
     const job = this.checkJob;
+    this.holdGround(job?.state === 'running');
     if (job?.state !== 'done' || this.checkGround?.id === job.id) return;
-    if (job.result.rev !== this.snapshot?.rev) return;
-    this.checkGround = { id: job.id, ground: groundOf(this.tasks) };
+    // The page may have read a newer list before it saw the job done: the ground of the rev the check read was held
+    // while the job ran.
+    const ground = job.result.rev === this.snapshot?.rev ? groundOf(this.tasks) : this.heldGrounds.get(job.result.rev);
+    if (ground === undefined) return;
+    this.checkGround = { id: job.id, ground };
+    this.heldGrounds.clear();
+  }
+
+  /** While a job runs, keep the versions of the list the page holds: the check may be made for any of them. */
+  private holdGround(running: boolean): void {
+    const rev = this.snapshot?.rev;
+    if (!running || rev === undefined || this.heldGrounds.has(rev)) return;
+    if (this.heldGrounds.size >= 8) this.heldGrounds.clear();
+    this.heldGrounds.set(rev, groundOf(this.tasks));
   }
 
   /** The findings judged against the tasks as they are now (see `lib/check.ts`); nothing for a check without ground. */
@@ -754,6 +768,8 @@ export class App {
     this.checkProblem = null;
     this.checkSeq += 1;
     const seq = this.checkSeq;
+    // The check reads the list the page holds now (or a later one): its ground is kept for when the job is done.
+    this.holdGround(true);
     try {
       const job = await this.env.hub.checkStart(refs ? { stale: 'refs' } : {});
       if (seq !== this.checkSeq) return;
@@ -1332,6 +1348,7 @@ export class App {
     this.snapshot = null;
     this.checkJob = null;
     this.checkGround = null;
+    this.heldGrounds.clear();
     this.next = null;
     this.nextFor = null;
     this.hubAreas = [];

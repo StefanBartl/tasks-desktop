@@ -2135,6 +2135,20 @@ describe('the check of the vault', () => {
     expect(app.findingsFor('pub/b')).toHaveLength(1);
   });
 
+  it('grounds a check on the list the page held when it started, though a newer one was read before the job was seen done', async () => {
+    const { app, hub } = await checkApp();
+    hub.checkAnswers = [{ state: 'running', id: 1 }, done('rev:1', [finding('pub/a'), finding('pub/b')])];
+    await app.runCheck(false);
+    // A write (a key of the inbox) changes pub/b and the page reads the new list, then the job is seen done.
+    hub.doc = snapshot([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2-new' })], 'rev:9');
+    await app.refresh();
+    await app.openChecks();
+    expect(app.checkOutdated).toBe(false);
+    expect(app.findingsFor('pub/a')).toHaveLength(1);
+    expect(app.findingsFor('pub/b')).toEqual([]);
+    expect(app.checkChanged).toBe(1);
+  });
+
   it('keeps the words of a job that failed and of a hub that did not answer', async () => {
     const { app, hub } = await checkApp();
     hub.checkAnswers = [{ state: 'failed', id: 1, error: { code: 'timeout', message: 'the engine did not answer in time' } }];
