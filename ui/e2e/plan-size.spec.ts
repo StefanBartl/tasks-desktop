@@ -11,7 +11,7 @@ const state = (): { token: string } => JSON.parse(readFileSync(STATE, 'utf8')) a
 
 const PLAN = 'lib.nvim/big-plan';
 
-/** The snapshot of the hub, made `n` tasks large; the first `planned` of them belong to the plan `PLAN`. */
+/** The snapshot of the hub, made `n` tasks large; the last `planned` of them belong to the plan `PLAN`. */
 async function bigSnapshot(page: Page, n: number, planned = 0): Promise<void> {
   await page.addInitScript((token) => sessionStorage.setItem('tasks-desktop.session', token), state().token);
   await page.route('**/api/tasks/snapshot', async (route) => {
@@ -30,8 +30,9 @@ async function bigSnapshot(page: Page, n: number, planned = 0): Promise<void> {
         slug: `big-${i}`,
         title: `Big task number ${i} with a title of a usual length`,
         file: `lib.nvim/ROADMAP/tasks/big-${i}.md`,
-        ...(i < planned ? { plan: PLAN } : { plan: undefined }),
-        readiness: { state: 'ready', stage: i % 12, rank: i, leverage: 0, open_blockers: [] },
+        ...(i >= n - planned ? { plan: PLAN } : { plan: undefined }),
+        // Stages in blocks of ids, so the first tasks of the whole list are not the first tasks of the plan.
+        readiness: { state: 'ready', stage: Math.floor(i / 167), rank: i, leverage: 0, open_blockers: [] },
       });
     }
     const plans =
@@ -108,4 +109,39 @@ test('another plan starts from the first tasks again, not from the number the la
   expect(atFrame).toBeGreaterThan(0);
   expect(atFrame).toBeLessThan(1000);
   await expect(page.locator('.stages li')).toHaveCount(1500);
+});
+
+test('leaving a plan does not draw the number of rows the plan had grown to', async ({ page }) => {
+  await bigSnapshot(page, 2000, 1500);
+  await openPlan(page);
+  await page.getByRole('menuitemradio', { name: 'Plan', exact: true }).click();
+  await expect(page.locator('.stages li')).toHaveCount(2000);
+  await page.locator('.plan-select select').selectOption(PLAN);
+  await expect(page.locator('.stages li')).toHaveCount(1500);
+  // Back to every task. The first tasks of the whole list are not in the plan's rows, so each row drawn is a new one:
+  // a limit that still held 1500 would build 1500 of them before it was set back, the first 200 are the work.
+  const built = await page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        let added = 0;
+        const obs = new MutationObserver((records) => {
+          for (const record of records) {
+            for (const node of record.addedNodes) {
+              if (node instanceof Element) added += (node.matches('li') ? 1 : 0) + node.querySelectorAll('li').length;
+            }
+          }
+        });
+        obs.observe(document.querySelector('.stages') as Element, { childList: true, subtree: true });
+        const select = document.querySelector('.plan-select select') as HTMLSelectElement;
+        select.value = '';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        requestAnimationFrame(() => {
+          obs.disconnect();
+          resolve(added);
+        });
+      }),
+  );
+  console.log(`leaving the plan: ${built} rows built before the next frame`);
+  expect(built).toBeLessThanOrEqual(300);
+  await expect(page.locator('.stages li')).toHaveCount(2000);
 });

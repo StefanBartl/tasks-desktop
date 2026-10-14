@@ -79,12 +79,12 @@ describe('small helpers', () => {
   it('shows the priority the engine gives, never a part of the group key', () => {
     const task = (group: string | undefined, eff_prio?: number) =>
       ({ id: 'x', group, readiness: eff_prio === undefined ? { state: 'ready' } : { state: 'ready', eff_prio } }) as unknown as TaskEntry;
-    expect(groupLabel(task('open|2', 2))).toBe('2');
-    expect(groupLabel(task('open|-'))).toBe('-');
+    expect(groupLabel(task('open|2', 2), true)).toBe('2');
+    expect(groupLabel(task('open|-'), true)).toBe('-');
     // a key in a form the page does not know says nothing: the number does
-    expect(groupLabel(task('3 | open', 4))).toBe('4');
+    expect(groupLabel(task('3 | open', 4), true)).toBe('4');
     expect(priorityOf(task('open|9', 4))).toBe(4);
-    expect(groupLabel(task(undefined, 2))).toBeNull();
+    expect(groupLabel(task(undefined, 2), true)).toBeNull();
     expect(priorityOf({ id: 'x' } as unknown as TaskEntry)).toBeNull();
     // An engine that does not promise the number is not read as "no priority": no label at all.
     expect(groupLabel(task('open|2'), false)).toBeNull();

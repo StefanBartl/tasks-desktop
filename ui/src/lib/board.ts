@@ -65,7 +65,7 @@ export function placeNear(
     return {
       kind: 'prio',
       id,
-      from: groupLabel(card) ?? '-',
+      from: groupLabel(card, prioKnown) ?? '-',
       prio,
       ops: [
         { op: 'set', id, patch: { prio }, ...(card.etag ? { if_match: card.etag } : {}) },
@@ -131,7 +131,7 @@ export function priorityOf(task: TaskEntry): number | null {
  * null when the engine does not promise the number (`known` false: no `eff_prio` capability), so that it is not shown
  * as "no priority".
  */
-export function groupLabel(task: TaskEntry, known = true): string | null {
+export function groupLabel(task: TaskEntry, known: boolean): string | null {
   if (!known || !task.group) return null;
   const prio = priorityOf(task);
   return prio === null ? '-' : String(prio);
