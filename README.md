@@ -113,6 +113,13 @@ To not decide area by area, `areas.json` may carry `"default": "internal"`
 An entry still wins, so `"secret": {"class": "private"}` stays private. Without
 `default` an area with no entry is unclassified. See [docs/SECURITY.md](docs/SECURITY.md).
 
+## Look at the current state
+
+`tools/dev-hub.ps1` builds this checkout (UI, then the hub with the interface embedded) and runs the hub from
+`target/` against the local `tasks.nvim`, `lib.nvim` and vault checkouts. It installs nothing. Run it in a normal
+terminal: `.\tools\dev-hub.ps1` (until Ctrl-C), `-Background` (start and open the browser), `-NoBuild`, `-Release`,
+`-Vault <dir>`.
+
 ## Layout
 
 ```
