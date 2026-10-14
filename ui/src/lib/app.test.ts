@@ -1595,6 +1595,31 @@ describe('writing', () => {
       expect(app.toast?.text).toContain('the note is empty');
     });
 
+    it('sets the text with the version it was read from, takes it back with the old text, and says whether it was written', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
+      hub.next_ops = answer(entry('set_body', { inverse: { op: 'set_body', id: 'pub/a', body: 'The old text.', if_match: 'e2' } }));
+      expect(await app.setBody('pub/a', 'The new text.', 'e1')).toBe(true);
+      expect(hub.sent[0]?.ops).toEqual([{ op: 'set_body', id: 'pub/a', body: 'The new text.', if_match: 'e1' }]);
+      expect(app.toast?.undo).toEqual([{ op: 'set_body', id: 'pub/a', body: 'The old text.', if_match: 'e2' }]);
+      await app.undo();
+      expect(hub.sent[1]?.ops).toEqual([{ op: 'set_body', id: 'pub/a', body: 'The old text.', if_match: 'e2' }]);
+
+      // No inverse (an old text too long to be sent again): no undo; a conflict: not written.
+      hub.next_ops = answer(entry('set_body'));
+      expect(await app.setBody('pub/a', 'x', 'e1')).toBe(true);
+      expect(app.toast?.undo).toBeUndefined();
+      hub.next_ops = answer({
+        n: 1,
+        op: 'set_body',
+        id: 'pub/a',
+        ok: false,
+        outcome: 'failed',
+        changed_ids: [],
+        error: { code: 'conflict', message: 'x', retryable: false },
+      });
+      expect(await app.setBody('pub/a', 'y', 'e1')).toBe(false);
+    });
+
     it('does not claim a note that never left the page', async () => {
       const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
       hub.next_ops = new ApiError(502, 'outcome_unknown', 'x');

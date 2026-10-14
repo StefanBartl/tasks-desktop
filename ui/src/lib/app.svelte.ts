@@ -532,6 +532,11 @@ export class App {
         });
         continue;
       }
+      if (inv.op === 'set_body') {
+        if (typeof inv.body !== 'string') return undefined;
+        inverses.push({ op: 'set_body', id: inv.id, body: inv.body, ...(inv.if_match ? { if_match: inv.if_match } : {}) });
+        continue;
+      }
       if (inv.op !== 'set') return undefined;
       inverses.push({
         op: 'set',
@@ -592,6 +597,15 @@ export class App {
       [{ op: 'append_note', id, text, ...(etag ? { if_match: etag } : {}) }],
       { undoable: false },
     );
+    return result?.ok === true;
+  }
+
+  /**
+   * Replace the text of a task by `text`. `etag` is the version of the file the text was read from: if the file moved
+   * on, the engine refuses and the draft stays with the person. Says whether it was written (the editor closes only then).
+   */
+  async setBody(id: string, text: string, etag?: string): Promise<boolean> {
+    const result = await this.write([{ op: 'set_body', id, body: text, ...(etag ? { if_match: etag } : {}) }]);
     return result?.ok === true;
   }
 
