@@ -2149,6 +2149,39 @@ describe('the check of the vault', () => {
     expect(app.checkChanged).toBe(1);
   });
 
+  it('looks now and then for the check the hub starts by itself after a change, and stops looking after a while', async () => {
+    vi.useFakeTimers();
+    try {
+      const { app, hub } = await checkApp();
+      hub.checkAnswers = [done('rev:1', [finding('pub/a')])];
+      await app.openChecks();
+      expect(hub.checkStates).toBe(1);
+      // The vault changes: the check on show is older than the list. The hub runs the next one after its quiet time.
+      hub.doc = snapshot([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2-new' })], 'rev:2');
+      await app.refresh();
+      hub.checkAnswers = [done('rev:1', [finding('pub/a')]), { ...done('rev:2', [finding('pub/a'), finding('pub/b')]), id: 2 }];
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(hub.checkStates).toBe(2);
+      expect(app.checkJob).toMatchObject({ state: 'done', id: 1 });
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(app.checkJob).toMatchObject({ state: 'done', id: 2 });
+      expect(app.checkOutdated).toBe(false);
+      expect(app.findingsFor('pub/b')).toHaveLength(1);
+      // The list is the check's: no more asking.
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(hub.checkStates).toBe(3);
+
+      // A hub that does not run it (no client at the time, a check with refs): twelve looks, then none.
+      hub.doc = snapshot([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2-newer' })], 'rev:3');
+      await app.refresh();
+      hub.checkAnswers = Array.from({ length: 20 }, () => ({ ...done('rev:2', [finding('pub/a')]), id: 2 }));
+      await vi.advanceTimersByTimeAsync(15_000 * 20);
+      expect(hub.checkStates).toBe(3 + 12);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps the words of a job that failed and of a hub that did not answer', async () => {
     const { app, hub } = await checkApp();
     hub.checkAnswers = [{ state: 'failed', id: 1, error: { code: 'timeout', message: 'the engine did not answer in time' } }];

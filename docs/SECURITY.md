@@ -312,6 +312,13 @@ since is shown as possibly resolved and counts for nothing, one of a task that i
 task (the index, the Backlog) stands with the time of the check. A check whose `rev` the page never held (the vault
 changed while it ran) shows no finding. A finding that names another task as well (a stale reference) is judged by the task it is
 about only: it stays when just the task it points to changes.
+Once a person has started a check without `refs`, the hub runs it again by itself after the vault changed: 10 seconds
+without a change first, at least 30 seconds after the last start (a person's too), at most one at a time, only while a
+client holds an event stream, never with `refs` (a check that was started with `refs` switches this off, since running it
+again would take those findings out), never in a vault that is no longer read. Changes within the quiet time or the gap
+are folded into the one check that follows, so a folder that changes all the time (a sync tool) costs one check per
+30 seconds at most, and none for a hub nobody is looking at. The page finds such a check by asking now and then (every 15
+seconds, twelve times after each change of the list).
 A check whose job is given up (another vault is read, the hub stops) is stopped with its process: it runs in the future of the job,
 not on a task of its own. `POST` takes `{ "stale": "refs", "area": "<area>" }` (both optional, anything else is refused at the door),
 starts the job and answers at once; a start while a job runs answers that job and starts no second one. `GET` (no query)

@@ -267,6 +267,13 @@ struct VaultRuntime {
     details: StdMutex<Details>,
     /// The check of the vault, run as a job: at most one at a time, and gone with the vault.
     check: StdMutex<CheckJob>,
+    /// When the last check was started, by a person or by the hub itself.
+    check_started: StdMutex<Option<std::time::Instant>>,
+    /// Whether the hub runs the check again after the vault was changed (see `follow_changes`): on once a person
+    /// started a check without `refs`, off when one with `refs` was started (running it again would take those out).
+    auto_check: std::sync::atomic::AtomicBool,
+    /// The follower of the changes is started once for a runtime.
+    auto_check_started: std::sync::atomic::AtomicBool,
     /// Set when the runtime is retired (another vault was chosen): nothing is started in it any more.
     retired: std::sync::atomic::AtomicBool,
     jobs: StdMutex<Vec<JoinHandle<()>>>,
@@ -384,6 +391,9 @@ fn build_runtime(
         search,
         details: StdMutex::new(Details::default()),
         check: StdMutex::new(CheckJob::default()),
+        check_started: StdMutex::new(None),
+        auto_check: std::sync::atomic::AtomicBool::new(false),
+        auto_check_started: std::sync::atomic::AtomicBool::new(false),
         retired: std::sync::atomic::AtomicBool::new(false),
         jobs: StdMutex::new(jobs),
         _hints: hints,
@@ -1885,8 +1895,16 @@ async fn check_start(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
     let Some(engine) = rt.engine.clone() else {
         return engine_unavailable(&st);
     };
-    match start_check_job(&rt, engine, params) {
-        Ok(state) => (StatusCode::OK, axum::Json(state)).into_response(),
+    let with_refs = params.contains_key("stale");
+    match start_check_job(&rt, engine.clone(), params) {
+        Ok(state) => {
+            rt.auto_check
+                .store(!with_refs, std::sync::atomic::Ordering::Release);
+            if !with_refs {
+                keep_check_fresh(&rt, engine, AutoCheckTiming::default());
+            }
+            (StatusCode::OK, axum::Json(state)).into_response()
+        }
         Err(CheckStart::Retired) => error_body(
             StatusCode::CONFLICT,
             "vault_changed",
@@ -1903,6 +1921,129 @@ enum CheckStart {
     Retired,
     /// The jobs of the runtime cannot be reached (a lock that a panic poisoned).
     Unavailable,
+}
+
+/// How the hub runs the check again by itself.
+#[derive(Clone, Copy)]
+struct AutoCheckTiming {
+    /// No change for this long before the check runs again.
+    quiet: Duration,
+    /// At least this long between two starts of a check (by a person or by the hub).
+    gap: Duration,
+    /// How often a check that still runs is looked at before the next is started.
+    poll: Duration,
+}
+
+impl Default for AutoCheckTiming {
+    fn default() -> Self {
+        Self {
+            quiet: Duration::from_secs(10),
+            gap: Duration::from_secs(30),
+            poll: Duration::from_secs(2),
+        }
+    }
+}
+
+/// Start the follower that runs the check again after the vault changed: once for a runtime, and only after a
+/// person asked for a check (so nobody pays for one they never looked at).
+fn keep_check_fresh(rt: &Arc<VaultRuntime>, engine: Arc<dyn Engine>, timing: AutoCheckTiming) {
+    if rt
+        .auto_check_started
+        .swap(true, std::sync::atomic::Ordering::AcqRel)
+    {
+        return;
+    }
+    let Ok(mut jobs) = rt.jobs.lock() else {
+        return;
+    };
+    if rt.retired.load(std::sync::atomic::Ordering::Acquire) {
+        return;
+    }
+    let store = Arc::clone(&rt.store);
+    let changes = store.subscribe_quiet();
+    let handle = tokio::spawn(follow_changes(
+        Arc::downgrade(rt),
+        engine,
+        changes,
+        timing,
+        move || store.has_listeners(),
+    ));
+    jobs.retain(|j| !j.is_finished());
+    jobs.push(handle);
+}
+
+/// After a change and a quiet time (and the gap since the last start) run the check again, without `refs`: only while
+/// a client holds an event stream, never while another check runs, never in a runtime that was retired. A vault that
+/// changes all the time (a sync tool) is held to one check per gap, because every change within the quiet time or the
+/// gap is folded into the next one.
+async fn follow_changes(
+    runtime: std::sync::Weak<VaultRuntime>,
+    engine: Arc<dyn Engine>,
+    mut changes: broadcast::Receiver<Arc<store::Change>>,
+    timing: AutoCheckTiming,
+    listening: impl Fn() -> bool + Send,
+) {
+    use broadcast::error::{RecvError, TryRecvError};
+    loop {
+        match changes.recv().await {
+            Ok(_) | Err(RecvError::Lagged(_)) => {}
+            Err(RecvError::Closed) => return,
+        }
+        // Quiet: until nothing changed for `quiet`.
+        loop {
+            match tokio::time::timeout(timing.quiet, changes.recv()).await {
+                Err(_) => break,
+                Ok(Ok(_) | Err(RecvError::Lagged(_))) => {}
+                Ok(Err(RecvError::Closed)) => return,
+            }
+        }
+        // The gap since the last start (a person's too).
+        let wait = {
+            let Some(rt) = runtime.upgrade() else {
+                return;
+            };
+            let started = *rt
+                .check_started
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            started.and_then(|at| timing.gap.checked_sub(at.elapsed()))
+        };
+        if let Some(wait) = wait {
+            tokio::time::sleep(wait).await;
+        }
+        // What changed during the gap is in the check that starts now.
+        loop {
+            match changes.try_recv() {
+                Ok(_) | Err(TryRecvError::Lagged(_)) => {}
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Closed) => return,
+            }
+        }
+        loop {
+            let Some(rt) = runtime.upgrade() else {
+                return;
+            };
+            if rt.retired.load(std::sync::atomic::Ordering::Acquire) {
+                return;
+            }
+            if !listening() || !rt.auto_check.load(std::sync::atomic::Ordering::Acquire) {
+                break;
+            }
+            let running = matches!(
+                *rt.check
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+                CheckJob::Running { .. }
+            );
+            if !running {
+                // A refusal (retired, lock) ends the round; the next change tries again.
+                let _ = start_check_job(&rt, Arc::clone(&engine), serde_json::Map::new());
+                break;
+            }
+            drop(rt);
+            tokio::time::sleep(timing.poll).await;
+        }
+    }
 }
 
 /// Start the check as a job of `rt`, or answer the one that runs. The state it returns is the one to send.
@@ -1932,6 +2073,9 @@ fn start_check_job(
         }
         let id = CHECK_JOB_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         *job = CheckJob::Running { id };
+        *rt.check_started
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(std::time::Instant::now());
         id
     };
     let runtime = Arc::clone(rt);
@@ -2406,6 +2550,115 @@ mod tests {
             rt.check.lock().unwrap().to_json()["job"]["state"],
             "running"
         );
+    }
+
+    fn change(seq: u64) -> Arc<store::Change> {
+        Arc::new(store::Change {
+            seq,
+            rev: None,
+            cause: "fs",
+            changed: Vec::new(),
+            added: Vec::new(),
+            removed: Vec::new(),
+            truncated: false,
+        })
+    }
+
+    const FAST: AutoCheckTiming = AutoCheckTiming {
+        quiet: Duration::from_millis(100),
+        gap: Duration::from_millis(600),
+        poll: Duration::from_millis(20),
+    };
+
+    /// A follower on a channel of its own; `listening` and the switch of the runtime are the ones given.
+    fn follower(
+        listening: bool,
+        auto: bool,
+    ) -> (
+        Arc<VaultRuntime>,
+        Arc<SlowCheck>,
+        broadcast::Sender<Arc<store::Change>>,
+        JoinHandle<()>,
+    ) {
+        let rt = bare_runtime();
+        rt.auto_check
+            .store(auto, std::sync::atomic::Ordering::SeqCst);
+        let engine = Arc::new(SlowCheck(std::sync::atomic::AtomicUsize::new(0)));
+        let (tx, rx) = broadcast::channel(16);
+        let handle = tokio::spawn(follow_changes(
+            Arc::downgrade(&rt),
+            engine.clone(),
+            rx,
+            FAST,
+            move || listening,
+        ));
+        (rt, engine, tx, handle)
+    }
+
+    fn asked(engine: &SlowCheck) -> usize {
+        engine.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    #[tokio::test]
+    async fn the_check_runs_again_once_after_a_burst_of_changes_has_gone_quiet() {
+        let (rt, engine, tx, _handle) = follower(true, true);
+        for seq in 1..=5 {
+            tx.send(change(seq)).unwrap();
+            tokio::time::sleep(Duration::from_millis(40)).await;
+        }
+        // Still inside the quiet time of the last change: nothing yet.
+        assert_eq!(asked(&engine), 0);
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(asked(&engine), 1, "one check for the whole burst");
+        assert_eq!(rt.check.lock().unwrap().to_json()["job"]["state"], "done");
+    }
+
+    #[tokio::test]
+    async fn two_starts_are_at_least_a_gap_apart_however_the_vault_changes() {
+        let (_rt, engine, tx, _handle) = follower(true, true);
+        tx.send(change(1)).unwrap();
+        tokio::time::sleep(Duration::from_millis(350)).await;
+        assert_eq!(asked(&engine), 1);
+        // A change right after: its quiet time passes, the gap (600 ms since the first start) has not.
+        tx.send(change(2)).unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(asked(&engine), 1, "the gap holds the second one back");
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        assert_eq!(asked(&engine), 2);
+    }
+
+    #[tokio::test]
+    async fn no_check_runs_without_a_client_and_none_after_a_check_with_refs() {
+        let (_rt, engine, tx, _handle) = follower(false, true);
+        tx.send(change(1)).unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(asked(&engine), 0, "nobody is listening");
+        let (_rt, engine, tx, _handle) = follower(true, false);
+        tx.send(change(1)).unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(asked(&engine), 0, "the last check was one with refs");
+    }
+
+    #[tokio::test]
+    async fn a_check_that_runs_is_not_joined_by_another_and_the_change_is_checked_after_it() {
+        let (rt, engine, tx, _handle) = follower(true, true);
+        start_check_job(&rt, engine.clone(), serde_json::Map::new()).unwrap();
+        tx.send(change(1)).unwrap();
+        // Quiet and gap pass while the first still runs? The gap holds it back past its end (150 ms): it then starts one.
+        tokio::time::sleep(Duration::from_millis(900)).await;
+        assert_eq!(asked(&engine), 2);
+    }
+
+    #[tokio::test]
+    async fn the_follower_ends_with_the_runtime() {
+        let (rt, _engine, tx, handle) = follower(true, true);
+        rt.stop();
+        drop(rt);
+        let _ = tx.send(change(1));
+        tokio::time::timeout(Duration::from_secs(2), handle)
+            .await
+            .expect("the follower ended")
+            .unwrap();
     }
 
     #[test]
