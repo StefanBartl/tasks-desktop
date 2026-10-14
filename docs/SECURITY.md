@@ -301,6 +301,16 @@ The data classes are per area name (`areas.json`) and apply to every vault: an a
 may do: a page that is paired could point the hub at any folder, so adding is a deliberate step with a confirmation, and an
 error never holds a path (the terminal of whoever runs the hub gets the reason).
 
+## The estimate question (`POST /api/tasks/estimate`)
+
+A read that is a POST, because its question (a list of ids and some assumed efforts and values) is too long for a query.
+The body is one JSON object with `ids` (up to 1000 ids, each `<area>/<slug>`) and `assume` (up to 1000 entries, each with
+an `id` and, if wanted, a short `effort` word and a whole `value`); anything else is refused at the door before an engine
+process is asked. What the values may be is the engine's judgement, and its words come back as they are. Nothing is
+written and nothing is scanned. The route needs a session and JSON like every route with a body, and has the coarse limit
+of `ops` in the guard (300 in 10 s), not the strict one of the writes: choosing a cell in the matrix is a question, and
+asking again must not use up what the writes may do. The sums are the engine's; the page never reckons one.
+
 ## Opening a task in Neovim (`POST /api/tasks/open`)
 
 The page sends `{ "id": "<area>/<slug>" }` and nothing else (a second field is refused). The hub asks the engine which file

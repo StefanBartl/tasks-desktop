@@ -1,6 +1,6 @@
 // The hub's routes, as typed calls. Only the shapes the UI needs.
 
-import type { Areas, DonePreview, Next, Result, Snapshot, TaskDocument } from './contract';
+import type { Areas, DonePreview, Estimate, Next, Result, Snapshot, TaskDocument } from './contract';
 
 export class ApiError extends Error {
   constructor(
@@ -243,6 +243,24 @@ export class Hub {
     });
     if (!response.ok) throw await failure(response);
     return (await response.json()) as Result;
+  }
+
+  /**
+   * The figures of an estimate for some tasks, also as they would be with other efforts and values (`assume`): a
+   * question, nothing is written. The engine reckons; the page shows.
+   */
+  async estimate(
+    request: { ids?: string[]; assume?: { id: string; effort?: string; value?: number }[] },
+    signal?: AbortSignal,
+  ): Promise<Estimate> {
+    const response = await this.request('/api/tasks/estimate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+      ...(signal ? { signal } : {}),
+    });
+    if (!response.ok) throw await failure(response);
+    return (await response.json()) as Estimate;
   }
 
   /** What finishing a task would do, and the token `done` needs. */

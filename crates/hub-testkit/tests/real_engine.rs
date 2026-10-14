@@ -484,3 +484,50 @@ async fn a_patch_with_null_takes_a_key_away_through_the_host() {
     ));
     assert!(after.get("prio").is_none_or(Value::is_null), "{after}");
 }
+
+#[tokio::test]
+async fn an_estimate_is_one_state_with_the_snapshot_and_takes_assumptions_without_writing() {
+    let Some((engine, _)) = engine().await else {
+        return;
+    };
+    let snapshot: Value = serde_json::from_str(
+        &engine
+            .call(Method::Snapshot, None)
+            .await
+            .expect("snapshot")
+            .text,
+    )
+    .unwrap();
+    let all = engine
+        .call(Method::Estimate, Some(&json!({})))
+        .await
+        .expect("estimate");
+    assert_eq!(all.kind, "tasks.estimate");
+    let all: Value = serde_json::from_str(&all.text).unwrap();
+    assert_eq!(all["rev"], snapshot["rev"], "one state");
+    assert_eq!(all["tasks"], snapshot["estimate"]["tasks"]);
+    assert_eq!(all["days"], snapshot["estimate"]["days"]);
+    // Assumptions change the figures; an engine refusal comes back as a refusal.
+    let id = snapshot["tasks"][0]["id"].as_str().unwrap().to_owned();
+    let drafted = engine
+        .call(
+            Method::Estimate,
+            Some(&json!({ "ids": [id], "assume": [{ "id": id, "effort": "XL", "value": 5 }] })),
+        )
+        .await
+        .expect("estimate with assumptions");
+    let drafted: Value = serde_json::from_str(&drafted.text).unwrap();
+    assert_eq!(drafted["assumed"], 1);
+    assert_eq!(drafted["tasks"], 1);
+    assert_eq!(drafted["n_with_effort"], 1);
+    let refused = engine
+        .call(
+            Method::Estimate,
+            Some(&json!({ "ids": [id], "assume": [{ "id": id, "effort": "huge" }] })),
+        )
+        .await;
+    assert!(
+        matches!(refused, Err(EngineError::Refused(_))),
+        "{refused:?}"
+    );
+}

@@ -24,7 +24,7 @@ class FakeHub {
   areaList: HubArea[] = [{ name: 'pub', data_class: 'public' }];
   snapshotCalls: (string | null)[] = [];
   engineReady = true;
-  capabilities: string[] | null = ['reorder', 'plan_new', 'eff_prio'];
+  capabilities: string[] | null = ['reorder', 'plan_new', 'eff_prio', 'estimate'];
   hubDown = false;
   exchanged: string[] = [];
   exchangeFails = false;
@@ -52,6 +52,32 @@ class FakeHub {
     this.exchanged.push(code);
     if (this.exchangeFails) throw new ApiError(401, 'bad_code', 'x');
     return 'token-1';
+  }
+  estimates: { ids?: string[]; assume?: { id: string; effort?: string; value?: number }[] }[] = [];
+  /** What the next question of the matrix answers: a refusal to throw, or nothing (the default figures). */
+  estimateError: ApiError | null = null;
+  /** Questions that wait for these promises, one for each question, in the order asked. */
+  estimateHold: Promise<void>[] = [];
+  async estimate(request: { ids?: string[]; assume?: { id: string; effort?: string; value?: number }[] }) {
+    this.estimates.push(request);
+    const held = this.estimateHold.shift();
+    if (held) await held;
+    if (this.estimateError) throw this.estimateError;
+    return {
+      kind: 'tasks.estimate',
+      tasks: request.ids?.length ?? 0,
+      days: 4 + (request.assume?.length ?? 0),
+      range: { low: 3, high: 6 },
+      value: 7,
+      n_with_effort: 1,
+      n_with_value: 2,
+      n_without_effort: 0,
+      n_without_value: 0,
+      quick_wins: [],
+      unestimated: [],
+      assumed: request.assume?.length ?? 0,
+      incomplete: [],
+    } as never;
   }
   /** While set, a read of the list does not answer (a slow engine, a busy machine). */
   holdSnapshot: Promise<void> | null = null;
@@ -1771,5 +1797,124 @@ describe('the inbox', () => {
     await app.triage('m', false);
     expect(app.inbox.map((t) => t.id)).toEqual(['pub/b', 'pub/c']);
     expect(app.selectedId).toBe('pub/b');
+  });
+});
+
+describe('the estimate matrix', () => {
+  const planned = (id: string, extra: Partial<TaskEntry> = {}) => task(id, { etag: `e-${id}`, ...extra });
+
+  async function matrixApp(tasks: TaskEntry[]) {
+    const m = make({ token: 't' });
+    m.hub.doc = snapshot(tasks);
+    await m.app.start(null);
+    m.app.stop();
+    return m;
+  }
+
+  it('opens on the marked tasks, else on the shown ones, and asks the engine for the figures', async () => {
+    const { app, hub } = await matrixApp([planned('pub/a'), planned('pub/b'), planned('pub/c')]);
+    app.toggleMark('pub/b');
+    app.openMatrix();
+    expect(app.matrix?.ids).toEqual(['pub/b']);
+    await vi.waitFor(() => expect(app.matrixFigures).not.toBeNull());
+    expect(hub.estimates[0]).toEqual({ ids: ['pub/b'] });
+    app.closeMatrix();
+    expect(app.matrix).toBeNull();
+    app.clearMarks();
+    app.openMatrix();
+    expect(app.matrix?.ids).toEqual(['pub/a', 'pub/b', 'pub/c']);
+  });
+
+  it('asks again for the draft a moment after a cell was chosen, with only the chosen cells', async () => {
+    const { app, hub } = await matrixApp([planned('pub/a'), planned('pub/b')]);
+    app.openMatrix();
+    await vi.waitFor(() => expect(app.matrixFigures).not.toBeNull());
+    app.setCell('pub/a', 'effort', 'M');
+    app.setCell('pub/a', 'value', 4);
+    await vi.waitFor(() => expect(hub.estimates).toHaveLength(2));
+    expect(hub.estimates[1]).toEqual({ ids: ['pub/a', 'pub/b'], assume: [{ id: 'pub/a', effort: 'M', value: 4 }] });
+    // The figures are the engine's: the page does not reckon.
+    expect(app.matrixFigures?.days).toBe(5);
+    // Put back, the question has no assumptions.
+    app.setCell('pub/a', 'effort', undefined);
+    app.setCell('pub/a', 'value', undefined);
+    await vi.waitFor(() => expect(hub.estimates).toHaveLength(3));
+    expect(hub.estimates[2]).toEqual({ ids: ['pub/a', 'pub/b'] });
+  });
+
+  it('does not let an older, slower answer replace a newer one', async () => {
+    const { app, hub } = await matrixApp([planned('pub/a')]);
+    app.openMatrix();
+    await vi.waitFor(() => expect(app.matrixFigures).not.toBeNull());
+    let release!: () => void;
+    // The next question is held; the one after it is answered at once.
+    hub.estimateHold = [new Promise<void>((resolve) => (release = resolve))];
+    app.setCell('pub/a', 'value', 1);
+    await vi.waitFor(() => expect(hub.estimates).toHaveLength(2));
+    app.setCell('pub/a', 'value', 2);
+    await vi.waitFor(() => expect(hub.estimates).toHaveLength(3));
+    await vi.waitFor(() => expect(app.matrixFigures?.assumed).toBe(1));
+    const newer = app.matrixFigures;
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(app.matrixFigures).toBe(newer);
+  });
+
+  it('shows the words of the engine when it refuses what was chosen', async () => {
+    const { app, hub } = await matrixApp([planned('pub/a')]);
+    app.openMatrix();
+    await vi.waitFor(() => expect(app.matrixFigures).not.toBeNull());
+    hub.estimateError = new ApiError(400, 'bad_request', "assume[1].effort: 'huge' is not an effort (XS S M L XL or <n>d)");
+    app.setCell('pub/a', 'effort', 'huge');
+    await vi.waitFor(() => expect(app.matrixProblem).toMatch(/is not an effort/));
+  });
+
+  it('writes one batch with only the cells that differ, and closes when all went through', async () => {
+    const { app, hub } = await matrixApp([planned('pub/a', { effort: 'S' }), planned('pub/b'), planned('pub/c')]);
+    app.openMatrix();
+    app.setCell('pub/a', 'effort', 'S');
+    app.setCell('pub/b', 'effort', 'M');
+    app.setCell('pub/b', 'value', 3);
+    await app.applyMatrix();
+    expect(hub.sent).toHaveLength(1);
+    expect(hub.sent[0]?.ops).toEqual([{ op: 'set', id: 'pub/b', patch: { effort: 'M', value: 3 }, if_match: 'e-pub/b' }]);
+    expect(app.matrix).toBeNull();
+    expect(app.toast?.kind).toBe('ok');
+  });
+
+  it('keeps the task that failed with its cells in the matrix and takes the others out of the draft', async () => {
+    const { app, hub } = await matrixApp([planned('pub/a'), planned('pub/b')]);
+    app.openMatrix();
+    app.setCell('pub/a', 'value', 2);
+    app.setCell('pub/b', 'value', 5);
+    hub.next_ops = {
+      kind: 'tasks.result',
+      ok: false,
+      dry_run: false,
+      results: [
+        { n: 1, op: 'set', id: 'pub/a', ok: true, outcome: 'changed', changed_ids: ['pub/a'], inverse: { op: 'set', id: 'pub/a', patch: {}, if_match: 'e2' } },
+        { n: 2, op: 'set', id: 'pub/b', ok: false, error: { code: 'conflict', message: 'changed meanwhile', retryable: false } },
+      ],
+    } as unknown as Result;
+    await app.applyMatrix();
+    expect(app.matrix).not.toBeNull();
+    expect(app.matrixDraft).toEqual({ 'pub/b': { value: 5 } });
+    expect(app.toast?.kind).toBe('error');
+    expect(app.toast?.text).toMatch(/1\D+1/);
+  });
+
+  it('writes nothing when nothing differs, and does not open without the capability', async () => {
+    const { app, hub } = await matrixApp([planned('pub/a', { effort: 'S' })]);
+    app.openMatrix();
+    app.setCell('pub/a', 'effort', 'S');
+    await app.applyMatrix();
+    expect(hub.sent).toHaveLength(0);
+    app.closeMatrix();
+    hub.capabilities = ['reorder'];
+    const other = await matrixApp([planned('pub/a')]);
+    other.hub.capabilities = ['reorder'];
+    other.app.capabilities = ['reorder'];
+    other.app.openMatrix();
+    expect(other.app.matrix).toBeNull();
   });
 });

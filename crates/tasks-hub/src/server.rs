@@ -559,6 +559,7 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/api/tasks/rescan", post(rescan))
         .route("/api/tasks/done_preview", get(done_preview))
         .route("/api/tasks/ops", post(ops))
+        .route("/api/tasks/estimate", post(estimate))
         .route(
             "/api/tasks/open",
             post(open_file).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
@@ -831,7 +832,7 @@ async fn judge(st: &Shared, class: Class, req: Request, next: Next) -> Response 
     // from a dry run, so the route has a coarse limit here for everything sent to it, and its
     // writes are counted again, strictly, once the handler has read the body.
     if mutation {
-        let limit = if parts.uri.path() == OPS_PATH {
+        let limit = if parts.uri.path() == OPS_PATH || parts.uri.path() == ESTIMATE_PATH {
             &st.ops_limit
         } else {
             &st.post_limit
@@ -885,6 +886,9 @@ async fn judge(st: &Shared, class: Class, req: Request, next: Next) -> Response 
 }
 
 const OPS_PATH: &str = "/api/tasks/ops";
+/// A read that is a POST (its question is too long for a query): it changes nothing, and has the coarse limit of
+/// `ops` in the guard, not the strict one of the writes.
+const ESTIMATE_PATH: &str = "/api/tasks/estimate";
 
 fn too_many() -> Response {
     error_body(
@@ -1599,6 +1603,84 @@ fn check_ops_request(body: &[u8]) -> Result<serde_json::Value, String> {
         return Err("dry_run must be true or false".to_owned());
     }
     Ok(value)
+}
+
+/// The most ids and the most assumptions a question of `estimate` holds (the engine's limit too).
+const ESTIMATE_MAX: usize = 1000;
+
+/// The form and the size of a question of `estimate`, before an engine process is asked: what is plainly not one is
+/// refused here, the values are judged by the engine. Returns the parameters to send on.
+fn check_estimate_request(body: &[u8]) -> Result<serde_json::Value, String> {
+    let value: serde_json::Value =
+        serde_json::from_slice(body).map_err(|_| "the body is not JSON".to_owned())?;
+    let Some(map) = value.as_object() else {
+        return Err("the request must be a JSON object".to_owned());
+    };
+    if let Some(key) = map.keys().find(|k| !matches!(k.as_str(), "ids" | "assume")) {
+        return Err(format!("unknown field {key:.40} in the request"));
+    }
+    if let Some(ids) = map.get("ids") {
+        let list = ids
+            .as_array()
+            .ok_or_else(|| "ids must be a list".to_owned())?;
+        if list.len() > ESTIMATE_MAX {
+            return Err(format!("ids holds at most {ESTIMATE_MAX} ids"));
+        }
+        if !list.iter().all(|id| id.as_str().is_some_and(valid_task_id)) {
+            return Err("every id must be <area>/<slug>".to_owned());
+        }
+    }
+    if let Some(assume) = map.get("assume") {
+        let list = assume
+            .as_array()
+            .ok_or_else(|| "assume must be a list".to_owned())?;
+        if list.len() > ESTIMATE_MAX {
+            return Err(format!("assume holds at most {ESTIMATE_MAX} entries"));
+        }
+        for (i, entry) in list.iter().enumerate() {
+            let at = i + 1;
+            let Some(entry) = entry.as_object() else {
+                return Err(format!("assume[{at}] must be an object"));
+            };
+            if let Some(key) = entry
+                .keys()
+                .find(|k| !matches!(k.as_str(), "id" | "effort" | "value"))
+            {
+                return Err(format!("assume[{at}]: unknown field {key:.40}"));
+            }
+            if !entry
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(valid_task_id)
+            {
+                return Err(format!("assume[{at}].id must be <area>/<slug>"));
+            }
+            if entry.get("effort").is_some_and(|e| {
+                !e.as_str()
+                    .is_some_and(|s| !s.is_empty() && s.len() <= 12 && s.is_ascii())
+            }) {
+                return Err(format!("assume[{at}].effort must be a short word"));
+            }
+            if entry.get("value").is_some_and(|v| !v.is_i64()) {
+                return Err(format!("assume[{at}].value must be a whole number"));
+            }
+        }
+    }
+    Ok(value)
+}
+
+/// `POST /api/tasks/estimate`: the figures of an estimate for some tasks, also as they would be with other efforts
+/// and values (`assume`). A read: nothing is written, nothing is scanned. The sums are the engine's, never the
+/// page's.
+async fn estimate(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
+    let request = match check_estimate_request(&body) {
+        Ok(r) => r,
+        Err(why) => return error_body(StatusCode::BAD_REQUEST, "bad_request", &why),
+    };
+    match ask(&st, EngineMethod::Estimate, Some(&request)).await {
+        Ok(reply) => json_response(StatusCode::OK, reply.text, None),
+        Err(response) => response,
+    }
 }
 
 /// `POST /api/tasks/ops`: changes, through the one door of the engine. The

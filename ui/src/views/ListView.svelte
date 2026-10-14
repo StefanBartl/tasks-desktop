@@ -148,6 +148,7 @@
       {t('list.count', { shown: shown.length, total: app.tasks.length })}
       <span class="help"
         ><button type="button" class="linkish" onclick={() => app.markShown()}>{t('bulk.all')}</button> ·
+        {#if app.can('estimate')}<button type="button" class="linkish" onclick={() => app.openMatrix()}>{t('matrix.open')}</button> ·{/if}
         {t('list.help')}</span
       >
     </p>
