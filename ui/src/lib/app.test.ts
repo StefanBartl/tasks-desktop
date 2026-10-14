@@ -1595,6 +1595,30 @@ describe('writing', () => {
       expect(app.toast?.text).toContain('the note is empty');
     });
 
+    it('discards a task by parking it and noting the reason in one request, with no way back', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
+      app.setLang('en');
+      expect(await app.discard('pub/a', '   ', 'e1')).toBe(false);
+      expect(hub.sent).toHaveLength(0);
+      expect(await app.discard('pub/a', ' not needed any more ', 'e1')).toBe(true);
+      expect(hub.sent[0]?.ops).toEqual([
+        { op: 'set', id: 'pub/a', patch: { status: 'parked' }, if_match: 'e1' },
+        { op: 'append_note', id: 'pub/a', text: 'Discarded: not needed any more' },
+      ]);
+      expect(app.toast?.undo).toBeUndefined();
+      // A conflict on the status: nothing is claimed.
+      hub.next_ops = answer({
+        n: 1,
+        op: 'set',
+        id: 'pub/a',
+        ok: false,
+        outcome: 'failed',
+        changed_ids: [],
+        error: { code: 'conflict', message: 'x', retryable: false },
+      });
+      expect(await app.discard('pub/a', 'x', 'e1')).toBe(false);
+    });
+
     it('sets the text with the version it was read from, takes it back with the old text, and says whether it was written', async () => {
       const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
       hub.next_ops = answer(entry('set_body', { inverse: { op: 'set_body', id: 'pub/a', body: 'The old text.', if_match: 'e2' } }));

@@ -1918,6 +1918,37 @@ test('a note is added to a task, dated, below its notes; the box empties only wh
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('a task is discarded with a reason: it is parked and the reason is noted, not counted as done', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+
+  await page.keyboard.press('c');
+  const capture = page.getByRole('dialog', { name: 'New task' });
+  await capture.getByLabel('Title').fill('Task that is discarded');
+  await capture.locator('select').first().selectOption('lib.nvim');
+  await capture.getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  const id = (await page.locator('aside.detail .id').innerText()).trim();
+  const detail = page.locator('aside.detail');
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${id.split('/')[1]}.md`);
+
+  const box = detail.getByRole('textbox', { name: /Discard this task/ });
+  const button = detail.getByRole('button', { name: 'Discard', exact: true });
+  await expect(button).toBeDisabled();
+  await box.fill('superseded by the other plan');
+  await button.click();
+  await expect(page.getByRole('status').getByText('Saved.').last()).toBeVisible();
+  await expect(detail.locator('.prose, pre.body')).toContainText('Discarded: superseded by the other plan');
+  const text = readFileSync(file, 'utf8');
+  expect(text).toMatch(/\nstatus: parked\n/);
+  expect(text).toMatch(/\n- \d{4}-\d{2}-\d{2}: Discarded: superseded by the other plan\n/);
+  // A parked task offers no second discard.
+  await expect(box).toHaveCount(0);
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
 test('the title, the summary and the relations are changed in the detail, and the engine refuses what is wrong', async ({ page }) => {
   await watchViolations(page);
   await pair(page);
