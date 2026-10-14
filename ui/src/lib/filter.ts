@@ -1,7 +1,30 @@
 // Filtering the list. The UI never sorts: the order is the engine's `rank`
 // (plan order), and a filter only takes tasks out of it.
 
+import { isDue, localToday } from './remind';
 import type { TaskEntry } from './contract';
+
+/** The fields a task can be filtered by besides area, status and actor. */
+export const FIELD_KEYS = [
+  'kind',
+  'prio',
+  'effort',
+  'value',
+  'tag',
+  'category',
+  'severity',
+  'state',
+  'plan',
+  'phase',
+] as const;
+export type FieldKey = (typeof FIELD_KEYS)[number];
+
+/** How long ago a task was last changed: within 7, 30 or 90 days, or longer ago. */
+export type UpdatedWindow = '' | '7' | '30' | '90' | 'older';
+export const UPDATED_WINDOWS: readonly UpdatedWindow[] = ['7', '30', '90', 'older'];
+/** Whether the task carries a reminder, or one that is due. */
+export type ReminderChoice = '' | 'set' | 'due';
+export const REMINDER_CHOICES: readonly ReminderChoice[] = ['set', 'due'];
 
 export interface Filter {
   /** Tasks of any of these areas; none chosen means every area. */
@@ -11,17 +34,112 @@ export interface Filter {
   /** Any of these actors; `none` is a task nobody classified. */
   actors: string[];
   query: string;
+  /** Per field: any of these values; no entry or an empty list means every value. `none` is "not written". */
+  fields: Partial<Record<FieldKey, string[]>>;
+  updated: UpdatedWindow;
+  reminder: ReminderChoice;
 }
 
-export const emptyFilter: Filter = { areas: [], statuses: [], actors: [], query: '' };
+export const emptyFilter: Filter = {
+  areas: [],
+  statuses: [],
+  actors: [],
+  query: '',
+  fields: {},
+  updated: '',
+  reminder: '',
+};
 
 /** A task with no `actor` is chosen by this word. */
 export const NO_ACTOR = 'none';
+/** A task that does not carry a field is chosen by this word. */
+export const NONE = 'none';
 
-export function matches(task: TaskEntry, filter: Filter): boolean {
+/** The values a task has for a field (`none` when it has no value). */
+export function fieldValues(task: TaskEntry, key: FieldKey): string[] {
+  const one = (v: string | number | undefined): string[] => [v === undefined || v === '' ? NONE : String(v)];
+  switch (key) {
+    case 'kind':
+      return one(task.kind);
+    case 'prio':
+      return one(task.prio);
+    case 'effort':
+      return one(task.effort);
+    case 'value':
+      return one(task.value);
+    case 'severity':
+      return one(task.severity);
+    case 'state':
+      return one(task.readiness?.state);
+    case 'plan':
+      return one(task.plan);
+    case 'phase':
+      return one(task.phase);
+    case 'tag':
+      return task.tags.length > 0 ? task.tags : [NONE];
+    case 'category':
+      return task.category.length > 0 ? task.category.map(String) : [NONE];
+  }
+}
+
+/** The order the values of a field have by nature; others follow alphabetically, `none` is last. */
+const ORDER: Partial<Record<FieldKey, readonly string[]>> = {
+  kind: ['bug', 'feature', 'task'],
+  prio: ['1', '2', '3'],
+  effort: ['XS', 'S', 'M', 'L', 'XL'],
+  value: ['1', '2', '3', '4', '5'],
+  severity: ['low', 'medium', 'high', 'critical'],
+  state: ['ready', 'decision', 'waiting', 'stuck', 'freed', 'parked', 'unknown'],
+};
+
+/** The values a field has in these tasks, in their natural order, with the number of tasks that have each. */
+export function fieldOptions(
+  tasks: readonly TaskEntry[],
+  key: FieldKey,
+): { value: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const task of tasks) {
+    for (const value of new Set(fieldValues(task, key))) counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  const order = ORDER[key] ?? [];
+  const rank = (v: string): number => (v === NONE ? 2 : order.includes(v) ? 0 : 1);
+  return [...counts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort(
+      (a, b) =>
+        rank(a.value) - rank(b.value) ||
+        (rank(a.value) === 0
+          ? order.indexOf(a.value) - order.indexOf(b.value)
+          : a.value.localeCompare(b.value, undefined, { numeric: true })),
+    );
+}
+
+/** Whole days from `from` to `to` (both `YYYY-MM-DD`; a time after the date is ignored). */
+function daysBetween(from: string, to: string): number | null {
+  const a = Date.parse(`${from.slice(0, 10)}T00:00:00Z`);
+  const b = Date.parse(`${to.slice(0, 10)}T00:00:00Z`);
+  return Number.isNaN(a) || Number.isNaN(b) ? null : Math.round((b - a) / 86_400_000);
+}
+
+function inWindow(updated: string | undefined, window: UpdatedWindow, today: string): boolean {
+  if (window === '') return true;
+  if (updated === undefined) return false;
+  const days = daysBetween(updated, today);
+  if (days === null) return false;
+  return window === 'older' ? days > 90 : days <= Number(window);
+}
+
+export function matches(task: TaskEntry, filter: Filter, today: string = localToday()): boolean {
   if (filter.areas.length > 0 && !filter.areas.includes(task.area)) return false;
   if (filter.statuses.length > 0 && !filter.statuses.includes(task.status ?? '')) return false;
   if (filter.actors.length > 0 && !filter.actors.includes(task.actor ?? NO_ACTOR)) return false;
+  for (const key of FIELD_KEYS) {
+    const chosen = filter.fields[key];
+    if (chosen && chosen.length > 0 && !fieldValues(task, key).some((v) => chosen.includes(v))) return false;
+  }
+  if (!inWindow(task.updated, filter.updated, today)) return false;
+  if (filter.reminder === 'set' && task.remind === undefined) return false;
+  if (filter.reminder === 'due' && !isDue(task.remind, today)) return false;
   const query = filter.query.trim().toLowerCase();
   if (query !== '') {
     const hay = `${task.id} ${task.title}`.toLowerCase();
@@ -50,8 +168,56 @@ export function areaLabel(name: string, all: readonly string[]): string {
   return taken ? name : short;
 }
 
-export function applyFilter(tasks: readonly TaskEntry[], filter: Filter): TaskEntry[] {
-  return tasks.filter((t) => matches(t, filter));
+export function applyFilter(
+  tasks: readonly TaskEntry[],
+  filter: Filter,
+  today: string = localToday(),
+): TaskEntry[] {
+  return tasks.filter((t) => matches(t, filter, today));
+}
+
+/** One thing a filter holds, for the row of chips that names what is switched on and takes it off again. */
+export type ActiveKind = 'area' | 'status' | 'actor' | FieldKey | 'updated' | 'reminder';
+export interface ActiveFilter {
+  kind: ActiveKind;
+  value: string;
+}
+
+/** Every value that is switched on, in the order the filter bar shows them. The search words are not among them. */
+export function activeFilters(filter: Filter): ActiveFilter[] {
+  const out: ActiveFilter[] = [];
+  for (const value of filter.areas) out.push({ kind: 'area', value });
+  for (const value of filter.statuses) out.push({ kind: 'status', value });
+  for (const value of filter.actors) out.push({ kind: 'actor', value });
+  for (const key of FIELD_KEYS) for (const value of filter.fields[key] ?? []) out.push({ kind: key, value });
+  if (filter.updated !== '') out.push({ kind: 'updated', value: filter.updated });
+  if (filter.reminder !== '') out.push({ kind: 'reminder', value: filter.reminder });
+  return out;
+}
+
+/** How many of the filters beyond area, status and actor are on. */
+export function extraCount(filter: Filter): number {
+  return activeFilters(filter).filter((a) => a.kind !== 'area' && a.kind !== 'status' && a.kind !== 'actor')
+    .length;
+}
+
+/** The filter with one value switched off. */
+export function without(filter: Filter, item: ActiveFilter): Filter {
+  const drop = (list: readonly string[]): string[] => list.filter((v) => v !== item.value);
+  switch (item.kind) {
+    case 'area':
+      return { ...filter, areas: drop(filter.areas) };
+    case 'status':
+      return { ...filter, statuses: drop(filter.statuses) };
+    case 'actor':
+      return { ...filter, actors: drop(filter.actors) };
+    case 'updated':
+      return { ...filter, updated: '' };
+    case 'reminder':
+      return { ...filter, reminder: '' };
+    default:
+      return { ...filter, fields: { ...filter.fields, [item.kind]: drop(filter.fields[item.kind] ?? []) } };
+  }
 }
 
 /** The task after `current` in `list` (or the first), moved by `delta`. */

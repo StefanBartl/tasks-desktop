@@ -122,7 +122,7 @@ export class App {
   theme = $state<Theme>('auto');
   /** Single-key shortcuts; a person with assistive software may turn them off. */
   shortcuts = $state(true);
-  filter = $state<Filter>({ ...emptyFilter, areas: [], statuses: [], actors: [] });
+  filter = $state<Filter>({ ...emptyFilter, areas: [], statuses: [], actors: [], fields: {} });
   /** Blocks of the Today view the person put away. */
   hiddenTiles = $state<Tile[]>([]);
   tileOrder = $state<OrderedTile[]>([...ORDERED_TILES]);
@@ -257,7 +257,7 @@ export class App {
   // ── derived ───────────────────────────────────────────────────────────
 
   get shown(): TaskEntry[] {
-    return applyFilter(this.tasks, this.filter);
+    return applyFilter(this.tasks, this.filter, this.today);
   }
 
   get areaNames(): string[] {
@@ -1298,7 +1298,7 @@ export class App {
 
   /** Take every chosen area, status and actor and the search words away. */
   resetFilter(): void {
-    this.filter = { ...emptyFilter, areas: [], statuses: [], actors: [] };
+    this.filter = { ...emptyFilter, areas: [], statuses: [], actors: [], fields: {} };
     // The text search belongs to the words that are gone.
     this.scheduleTextSearch('', 0);
   }
@@ -1355,7 +1355,7 @@ export class App {
   /** The tasks of a number in the list, with the status filter that fits (only "doing" and "blocked" have one). */
   openCountInList(key: CountKey): void {
     if (key !== 'doing' && key !== 'blocked') return;
-    this.filter = { ...emptyFilter, areas: [], statuses: [key], actors: [] };
+    this.filter = { ...emptyFilter, areas: [], statuses: [key], actors: [], fields: {} };
     this.setView('list');
   }
 
