@@ -14,7 +14,7 @@
   const open = $derived(app.matrix !== null);
   const rows = $derived(app.matrixRows);
   const figures = $derived(app.matrixFigures);
-  const changed = $derived(Object.keys(app.matrixDraft).length);
+  const changed = $derived(app.matrixChanges);
 
   $effect(() => {
     if (!dialog) return;
@@ -83,7 +83,7 @@
         </tbody>
       </table>
     </div>
-    <div class="figures" role="status" aria-live="polite">
+    <div class="figures" role="status" aria-live="polite" aria-busy={app.matrixPending} class:pending={app.matrixPending}>
       {#if app.matrixProblem}
         <p class="problem">{app.matrixProblem}</p>
       {:else if figures}
@@ -181,6 +181,9 @@
   }
   .sum {
     font-weight: 600;
+  }
+  .figures.pending {
+    opacity: 0.55;
   }
   .coverage {
     color: var(--muted);

@@ -149,7 +149,7 @@
 
     <GraphPanel {app} />
 
-    <section class="stages" aria-label={t('plan.stages')}>
+    <section class="stages" tabindex="-1" aria-label={t('plan.stages')}>
       {#each drawn as stage (stage.stage ?? 'cycle')}
         <div class="stage card">
           <h2 class="eyebrow">

@@ -33,7 +33,7 @@
     <p class="help">{t('check.help')}</p>
     <div class="run">
       <label><input type="checkbox" bind:checked={refs} disabled={running} /> {t('check.refs')}</label>
-      <button type="button" class="primary" disabled={running} onclick={() => void app.runCheck(refs)}>{t('check.run')}</button>
+      <button type="button" class="primary" disabled={running && !app.checkProblem} onclick={() => void app.runCheck(refs)}>{t('check.run')}</button>
     </div>
     <div class="state" role="status" aria-live="polite">
       {#if app.checkProblem}
@@ -41,14 +41,14 @@
       {:else if job?.state === 'running'}
         <p>{t('check.running')}</p>
       {:else if job?.state === 'failed'}
-        <p class="problem">{t('check.job_failed', { message: job.error.message })}</p>
+        <p class="problem">{t('check.job_failed', { message: markHidden(job.error.message) })}</p>
       {:else if job?.state === 'done'}
         {#if app.checkOutdated}
           <p class="problem">{t('check.outdated')}</p>
         {:else}
           <p class="summary">{t('check.summary', { errors: job.result.errors, warnings: job.result.warnings, tasks: job.result.tasks })}</p>
           {#if job.result.truncated}<p class="muted">{t('check.truncated', { n: job.result.findings.length, total: job.result.total })}</p>{/if}
-          {#each job.result.notes as note, i (i)}<p class="muted">{note}</p>{/each}
+          {#each job.result.notes as note, i (i)}<p class="muted">{markHidden(note)}</p>{/each}
           {#if findings.length === 0}<p class="muted">{t('check.clean')}</p>{/if}
         {/if}
       {:else}
@@ -60,11 +60,11 @@
         {#each findings as f, i (i)}
           <li>
             <span class="tag" class:err={f.severity === 'error'}>{f.severity === 'error' ? t('check.error') : t('check.warn')}</span>
-            <code>{f.code}</code>
+            <code>{markHidden(f.code)}</code>
             {#if f.id}
-              <button type="button" class="linkish" onclick={() => jump(f.id as string)}>{f.id}</button>
+              <button type="button" class="linkish" onclick={() => jump(f.id as string)}>{markHidden(f.id)}</button>
             {:else}
-              <span class="file">{f.file}</span>
+              <span class="file">{markHidden(f.file)}</span>
             {/if}
             <span class="msg">{markHidden(f.message)}</span>
           </li>

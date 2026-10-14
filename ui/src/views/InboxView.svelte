@@ -1,6 +1,7 @@
 <script lang="ts">
   // The inbox: the open tasks that are not sorted yet, one single key for each field (see `lib/inbox.ts`). The keys
   // are read in `App.svelte`, with the others; this view shows the list, what each task still lacks, and the keys.
+  import { untrack } from 'svelte';
   import type { App } from '../lib/app.svelte';
   import { missingOf } from '../lib/inbox';
   import { translate, type Key } from '../lib/i18n';
@@ -11,6 +12,12 @@
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
 
   const rows = $derived(app.inbox);
+  // When the rows change (the selected task was sorted, here or elsewhere) the selection is on a row again - and only
+  // then: a task chosen by the person, or none (Escape), is left alone.
+  $effect(() => {
+    void rows.map((t) => t.id).join('|');
+    untrack(() => app.ensureInboxSelection());
+  });
   // The selected row stays in view while the keys move it.
   $effect(() => {
     if (app.selectedId === null) return;
@@ -24,7 +31,7 @@
 
 <div class="split">
   <section class="inbox" aria-label={t('nav.inbox')}>
-    <p class="count">{t('inbox.count', { n: rows.length })}</p>
+    <p class="count" role="status">{t('inbox.count', { n: rows.length })}</p>
     <p class="keys">{t('inbox.keys')}</p>
     <div class="rows">
       {#each rows as task (task.id)}

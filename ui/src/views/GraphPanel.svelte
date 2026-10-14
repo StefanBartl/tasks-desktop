@@ -2,6 +2,7 @@
   // The graph of one task, as a list: what it needs before it can start, or what waits for it. The list is the
   // plain form (Tab and the arrow keys, a screen reader reads it as a list, the steps from the task are the indent);
   // the engine walks the graph, this only shows it.
+  import { untrack } from 'svelte';
   import type { App } from '../lib/app.svelte';
   import { labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
@@ -12,11 +13,38 @@
   const graph = $derived(app.graph);
   const doc = $derived(app.graphDoc);
 
-  // Asked again when the vault changed under the graph.
+  // Asked again when the vault changed under the graph: only a rev that differs from the one seen before, and the
+  // call is not tracked (it reads the graph state, and an effect that listened to that would ask again after every
+  // answer, for ever).
+  let seenRev: string | undefined;
   $effect(() => {
-    void app.snapshot?.rev;
-    app.reloadGraph();
+    const rev = app.snapshot?.rev;
+    if (seenRev !== undefined && rev !== seenRev) untrack(() => app.reloadGraph());
+    seenRev = rev;
   });
+
+  // The panel takes the focus when it opens (the button that opened it is gone from the page), and gives it back to
+  // the stages when it closes.
+  let heading: HTMLElement | undefined = $state();
+  let focusedFor = '';
+  $effect(() => {
+    // The heading exists only once the panel is drawn: the effect runs again when it is there.
+    if (graph && heading && focusedFor !== graph.id) {
+      heading.focus();
+      focusedFor = graph.id;
+    }
+    if (!graph && focusedFor !== '') {
+      document.querySelector<HTMLElement>('section.stages')?.focus();
+      focusedFor = '';
+    }
+  });
+
+  function onPanelKey(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      app.closeGraph();
+    }
+  }
 
   // The ids a node waits for, as the engine's edges say (`from` is finished first, `to` waits).
   const waitsFor = $derived.by(() => {
@@ -60,9 +88,11 @@
 </script>
 
 {#if graph}
-  <section class="graph card" aria-label={t(graph.direction === 'needs' ? 'graph.title.needs' : 'graph.title.unlocks', { id: graph.id })}>
+  <!-- Escape closes the panel from any control inside it; the section itself takes no input. -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <section class="graph card" onkeydown={onPanelKey} aria-label={t(graph.direction === 'needs' ? 'graph.title.needs' : 'graph.title.unlocks', { id: graph.id })}>
     <header>
-      <h2>{t(graph.direction === 'needs' ? 'graph.title.needs' : 'graph.title.unlocks', { id: graph.id })}</h2>
+      <h2 bind:this={heading} tabindex="-1">{t(graph.direction === 'needs' ? 'graph.title.needs' : 'graph.title.unlocks', { id: graph.id })}</h2>
       <div class="dir" role="group" aria-label={t('graph.direction')}>
         <button type="button" aria-pressed={graph.direction === 'needs'} onclick={() => app.openGraph(graph.id, 'needs')}>{t('graph.dir.needs')}</button>
         <button type="button" aria-pressed={graph.direction === 'unlocks'} onclick={() => app.openGraph(graph.id, 'unlocks')}>{t('graph.dir.unlocks')}</button>

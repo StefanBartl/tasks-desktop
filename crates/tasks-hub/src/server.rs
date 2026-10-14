@@ -267,6 +267,8 @@ struct VaultRuntime {
     details: StdMutex<Details>,
     /// The check of the vault, run as a job: at most one at a time, and gone with the vault.
     check: StdMutex<CheckJob>,
+    /// Set when the runtime is retired (another vault was chosen): nothing is started in it any more.
+    retired: std::sync::atomic::AtomicBool,
     jobs: StdMutex<Vec<JoinHandle<()>>>,
     // Kept alive: the refresher ends when every sender of hints is gone, and
     // the timer must keep running even if the file watcher could not start.
@@ -278,6 +280,10 @@ impl VaultRuntime {
     /// Stop the refresher and the indexer.
     fn stop(&self) {
         if let Ok(mut jobs) = self.jobs.lock() {
+            // Under the lock the jobs are kept in: a start that took the lock first has its handle drained below, one
+            // that takes it after sees the flag.
+            self.retired
+                .store(true, std::sync::atomic::Ordering::Release);
             for job in jobs.drain(..) {
                 job.abort();
             }
@@ -378,6 +384,7 @@ fn build_runtime(
         search,
         details: StdMutex::new(Details::default()),
         check: StdMutex::new(CheckJob::default()),
+        retired: std::sync::atomic::AtomicBool::new(false),
         jobs: StdMutex::new(jobs),
         _hints: hints,
         _watcher: watcher,
@@ -1809,6 +1816,15 @@ impl CheckJob {
     }
 }
 
+/// The invisible characters that can reorder or hide a line of text (bidirectional controls, zero width ones).
+fn is_invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{2069}' | '\u{feff}'
+    )
+}
+
 /// What a failed check says: the engine's own refusal in its words, or a fixed sentence (a process failure holds
 /// paths, which a page does not get).
 fn check_failure(error: &EngineError) -> (String, String) {
@@ -1817,7 +1833,7 @@ fn check_failure(error: &EngineError) -> (String, String) {
             "engine_refused".to_owned(),
             r.message
                 .chars()
-                .filter(|c| !c.is_control())
+                .filter(|c| !c.is_control() && !is_invisible(*c))
                 .take(300)
                 .collect(),
         ),
@@ -1891,6 +1907,21 @@ async fn check_start(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
         id
     };
     let runtime = Arc::clone(&rt);
+    // The handle goes into the jobs under the lock the retiring of the runtime takes, so that a start never slips
+    // in after it: a job of a vault that is no longer read is not started.
+    let Ok(mut jobs) = rt.jobs.lock() else {
+        return engine_unavailable(&st);
+    };
+    if rt.retired.load(std::sync::atomic::Ordering::Acquire) {
+        if let Ok(mut job) = rt.check.lock() {
+            *job = CheckJob::Idle;
+        }
+        return error_body(
+            StatusCode::CONFLICT,
+            "vault_changed",
+            "another vault is read now: ask again",
+        );
+    }
     let handle = tokio::spawn(async move {
         let request = serde_json::Value::Object(params);
         let outcome = engine.call(EngineMethod::Check, Some(&request)).await;
@@ -1904,6 +1935,8 @@ async fn check_start(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
                 },
             },
             Err(error) => {
+                // The page gets a sentence; whoever runs the hub gets the cause (already scrubbed of paths).
+                eprintln!("engine check: {error}");
                 let (code, message) = check_failure(&error);
                 CheckJob::Failed { id, code, message }
             }
@@ -1917,10 +1950,9 @@ async fn check_start(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
             *job = next;
         }
     });
-    if let Ok(mut jobs) = rt.jobs.lock() {
-        jobs.retain(|j| !j.is_finished());
-        jobs.push(handle);
-    }
+    jobs.retain(|j| !j.is_finished());
+    jobs.push(handle);
+    drop(jobs);
     let state = rt
         .check
         .lock()
@@ -2265,6 +2297,28 @@ mod tests {
         assert!(message.chars().count() <= 512, "{}", message.len());
         assert!(!message.contains(|c: char| c.is_control()));
         assert_eq!(doc["error"]["retryable"], true);
+    }
+
+    #[test]
+    fn a_failed_check_says_one_sentence_without_hidden_characters_or_paths() {
+        use crate::engine::EngineRefusal;
+        let refused = EngineError::Refused(EngineRefusal {
+            code: "invalid_argument".to_owned(),
+            message: format!("unknown area{}x{}y\u{202e}z", '\u{200b}', '\u{7}'),
+            retryable: false,
+            text: String::new(),
+        });
+        let (code, message) = check_failure(&refused);
+        assert_eq!(code, "engine_refused");
+        assert_eq!(message, "unknown areaxyz");
+        // A process that failed holds paths in its error output: the page gets a fixed sentence.
+        let failed = EngineError::Failed {
+            code: Some(1),
+            detail: "E:/repos/secret/vault exploded".to_owned(),
+        };
+        let (code, message) = check_failure(&failed);
+        assert_eq!(code, "engine_failed");
+        assert!(!message.contains("secret"), "{message}");
     }
 
     #[test]

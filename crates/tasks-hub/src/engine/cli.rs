@@ -128,6 +128,9 @@ pub struct CliEngine {
     inner: Arc<Inner>,
 }
 
+/// How many times the usual time a check may take (it reads every file and asks git).
+const CHECK_TIMEOUT_FACTOR: u32 = 10;
+
 /// Characters that are no use in a line of text shown to a person: controls
 /// and the invisible ones that can reorder or hide text.
 fn is_unprintable(c: char) -> bool {
@@ -199,7 +202,15 @@ impl Inner {
         writes: bool,
         abandoned: impl Fn() -> bool,
     ) -> Result<Reply, EngineError> {
-        let permit = self.gate.lock().await;
+        // The check reads every task file and may ask git: it takes minutes where a question takes a moment. It runs
+        // as a process of its own, outside the place and the persistent host, so that a write, a task and a question
+        // do not wait behind it; it only reads.
+        let aside = method == Method::Check;
+        let permit = if aside {
+            None
+        } else {
+            Some(self.gate.lock().await)
+        };
         // A read that nobody waits for any more is not worth a process (nor
         // is a dry run: it changes nothing). A write is always carried out:
         // its caller may be gone, its client knows it by `client_op_id`.
@@ -212,7 +223,7 @@ impl Inner {
             lib_dir: self.cfg.lib_dir.as_deref(),
             extra_areas: &self.cfg.extra_areas,
         };
-        if let Some(host) = &self.host {
+        if let Some(host) = self.host.as_ref().filter(|_| !aside) {
             let params = stdin.as_deref().unwrap_or("");
             match host.ask(method.as_str(), params, self.cfg.timeout).await {
                 Ok(text) => {
@@ -261,7 +272,11 @@ impl Inner {
                 .and_then(Path::parent)
                 .map(Path::to_path_buf),
             stdin: stdin.map(String::into_bytes).unwrap_or_default(),
-            timeout: self.cfg.timeout,
+            timeout: if aside {
+                self.cfg.timeout * CHECK_TIMEOUT_FACTOR
+            } else {
+                self.cfg.timeout
+            },
             max_stdout: self.cfg.max_reply_bytes,
             max_stderr: 64 * 1024,
         };

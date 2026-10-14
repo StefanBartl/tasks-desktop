@@ -405,3 +405,24 @@ async fn two_choices_that_overlap_end_with_the_one_that_was_made_last() {
     // The vault a has 2 tasks, b has 5: the list and what is read say the same, and it is the choice made last.
     assert_eq!((active.as_str(), read), ("main", 2));
 }
+
+#[tokio::test]
+async fn the_check_job_belongs_to_the_vault_that_is_read() {
+    let r = rig("check-vault", true).await;
+    // A slow check of the first vault is running ...
+    std::fs::write(r.fake.a.join(".fake-check-ms"), "800").unwrap();
+    let (status, started) = post(&r, "/api/tasks/check", "{}", true).await;
+    assert_eq!(status, 200, "{started}");
+    assert_eq!(started["job"]["state"], "running");
+    // ... another vault is chosen: its state is its own, idle.
+    let (status, doc) = post(&r, "/api/vaults/select", r#"{"name":"b"}"#, true).await;
+    assert_eq!(status, 200, "{doc}");
+    let (_, body) = get(&r, "/api/tasks/check").await;
+    let state: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(state["job"]["state"], "idle", "{body}");
+    // The job of the old vault ends without setting anything in the new one.
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    let (_, body) = get(&r, "/api/tasks/check").await;
+    let state: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(state["job"]["state"], "idle", "{body}");
+}
