@@ -20,6 +20,9 @@ import { backoffSeconds, readStream, StreamRefused, type SseMessage } from './ss
 import { detectLang, isLang, translate, type Key, type Lang } from './i18n';
 import { localToday } from './remind';
 
+/** The longest line of the notes the engine takes (`append_note`), in characters. */
+const NOTE_MAX = 1000;
+
 export type Phase = 'starting' | 'needs_pairing' | 'offline' | 'unavailable' | 'ready';
 export type Connection = 'live' | 'reconnecting' | 'offline';
 export type View = 'today' | 'list' | 'board' | 'plan' | 'inbox';
@@ -611,22 +614,26 @@ export class App {
   }
 
   /**
-   * Drop a task that will not be done: it is parked and the reason goes into its notes, as ONE request (the engine has
-   * no verb of its own for it, and `done` would count it as finished). The status is written with the version that was
-   * shown; the line follows in the same file. The note has no inverse, so there is no undo: the status is set again by
-   * hand. Says whether it was written (the box is emptied only then).
+   * Drop a task that will not be done: it is parked and the reason goes into its notes (the engine has no verb of its
+   * own for it, and `done` would count it as finished). Two requests, one after the other: a batch does not stop at the
+   * operation that failed, so a status that was refused (the file changed) would still get its note. The line is judged
+   * before anything is written: the engine takes at most 1000 characters, and a status written without its note would be
+   * half of it. Says whether both were written (the box is emptied only then).
    */
   async discard(id: string, reason: string, etag?: string): Promise<boolean> {
     const text = reason.trim();
     if (text === '') return false;
-    const result = await this.write(
-      [
-        { op: 'set', id, patch: { status: 'parked' }, ...(etag ? { if_match: etag } : {}) },
-        { op: 'append_note', id, text: translate(this.lang, 'discard.note', { reason: text }) },
-      ],
-      { undoable: false },
-    );
-    return result?.ok === true && result.results.every((r) => r.ok);
+    const line = translate(this.lang, 'discard.note', { reason: text });
+    if ([...line].length > NOTE_MAX) {
+      this.say('error', 'discard.too_long', { n: NOTE_MAX });
+      return false;
+    }
+    const parked = await this.write([
+      { op: 'set', id, patch: { status: 'parked' }, ...(etag ? { if_match: etag } : {}) },
+    ]);
+    if (parked?.ok !== true) return false;
+    // The note goes in under the version the status left; a failure of it is told by `write` and the task stays parked.
+    return this.addNote(id, line);
   }
 
   /**

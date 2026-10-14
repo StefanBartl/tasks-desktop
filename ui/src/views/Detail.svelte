@@ -90,6 +90,14 @@
     if (!task || detail.state !== 'ok') return;
     if (await app.setBody(task.id, draft, draftEtag)) editing = false;
   }
+  // The data class of an area is what decides where its tasks may be kept: a move across classes is told.
+  const classChange = $derived.by(() => {
+    if (!task || moveTo === '') return null;
+    const of = (name: string) => app.hubAreas.find((a) => a.name === name)?.data_class;
+    const from = of(task.area);
+    const to = of(moveTo);
+    return from !== to ? { from: from ?? '?', to: to ?? '?' } : null;
+  });
   async function checkMove(): Promise<void> {
     if (!task || moveTo === '') return;
     const id = task.id;
@@ -524,6 +532,9 @@
             {:else}
               {t('move.rewrites', { n: movePreview.move.references.length })}
             {/if}
+            {#if classChange}
+              {t('move.class_differs', classChange)}
+            {/if}
           </p>
         {:else if movePreview?.kind === 'refused'}
           <p class="bad" role="alert">{markHidden(movePreview.message)}</p>
@@ -538,7 +549,7 @@
             <input
               type="text"
               bind:value={reason}
-              maxlength="1000"
+              maxlength="900"
               disabled={app.saving}
               onkeydown={(e) => {
                 if (e.key === 'Enter') {
