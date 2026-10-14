@@ -22,6 +22,7 @@ export type Op =
   | { op: 'tick_step'; id: string; n: number; done?: boolean; if_match?: string }
   | { op: 'append_note'; id: string; text: string; if_match?: string }
   | { op: 'set_body'; id: string; body: string; if_match?: string }
+  | { op: 'move_area'; id: string; to_area: string; if_match?: string }
   | {
       op: 'plan_new';
       area: string;

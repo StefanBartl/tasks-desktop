@@ -1571,9 +1571,9 @@ async fn search_route(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) 
     json_response(StatusCode::OK, body.to_string(), None)
 }
 
-/// The operations the page may ask for. `move_area` only as a dry run (the
-/// engine says so itself); a dry run of `plan_new` names the plan without
-/// making it. `tick_step`, `append_note` and `set_body` change the text of one open task
+/// The operations the page may ask for. `move_area` asked as a dry run is the
+/// report of what the move would break; without it the engine moves the task. A dry
+/// run of `plan_new` names the plan without making it. `tick_step`, `append_note` and `set_body` change the text of one open task
 /// (a step, a line of the notes, the text); the engine checks the version and the text.
 const OPS_ALLOWED: [&str; 10] = [
     "set",

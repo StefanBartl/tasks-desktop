@@ -58,6 +58,9 @@
   let note = $state('');
   // The reason for dropping the task: kept like the note, emptied only when the engine wrote it.
   let reason = $state('');
+  // The area the task is to move to and what the engine said a move there would do (a dry run, nothing written).
+  let moveTo = $state('');
+  let movePreview = $state<Awaited<ReturnType<App['previewMove']>> | null>(null);
   // The id as a value of its own: a refresh gives `task` a new object with the same id, and the draft must stay.
   const taskId = $derived(task?.id);
   // The text of the task being edited: a draft that stays until it is written or given up, and goes with the task.
@@ -71,6 +74,8 @@
     void taskId;
     note = '';
     reason = '';
+    moveTo = '';
+    movePreview = null;
     editing = false;
     draft = '';
   });
@@ -84,6 +89,21 @@
   async function saveBody(): Promise<void> {
     if (!task || detail.state !== 'ok') return;
     if (await app.setBody(task.id, draft, draftEtag)) editing = false;
+  }
+  async function checkMove(): Promise<void> {
+    if (!task || moveTo === '') return;
+    const id = task.id;
+    const target = moveTo;
+    const answer = await app.previewMove(id, target);
+    // The person may have chosen another task or area meanwhile: a late answer is not shown for it.
+    if (task?.id === id && moveTo === target) movePreview = answer;
+  }
+  async function doMove(): Promise<void> {
+    if (!task || detail.state !== 'ok' || moveTo === '') return;
+    if (await app.moveArea(task.id, moveTo, detail.doc.task.etag)) {
+      moveTo = '';
+      movePreview = null;
+    }
   }
   async function discard(): Promise<void> {
     if (!task || detail.state !== 'ok' || reason.trim() === '') return;
@@ -469,6 +489,47 @@
             >{t('detail.note_button')}</button
           >
         </div>
+      {/if}
+      {#if app.can('move_area') && task.status !== 'done'}
+        <div class="note" role="group" aria-label={t('move.label')}>
+          <label>
+            <span>{t('move.label')}</span>
+            <select
+              bind:value={moveTo}
+              disabled={app.saving}
+              onchange={() => {
+                movePreview = null;
+              }}
+            >
+              <option value="">-</option>
+              {#each app.allAreaNames.filter((a) => a !== task.area) as area (area)}
+                <option value={area}>{area}</option>
+              {/each}
+            </select>
+          </label>
+          {#if movePreview?.kind === 'ok' && movePreview.move.conflicts.length === 0}
+            <button type="button" disabled={app.saving} onclick={() => void doMove()}
+              >{t('move.confirm', { id: movePreview.move.new_id })}</button
+            >
+          {:else}
+            <button type="button" disabled={app.saving || moveTo === ''} onclick={() => void checkMove()}
+              >{t('move.check')}</button
+            >
+          {/if}
+        </div>
+        {#if movePreview?.kind === 'ok'}
+          <p class="muted" role="status">
+            {#if movePreview.move.conflicts.length > 0}
+              {#each movePreview.move.conflicts as c, i (i)}{markHidden(c.message)} {/each}
+            {:else}
+              {t('move.rewrites', { n: movePreview.move.references.length })}
+            {/if}
+          </p>
+        {:else if movePreview?.kind === 'refused'}
+          <p class="bad" role="alert">{markHidden(movePreview.message)}</p>
+        {:else if movePreview?.kind === 'unknown'}
+          <p class="bad" role="alert">{t('move.unknown')}</p>
+        {/if}
       {/if}
       {#if app.can('append_note') && app.can('ops') && task.status !== 'done' && task.status !== 'parked'}
         <div class="note" role="group" aria-label={t('discard.label')}>

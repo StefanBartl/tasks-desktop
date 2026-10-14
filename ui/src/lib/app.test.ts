@@ -1619,6 +1619,37 @@ describe('writing', () => {
       expect(await app.discard('pub/a', 'x', 'e1')).toBe(false);
     });
 
+    it('moves a task to another area with the version it was read from, follows it and takes it back', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
+      app.select('pub/a');
+      hub.next_ops = answer(entry('move_area', { outcome: 'moved', new_id: 'inner/a', inverse: { op: 'move_area', id: 'inner/a', to_area: 'pub', if_match: 'e2' } }));
+      // The list is read again after the write: it holds the task under its new id.
+      hub.doc = snapshot([task('inner/a', { etag: 'e2' })]);
+      expect(await app.moveArea('pub/a', 'inner', 'e1')).toBe(true);
+      expect(hub.sent[0]?.ops).toEqual([{ op: 'move_area', id: 'pub/a', to_area: 'inner', if_match: 'e1' }]);
+      expect(app.selectedId).toBe('inner/a');
+      expect(app.toast?.undo).toEqual([{ op: 'move_area', id: 'inner/a', to_area: 'pub', if_match: 'e2' }]);
+      // Taking it back: the selection returns to the old id.
+      hub.doc = snapshot([task('pub/a', { etag: 'e3' })]);
+      hub.next_ops = answer(entry('move_area', { id: 'inner/a', outcome: 'moved', new_id: 'pub/a' }));
+      await app.undo();
+      expect(hub.sent[1]?.ops).toEqual([{ op: 'move_area', id: 'inner/a', to_area: 'pub', if_match: 'e2' }]);
+      expect(app.selectedId).toBe('pub/a');
+      // A refusal is not a move.
+      hub.next_ops = answer({ n: 1, op: 'move_area', id: 'pub/a', ok: false, outcome: 'failed', changed_ids: [], error: { code: 'invalid_argument', message: 'taken', retryable: false } });
+      expect(await app.moveArea('pub/a', 'inner', 'e1')).toBe(false);
+      expect(app.selectedId).toBe('pub/a');
+    });
+
+    it('asks what a move would break as a dry run and writes nothing', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
+      const move = { new_id: 'inner/a', to_area: 'inner', from: 'x', to: 'y', folder: false, conflicts: [], references: [{ kind: 'blocked_by', id: 'pub/b' }], notes: [] };
+      hub.next_ops = answer(entry('move_area', { outcome: 'would_move', move, changed_ids: [] }));
+      expect(await app.previewMove('pub/a', 'inner')).toEqual({ kind: 'ok', move });
+      expect(hub.sent[0]?.dry_run).toBe(true);
+      expect(app.toast).toBeNull();
+    });
+
     it('sets the text with the version it was read from, takes it back with the old text, and says whether it was written', async () => {
       const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
       hub.next_ops = answer(entry('set_body', { inverse: { op: 'set_body', id: 'pub/a', body: 'The old text.', if_match: 'e2' } }));
