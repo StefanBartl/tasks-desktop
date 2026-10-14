@@ -271,7 +271,6 @@ fn start_hub_after_stale(config: &Path, port: u16) -> Hub {
 fn bad_arguments_are_told() {
     let config = temp_dir("args");
     for args in [
-        vec![],
         vec!["serve", "--port"],
         vec!["serve", "--port", "80"],
         vec!["serve", "--port", "abc"],
@@ -285,6 +284,91 @@ fn bad_arguments_are_told() {
     }
     let out = command(&config).arg("--version").output().unwrap();
     assert!(out.status.success());
+}
+
+#[test]
+fn help_prints_the_usage_and_succeeds() {
+    let config = temp_dir("help");
+    for flag in ["help", "--help", "-h"] {
+        let out = command(&config).arg(flag).output().unwrap();
+        assert!(out.status.success(), "{flag}");
+        assert!(
+            String::from_utf8_lossy(&out.stdout).contains("usage:"),
+            "{flag}"
+        );
+    }
+}
+
+#[test]
+fn a_rolling_build_says_its_commit_and_a_release_does_not() {
+    assert_eq!(
+        tasks_hub::version_line(),
+        format!("tasks-hub {}", tasks_hub::VERSION)
+    );
+    let config = temp_dir("version");
+    let out = command(&config).arg("--version").output().unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        tasks_hub::version_line()
+    );
+}
+
+#[test]
+fn a_double_click_starts_the_hub_in_the_background_and_a_second_one_finds_it() {
+    let config = temp_dir("click");
+    let port = free_port();
+    let _guard = Background(config.clone());
+
+    let first = command(&config)
+        .env("TASKS_DESKTOP_PORT", port.to_string())
+        .env("TASKS_DESKTOP_NO_LAUNCH", "1")
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&first.stdout).into_owned();
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    assert!(text.contains("runs in the background"), "{text}");
+    assert!(
+        text.contains(&format!("http://127.0.0.1:{port}/#pair=")),
+        "{text}"
+    );
+
+    let second = command(&config)
+        .env("TASKS_DESKTOP_NO_LAUNCH", "1")
+        .output()
+        .unwrap();
+    let again = String::from_utf8_lossy(&second.stdout).into_owned();
+    assert!(second.status.success());
+    assert!(again.contains("already running"), "{again}");
+    assert!(again.contains("#pair="), "{again}");
+    // The link of the second click is a new one: a code is good once.
+    assert_ne!(text.lines().last(), again.lines().last());
+}
+
+#[test]
+fn a_double_click_that_cannot_start_says_why() {
+    // A file where the config folder should be: the hub cannot even keep its record.
+    let base = temp_dir("click-fail");
+    let config = base.join("config-is-a-file");
+    std::fs::write(&config, "x").unwrap();
+    let out = command(&config)
+        .env("TASKS_DESKTOP_NO_LAUNCH", "1")
+        .env("TASKS_DESKTOP_PORT", free_port().to_string())
+        .output()
+        .unwrap();
+    assert!(
+        !out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).starts_with("tasks-hub: "),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 #[test]

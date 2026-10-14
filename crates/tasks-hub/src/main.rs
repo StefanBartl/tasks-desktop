@@ -1,9 +1,12 @@
-//! `tasks-hub serve | open | --version`
+//! `tasks-hub serve | start | open | ... | --version`; without an argument (a double click) it starts the
+//! hub in the background and opens the browser.
 
 use tasks_hub::app::{self, AreasCommand, ServeOptions};
 use tasks_hub::background::{self, Autostart, InstallOptions, UninstallOptions};
 
 const USAGE: &str = "usage:
+  tasks-hub                               (no argument, as a double click) start the hub in the
+                                          background if it is not running, open the browser
   tasks-hub serve [--port <1024-65535>]   run the hub until Ctrl-C
   tasks-hub start [--open]                run the hub in the background (no window; log in
                                           the config folder); --open also opens the browser
@@ -74,10 +77,38 @@ fn parse_areas(args: &[String]) -> Result<AreasCommand, String> {
     }
 }
 
-#[tokio::main]
-async fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let result = match args.first().map(String::as_str) {
+/// What a double click does: the hub runs in the background (a second click finds it), and the browser
+/// opens with a one-time link. `TASKS_DESKTOP_NO_LAUNCH` prints the link instead (the tests).
+async fn click() -> Result<(), String> {
+    print!("{}", background::start().await?);
+    let url = app::open().await?;
+    if std::env::var_os("TASKS_DESKTOP_NO_LAUNCH").is_some() {
+        println!("{url}");
+        Ok(())
+    } else {
+        app::launch(&url)
+    }
+}
+
+/// A console that was opened by a double click closes with the program: an error is read before that.
+fn wait_for_enter() {
+    use std::io::{BufRead, IsTerminal, Write};
+    if std::io::stdin().is_terminal() {
+        eprint!("Press Enter to close this window.");
+        let _ = std::io::stderr().flush();
+        let _ = std::io::stdin().lock().lines().next();
+    }
+}
+
+/// The verb the arguments name. Apart from `main` so that its future lives on the heap: the main thread of
+/// Windows has 1 MB of stack, and the future of all the verbs together is too big for it in a debug build.
+async fn run(args: Vec<String>) -> Result<(), String> {
+    match args.first().map(String::as_str) {
+        None => click().await,
+        Some("help" | "--help" | "-h") => {
+            println!("{USAGE}");
+            Ok(())
+        }
         Some("serve") => match parse_port(&args[1..]) {
             Ok(port) => app::serve(ServeOptions { port }).await,
             Err(e) => Err(e),
@@ -148,13 +179,22 @@ async fn main() {
             Err(e) => Err(e),
         },
         Some("--version" | "-V") => {
-            println!("tasks-hub {}", tasks_hub::VERSION);
+            println!("{}", tasks_hub::version_line());
             Ok(())
         }
         _ => Err(USAGE.to_owned()),
-    };
-    if let Err(message) = result {
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let by_click = args.is_empty();
+    if let Err(message) = Box::pin(run(args)).await {
         eprintln!("tasks-hub: {message}");
+        if by_click {
+            wait_for_enter();
+        }
         std::process::exit(1);
     }
 }

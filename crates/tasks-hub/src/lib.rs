@@ -23,3 +23,17 @@ pub mod watch;
 
 /// Version of this hub, as reported by `hello`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// What a build that is not a release says about itself (the commit it was made from): set by the
+/// workflow of the rolling build through `TASKS_HUB_BUILD`, absent in a release and in a local build.
+pub const BUILD: Option<&str> = option_env!("TASKS_HUB_BUILD");
+
+/// The line `--version` prints: `tasks-hub 0.0.0`, and `tasks-hub 0.0.0 (build abc1234)` for a rolling build.
+/// A release is exactly the first form (the release workflow compares it with the tag).
+#[must_use]
+pub fn version_line() -> String {
+    match BUILD {
+        Some(build) if !build.is_empty() => format!("tasks-hub {VERSION} (build {build})"),
+        _ => format!("tasks-hub {VERSION}"),
+    }
+}
