@@ -558,6 +558,7 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/api/tasks/search", get(search_route))
         .route("/api/tasks/rescan", post(rescan))
         .route("/api/tasks/done_preview", get(done_preview))
+        .route("/api/tasks/plan_for", get(plan_for))
         .route("/api/tasks/ops", post(ops))
         .route("/api/tasks/estimate", post(estimate))
         .route(
@@ -1754,6 +1755,36 @@ async fn done_preview(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) 
         );
     };
     match ask(&st, EngineMethod::DonePreview, Some(&json!({ "id": id }))).await {
+        Ok(reply) => json_response(StatusCode::OK, reply.text, None),
+        Err(response) => response,
+    }
+}
+
+/// `GET /api/tasks/plan_for?id=&direction=`: the tasks a task needs before it can start (`direction=needs`, the
+/// default) or the tasks that wait for it (`direction=unlocks`), with the edges between them. A read; the walk of the
+/// graph is the engine's.
+async fn plan_for(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
+    let params = match parse_query(query.as_deref(), &["id", "direction"]) {
+        Ok(p) => p,
+        Err(why) => return error_body(StatusCode::BAD_REQUEST, "bad_query", why),
+    };
+    let Some(id) = params.get("id").filter(|id| valid_task_id(id)) else {
+        return error_body(
+            StatusCode::BAD_REQUEST,
+            "bad_id",
+            "id must be <area>/<slug>",
+        );
+    };
+    let direction = params.get("direction").map_or("needs", String::as_str);
+    if !matches!(direction, "needs" | "unlocks") {
+        return error_body(
+            StatusCode::BAD_REQUEST,
+            "bad_direction",
+            "direction must be needs or unlocks",
+        );
+    }
+    let request = json!({ "id": id, "direction": direction });
+    match ask(&st, EngineMethod::PlanFor, Some(&request)).await {
         Ok(reply) => json_response(StatusCode::OK, reply.text, None),
         Err(response) => response,
     }

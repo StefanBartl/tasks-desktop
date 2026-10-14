@@ -24,7 +24,7 @@ class FakeHub {
   areaList: HubArea[] = [{ name: 'pub', data_class: 'public' }];
   snapshotCalls: (string | null)[] = [];
   engineReady = true;
-  capabilities: string[] | null = ['reorder', 'plan_new', 'eff_prio', 'estimate'];
+  capabilities: string[] | null = ['reorder', 'plan_new', 'eff_prio', 'estimate', 'plan_for'];
   hubDown = false;
   exchanged: string[] = [];
   exchangeFails = false;
@@ -52,6 +52,30 @@ class FakeHub {
     this.exchanged.push(code);
     if (this.exchangeFails) throw new ApiError(401, 'bad_code', 'x');
     return 'token-1';
+  }
+  graphs: { id: string; direction: string }[] = [];
+  graphError: ApiError | null = null;
+  /** Questions of the graph that wait for these promises, in the order asked. */
+  graphHold: Promise<void>[] = [];
+  async planFor(id: string, direction: 'needs' | 'unlocks') {
+    this.graphs.push({ id, direction });
+    const held = this.graphHold.shift();
+    if (held) await held;
+    if (this.graphError) throw this.graphError;
+    return {
+      kind: 'tasks.planfor',
+      id,
+      direction,
+      total: 2,
+      truncated: false,
+      nodes: [
+        { id, title: 'The task', status: 'open', distance: 0 },
+        { id: direction === 'needs' ? 'pub/first' : 'pub/after', title: 'The other', status: 'open', distance: 1 },
+      ],
+      edges: [{ from: 'pub/first', to: id, kind: 'blocked_by' }],
+      cycles: [],
+      incomplete: [],
+    } as never;
   }
   estimates: { ids?: string[]; assume?: { id: string; effort?: string; value?: number }[] }[] = [];
   /** What the next question of the matrix answers: a refusal to throw, or nothing (the default figures). */
@@ -1916,5 +1940,66 @@ describe('the estimate matrix', () => {
     other.app.capabilities = ['reorder'];
     other.app.openMatrix();
     expect(other.app.matrix).toBeNull();
+  });
+});
+
+describe('the graph of a task', () => {
+  async function graphApp(capabilities?: string[]) {
+    const m = make({ token: 't' });
+    if (capabilities) m.hub.capabilities = capabilities;
+    m.hub.doc = snapshot([task('pub/a', { etag: 'e1' })]);
+    await m.app.start(null);
+    m.app.stop();
+    return m;
+  }
+
+  it('is asked for in the plan view and shows what the engine gives', async () => {
+    const { app, hub } = await graphApp();
+    app.openGraph('pub/a');
+    expect(app.view).toBe('plan');
+    expect(app.graph).toEqual({ id: 'pub/a', direction: 'needs' });
+    await vi.waitFor(() => expect(app.graphDoc).not.toBeNull());
+    expect(hub.graphs).toEqual([{ id: 'pub/a', direction: 'needs' }]);
+    expect(app.graphDoc?.nodes.map((n) => n.id)).toEqual(['pub/a', 'pub/first']);
+    app.openGraph('pub/a', 'unlocks');
+    await vi.waitFor(() => expect(hub.graphs).toHaveLength(2));
+    expect(hub.graphs[1]).toEqual({ id: 'pub/a', direction: 'unlocks' });
+    app.closeGraph();
+    expect(app.graph).toBeNull();
+    expect(app.graphDoc).toBeNull();
+  });
+
+  it('shows the words of the engine when it refuses, and does not open without the capability', async () => {
+    const { app, hub } = await graphApp();
+    hub.graphError = new ApiError(404, 'not_found', 'no such open task: pub/a');
+    app.openGraph('pub/a');
+    await vi.waitFor(() => expect(app.graphProblem).toBe('no such open task: pub/a'));
+    const other = await graphApp(['reorder']);
+    other.app.capabilities = ['reorder'];
+    other.app.openGraph('pub/a');
+    expect(other.app.graph).toBeNull();
+  });
+
+  it('does not let an older, slower answer replace a newer one', async () => {
+    const { app, hub } = await graphApp();
+    let release!: () => void;
+    hub.graphHold = [new Promise<void>((resolve) => (release = resolve))];
+    app.openGraph('pub/a', 'needs');
+    await vi.waitFor(() => expect(hub.graphs).toHaveLength(1));
+    app.openGraph('pub/a', 'unlocks');
+    await vi.waitFor(() => expect(app.graphDoc?.direction).toBe('unlocks'));
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(app.graphDoc?.direction).toBe('unlocks');
+  });
+
+  it('asks again after the vault changed, only when a graph is there', async () => {
+    const { app, hub } = await graphApp();
+    app.reloadGraph();
+    expect(hub.graphs).toHaveLength(0);
+    app.openGraph('pub/a');
+    await vi.waitFor(() => expect(app.graphDoc).not.toBeNull());
+    app.reloadGraph();
+    await vi.waitFor(() => expect(hub.graphs).toHaveLength(2));
   });
 });

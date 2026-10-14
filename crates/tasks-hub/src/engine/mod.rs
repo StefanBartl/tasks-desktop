@@ -36,6 +36,7 @@ pub enum Method {
     Next,
     Areas,
     DonePreview,
+    PlanFor,
     Ops,
 }
 
@@ -53,6 +54,7 @@ impl Method {
             Self::Next => "next",
             Self::Areas => "areas",
             Self::DonePreview => "done_preview",
+            Self::PlanFor => "plan_for",
             Self::Ops => "ops",
         }
     }
@@ -70,6 +72,7 @@ impl Method {
             Self::Next => "tasks.next",
             Self::Areas => "tasks.areas",
             Self::DonePreview => "tasks.donepreview",
+            Self::PlanFor => "tasks.planfor",
             Self::Ops => "tasks.result",
         }
     }
@@ -93,6 +96,7 @@ impl Method {
             "next" => Self::Next,
             "areas" => Self::Areas,
             "done_preview" => Self::DonePreview,
+            "plan_for" => Self::PlanFor,
             "ops" => Self::Ops,
             _ => return None,
         })

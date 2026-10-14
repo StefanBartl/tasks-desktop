@@ -846,6 +846,37 @@ test('the estimate matrix sets effort and value of several tasks, with the figur
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('the graph of a task lists what it needs and what waits for it, as a list', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  await open(page, 'cascade.nvim/iota');
+  await page.locator('aside.detail').getByRole('button', { name: 'What do I need for this?' }).click();
+  const graph = page.locator('section.graph');
+  await expect(graph).toBeVisible();
+  await expect(graph.getByRole('heading', { name: 'What cascade.nvim/iota needs' })).toBeVisible();
+  await expect(graph.getByRole('status')).toContainText('2 tasks');
+  // The task itself first, then what it needs, one step in; the edge is the engine's.
+  const nodes = graph.locator('ol.nodes > li');
+  await expect(nodes).toHaveCount(2);
+  await expect(nodes.nth(0)).toContainText('cascade.nvim/iota');
+  await expect(nodes.nth(1)).toContainText('lib.nvim/alpha');
+  await expect(nodes.nth(0)).toContainText('waits for: lib.nvim/alpha');
+  await expect(nodes.nth(1)).toHaveAttribute('aria-level', '2');
+  await expectAccessible(page, 'graph');
+  // The arrow keys move between the nodes.
+  await nodes.nth(0).getByRole('button').focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(nodes.nth(1).getByRole('button')).toBeFocused();
+  // The other way: nothing waits for this task.
+  await graph.getByRole('button', { name: 'Unlocks' }).click();
+  await expect(graph.getByRole('heading', { name: 'What waits for cascade.nvim/iota' })).toBeVisible();
+  await expect(nodes).toHaveCount(1);
+  await graph.getByRole('button', { name: 'Close' }).click();
+  await expect(graph).toHaveCount(0);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
 test('a tag that was refused does not travel to the next task', async ({ page }) => {
   await watchViolations(page);
   await pair(page);

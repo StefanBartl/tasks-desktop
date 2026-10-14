@@ -1,6 +1,6 @@
 // The hub's routes, as typed calls. Only the shapes the UI needs.
 
-import type { Areas, DonePreview, Estimate, Next, Result, Snapshot, TaskDocument } from './contract';
+import type { Areas, DonePreview, Estimate, Next, PlanFor, Result, Snapshot, TaskDocument } from './contract';
 
 export class ApiError extends Error {
   constructor(
@@ -261,6 +261,12 @@ export class Hub {
     });
     if (!response.ok) throw await failure(response);
     return (await response.json()) as Estimate;
+  }
+
+  /** The tasks a task needs before it can start, or that wait for it (the engine walks the graph). */
+  planFor(id: string, direction: 'needs' | 'unlocks', signal?: AbortSignal): Promise<PlanFor> {
+    const path = `/api/tasks/plan_for?id=${encodeURIComponent(id).replace(/%2F/gi, '/')}&direction=${direction}`;
+    return this.json<PlanFor>(path, signal ? { signal } : undefined);
   }
 
   /** What finishing a task would do, and the token `done` needs. */

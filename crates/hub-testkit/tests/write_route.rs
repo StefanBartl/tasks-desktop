@@ -424,3 +424,40 @@ async fn a_question_of_estimate_costs_the_writes_nothing() {
     let (status, doc) = post(&r, "/api/tasks/ops", body, JSON, true).await;
     assert_eq!(status, 200, "{doc}");
 }
+
+#[tokio::test]
+async fn the_graph_of_a_task_is_a_read_that_checks_the_id_and_the_direction() {
+    let r = rig("plan-for").await;
+    for direction in ["", "&direction=needs", "&direction=unlocks"] {
+        let (status, doc) = get(
+            &r,
+            &format!("/api/tasks/plan_for?id=alpha.nvim/t1{direction}"),
+        )
+        .await;
+        assert_eq!(status, 200, "{direction}: {doc}");
+        assert_eq!(doc["kind"], "tasks.planfor");
+    }
+    for bad in [
+        "",
+        "?id=",
+        "?id=../x",
+        "?id=a",
+        "?id=a/b/c",
+        "?x=1",
+        "?id=alpha.nvim/t1&direction=sideways",
+        "?id=alpha.nvim/t1&direction=",
+        "?id=alpha.nvim/t1&colour=red",
+    ] {
+        let (status, _) = get(&r, &format!("/api/tasks/plan_for{bad}")).await;
+        assert_eq!(status, 400, "{bad:?}");
+    }
+    // A read: it has no POST, and nothing was written.
+    assert_eq!(
+        post(&r, "/api/tasks/plan_for", "{}", JSON, true).await.0,
+        405
+    );
+    assert_eq!(
+        std::fs::read_to_string(r.vault.join(".fake-n")).unwrap(),
+        "2"
+    );
+}
