@@ -1,0 +1,142 @@
+<script lang="ts">
+  // The inbox: the open tasks that are not sorted yet, one single key for each field (see `lib/inbox.ts`). The keys
+  // are read in `App.svelte`, with the others; this view shows the list, what each task still lacks, and the keys.
+  import type { App } from '../lib/app.svelte';
+  import { missingOf } from '../lib/inbox';
+  import { translate, type Key } from '../lib/i18n';
+  import { markHidden } from '../lib/text';
+  import Detail from './Detail.svelte';
+
+  let { app }: { app: App } = $props();
+  const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
+
+  const rows = $derived(app.inbox);
+  // The selected row stays in view while the keys move it.
+  $effect(() => {
+    if (app.selectedId === null) return;
+    void rows.length;
+    const frame = requestAnimationFrame(() => {
+      document.querySelector('.inbox [aria-current="true"]')?.scrollIntoView({ block: 'nearest' });
+    });
+    return () => cancelAnimationFrame(frame);
+  });
+</script>
+
+<div class="split">
+  <section class="inbox" aria-label={t('nav.inbox')}>
+    <p class="count">{t('inbox.count', { n: rows.length })}</p>
+    <p class="keys">{t('inbox.keys')}</p>
+    <div class="rows">
+      {#each rows as task (task.id)}
+        <button
+          type="button"
+          class="row"
+          class:selected={task.id === app.selectedId}
+          aria-current={task.id === app.selectedId ? 'true' : undefined}
+          onclick={() => app.select(task.id)}
+        >
+          <span class="id">{task.id}</span>
+          <span class="title">{markHidden(task.title)}</span>
+          <span class="meta">
+            {#each missingOf(task) as field (field)}
+              <span class="tag">{t(`inbox.missing.${field}` as Key)}</span>
+            {/each}
+          </span>
+        </button>
+      {:else}
+        <p class="empty">{t('inbox.empty')}</p>
+      {/each}
+    </div>
+  </section>
+  <Detail {app} />
+</div>
+
+<style>
+  .split {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    gap: 1rem;
+    height: 100%;
+    min-height: 0;
+  }
+  @media (max-width: 52rem) {
+    .split {
+      grid-template-columns: 1fr;
+    }
+  }
+  .inbox {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .count,
+  .keys {
+    margin: 0;
+    padding: 0.3rem 0.6rem;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  .keys {
+    border-bottom: 1px solid var(--border);
+  }
+  .rows {
+    overflow: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  .row {
+    display: grid;
+    grid-template-columns: minmax(8rem, 14rem) 1fr auto;
+    gap: 0.75rem;
+    align-items: baseline;
+    width: 100%;
+    text-align: left;
+    padding: 0.4rem 0.6rem;
+    background: none;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .row:focus-visible {
+    outline-offset: -2px;
+  }
+  .row:hover {
+    background: var(--surface-2);
+  }
+  .row.selected {
+    background: var(--surface-2);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  .id {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .meta {
+    display: flex;
+    gap: 0.3rem;
+    white-space: nowrap;
+  }
+  .tag {
+    font-size: 0.75rem;
+    padding: 0 0.4rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .empty {
+    padding: 1rem;
+    color: var(--muted);
+  }
+</style>

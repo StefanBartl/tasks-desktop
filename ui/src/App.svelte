@@ -5,6 +5,8 @@
   import Today from './views/Today.svelte';
   import ListView from './views/ListView.svelte';
   import BoardView from './views/BoardView.svelte';
+  import InboxView from './views/InboxView.svelte';
+  import { triageKey } from './lib/inbox';
   import MenuBar, { type Menu } from './views/MenuBar.svelte';
   import PlanView from './views/PlanView.svelte';
   import Capture from './views/Capture.svelte';
@@ -102,6 +104,11 @@
         event.preventDefault();
         return;
       }
+      if (event.key === 'i') {
+        app.setView('inbox');
+        event.preventDefault();
+        return;
+      }
     }
     // The board: Shift with j, k, h or l writes (reorder inside the group, set the status). The letter's case is not
     // trusted: CapsLock turns a plain j into 'J'.
@@ -115,6 +122,19 @@
       }
       return;
     }
+    // The inbox: a single key writes a field of the selected task. Holding a key does not write it again.
+    if (app.view === 'inbox' && event.key !== 'j' && event.key !== 'k' && event.key !== 'g') {
+      if (event.key === 'u') {
+        event.preventDefault();
+        if (!event.repeat) void app.undo();
+        return;
+      }
+      if (triageKey(event.key, event.shiftKey)) {
+        event.preventDefault();
+        if (!event.repeat) void app.triage(event.key, event.shiftKey);
+        return;
+      }
+    }
     switch (event.key) {
       case 'g':
         setChord(true);
@@ -125,10 +145,12 @@
         break;
       case 'j':
         if (app.view === 'list') app.moveSelection(1);
+        else if (app.view === 'inbox') app.moveSelectionInbox(1);
         else if (app.view === 'board') app.moveSelectionInColumn(1);
         break;
       case 'k':
         if (app.view === 'list') app.moveSelection(-1);
+        else if (app.view === 'inbox') app.moveSelectionInbox(-1);
         else if (app.view === 'board') app.moveSelectionInColumn(-1);
         break;
       // The board: h and l change the column (Shift with j, k, h, l writes, above).
@@ -233,6 +255,12 @@
             label: t('nav.plan'),
             checked: app.view === 'plan',
             onselect: () => app.setView('plan'),
+          },
+          {
+            kind: 'radio',
+            label: t('nav.inbox'),
+            checked: app.view === 'inbox',
+            onselect: () => app.setView('inbox'),
           },
           { kind: 'separator' },
           {
@@ -371,7 +399,9 @@
               ? t('nav.plan')
               : app.view === 'board'
                 ? t('nav.board')
-                : t('nav.list')}
+                : app.view === 'inbox'
+                  ? t('nav.inbox')
+                  : t('nav.list')}
         </h1>
         {#if app.view === 'today'}
           <Today {app} />
@@ -379,6 +409,8 @@
           <PlanView {app} />
         {:else if app.view === 'board'}
           <BoardView {app} />
+        {:else if app.view === 'inbox'}
+          <InboxView {app} />
         {:else}
           <ListView {app} bind:searchBox />
         {/if}

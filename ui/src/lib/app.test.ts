@@ -1715,3 +1715,61 @@ describe('writing', () => {
     });
   });
 });
+
+describe('the inbox', () => {
+  const unsorted = (id: string, extra: Partial<TaskEntry> = {}) => task(id, { etag: `e-${id}`, ...extra });
+  const sorted = { prio: 2, effort: 'S', actor: 'me', actor_written: true } as Partial<TaskEntry>;
+
+  async function inboxApp(tasks: TaskEntry[]) {
+    const m = make({ token: 't' });
+    m.hub.doc = snapshot(tasks);
+    await m.app.start(null);
+    m.app.stop();
+    m.app.setView('inbox');
+    return m;
+  }
+
+  it('holds the tasks that lack something, and a key writes the field it names on the selected task', async () => {
+    const { app, hub } = await inboxApp([unsorted('pub/a'), unsorted('pub/b', sorted), unsorted('pub/c', { prio: 1 })]);
+    expect(app.inbox.map((t) => t.id)).toEqual(['pub/a', 'pub/c']);
+    app.moveSelectionInbox(1);
+    expect(app.selectedId).toBe('pub/a');
+    await app.triage('1', false);
+    expect(hub.sent).toHaveLength(1);
+    expect(hub.sent[0]?.ops).toEqual([{ op: 'set', id: 'pub/a', patch: { prio: 1 }, if_match: 'e-pub/a' }]);
+    await app.triage('F', true);
+    expect(hub.sent[1]?.ops).toEqual([{ op: 'set', id: 'pub/a', patch: { effort: 'XL' }, if_match: 'e-pub/a' }]);
+    await app.triage('i', false);
+    expect(hub.sent[2]?.ops).toEqual([{ op: 'set', id: 'pub/a', patch: { actor: 'cdx' }, if_match: 'e-pub/a' }]);
+  });
+
+  it('sends nothing for a key that names nothing, without a selection, or while a write is under way', async () => {
+    const { app, hub } = await inboxApp([unsorted('pub/a'), unsorted('pub/b')]);
+    await app.triage('1', false);
+    expect(hub.sent).toHaveLength(0);
+    app.moveSelectionInbox(1);
+    await app.triage('x', false);
+    await app.triage('4', false);
+    expect(hub.sent).toHaveLength(0);
+    const first = app.triage('2', false);
+    await app.triage('3', false);
+    await first;
+    expect(hub.sent).toHaveLength(1);
+    expect(hub.sent[0]?.ops[0]).toMatchObject({ patch: { prio: 2 } });
+  });
+
+  it('keeps the selection at the same place when the task is sorted and leaves', async () => {
+    const { app, hub } = await inboxApp([unsorted('pub/a', { prio: 2, effort: 'S' }), unsorted('pub/b'), unsorted('pub/c')]);
+    app.select('pub/a');
+    // The engine writes the actor: the list that is read next has the task sorted.
+    const ops = hub.ops.bind(hub);
+    hub.ops = async (request) => {
+      const result = await ops(request);
+      hub.doc = snapshot([unsorted('pub/a', sorted), unsorted('pub/b'), unsorted('pub/c')], 'rev:2');
+      return result;
+    };
+    await app.triage('m', false);
+    expect(app.inbox.map((t) => t.id)).toEqual(['pub/b', 'pub/c']);
+    expect(app.selectedId).toBe('pub/b');
+  });
+});
