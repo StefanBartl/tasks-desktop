@@ -2,7 +2,7 @@
   import type { App } from '../lib/app.svelte';
   import { formatNumber, labelOf, translate, type Key } from '../lib/i18n';
   import { parseMarkdown } from '../lib/markdown';
-  import { hasHidden, markHidden } from '../lib/text';
+  import { editableBody, hasHidden, markHidden, MAX_BODY_EDIT } from '../lib/text';
   import { REMIND_CHOICES } from '../lib/remind';
   import {
     EFFORT_SIZES,
@@ -63,6 +63,8 @@
   let draft = $state('');
   // The version of the file the draft was started from: a change in between is a conflict, not overwritten.
   let draftEtag = $state<string | undefined>(undefined);
+  // The text the draft started from: Escape gives up a draft that is as it was, never one that holds typing.
+  let draftStart = '';
   $effect(() => {
     void taskId;
     note = '';
@@ -72,6 +74,7 @@
   function editBody(): void {
     if (detail.state !== 'ok') return;
     draft = detail.doc.body.trim();
+    draftStart = draft;
     draftEtag = detail.doc.task.etag;
     editing = true;
   }
@@ -403,7 +406,7 @@
         <button type="button" class="switch" aria-pressed={raw} onclick={() => (raw = !raw)}
           >{raw ? t('detail.view_rendered') : t('detail.view_raw')}</button
         >
-        {#if app.can('set_body') && !detail.doc.body_truncated && !editing}
+        {#if app.can('set_body') && editableBody(detail.doc.body, detail.doc.body_truncated) && !editing}
           <button type="button" class="switch" disabled={app.saving} onclick={editBody}>{t('detail.edit_body')}</button>
         {/if}
       </h3>
@@ -416,12 +419,12 @@
           <textarea
             bind:value={draft}
             rows="14"
-            maxlength="100000"
+            maxlength={MAX_BODY_EDIT}
             disabled={app.saving}
             onkeydown={(e) => {
               if (e.key === 'Escape') {
                 e.stopPropagation();
-                editing = false;
+                if (draft === draftStart) editing = false;
               }
             }}
           ></textarea>
