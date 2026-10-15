@@ -1320,7 +1320,7 @@ test('connections: the links between areas, narrowed to the chosen areas, and th
   await expect(rows.filter({ hasText: 'lib.nvim/alpha' })).toHaveCount(1);
   await expect(rows.filter({ hasText: 'lib.nvim/beta' })).toHaveCount(0);
   // The tasks that touch two areas carry a mark with the areas in its title (also the one that is only named in a ref).
-  await expect(rows.filter({ hasText: 'cascade.nvim/theta' }).locator('[title^="Touches 2 areas"]')).toHaveCount(1);
+  await expect(rows.filter({ hasText: 'cascade.nvim/theta' }).locator('[data-hint^="Touches 2 areas"]')).toHaveCount(1);
   expect(await violations(page)).toEqual([]);
 });
 
@@ -1435,6 +1435,50 @@ test('finished: a plan shows its finished tasks ticked when asked, and only thos
   expect(await violations(page)).toEqual([]);
   await box.uncheck();
   await expect(page.getByText('Shipped bug')).toHaveCount(0);
+});
+
+test('explanations: the board, the inbox and the matrix say what their labels mean, also inside the modal dialog of the matrix', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  const tip = page.locator('#hint-tip');
+
+  await chooseView(page, 'View', 'Board');
+  await page.locator('.column h2 > span[data-hint]').first().hover();
+  await expect(tip).toContainText('Somebody works on it');
+  await page.locator('.column h2 .n').first().hover();
+  await expect(tip).toContainText('How many cards this column holds');
+  await page.locator('.donezone').hover();
+  await expect(tip).toContainText('Drop a card on this strip');
+  await page.locator('button.card .tag', { hasText: /^P\d$/ }).first().hover();
+  await expect(tip).toContainText('Priority: 1 is the most urgent');
+  await page.keyboard.press('Escape');
+
+  await chooseView(page, 'View', 'Inbox');
+  await page.getByRole('button', { name: 'Explanation: Inbox' }).focus();
+  await expect(tip).toContainText('lack a priority, an effort or a who');
+  await page.locator('.inbox .row .tag').first().hover();
+  await expect(tip).toContainText(/is written/);
+  await page.keyboard.press('Escape');
+
+  // The matrix is a modal dialog: the popup has to be in front of it and inside it, not behind its backdrop.
+  await showList(page);
+  await page.getByRole('button', { name: 'Estimate...' }).click();
+  const dialog = page.locator('dialog[open]');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Explanation: Effort' }).focus();
+  await expect(dialog.locator('#hint-tip')).toBeVisible();
+  await expect(tip).toContainText('XS is a quarter of a day');
+  const covered = await tip.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return !(top && (el === top || el.contains(top)));
+  });
+  expect(covered).toBe(false);
+  expect(await violations(page)).toEqual([]);
+  await page.keyboard.press('Escape');
+  await expect(tip).toBeHidden();
 });
 
 test('more filters: any field, switched on in a row of chips that can be taken off one by one, and reset', async ({

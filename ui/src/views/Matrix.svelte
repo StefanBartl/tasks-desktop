@@ -3,7 +3,8 @@
   // answer to what is chosen (`lib/estimate.ts`); this view only shows them.
   import type { App } from '../lib/app.svelte';
   import { EFFORT_SIZES, VALUES } from '../lib/fields';
-  import { formatNumber, translate, type Key } from '../lib/i18n';
+  import { formatNumber, hintOf, translate, type Key } from '../lib/i18n';
+  import Info from './Info.svelte';
   import { markHidden } from '../lib/text';
 
   let { app }: { app: App } = $props();
@@ -40,8 +41,14 @@
         <thead>
           <tr>
             <th scope="col">{t('matrix.task')}</th>
-            <th scope="col">{t('matrix.effort')}</th>
-            <th scope="col">{t('matrix.value')}</th>
+            <th scope="col"
+              >{t('matrix.effort')}
+              <Info hint={hintOf(app.lang, 'hint.field', 'effort')} label={t('hint.about', { what: t('matrix.effort') })} /></th
+            >
+            <th scope="col"
+              >{t('matrix.value')}
+              <Info hint={hintOf(app.lang, 'hint.field', 'value')} label={t('hint.about', { what: t('matrix.value') })} /></th
+            >
           </tr>
         </thead>
         <tbody>
@@ -89,9 +96,11 @@
       {:else if figures}
         <p class="sum">
           {t('matrix.sum', { tasks: figures.tasks, days: n(figures.days), low: n(figures.range.low), high: n(figures.range.high), value: figures.value })}
+          <Info hint={t('hint.matrix.sum')} label={t('hint.about', { what: t('matrix.title') })} />
         </p>
         <p class="coverage">
           {t('matrix.coverage', { e: figures.n_with_effort, v: figures.n_with_value, n: figures.tasks })}
+          <Info hint={t('hint.matrix.coverage')} label={t('hint.about', { what: t('matrix.coverage_what') })} />
         </p>
       {:else}
         <p class="coverage">{t('matrix.waiting')}</p>

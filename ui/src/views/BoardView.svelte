@@ -4,7 +4,7 @@
   // never sorts: the order is the engine's, and a move asks the engine for the new one.
   import type { App } from '../lib/app.svelte';
   import { COLUMNS, COLUMN_FIRST, groupLabel, placeOf, runKey, stageOf, type Column } from '../lib/board';
-  import { labelOf, translate, type Key } from '../lib/i18n';
+  import { hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
   import Detail from './Detail.svelte';
 
@@ -142,6 +142,7 @@
         class:target={overDone && dragging !== null}
         role="group"
         aria-label={t('board.done')}
+        data-hint={t('hint.board.done')}
         ondragover={onDoneOver}
         ondrop={(e) => void onDoneDrop(e)}
       >
@@ -157,15 +158,15 @@
           ondrop={(e) => void onColumnDrop(e, column)}
         >
           <h2>
-            {labelOf(app.lang, 'status', column)}
-            <span class="n">{board[column].length}</span>
+            <span data-hint={hintOf(app.lang, 'hint.status', column)}>{labelOf(app.lang, 'status', column)}</span>
+            <span class="n" data-hint={t('hint.board.count')}>{board[column].length}</span>
           </h2>
           <div class="cards">
             {#each visible(column) as card, i (card.file)}
               {@const cards = visible(column)}
               {#if i === 0 || (cards[i - 1] && runKey(cards[i - 1] as typeof card) !== runKey(card))}
                 {@const label = runLabel(card)}
-                {#if label}<p class="group">{label}</p>{/if}
+                {#if label}<p class="group" data-hint={t('hint.board.group')}>{label}</p>{/if}
               {/if}
               <button
                 type="button"
@@ -185,15 +186,15 @@
                 <span class="title">{markHidden(card.title)}</span>
                 <span class="meta">
                   <span class="id">{card.id}</span>
-                  {#if !card.valid}<span class="tag bad">!</span>{/if}
+                  {#if !card.valid}<span class="tag bad" data-hint={t('hint.invalid')}>!</span>{/if}
                   {#if app.crossAreas(card.id).length >= 2}
-                    <span class="tag soft" title={t('cross.mark', { n: app.crossAreas(card.id).length, areas: app.crossAreas(card.id).join(', ') })}>↔ {app.crossAreas(card.id).length}</span>
+                    <span class="tag soft" data-hint={t('cross.mark', { n: app.crossAreas(card.id).length, areas: app.crossAreas(card.id).join(', ') })}>↔ {app.crossAreas(card.id).length}</span>
                   {/if}
-                  <span class="tag soft">{card.prio !== undefined ? `P${card.prio}` : '?'}</span>
-                  {#if card.effort}<span class="tag soft">{card.effort}</span>{/if}
-                  {#if card.actor}<span class="tag soft">{labelOf(app.lang, 'actor', card.actor)}</span>{/if}
+                  <span class="tag soft" data-hint={hintOf(app.lang, 'hint', 'prio')}>{card.prio !== undefined ? `P${card.prio}` : '?'}</span>
+                  {#if card.effort}<span class="tag soft" data-hint={hintOf(app.lang, 'hint', 'effort')}>{card.effort}</span>{/if}
+                  {#if card.actor}<span class="tag soft" data-hint={hintOf(app.lang, 'hint.field', 'actor')}>{labelOf(app.lang, 'actor', card.actor)}</span>{/if}
                   {#if card.steps && card.steps.total > 0}
-                    <span class="tag soft">{card.steps.ticked}/{card.steps.total}</span>
+                    <span class="tag soft" data-hint={hintOf(app.lang, 'hint', 'steps')}>{card.steps.ticked}/{card.steps.total}</span>
                   {/if}
                 </span>
               </button>

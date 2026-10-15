@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { TaskEntry } from '../lib/contract';
-  import { hintOf, labelOf, type Lang } from '../lib/i18n';
+  import { hintOf, labelOf, translate, type Lang } from '../lib/i18n';
   import { markHidden } from '../lib/text';
   import { isDue } from '../lib/remind';
 
@@ -58,10 +58,10 @@
   <span class="id">{task.id}</span>
   <span class="title">{markHidden(task.title)}</span>
   <span class="meta">
-    {#if !task.valid}<span class="tag bad">!</span>{/if}
-    {#if flagged > 0}<span class="tag bad" title={flagTitle}>⚑ {flagged}</span>{/if}
-    {#if crossAreas.length >= 2}<span class="tag soft" title={crossTitle}>↔ {crossAreas.length}</span>{/if}
-    {#if due}<span class="tag due" title={task.remind}>⏰ {task.remind}</span>{/if}
+    {#if !task.valid}<span class="tag bad" data-hint={hintOf(lang, 'hint', 'invalid')}>!</span>{/if}
+    {#if flagged > 0}<span class="tag bad" data-hint={flagTitle}>⚑ {flagged}</span>{/if}
+    {#if crossAreas.length >= 2}<span class="tag soft" data-hint={crossTitle}>↔ {crossAreas.length}</span>{/if}
+    {#if due}<span class="tag due" data-hint={translate(lang, 'remind.due', { date: task.remind ?? '' })}>⏰ {task.remind}</span>{/if}
     <span class="tag" data-hint={hintOf(lang, 'hint.status', task.status)}>{status}</span>
     {#if state && task.readiness?.state !== 'unknown'}<span class="tag soft" data-hint={hintOf(lang, 'hint.state', task.readiness?.state)}>{state}</span>{/if}
     <span class="tag soft" data-hint={hintOf(lang, 'hint', 'prio')}>{task.prio !== undefined ? `P${task.prio}` : '?'}</span>
