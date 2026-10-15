@@ -8,6 +8,10 @@ pub(super) struct VaultRuntime {
     /// The folder of the vault, when the engine is there.
     pub(super) vault: Option<PathBuf>,
     pub(super) status: HubStatus,
+    /// The data classes of the areas.
+    pub(super) classes: Arc<AreaPolicy>,
+    /// Shows a task file in an editor; none in a hub that cannot.
+    pub(super) opener: Option<Arc<dyn FileOpener>>,
     pub(super) engine: Option<Arc<dyn Engine>>,
     pub(super) store: Arc<SnapshotStore>,
     pub(super) search: Option<Arc<SearchIndex>>,
@@ -30,6 +34,23 @@ pub(super) struct VaultRuntime {
     // the timer must keep running even if the file watcher could not start.
     pub(super) _hints: Option<mpsc::UnboundedSender<Hint>>,
     pub(super) _watcher: Option<fswatch::Watcher>,
+}
+
+impl Runtime for VaultRuntime {
+    fn status(&self) -> &HubStatus {
+        &self.status
+    }
+
+    fn stop(&self) {
+        VaultRuntime::stop(self);
+    }
+}
+
+/// What does not change when another vault is chosen but belongs to the state of one vault.
+#[derive(Clone)]
+pub(super) struct AppParts {
+    pub(super) classes: Arc<AreaPolicy>,
+    pub(super) opener: Option<Arc<dyn FileOpener>>,
 }
 
 impl VaultRuntime {
@@ -60,6 +81,7 @@ pub(super) fn build_runtime(
     vault: Option<PathBuf>,
     max_age: Option<Duration>,
     refresh: RefreshOptions,
+    app: &AppParts,
 ) -> VaultRuntime {
     let store = SnapshotStore::new(
         engine.clone(),
@@ -92,6 +114,8 @@ pub(super) fn build_runtime(
     VaultRuntime {
         vault: folder,
         status,
+        classes: Arc::clone(&app.classes),
+        opener: app.opener.clone(),
         engine,
         store,
         search,

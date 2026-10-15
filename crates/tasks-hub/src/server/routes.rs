@@ -146,11 +146,12 @@ pub(super) async fn areas(State(st): State<Arc<Shared>>, RawQuery(query): RawQue
     let mut out = Vec::new();
     let mut unclassified = Vec::new();
     let mut private = Vec::new();
+    let classes = Arc::clone(&st.rt().classes);
     for area in doc["areas"].as_array().map_or(&[][..], Vec::as_slice) {
         let Some(name) = area["name"].as_str() else {
             continue;
         };
-        let shown = st.classes.shown(name);
+        let shown = classes.shown(name);
         match shown {
             Shown::Unclassified => unclassified.push(name.to_owned()),
             Shown::Private => private.push(name.to_owned()),
@@ -531,7 +532,8 @@ pub(super) async fn plan_for(State(st): State<Arc<Shared>>, RawQuery(query): Raw
 /// task, never a file: the engine says which file it is, the hub checks that it is a plain file inside the vault, and
 /// starts the editor with that one argument (no shell).
 pub(super) async fn open_file(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
-    let Some(opener) = &st.opener else {
+    let rt = st.rt();
+    let Some(opener) = &rt.opener else {
         return error_body(
             StatusCode::NOT_FOUND,
             "open_unavailable",
