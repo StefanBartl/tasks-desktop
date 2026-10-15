@@ -137,7 +137,21 @@ impl Drop for StreamGuard {
     }
 }
 
-struct Shared {
+/// What a hub keeps for the vault it reads, as the core sees it: its status for `hello` and the
+/// way to stop what it started. Everything else about it belongs to the app.
+pub trait Runtime: Send + Sync + 'static {
+    /// What `hello` says about the engine. A short code, never a path.
+    fn status(&self) -> &HubStatus;
+    /// Stop what the runtime started; called when another vault is chosen and when the server ends.
+    fn stop(&self);
+}
+
+/// How the app makes the runtime of a vault the person chose.
+pub type BuildRuntime<R> = Arc<dyn Fn(VaultTarget) -> R + Send + Sync>;
+
+/// The state of a hub that does not depend on the app: the guard and its secrets, the pairing and
+/// the sessions, the limits, the page, and the vault that is read (whatever `R` the app keeps for it).
+pub struct Core<R: Runtime> {
     policy: HostPolicy,
     pairing: PairingStore,
     sessions: SessionStore,
@@ -147,27 +161,25 @@ struct Shared {
     exchange_limit: RateLimiter,
     limits: Limits,
     instance: String,
-    classes: Arc<AreaPolicy>,
     guard_rules: GuardRules,
     streams: Arc<StreamCounter>,
     ui: UiFiles,
     usage: Option<Arc<UsageLog>>,
     /// What belongs to the vault that is read; replaced when another is chosen.
-    runtime: StdRwLock<Arc<VaultRuntime>>,
-    refresh: RefreshOptions,
+    runtime: StdRwLock<Arc<R>>,
+    /// Makes the runtime of a vault that was chosen.
+    build: BuildRuntime<R>,
     /// The vaults the person may choose from; none in a hub that has only one.
     vaults: Option<Arc<dyn VaultAdmin>>,
-    /// Shows a task file in an editor; none in a hub that cannot.
-    opener: Option<Arc<dyn FileOpener>>,
     /// One change of vault at a time, from the choice to the swap: two that overlap would leave the hub reading one
     /// vault while the settings name the other.
     switching: tokio::sync::Mutex<()>,
 }
 
-impl Shared {
+impl<R: Runtime> Core<R> {
     /// The state of the vault that is read now. A request keeps the one it
     /// took, so a change of vault never splits one answer in two.
-    fn rt(&self) -> Arc<VaultRuntime> {
+    fn rt(&self) -> Arc<R> {
         Arc::clone(
             &self
                 .runtime
@@ -176,6 +188,9 @@ impl Shared {
         )
     }
 }
+
+/// The core with the runtime of this app.
+type Shared = Core<VaultRuntime>;
 
 /// A started server.
 pub struct RunningServer {
@@ -254,13 +269,29 @@ pub async fn start_with(cfg: ServerConfig, extras: Extras) -> std::io::Result<Ru
         Some(w) => (Some(w.vault), w.refresh),
         None => (None, RefreshOptions::default()),
     };
+    let parts = AppParts {
+        classes: cfg.policy,
+        opener,
+    };
     let runtime = build_runtime(
         cfg.engine,
         cfg.status,
         vault,
         limits.snapshot_max_age,
         refresh.clone(),
+        &parts,
     );
+    let max_age = limits.snapshot_max_age;
+    let build: BuildRuntime<VaultRuntime> = Arc::new(move |target: VaultTarget| {
+        build_runtime(
+            target.engine,
+            target.status,
+            target.vault,
+            max_age,
+            refresh.clone(),
+            &parts,
+        )
+    });
     let shared = Arc::new(Shared {
         policy: HostPolicy::loopback(addr.port()),
         pairing: PairingStore::new(Arc::clone(&cfg.clock), cfg.pairing_ttl),
@@ -271,15 +302,13 @@ pub async fn start_with(cfg: ServerConfig, extras: Extras) -> std::io::Result<Ru
         exchange_limit: RateLimiter::new(cfg.clock, limits.exchange_max, limits.exchange_window),
         limits: limits.clone(),
         instance: instance.clone(),
-        classes: cfg.policy,
         guard_rules: guard_rules(),
         streams: Arc::new(StreamCounter::default()),
         ui: cfg.ui,
         usage: cfg.usage,
         runtime: StdRwLock::new(Arc::new(runtime)),
-        refresh,
+        build,
         vaults,
-        opener,
         switching: tokio::sync::Mutex::new(()),
     });
 
@@ -507,6 +536,10 @@ mod tests {
             None,
             None,
             RefreshOptions::default(),
+            &AppParts {
+                classes: Arc::new(AreaPolicy::default()),
+                opener: None,
+            },
         ))
     }
 
@@ -777,5 +810,120 @@ mod tests {
                 .and_then(|v| v.to_str().ok()),
             Some("1")
         );
+    }
+
+    /// A runtime that is not the tasks hub's: the core must serve and swap it all the same.
+    struct OtherRuntime {
+        status: HubStatus,
+        stopped: std::sync::atomic::AtomicBool,
+    }
+
+    impl OtherRuntime {
+        fn new(status: HubStatus) -> Self {
+            Self {
+                status,
+                stopped: std::sync::atomic::AtomicBool::new(false),
+            }
+        }
+    }
+
+    impl Runtime for OtherRuntime {
+        fn status(&self) -> &HubStatus {
+            &self.status
+        }
+
+        fn stop(&self) {
+            self.stopped
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    struct TwoVaults;
+
+    impl VaultAdmin for TwoVaults {
+        fn list(&self) -> VaultList {
+            VaultList {
+                active: "a".to_owned(),
+                vaults: Vec::new(),
+            }
+        }
+        fn add<'a>(&'a self, _: &'a str, _: &'a str) -> BoxFuture<'a, Result<(), String>> {
+            Box::pin(async { Err("no".to_owned()) })
+        }
+        fn remove<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<(), String>> {
+            Box::pin(async { Err("no".to_owned()) })
+        }
+        fn select<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<VaultTarget, String>> {
+            Box::pin(async {
+                Ok(VaultTarget {
+                    engine: None,
+                    status: HubStatus {
+                        engine_ready: true,
+                        problem: None,
+                        capabilities: vec!["second".to_owned()],
+                    },
+                    vault: None,
+                })
+            })
+        }
+    }
+
+    fn core_with(first: &Arc<OtherRuntime>) -> Arc<Core<OtherRuntime>> {
+        use app_core::authn::{Secret, SystemClock, CODE_BYTES, TOKEN_BYTES};
+        let clock: Arc<dyn app_core::authn::Clock> = Arc::new(SystemClock::new());
+        let limits = Limits::default();
+        let ttl = Duration::from_secs(60);
+        Arc::new(Core {
+            policy: HostPolicy::loopback(1),
+            pairing: PairingStore::new(Arc::clone(&clock), ttl),
+            sessions: SessionStore::new(4),
+            control: Secret::generate(TOKEN_BYTES).unwrap(),
+            post_limit: RateLimiter::new(Arc::clone(&clock), 10, ttl),
+            ops_limit: RateLimiter::new(Arc::clone(&clock), 10, ttl),
+            exchange_limit: RateLimiter::new(clock, 10, ttl),
+            limits,
+            instance: Secret::generate(CODE_BYTES).unwrap().to_hex(),
+            guard_rules: GuardRules::new("/api/other/hello", []),
+            streams: Arc::new(StreamCounter::default()),
+            ui: UiFiles::none(),
+            usage: None,
+            runtime: StdRwLock::new(Arc::clone(first)),
+            build: Arc::new(|target: VaultTarget| OtherRuntime::new(target.status)),
+            vaults: Some(Arc::new(TwoVaults)),
+            switching: tokio::sync::Mutex::new(()),
+        })
+    }
+
+    async fn json_of(response: Response) -> serde_json::Value {
+        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn the_core_says_hello_for_and_swaps_a_runtime_that_is_not_ours() {
+        let first = Arc::new(OtherRuntime::new(HubStatus {
+            engine_ready: false,
+            problem: Some("engine_unreachable"),
+            capabilities: Vec::new(),
+        }));
+        let core = core_with(&first);
+
+        let before = json_of(hello(State(Arc::clone(&core))).await).await;
+        assert_eq!(before["engine"]["ready"], false);
+        assert_eq!(before["engine"]["problem"], "engine_unreachable");
+
+        let done = vaults_select(
+            State(Arc::clone(&core)),
+            Bytes::from_static(br#"{"name":"b"}"#),
+        )
+        .await;
+        assert_eq!(done.status(), StatusCode::OK);
+        // The old runtime was stopped, and the one the app's callback made is read now.
+        assert!(first.stopped.load(std::sync::atomic::Ordering::SeqCst));
+        let after = json_of(hello(State(core)).await).await;
+        assert_eq!(after["engine"]["ready"], true);
+        assert_eq!(after["engine"]["capabilities"][0], "second");
     }
 }

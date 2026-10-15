@@ -4,7 +4,10 @@ use super::*;
 
 // ── routes ──────────────────────────────────────────────────────────────────
 
-pub(super) async fn shell(State(st): State<Arc<Shared>>, uri: axum::http::Uri) -> Response {
+pub(super) async fn shell<R: Runtime>(
+    State(st): State<Arc<Core<R>>>,
+    uri: axum::http::Uri,
+) -> Response {
     if let Some(file) = st.ui.get(uri.path()) {
         return (
             [(header::CONTENT_TYPE, file.content_type)],
@@ -25,7 +28,7 @@ pub(super) async fn shell(State(st): State<Arc<Shared>>, uri: axum::http::Uri) -
         .into_response()
 }
 
-pub(super) async fn hello(State(st): State<Arc<Shared>>) -> Response {
+pub(super) async fn hello<R: Runtime>(State(st): State<Arc<Core<R>>>) -> Response {
     let rt = st.rt();
     // Version and abilities only: no task, no area, no path, no vault name.
     let body = json!({
@@ -35,9 +38,9 @@ pub(super) async fn hello(State(st): State<Arc<Shared>>) -> Response {
         "version": crate::VERSION,
         "instance": st.instance,
         "engine": {
-            "ready": rt.status.engine_ready,
-            "problem": rt.status.problem,
-            "capabilities": rt.status.capabilities,
+            "ready": rt.status().engine_ready,
+            "problem": rt.status().problem,
+            "capabilities": rt.status().capabilities,
         },
         "capabilities": ["pairing"],
     });
@@ -50,7 +53,7 @@ pub(super) struct ExchangeRequest {
     pub(super) code: String,
 }
 
-pub(super) async fn exchange(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
+pub(super) async fn exchange<R: Runtime>(State(st): State<Arc<Core<R>>>, body: Bytes) -> Response {
     if !st.exchange_limit.allow() {
         return error_body(
             StatusCode::TOO_MANY_REQUESTS,
@@ -79,7 +82,7 @@ pub(super) async fn exchange(State(st): State<Arc<Shared>>, body: Bytes) -> Resp
     }
 }
 
-pub(super) async fn control_pair(State(st): State<Arc<Shared>>) -> Response {
+pub(super) async fn control_pair<R: Runtime>(State(st): State<Arc<Core<R>>>) -> Response {
     match st.pairing.mint() {
         Ok(code) => {
             debug_assert_eq!(code.to_hex().len(), CODE_BYTES * 2);

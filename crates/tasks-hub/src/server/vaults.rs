@@ -98,8 +98,8 @@ pub(super) fn vaults_unavailable() -> Response {
 
 /// `GET /api/vaults`: the vaults the person may choose from and the one that
 /// is read. Names and the last part of a folder; never a whole path.
-pub(super) async fn vaults_list(
-    State(st): State<Arc<Shared>>,
+pub(super) async fn vaults_list<R: Runtime>(
+    State(st): State<Arc<Core<R>>>,
     RawQuery(query): RawQuery,
 ) -> Response {
     if let Some(response) = no_query(query.as_deref()) {
@@ -123,7 +123,10 @@ pub(super) async fn vaults_list(
 /// `POST /api/vaults/add` `{ "name", "path", "confirm": true }`: remember a
 /// vault. The folder is the person's choice and the page asks first: the
 /// request must say it was confirmed.
-pub(super) async fn vaults_add(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
+pub(super) async fn vaults_add<R: Runtime>(
+    State(st): State<Arc<Core<R>>>,
+    body: Bytes,
+) -> Response {
     let Some(admin) = &st.vaults else {
         return vaults_unavailable();
     };
@@ -149,7 +152,10 @@ pub(super) async fn vaults_add(State(st): State<Arc<Shared>>, body: Bytes) -> Re
 }
 
 /// `POST /api/vaults/remove` `{ "name" }`: forget a vault; its files stay.
-pub(super) async fn vaults_remove(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
+pub(super) async fn vaults_remove<R: Runtime>(
+    State(st): State<Arc<Core<R>>>,
+    body: Bytes,
+) -> Response {
     let Some(admin) = &st.vaults else {
         return vaults_unavailable();
     };
@@ -171,7 +177,10 @@ pub(super) async fn vaults_remove(State(st): State<Arc<Shared>>, body: Bytes) ->
 /// the old one (the snapshot, the search, the watcher, the open streams) goes
 /// with it; the page reads again. A vault that does not work is refused and
 /// the old one stays.
-pub(super) async fn vaults_select(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
+pub(super) async fn vaults_select<R: Runtime>(
+    State(st): State<Arc<Core<R>>>,
+    body: Bytes,
+) -> Response {
     let Some(admin) = &st.vaults else {
         return vaults_unavailable();
     };
@@ -188,13 +197,7 @@ pub(super) async fn vaults_select(State(st): State<Arc<Shared>>, body: Bytes) ->
         Ok(t) => t,
         Err(why) => return error_body(StatusCode::BAD_REQUEST, "vault_refused", &why),
     };
-    let next = build_runtime(
-        target.engine,
-        target.status,
-        target.vault,
-        st.limits.snapshot_max_age,
-        st.refresh.clone(),
-    );
+    let next = (st.build)(target);
     let old = {
         let mut slot = st
             .runtime

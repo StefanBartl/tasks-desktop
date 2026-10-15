@@ -106,14 +106,23 @@ pub(super) fn is_json_content_type(headers: &HeaderMap) -> bool {
 
 pub(super) static SEC_FETCH_SITE: HeaderName = HeaderName::from_static("sec-fetch-site");
 
-pub(super) async fn guard(State(st): State<Arc<Shared>>, req: Request, next: Next) -> Response {
+pub(super) async fn guard<R: Runtime>(
+    State(st): State<Arc<Core<R>>>,
+    req: Request,
+    next: Next,
+) -> Response {
     let class = classify(req.uri().path(), &st.guard_rules);
     let mut response = judge(&st, class, req, next).await;
     set_security_headers(&mut response, class);
     response
 }
 
-pub(super) async fn judge(st: &Shared, class: Class, req: Request, next: Next) -> Response {
+pub(super) async fn judge<R: Runtime>(
+    st: &Core<R>,
+    class: Class,
+    req: Request,
+    next: Next,
+) -> Response {
     let (parts, body) = req.into_parts();
     let headers = &parts.headers;
 
