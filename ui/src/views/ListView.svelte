@@ -380,6 +380,8 @@
           markLabel={t('bulk.mark', { id: task.id })}
           flagged={app.findingsFor(task.id).length}
           flagTitle={t('check.flag', { n: app.findingsFor(task.id).length })}
+          crossAreas={app.crossAreas(task.id)}
+          crossTitle={t('cross.mark', { n: app.crossAreas(task.id).length, areas: app.crossAreas(task.id).join(', ') })}
         />
       {:else}
         <p class="empty">{t('list.none')}</p>

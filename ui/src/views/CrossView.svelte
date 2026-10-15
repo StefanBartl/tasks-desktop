@@ -4,7 +4,7 @@
   import type { App } from '../lib/app.svelte';
   import { areaLabel } from '../lib/filter';
   import { translate, type Key } from '../lib/i18n';
-  import { crossEdges, pairsOf, type CrossEdge } from '../lib/cross';
+  import { areasOfPairs, crossEdges, pairsOf, pairsOfLinks, type CrossEdge } from '../lib/cross';
   import { markHidden } from '../lib/text';
   import Info from './Info.svelte';
   import MultiSelect from './MultiSelect.svelte';
@@ -12,13 +12,23 @@
   let { app }: { app: App } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
 
-  const edges = $derived(crossEdges(app.tasks));
-  const pairs = $derived(pairsOf(edges, app.filter.areas));
+  // From the engine when it says (it finds refs and plans too); an engine without it leaves the two kinds of the list.
+  const allPairs = $derived(app.links ? pairsOfLinks(app.links) : pairsOf(crossEdges(app.tasks)));
+  const pairs = $derived(
+    app.links ? pairsOfLinks(app.links, app.filter.areas) : pairsOf(crossEdges(app.tasks), app.filter.areas),
+  );
   const areasWithLinks = $derived(new Set(pairs.flatMap((p) => [p.a, p.b])));
-  const linkCount = $derived(pairs.reduce((sum, p) => sum + p.edges.length, 0));
+  const linkCount = $derived(pairs.reduce((sum, p) => sum + p.count, 0));
+  // The matrix: a row and a column for every area that has a link; a cell is the number of links of the pair.
+  const matrixAreas = $derived(areasOfPairs(pairs));
+  const countOf = (x: string, y: string): number =>
+    pairs.find((p) => (p.a === x && p.b === y) || (p.a === y && p.b === x))?.count ?? 0;
+  /** The pair that is open (a click on a cell of the matrix opens it). */
+  let openKey = $state<string | null>(null);
+  const keyOf = (a: string, b: string): string => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
   const titles = $derived(new Map(app.tasks.map((task) => [task.id, task.title])));
   const areaOptions = $derived(
-    [...new Set(edges.flatMap((e) => [e.fromArea, e.toArea]))]
+    areasOfPairs(allPairs)
       .map((name) => ({
         value: name,
         label: app.shortAreas ? areaLabel(name, app.areaNames) : name,
@@ -29,7 +39,12 @@
   const nameOf = (area: string): string => (app.shortAreas ? areaLabel(area, app.areaNames) : area);
 
   function verb(edge: CrossEdge): string {
-    return edge.kind === 'blocked_by' ? t('cross.waits') : t('cross.after');
+    return t(`cross.kind.${edge.kind}` as Key);
+  }
+  /** Open the pair a cell of the matrix is about and bring it into view. */
+  function openPair(x: string, y: string): void {
+    openKey = keyOf(x, y);
+    document.getElementById(`pair-${keyOf(x, y).replace(/\W/g, '_')}`)?.scrollIntoView({ block: 'nearest' });
   }
   function open(id: string): void {
     app.reveal(id);
@@ -72,27 +87,84 @@
   {#if pairs.length === 0}
     <p class="muted">{app.filter.areas.length > 0 ? t('cross.none_chosen') : t('cross.none')}</p>
   {:else}
+    {#if matrixAreas.length >= 2}
+      <section class="card" aria-labelledby="cross-matrix-title">
+        <h3 id="cross-matrix-title" class="eyebrow">{t('cross.matrix')}</h3>
+        <table>
+          <thead>
+            <tr>
+              <td></td>
+              {#each matrixAreas as col (col)}
+                <th scope="col">{markHidden(nameOf(col))}</th>
+              {/each}
+            </tr>
+          </thead>
+          <tbody>
+            {#each matrixAreas as row (row)}
+              <tr>
+                <th scope="row">{markHidden(nameOf(row))}</th>
+                {#each matrixAreas as col (col)}
+                  <td class="num">
+                    {#if row === col}
+                      <span class="muted" aria-hidden="true">·</span>
+                    {:else if countOf(row, col) > 0}
+                      <button
+                        type="button"
+                        class="link"
+                        aria-label={t('cross.cell', { a: nameOf(row), b: nameOf(col), n: countOf(row, col) })}
+                        onclick={() => openPair(row, col)}>{countOf(row, col)}</button
+                      >
+                    {:else}
+                      <span class="muted">0</span>
+                    {/if}
+                  </td>
+                {/each}
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </section>
+    {/if}
+
     <section class="card" aria-label={t('cross.pairs')}>
       <ul class="plain pairs">
         {#each pairs as pair (pair.a + '|' + pair.b)}
-          <li>
-            <details>
+          <li id={`pair-${keyOf(pair.a, pair.b).replace(/\W/g, '_')}`}>
+            <details
+              open={openKey === keyOf(pair.a, pair.b)}
+              ontoggle={(e) => {
+                const k = keyOf(pair.a, pair.b);
+                if (e.currentTarget.open) openKey = k;
+                else if (openKey === k) openKey = null;
+              }}
+            >
               <summary>
                 <span>{markHidden(nameOf(pair.a))} ↔ {markHidden(nameOf(pair.b))}</span>
-                <span class="n">({pair.edges.length})</span>
+                <span class="n">({pair.count})</span>
               </summary>
               <ul class="plain edges">
-                {#each pair.edges as edge (edge.from + '>' + edge.to + edge.kind)}
+                {#each pair.edges as edge (edge.from + '>' + edge.kind + '>' + (edge.to ?? edge.ref ?? '') + '>' + edge.toArea)}
                   <li>
                     <button type="button" class="link" onclick={() => open(edge.from)}
                       >{markHidden(titles.get(edge.from) ?? edge.from)}</button
                     >
                     <span class="muted"> {verb(edge)} </span>
-                    <button type="button" class="link" onclick={() => open(edge.to)}
-                      >{markHidden(titles.get(edge.to) ?? edge.to)}</button
-                    >
+                    {#if edge.kind === 'refs'}
+                      <span>{markHidden(edge.ref ?? '')}</span>
+                    {:else if edge.kind === 'plan'}
+                      <span>{markHidden(edge.to ?? '')}</span>
+                      <span class="muted">({markHidden(nameOf(edge.toArea))})</span>
+                    {:else if edge.to}
+                      {@const target = edge.to}
+                      <button type="button" class="link" onclick={() => open(target)}
+                        >{markHidden(titles.get(target) ?? target)}</button
+                      >
+                    {/if}
                   </li>
                 {/each}
+                {#if pair.edges.length < pair.count}
+                  <li class="muted">{t('cross.cut', { shown: pair.edges.length, total: pair.count })}</li>
+                {/if}
               </ul>
             </details>
           </li>
@@ -158,6 +230,23 @@
   }
   .n {
     color: var(--muted);
+  }
+  table {
+    border-collapse: collapse;
+  }
+  th,
+  td {
+    padding: 0.2rem 0.6rem 0.2rem 0;
+    text-align: left;
+    font-weight: normal;
+  }
+  thead th {
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
   }
   .link {
     background: none;

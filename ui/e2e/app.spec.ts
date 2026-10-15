@@ -1271,6 +1271,19 @@ test('connections: the links between areas, narrowed to the chosen areas, and th
   await expect(row.getByText('waits for')).toBeVisible();
   await expectAccessible(page, 'the connections');
 
+  // The engine finds more than the list does: the ref `lib.nvim@abc1234` of cascade.nvim/theta names the repo (the
+  // plain path next to it says nothing), and the pair has two links now.
+  await expect(row.getByText('names the repo in the ref')).toBeVisible();
+  await expect(row.getByText('lib.nvim@abc1234')).toBeVisible();
+  await expect(row.getByText('lua/x.lua')).toHaveCount(0);
+  // The matrix has the number of the pair as a button that opens the pair.
+  const cell = page.getByRole('button', { name: 'cascade.nvim and lib.nvim: 2 links, open the list' });
+  await expect(cell).toBeVisible();
+  await row.getByText('cascade.nvim ↔ lib.nvim').click();
+  await expect(row.getByText('waits for')).toBeHidden();
+  await cell.click();
+  await expect(row.getByText('waits for')).toBeVisible();
+
   // Only lib.nvim chosen: no link between two chosen areas. Both chosen: the link is back.
   await page.getByRole('region', { name: 'Links between areas' }).getByRole('button', { name: 'Areas' }).click();
   await page.getByRole('checkbox', { name: 'lib.nvim' }).check();
@@ -1286,6 +1299,8 @@ test('connections: the links between areas, narrowed to the chosen areas, and th
   await expect(rows.filter({ hasText: 'cascade.nvim/iota' })).toHaveCount(1);
   await expect(rows.filter({ hasText: 'lib.nvim/alpha' })).toHaveCount(1);
   await expect(rows.filter({ hasText: 'lib.nvim/beta' })).toHaveCount(0);
+  // The tasks that touch two areas carry a mark with the areas in its title (also the one that is only named in a ref).
+  await expect(rows.filter({ hasText: 'cascade.nvim/theta' }).locator('[title^="Touches 2 areas"]')).toHaveCount(1);
   expect(await violations(page)).toEqual([]);
 });
 
