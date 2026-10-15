@@ -1331,6 +1331,56 @@ test('finished: the figures of a period come from the engine, a click on an area
   await expect(page.getByText('No task was finished in this period.')).toBeVisible();
 });
 
+test('finished: the list shows them under the open ones, narrowed by the area and the text, and the period is remembered', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  const finished = page.getByRole('region', { name: 'Finished' });
+  await expect(finished).toHaveCount(0);
+  await page.getByLabel('Show finished tasks under the list').check();
+  await expect(finished).toBeVisible();
+  // All time, so that the dates of the fixture (2025-12-30 ... 2026-01-02) are in.
+  await finished.getByLabel('Period').selectOption('all');
+  await expect(finished).toContainText('Shipped bug');
+  await expect(finished).toContainText('Shipped feature');
+  // The text of the list narrows them, the same text that narrows the open tasks.
+  await page.getByRole('searchbox').fill('feature');
+  await expect(finished).toContainText('Shipped feature');
+  await expect(finished).not.toContainText('Shipped bug');
+  expect(await violations(page)).toEqual([]);
+
+  // The period of the view of the finished tasks is kept over a reload.
+  await page.getByRole('searchbox').fill('');
+  await chooseView(page, 'View', 'Finished');
+  const period = page.getByRole('combobox', { name: /^Period/ });
+  await period.selectOption('30');
+  await page.reload();
+  await expect(page.getByRole('combobox', { name: /^Period/ })).toHaveValue('30');
+});
+
+test('finished: a plan shows its finished tasks ticked when asked, and only those of the chosen plan', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await chooseView(page, 'View', 'Plan');
+  // The whole vault is no plan: there is nothing to ask for.
+  await expect(page.getByLabel('Show the finished tasks of this plan')).toHaveCount(0);
+  await page.getByRole('combobox', { name: 'Plan' }).selectOption('lib.nvim/the-plan');
+  const box = page.getByLabel('Show the finished tasks of this plan');
+  await expect(box).not.toBeChecked();
+  await expect(page.getByText('Shipped bug')).toHaveCount(0);
+  await box.check();
+  const group = page.getByRole('region', { name: /^Finished/ });
+  await expect(group).toContainText('Shipped bug');
+  await expect(group).toContainText('2025-12-30');
+  // A finished task of another plan (or none) is not in it.
+  await expect(group).not.toContainText('Shipped feature');
+  expect(await violations(page)).toEqual([]);
+  await box.uncheck();
+  await expect(page.getByText('Shipped bug')).toHaveCount(0);
+});
+
 test('more filters: any field, switched on in a row of chips that can be taken off one by one, and reset', async ({
   page,
 }) => {

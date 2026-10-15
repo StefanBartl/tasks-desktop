@@ -9,6 +9,7 @@ import { cacheableClass, cacheableList, type ListStore } from './cache';
 import type { Check, DonePreview, Estimate, Finished, MovePlan, Next, PlanFor, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import type { Op } from './api';
 import { touchedAreas } from './cross';
+import { parsePrefs, type Prefs as FinishedPrefs } from './finished';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
 import { inboxOf, triageKey } from './inbox';
 import { findingsByTask, groundOf, judgeFindings, type Finding, type Ground, type Judged } from './check';
@@ -137,6 +138,10 @@ export class App {
   shortAreas = $state(true);
   /** The day of the reader, `YYYY-MM-DD`; renewed when the window is looked at again. */
   today = $state(localToday());
+  /** Whether the list shows the finished tasks under the open ones. */
+  showFinished = $state(false);
+  /** The period and the step the view of the finished tasks was left on. */
+  finishedPrefs = $state<FinishedPrefs>(parsePrefs(null));
   /** What the engine says it can do; `null` until it has answered (then nothing is held back). */
   capabilities = $state.raw<string[] | null>(null);
   /** A write is under way: the controls wait. */
@@ -250,6 +255,7 @@ export class App {
     this.tileOrder = parseOrder(safe(() => env.prefs.getItem('tasks-desktop.tiles-order')), ORDERED_TILES);
     this.countViews = parseViews(safe(() => env.prefs.getItem('tasks-desktop.count-views')));
     this.frecency = parseFrecency(safe(() => env.prefs.getItem('tasks-desktop.frecency')));
+    this.finishedPrefs = parsePrefs(safe(() => env.prefs.getItem('tasks-desktop.finished')));
     // The page opens on the view it was left on.
     const view = safe(() => env.prefs.getItem('tasks-desktop.view'));
     this.view =
@@ -321,9 +327,15 @@ export class App {
     this.capturing = false;
   }
 
+  /** Remember the period and the step of the view of the finished tasks. */
+  setFinishedPrefs(prefs: FinishedPrefs): void {
+    this.finishedPrefs = prefs;
+    safe(() => this.env.prefs.setItem('tasks-desktop.finished', JSON.stringify(prefs)));
+  }
+
   /** The finished tasks of the Backlogs and their figures, for the view of them. */
   finished(
-    query: { area?: string; since?: string; until?: string; limit?: number; offset?: number },
+    query: { area?: string; plan?: string; since?: string; until?: string; limit?: number; offset?: number },
     signal?: AbortSignal,
   ): Promise<Finished> {
     return this.env.hub.finished(query, signal);
