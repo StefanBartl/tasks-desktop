@@ -1930,7 +1930,8 @@ export class App {
   async focused(): Promise<void> {
     // A page that stood open over midnight: a reminder may be due since.
     this.today = localToday();
-    if (this.phase !== 'ready' || !this.env.hub.hasToken) return;
+    // Not before the hub has confirmed the session: a page on the cached list holds the token already.
+    if (this.phase !== 'ready' || !this.sessionHeld) return;
     try {
       await this.env.hub.rescan();
     } catch {

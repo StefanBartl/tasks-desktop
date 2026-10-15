@@ -598,6 +598,34 @@ describe('App, cache and hub', () => {
     await started;
   });
 
+  it('keeps a pasted code while the session is only the stored one and the hub has not confirmed it', async () => {
+    const cached: CachedList = { vault: 'v', rev: null, etag: null, savedAt: 5, tasks: [task('pub/old')] };
+    const { app, hub } = make({ token: 't', cached });
+    hub.hubDown = true;
+    const started = app.start(null);
+    await vi.waitFor(() => expect(app.phase).toBe('ready'));
+    // The client holds the stored token already, but nothing has confirmed it: the code is not thrown away.
+    app.offerCode('ef'.repeat(16));
+    hub.hubDown = false;
+    await started;
+    expect(hub.exchanged).toEqual(['ef'.repeat(16)]);
+    app.stop();
+  });
+
+  it('does not ask the hub for a scan on the focus before the hub has answered', async () => {
+    const cached: CachedList = { vault: 'v', rev: null, etag: null, savedAt: 5, tasks: [task('pub/old')] };
+    const { app, hub } = make({ token: 't', cached });
+    hub.hubDown = true;
+    const started = app.start(null);
+    await vi.waitFor(() => expect(app.phase).toBe('ready'));
+    await app.focused();
+    expect(hub.rescans).toBe(0);
+    expect(hub.snapshotCalls).toEqual([]);
+    app.stop();
+    hub.hubDown = false;
+    await started;
+  });
+
   it('shows the cached list while the hub is not there', async () => {
     const cached: CachedList = {
       vault: 'v',
