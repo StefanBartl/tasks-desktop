@@ -159,7 +159,7 @@ fn restrict_to_user(path: &Path) -> io::Result<()> {
     } else {
         Err(io::Error::other(format!(
             "icacls could not restrict the control secret (exit {:?}); \
-             set TASKS_DESKTOP_CONFIG_DIR to a folder that only you own",
+             set the config-folder variable of this app (<PREFIX>_CONFIG_DIR) to a folder that only you own",
             status.code()
         )))
     }

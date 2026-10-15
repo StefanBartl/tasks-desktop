@@ -62,11 +62,11 @@ use crate::usage::UsageLog;
 use crate::watch::{self as fswatch, Hint};
 
 /// The name the hub gives itself in `hello` and in `hub.json`.
-pub const APP_NAME: &str = "tasks-desktop";
+pub const APP_NAME: &str = crate::IDENTITY.app;
 
 /// The default port. It is part of the origin, so it is fixed (concept 3.3);
 /// below the ephemeral ranges of Windows (49152) and Linux (32768).
-pub const DEFAULT_PORT: u16 = 17615;
+pub const DEFAULT_PORT: u16 = crate::IDENTITY.default_port;
 
 /// Size and time limits (concept 5.5 Nr. 7).
 #[derive(Debug, Clone)]
@@ -694,7 +694,7 @@ fn classify(path: &str) -> Class {
     match path {
         "/" | "/index.html" => Class::Shell,
         p if p.starts_with("/assets/") => Class::Shell,
-        "/api/tasks/hello" => Class::Hello,
+        p if p == crate::IDENTITY.route("hello") => Class::Hello,
         "/auth/exchange" => Class::Exchange,
         "/api/control/pair" => Class::ControlPair,
         p if p.starts_with("/api/") => Class::Api,

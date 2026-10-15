@@ -22,6 +22,17 @@ pub mod ui;
 pub mod usage;
 pub mod watch;
 
+/// The names this app gives itself: config folder, environment variables, login entries, program
+/// file, port and route namespace all come from here.
+pub const IDENTITY: app_core::identity::AppIdentity = app_core::identity::AppIdentity {
+    app: "tasks-desktop",
+    binary: "tasks-hub",
+    env_prefix: "TASKS_DESKTOP",
+    title: "Tasks",
+    default_port: 17615,
+    route_ns: "tasks",
+};
+
 /// Version of this hub, as reported by `hello`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -42,5 +53,24 @@ pub fn version_line_for(build: Option<&str>) -> String {
     match build {
         Some(build) if !build.is_empty() => format!("tasks-hub {VERSION} (build {build})"),
         _ => format!("tasks-hub {VERSION}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::IDENTITY;
+
+    /// The names are on disk and in people's environments (the config folder, the `Run` value,
+    /// `TASKS_DESKTOP_*`): a rename is a migration, not a refactor.
+    #[test]
+    fn the_names_on_disk_and_in_the_environment_do_not_move() {
+        assert_eq!(IDENTITY.app, "tasks-desktop");
+        assert_eq!(IDENTITY.binary, "tasks-hub");
+        assert_eq!(IDENTITY.var("CONFIG_DIR"), "TASKS_DESKTOP_CONFIG_DIR");
+        assert_eq!(IDENTITY.var("NO_LOGIN_SYNC"), "TASKS_DESKTOP_NO_LOGIN_SYNC");
+        assert_eq!(IDENTITY.default_port, 17615);
+        assert_eq!(IDENTITY.route("hello"), "/api/tasks/hello");
+        assert_eq!(IDENTITY.agent_label(), "dev.tasks-desktop.hub");
+        assert_eq!(IDENTITY.desktop_file(), "tasks-desktop.desktop");
     }
 }

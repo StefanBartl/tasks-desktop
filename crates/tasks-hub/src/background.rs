@@ -19,7 +19,7 @@ use crate::config::Env;
 use crate::loginitems;
 
 /// The name of the value under the `Run` key of the registry.
-const RUN_VALUE: &str = "tasks-desktop";
+const RUN_VALUE: &str = crate::IDENTITY.app;
 /// The `Run` key of the current user (no administrator rights needed).
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 /// The log is cut at the start when it is larger than this.
@@ -474,24 +474,25 @@ fn private_storage_warning(env: &Env, dir: &Path) -> Option<String> {
 /// Where `install` puts the program: a folder of this user that is not
 /// roaming (the settings are; a program is not).
 fn install_dir(env: &Env) -> Result<PathBuf, String> {
-    if let Some(dir) = env.path("TASKS_DESKTOP_INSTALL_DIR") {
+    let var = crate::IDENTITY.var("INSTALL_DIR");
+    if let Some(dir) = env.path(&var) {
         // A relative folder would mean whatever the working folder is.
         if !dir.is_absolute() {
-            return Err("TASKS_DESKTOP_INSTALL_DIR must be an absolute path".to_owned());
+            return Err(format!("{var} must be an absolute path"));
         }
         return Ok(dir);
     }
     let base = if cfg!(windows) {
         env.path("LOCALAPPDATA")
-            .ok_or("no LOCALAPPDATA: set TASKS_DESKTOP_INSTALL_DIR")?
+            .ok_or_else(|| format!("no LOCALAPPDATA: set {var}"))?
     } else if let Some(x) = env.path("XDG_DATA_HOME") {
         x
     } else {
         env.path("HOME")
             .map(|h| h.join(".local").join("share"))
-            .ok_or("no HOME: set TASKS_DESKTOP_INSTALL_DIR")?
+            .ok_or_else(|| format!("no HOME: set {var}"))?
     };
-    Ok(base.join("tasks-desktop").join("bin"))
+    Ok(base.join(crate::IDENTITY.app).join("bin"))
 }
 
 /// Where `install` puts this program: the install folder and the file name of the running program.
@@ -500,17 +501,16 @@ fn install_dir(env: &Env) -> Result<PathBuf, String> {
 ///
 /// The reason there is no install folder (no `LOCALAPPDATA`, `HOME`, or a relative `TASKS_DESKTOP_INSTALL_DIR`).
 pub fn installed_program(env: &Env) -> Result<PathBuf, String> {
-    Ok(install_dir(env)?.join(PROGRAM_FILE))
+    Ok(install_dir(env)?.join(program_file()))
 }
 
 /// The file name the program has once installed, whatever the downloaded file was called
 /// (`tasks-hub-windows-x86_64.exe`, `tasks-hub (1).exe`): the scripts, the login entry, the link and
 /// `uninstall` all look for this one name.
-pub const PROGRAM_FILE: &str = if cfg!(windows) {
-    "tasks-hub.exe"
-} else {
-    "tasks-hub"
-};
+#[must_use]
+pub fn program_file() -> String {
+    crate::IDENTITY.program_file()
+}
 
 /// What `install` was asked for.
 #[derive(Debug, Clone, Copy, Default)]
@@ -524,7 +524,9 @@ pub struct InstallOptions {
 /// With this variable set, `install` leaves an existing login entry alone
 /// (it does not point it at the installed copy). The tests of the program set
 /// it: the entry of the machine they run on is not theirs to change.
-const NO_LOGIN_SYNC: &str = "TASKS_DESKTOP_NO_LOGIN_SYNC";
+fn no_login_sync() -> String {
+    crate::IDENTITY.var("NO_LOGIN_SYNC")
+}
 
 /// Copy this program to a fixed place, so that a build in the repository
 /// does not fight the running hub for the file, and start the hub from there
@@ -594,7 +596,7 @@ async fn install_steps(opts: InstallOptions, out: &mut String) -> Result<(), Str
     let env = Env::from_process();
     let dir = install_dir(&env)?;
     let from = std::env::current_exe().map_err(|e| format!("own program not found: {e}"))?;
-    let name = std::ffi::OsString::from(PROGRAM_FILE);
+    let name = std::ffi::OsString::from(program_file());
     let target = dir.join(&name);
 
     // A program that is the one being installed (run from the install
@@ -669,7 +671,7 @@ async fn install_steps(opts: InstallOptions, out: &mut String) -> Result<(), Str
 
     if opts.autostart {
         out.push_str(&autostart_for(Autostart::On, &target)?);
-    } else if env.get(NO_LOGIN_SYNC).is_none() && autostart_is_on() {
+    } else if env.get(&no_login_sync()).is_none() && autostart_is_on() {
         // It was registered for another copy: point it here.
         out.push_str(&autostart_for(Autostart::On, &target)?);
     }
@@ -784,9 +786,12 @@ async fn uninstall_steps(opts: UninstallOptions) -> Result<String, String> {
 
     step(stop().await, &mut out);
     let exe = std::env::current_exe().map_err(|e| format!("own program not found: {e}"))?;
-    if env.get(NO_LOGIN_SYNC).is_some() {
+    if env.get(&no_login_sync()).is_some() {
         // The tests of the program: the login entry and the link of the machine are not theirs.
-        out.push_str("the login entry and the link are left alone (TASKS_DESKTOP_NO_LOGIN_SYNC)\n");
+        out.push_str(&format!(
+            "the login entry and the link are left alone ({})\n",
+            no_login_sync()
+        ));
     } else {
         step(autostart(Autostart::Off), &mut out);
         step(remove_shortcut(&env), &mut out);
@@ -824,15 +829,23 @@ fn remove_shortcut(env: &Env) -> Result<String, String> {
     }
     // Only a link of that name whose target is this program: a link of the person's own
     // that happens to be called "Tasks" is not ours to delete.
-    let script = "Set shell = CreateObject(\"WScript.Shell\")\r\n\
+    let title = crate::IDENTITY.title;
+    let program = crate::IDENTITY.program_file();
+    let len = program.len();
+    let script = format!(
+        "Set shell = CreateObject(\"WScript.Shell\")\r\n\
 Set fso = CreateObject(\"Scripting.FileSystemObject\")\r\n\
-path = shell.SpecialFolders(\"Desktop\") & \"\\Tasks.lnk\"\r\n\
+path = shell.SpecialFolders(\"Desktop\") & \"\\{title}.lnk\"\r\n\
 If fso.FileExists(path) Then\r\n\
-  If LCase(Right(shell.CreateShortcut(path).TargetPath, 13)) = \"tasks-hub.exe\" Then fso.DeleteFile path, True\r\n\
-End If\r\n";
-    let path =
-        std::env::temp_dir().join(format!("tasks-desktop-unlink-{}.vbs", std::process::id()));
-    std::fs::write(&path, vbs_bytes(script)).map_err(|e| format!("cannot write a script: {e}"))?;
+  If LCase(Right(shell.CreateShortcut(path).TargetPath, {len})) = \"{program}\" Then fso.DeleteFile path, True\r\n\
+End If\r\n"
+    );
+    let path = std::env::temp_dir().join(format!(
+        "{}-unlink-{}.vbs",
+        crate::IDENTITY.app,
+        std::process::id()
+    ));
+    std::fs::write(&path, vbs_bytes(&script)).map_err(|e| format!("cannot write a script: {e}"))?;
     let ok = Command::new(system_program("wscript.exe")?)
         .args(["//B", "//Nologo"])
         .arg(&path)
@@ -859,17 +872,19 @@ fn shortcut(exe: &Path) -> Result<String, String> {
     if text.contains(['"', '\r', '\n']) {
         return Err("the path of the program cannot be put in a link".to_owned());
     }
+    let title = crate::IDENTITY.title;
+    let app = crate::IDENTITY.app;
     let script = format!(
         "Set link = CreateObject(\"WScript.Shell\").CreateShortcut(\
-CreateObject(\"WScript.Shell\").SpecialFolders(\"Desktop\") & \"\\Tasks.lnk\")\r\n\
+CreateObject(\"WScript.Shell\").SpecialFolders(\"Desktop\") & \"\\{title}.lnk\")\r\n\
 link.TargetPath = \"{text}\"\r\n\
 link.Arguments = \"start --open\"\r\n\
 link.WindowStyle = 7\r\n\
-link.Description = \"tasks-desktop: start the hub and open the page\"\r\n\
+link.Description = \"{app}: start the hub and open the page\"\r\n\
 link.Save\r\n"
     );
     let dir = std::env::temp_dir();
-    let path = dir.join(format!("tasks-desktop-link-{}.vbs", std::process::id()));
+    let path = dir.join(format!("{app}-link-{}.vbs", std::process::id()));
     std::fs::write(&path, vbs_bytes(&script)).map_err(|e| format!("cannot write a script: {e}"))?;
     let ok = Command::new(system_program("wscript.exe")?)
         .args(["//B", "//Nologo"])

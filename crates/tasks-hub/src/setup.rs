@@ -43,16 +43,20 @@ impl Io for Console {
 }
 
 /// With this set, the questions are asked although there is no terminal (the tests pipe the answers in).
-const ASSUME_TERMINAL: &str = "TASKS_DESKTOP_ASSUME_TERMINAL";
+fn assume_terminal() -> String {
+    crate::IDENTITY.var("ASSUME_TERMINAL")
+}
 /// With this set, nothing is asked, whatever the console is.
-const NO_SETUP: &str = "TASKS_DESKTOP_NO_SETUP";
+fn no_setup() -> String {
+    crate::IDENTITY.var("NO_SETUP")
+}
 
 /// Whether there is a person to ask.
 #[must_use]
 pub fn interactive(env: &Env) -> bool {
     // Both ends at a terminal: with the output in a file or a pipe the questions would go where nobody reads them.
-    env.get(NO_SETUP).is_none()
-        && (env.get(ASSUME_TERMINAL).is_some()
+    env.get(&no_setup()).is_none()
+        && (env.get(&assume_terminal()).is_some()
             || (std::io::stdin().is_terminal() && std::io::stdout().is_terminal()))
 }
 
@@ -403,9 +407,9 @@ mod tests {
 
     #[test]
     fn nothing_is_asked_without_a_person_or_when_it_is_switched_off() {
-        let off = Env::from_pairs([(NO_SETUP, "1"), (ASSUME_TERMINAL, "1")]);
+        let off = Env::from_pairs([(no_setup(), "1"), (assume_terminal(), "1")]);
         assert!(!interactive(&off));
-        let piped = Env::from_pairs([(ASSUME_TERMINAL, "1")]);
+        let piped = Env::from_pairs([(assume_terminal(), "1")]);
         assert!(interactive(&piped));
     }
 
@@ -498,7 +502,7 @@ mod tests {
     async fn declining_the_replacement_of_another_version_is_remembered() {
         let (env, config, bin) = run_env("replace");
         // Another version is installed already (other bytes than this test program).
-        std::fs::write(bin.join(background::PROGRAM_FILE), "an older program").unwrap();
+        std::fs::write(bin.join(background::program_file()), "an older program").unwrap();
         let mut io = Script::new(&["n"]);
         assert_eq!(run(&mut io, &env).await.unwrap(), None);
         assert_eq!(io.asked.len(), 1, "{:?}", io.asked);

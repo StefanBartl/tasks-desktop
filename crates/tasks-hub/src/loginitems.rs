@@ -37,9 +37,15 @@ pub enum Action {
 }
 
 /// The name of the entry files.
-const DESKTOP_FILE: &str = "tasks-desktop.desktop";
-const AGENT_FILE: &str = "dev.tasks-desktop.hub.plist";
-const AGENT_LABEL: &str = "dev.tasks-desktop.hub";
+fn desktop_file() -> String {
+    crate::IDENTITY.desktop_file()
+}
+fn agent_file() -> String {
+    crate::IDENTITY.agent_file()
+}
+fn agent_label() -> String {
+    crate::IDENTITY.agent_label()
+}
 
 /// A value of the `Exec` key: in double quotes, with the characters the
 /// desktop entry specification names escaped.
@@ -68,8 +74,10 @@ fn exec_quote(text: &str) -> String {
 #[must_use]
 pub fn desktop_entry(exe: &Path, args: &str, autostart: bool) -> String {
     let mut text = format!(
-        "[Desktop Entry]\nType=Application\nName=Tasks\nComment=tasks-desktop: the task overview\n\
+        "[Desktop Entry]\nType=Application\nName={}\nComment={}: the task overview\n\
          Exec={} {}\nTerminal=false\nCategories=Office;\n",
+        crate::IDENTITY.title,
+        crate::IDENTITY.app,
         exec_quote(&exe.to_string_lossy()),
         args
     );
@@ -93,12 +101,13 @@ pub fn launch_agent(exe: &Path) -> String {
          <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \
          \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
          <plist version=\"1.0\">\n<dict>\n\
-         \t<key>Label</key>\n\t<string>{AGENT_LABEL}</string>\n\
+         \t<key>Label</key>\n\t<string>{}</string>\n\
          \t<key>ProgramArguments</key>\n\t<array>\n\
          \t\t<string>{}</string>\n\t\t<string>start</string>\n\t</array>\n\
          \t<key>RunAtLoad</key>\n\t<true/>\n\
          \t<key>AbandonProcessGroup</key>\n\t<true/>\n\
          </dict>\n</plist>\n",
+        agent_label(),
         xml_escape(&exe.to_string_lossy())
     )
 }
@@ -126,12 +135,12 @@ fn login_file(platform: Platform, env: &Env) -> Result<PathBuf, String> {
                 Some(x) => x,
                 None => home(env)?.join(".config"),
             };
-            Ok(base.join("autostart").join(DESKTOP_FILE))
+            Ok(base.join("autostart").join(desktop_file()))
         }
         Platform::Macos => Ok(home(env)?
             .join("Library")
             .join("LaunchAgents")
-            .join(AGENT_FILE)),
+            .join(agent_file())),
     }
 }
 
@@ -141,7 +150,7 @@ fn launcher_file(env: &Env) -> Result<PathBuf, String> {
         Some(x) => x,
         None => home(env)?.join(".local").join("share"),
     };
-    Ok(base.join("applications").join(DESKTOP_FILE))
+    Ok(base.join("applications").join(desktop_file()))
 }
 
 fn write(path: &Path, text: &str) -> Result<(), String> {
@@ -278,7 +287,7 @@ mod tests {
         );
         let said = login_entry(Platform::Linux, Action::On, exe, &env).unwrap();
         assert!(said.contains("starts with your login"), "{said}");
-        let file = home.join(".config").join("autostart").join(DESKTOP_FILE);
+        let file = home.join(".config").join("autostart").join(desktop_file());
         let text = std::fs::read_to_string(&file).unwrap();
         assert!(
             text.contains("Exec=\"/opt/tasks desk/tasks-hub\" start\n"),
@@ -303,7 +312,7 @@ mod tests {
             ("XDG_CONFIG_HOME", cfg.as_os_str().to_owned()),
         ]);
         login_entry(Platform::Linux, Action::On, Path::new("/x/tasks-hub"), &env).unwrap();
-        assert!(cfg.join("autostart").join(DESKTOP_FILE).is_file());
+        assert!(cfg.join("autostart").join(desktop_file()).is_file());
         assert!(!home.join(".config").exists());
     }
 
@@ -318,7 +327,7 @@ mod tests {
             &env,
         )
         .unwrap();
-        let file = home.join("Library").join("LaunchAgents").join(AGENT_FILE);
+        let file = home.join("Library").join("LaunchAgents").join(agent_file());
         let text = std::fs::read_to_string(file).unwrap();
         assert!(
             text.contains("<string>/Applications/T &amp; C/tasks-hub</string>"),
@@ -337,7 +346,7 @@ mod tests {
             home.join(".local")
                 .join("share")
                 .join("applications")
-                .join(DESKTOP_FILE),
+                .join(desktop_file()),
         )
         .unwrap();
         assert!(text.contains("Exec=\"/x/tasks-hub\" start --open"));
@@ -363,7 +372,7 @@ mod tests {
             .join(".local")
             .join("share")
             .join("applications")
-            .join(DESKTOP_FILE);
+            .join(desktop_file());
         launcher(Platform::Linux, Path::new("/x/tasks-hub"), &env).unwrap();
         assert!(file.is_file());
         let text = remove_launcher(Platform::Linux, &env).unwrap();

@@ -118,7 +118,7 @@ fn spawn(launch: &Launch) -> std::io::Result<std::process::Child> {
 
 impl FileOpener for TerminalOpener {
     fn open(&self, file: &Path) -> Result<(), String> {
-        if let Some(log) = self.env.path("TASKS_DESKTOP_EDITOR_LOG") {
+        if let Some(log) = self.env.path(&crate::IDENTITY.var("EDITOR_LOG")) {
             let mut out = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)

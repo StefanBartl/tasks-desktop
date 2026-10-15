@@ -278,7 +278,7 @@ impl std::error::Error for ConfigError {}
 /// on macOS, which is not a promised platform, concept 13.9).
 #[must_use]
 pub fn config_dir(env: &Env) -> Option<PathBuf> {
-    if let Some(dir) = env.path("TASKS_DESKTOP_CONFIG_DIR") {
+    if let Some(dir) = env.path(&crate::IDENTITY.var("CONFIG_DIR")) {
         return Some(dir);
     }
     let base = if cfg!(windows) {
@@ -290,7 +290,7 @@ pub fn config_dir(env: &Env) -> Option<PathBuf> {
         env.path("XDG_CONFIG_HOME")
             .or_else(|| env.path("HOME").map(|h| h.join(".config")))
     };
-    base.map(|b| b.join("tasks-desktop"))
+    base.map(|b| b.join(crate::IDENTITY.app))
 }
 
 /// Load `config.json` from `dir`. A missing file is an empty config.
