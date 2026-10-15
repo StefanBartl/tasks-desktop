@@ -100,6 +100,7 @@ export function installTooltips(doc: Document, win: Window & typeof globalThis):
     viaFocus = false;
     tip.hidden = true;
     host.hidden = true;
+    if (host.parentElement !== doc.body) doc.body.appendChild(host);
   }
 
   function place(el: HTMLElement): void {
@@ -125,6 +126,10 @@ export function installTooltips(doc: Document, win: Window & typeof globalThis):
     viaFocus = viaFocus || byFocus;
     tip.textContent = text;
     host.setAttribute('aria-label', regionLabel());
+    // A modal dialog lies in the top layer and makes the rest of the page inert: a popup in the body would be behind it
+    // and could not be reached with the pointer. While a hint of the dialog is open the popup lives in the dialog.
+    const parent = el.closest('dialog') ?? doc.body;
+    if (host.parentElement !== parent) parent.appendChild(host);
     host.hidden = false;
     tip.hidden = false;
     if (!ownsDescription(el)) el.setAttribute('aria-describedby', withToken(describedBefore, TIP_ID));

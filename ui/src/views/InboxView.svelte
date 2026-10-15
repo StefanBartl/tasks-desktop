@@ -4,7 +4,8 @@
   import { onMount, untrack } from 'svelte';
   import type { App } from '../lib/app.svelte';
   import { INBOX_PAGE, missingOf, shownCount } from '../lib/inbox';
-  import { translate, type Key } from '../lib/i18n';
+  import { hintOf, translate, type Key } from '../lib/i18n';
+  import Info from './Info.svelte';
   import { markHidden } from '../lib/text';
   import Detail from './Detail.svelte';
 
@@ -37,7 +38,10 @@
 
 <div class="split">
   <section class="inbox" aria-label={t('nav.inbox')}>
-    <p class="count" role="status">{t('inbox.count', { n: rows.length })}</p>
+    <div class="head">
+      <p class="count" role="status">{t('inbox.count', { n: rows.length })}</p>
+      <Info hint={t('hint.inbox')} label={t('hint.about', { what: t('nav.inbox') })} />
+    </div>
     <p class="keys">{t('inbox.keys')}</p>
     <div class="rows">
       {#each drawn as task (task.id)}
@@ -52,7 +56,7 @@
           <span class="title">{markHidden(task.title)}</span>
           <span class="meta">
             {#each missingOf(task) as field (field)}
-              <span class="tag">{t(`inbox.missing.${field}` as Key)}</span>
+              <span class="tag" data-hint={hintOf(app.lang, 'hint.inbox.missing', field)}>{t(`inbox.missing.${field}` as Key)}</span>
             {/each}
           </span>
         </button>
@@ -89,6 +93,11 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+  }
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
   }
   .count,
   .keys {

@@ -53,6 +53,20 @@ describe('hintOf', () => {
     }
   });
 
+  it('explains every field the inbox can say is missing, and the parts of the board and the matrix', () => {
+    for (const lang of ['en', 'de'] as const) {
+      const missing = Object.keys(dictionaries[lang]).filter((k) => k.startsWith('inbox.missing.'));
+      expect(missing.length).toBeGreaterThan(0);
+      for (const key of missing) {
+        const field = key.slice('inbox.missing.'.length);
+        expect(hintOf(lang, 'hint.inbox.missing', field), `${lang} inbox ${field}`).not.toBe('');
+      }
+      for (const key of ['hint.board.count', 'hint.board.done', 'hint.board.group', 'hint.invalid', 'hint.inbox']) {
+        expect(dictionaries[lang][key as keyof (typeof dictionaries)[typeof lang]], `${lang} ${key}`).not.toBe('');
+      }
+    }
+  });
+
   it('writes the unit of the critical path out', () => {
     expect(dictionaries.en['plan.days']).toContain('days');
     expect(dictionaries.de['plan.days']).toContain('Tage');
