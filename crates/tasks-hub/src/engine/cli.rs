@@ -205,7 +205,7 @@ impl Inner {
         // The check reads every task file and may ask git: it takes minutes where a question takes a moment. It runs
         // as a process of its own, outside the place and the persistent host, so that a write, a task and a question
         // do not wait behind it; it only reads.
-        let aside = method == Method::Check;
+        let aside = method.is_aside();
         let permit = if aside {
             None
         } else {
@@ -435,8 +435,11 @@ impl CliEngine {
                     method.as_str()
                 )));
             }
-            (_, None) if method == Method::Ops => {
-                return Err(EngineError::BadRequest("ops needs a request".to_owned()));
+            (_, None) if method.needs_params() => {
+                return Err(EngineError::BadRequest(format!(
+                    "{} needs a request",
+                    method.as_str()
+                )));
             }
             (_, Some(v)) if !v.is_object() => {
                 return Err(EngineError::BadRequest(
@@ -458,7 +461,7 @@ impl CliEngine {
 
         // A dry run is a question, not a write: it is dropped like a read, and a
         // failure of it leaves nothing open.
-        let writes = method == Method::Ops
+        let writes = method.writes()
             && params
                 .and_then(|p| p.get("dry_run"))
                 .and_then(Value::as_bool)
@@ -467,7 +470,7 @@ impl CliEngine {
         // The check only reads and can run for minutes: it runs in the future of its caller, so that a caller that is
         // given up (the vault was changed, the hub stops) takes the process down with it (`kill_on_drop`) instead of
         // leaving it to run on beside a new one.
-        if method == Method::Check {
+        if method.is_aside() {
             let _place = place;
             return self.inner.execute(method, stdin, false, || false).await;
         }

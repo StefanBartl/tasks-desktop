@@ -6,6 +6,7 @@
 
 mod cli;
 mod host;
+mod method;
 mod wire;
 
 use std::ffi::OsString;
@@ -20,102 +21,70 @@ use crate::config::Env;
 pub(crate) use cli::is_unprintable;
 pub use cli::{CliEngine, CliEngineConfig, EngineVars};
 pub use host::Failure as HostFailure;
+pub use method::{Method, MethodSpec};
 pub use wire::ascii_json;
 
 /// The contract version this hub speaks.
 pub const SCHEMA: u64 = 1;
 
-/// The calls of the contract `tasks-export/1` and `tasks-ops/1`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Method {
-    Hello,
-    Snapshot,
-    List,
-    Task,
-    Bodies,
-    Check,
-    Estimate,
-    Next,
-    Areas,
-    Links,
-    Finished,
-    DonePreview,
-    PlanFor,
-    Ops,
-}
+/// The calls of the contract `tasks-export/1` and `tasks-ops/1`: the table of this app. The seam
+/// reads the flags of each entry; it knows no call by name.
+static SPECS: [MethodSpec; 14] = [
+    MethodSpec::bare("hello", "tasks.hello"),
+    MethodSpec::bare("snapshot", "tasks.snapshot"),
+    MethodSpec::read("list", "tasks.list"),
+    MethodSpec::read("task", "tasks.task"),
+    MethodSpec::read("bodies", "tasks.bodies"),
+    MethodSpec::aside("check", "tasks.check"),
+    MethodSpec::read("estimate", "tasks.estimate"),
+    MethodSpec::read("next", "tasks.next"),
+    MethodSpec::bare("areas", "tasks.areas"),
+    MethodSpec::bare("links", "tasks.links"),
+    MethodSpec::read("finished", "tasks.finished"),
+    MethodSpec::read("done_preview", "tasks.donepreview"),
+    MethodSpec::read("plan_for", "tasks.planfor"),
+    MethodSpec::write("ops", "tasks.result"),
+];
 
+#[allow(non_upper_case_globals)]
 impl Method {
-    /// The name the engine knows it by.
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Hello => "hello",
-            Self::Snapshot => "snapshot",
-            Self::List => "list",
-            Self::Task => "task",
-            Self::Bodies => "bodies",
-            Self::Check => "check",
-            Self::Estimate => "estimate",
-            Self::Next => "next",
-            Self::Areas => "areas",
-            Self::Links => "links",
-            Self::Finished => "finished",
-            Self::DonePreview => "done_preview",
-            Self::PlanFor => "plan_for",
-            Self::Ops => "ops",
-        }
-    }
+    pub const Hello: Method = Method::new(&SPECS[0]);
+    pub const Snapshot: Method = Method::new(&SPECS[1]);
+    pub const List: Method = Method::new(&SPECS[2]);
+    pub const Task: Method = Method::new(&SPECS[3]);
+    pub const Bodies: Method = Method::new(&SPECS[4]);
+    pub const Check: Method = Method::new(&SPECS[5]);
+    pub const Estimate: Method = Method::new(&SPECS[6]);
+    pub const Next: Method = Method::new(&SPECS[7]);
+    pub const Areas: Method = Method::new(&SPECS[8]);
+    pub const Links: Method = Method::new(&SPECS[9]);
+    pub const Finished: Method = Method::new(&SPECS[10]);
+    pub const DonePreview: Method = Method::new(&SPECS[11]);
+    pub const PlanFor: Method = Method::new(&SPECS[12]);
+    pub const Ops: Method = Method::new(&SPECS[13]);
 
-    /// The `kind` the answer must carry.
-    #[must_use]
-    pub fn reply_kind(self) -> &'static str {
-        match self {
-            Self::Hello => "tasks.hello",
-            Self::Snapshot => "tasks.snapshot",
-            Self::List => "tasks.list",
-            Self::Task => "tasks.task",
-            Self::Bodies => "tasks.bodies",
-            Self::Check => "tasks.check",
-            Self::Estimate => "tasks.estimate",
-            Self::Next => "tasks.next",
-            Self::Areas => "tasks.areas",
-            Self::Links => "tasks.links",
-            Self::Finished => "tasks.finished",
-            Self::DonePreview => "tasks.donepreview",
-            Self::PlanFor => "tasks.planfor",
-            Self::Ops => "tasks.result",
-        }
-    }
-
-    /// Whether the method carries a request or parameters at all.
-    #[must_use]
-    pub fn takes_params(self) -> bool {
-        !matches!(
-            self,
-            Self::Hello | Self::Snapshot | Self::Areas | Self::Links
-        )
-    }
+    /// Every call of the table.
+    pub const ALL: [Method; 14] = [
+        Self::Hello,
+        Self::Snapshot,
+        Self::List,
+        Self::Task,
+        Self::Bodies,
+        Self::Check,
+        Self::Estimate,
+        Self::Next,
+        Self::Areas,
+        Self::Links,
+        Self::Finished,
+        Self::DonePreview,
+        Self::PlanFor,
+        Self::Ops,
+    ];
 
     /// Parse the name of a route or a request. Nothing else is accepted.
     #[must_use]
     pub fn parse(name: &str) -> Option<Self> {
-        Some(match name {
-            "hello" => Self::Hello,
-            "snapshot" => Self::Snapshot,
-            "list" => Self::List,
-            "task" => Self::Task,
-            "bodies" => Self::Bodies,
-            "check" => Self::Check,
-            "estimate" => Self::Estimate,
-            "next" => Self::Next,
-            "areas" => Self::Areas,
-            "links" => Self::Links,
-            "finished" => Self::Finished,
-            "done_preview" => Self::DonePreview,
-            "plan_for" => Self::PlanFor,
-            "ops" => Self::Ops,
-            _ => return None,
-        })
+        Self::find(&Self::ALL, name)
     }
 }
 
@@ -339,4 +308,39 @@ pub async fn probe(engine: &dyn Engine) -> Result<EngineInfo, ProbeProblem> {
         return Err(ProbeProblem::TooOld { missing });
     }
     Ok(info)
+}
+
+#[cfg(test)]
+mod table_tests {
+    use super::Method;
+
+    /// The seam treats a call by its flags, not by its name: these are the calls that were special
+    /// when the names were still matched in the seam.
+    #[test]
+    fn only_ops_writes_and_only_check_runs_aside() {
+        for m in Method::ALL {
+            assert_eq!(m.writes(), m == Method::Ops, "{}", m.as_str());
+            assert_eq!(m.needs_params(), m == Method::Ops, "{}", m.as_str());
+            assert_eq!(m.is_aside(), m == Method::Check, "{}", m.as_str());
+        }
+    }
+
+    #[test]
+    fn the_calls_without_parameters_are_the_four_bare_reads() {
+        let bare: Vec<_> = Method::ALL
+            .iter()
+            .filter(|m| !m.takes_params())
+            .map(|m| m.as_str())
+            .collect();
+        assert_eq!(bare, ["hello", "snapshot", "areas", "links"]);
+    }
+
+    #[test]
+    fn every_name_round_trips_and_every_answer_kind_is_the_apps() {
+        for m in Method::ALL {
+            assert_eq!(Method::parse(m.as_str()), Some(m));
+            assert!(m.reply_kind().starts_with("tasks."), "{}", m.as_str());
+        }
+        assert_eq!(Method::ALL.len(), 14);
+    }
 }
