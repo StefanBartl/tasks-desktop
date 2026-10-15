@@ -6,7 +6,7 @@ import { planOp, type PlanForm, type PlanPreview } from './planwizard';
 import { columnsOf, isColumn, neighbourColumn, placeNear, stepInGroup, type Move } from './board';
 import { ApiError, type CheckJobState, type Hub, type HubArea, type HubAreas, type SearchResult, type VaultList } from './api';
 import { cacheableClass, cacheableList, type ListStore } from './cache';
-import type { Check, DonePreview, Estimate, MovePlan, Next, PlanFor, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
+import type { Check, DonePreview, Estimate, Finished, MovePlan, Next, PlanFor, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import type { Op } from './api';
 import { touchedAreas } from './cross';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
@@ -26,7 +26,7 @@ const NOTE_MAX = 1000;
 
 export type Phase = 'starting' | 'needs_pairing' | 'offline' | 'unavailable' | 'ready';
 export type Connection = 'live' | 'reconnecting' | 'offline';
-export type View = 'today' | 'list' | 'board' | 'plan' | 'inbox' | 'cross';
+export type View = 'today' | 'list' | 'board' | 'plan' | 'inbox' | 'cross' | 'done';
 export type Theme = 'auto' | 'light' | 'dark';
 /** The blocks of the Today view that a person may hide. */
 export const TILES = ['next', 'waiting', 'remind', 'cdx', 'counts'] as const;
@@ -253,7 +253,14 @@ export class App {
     // The page opens on the view it was left on.
     const view = safe(() => env.prefs.getItem('tasks-desktop.view'));
     this.view =
-      view === 'list' || view === 'board' || view === 'plan' || view === 'inbox' || view === 'cross' ? view : 'today';
+      view === 'list' ||
+      view === 'board' ||
+      view === 'plan' ||
+      view === 'inbox' ||
+      view === 'cross' ||
+      view === 'done'
+        ? view
+        : 'today';
   }
 
   // ── derived ───────────────────────────────────────────────────────────
@@ -312,6 +319,14 @@ export class App {
 
   closeCapture(): void {
     this.capturing = false;
+  }
+
+  /** The finished tasks of the Backlogs and their figures, for the view of them. */
+  finished(
+    query: { area?: string; since?: string; until?: string; limit?: number; offset?: number },
+    signal?: AbortSignal,
+  ): Promise<Finished> {
+    return this.env.hub.finished(query, signal);
   }
 
   /** Whether the engine can do `capability`; true while it has not said (the cached list is shown first). */
@@ -1437,6 +1452,7 @@ export class App {
         this.capabilities = hello.engine.capabilities;
         // A board left open by an older engine would offer what it refuses.
         if (this.view === 'board' && !this.can('reorder')) this.view = 'today';
+        if (this.view === 'done' && !this.can('finished')) this.view = 'today';
         break;
       } catch {
         this.connection = 'offline';

@@ -1289,6 +1289,48 @@ test('connections: the links between areas, narrowed to the chosen areas, and th
   expect(await violations(page)).toEqual([]);
 });
 
+test('finished: the figures of a period come from the engine, a click on an area or a month narrows them', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await chooseView(page, 'View', 'Finished');
+  // The fixture finished four tasks between 2025-12-30 and 2026-01-02 (other tests finish more, today).
+  await page.getByRole('combobox', { name: /^Period/ }).selectOption('custom');
+  await page.getByLabel('From', { exact: true }).fill('2025-12-01');
+  await page.getByLabel('To', { exact: true }).fill('2026-01-31');
+  const status = page.locator('.done p[role=status]');
+  await expect(status).toContainText('4 tasks finished. Effort in days: 3.');
+  await expect(status).toContainText('2 of them have no effort');
+  const byArea = page.getByRole('region', { name: 'By area' });
+  await expect(byArea.getByRole('row', { name: /lib\.nvim 2/ })).toBeVisible();
+  await expect(byArea.getByRole('row', { name: /cascade\.nvim 2/ })).toBeVisible();
+  await expectAccessible(page, 'the finished tasks');
+
+  // An area narrows the figures to it: cascade.nvim has the feature (a medium task, one day) and one without a size.
+  await byArea.getByRole('button', { name: 'cascade.nvim' }).click();
+  await expect(status).toContainText('2 tasks finished. Effort in days: 1.');
+  await expect(page.getByText('Showing: cascade.nvim')).toBeVisible();
+  await page.getByRole('button', { name: 'Show everything' }).click();
+  await expect(status).toContainText('4 tasks finished.');
+
+  // A month: December 2025 has the bug and the feature.
+  await page.getByRole('region', { name: 'Over time' }).getByRole('button', { name: '2025-12' }).click();
+  await expect(status).toContainText('2 tasks finished. Effort in days: 3.');
+  await expect(page.getByText('Showing: 2025-12')).toBeVisible();
+  const list = page.getByRole('region', { name: 'Finished tasks, newest first' });
+  await expect(list).toContainText('Shipped feature');
+  await expect(list).toContainText('Shipped bug');
+  await expect(list).not.toContainText('Done without an effort');
+  expect(await violations(page)).toEqual([]);
+
+  // A period without a finished task says so.
+  await page.getByRole('button', { name: 'Show everything' }).click();
+  await page.getByLabel('From', { exact: true }).fill('2020-01-01');
+  await page.getByLabel('To', { exact: true }).fill('2020-01-31');
+  await expect(page.getByText('No task was finished in this period.')).toBeVisible();
+});
+
 test('more filters: any field, switched on in a row of chips that can be taken off one by one, and reset', async ({
   page,
 }) => {

@@ -40,6 +40,7 @@ export function paletteActions(app: App): PaletteAction[] {
   add('go.plan', t('palette.go', { view: t('nav.plan') }), () => app.setView('plan'));
   add('go.inbox', t('palette.go', { view: t('nav.inbox') }), () => app.setView('inbox'));
   add('go.cross', t('palette.go', { view: t('nav.cross') }), () => app.setView('cross'));
+  if (app.can('finished')) add('go.done', t('palette.go', { view: t('nav.done') }), () => app.setView('done'));
   if (app.can('check')) add('check.open', t('check.open'), () => app.openChecks());
   if (app.can('estimate') && app.view === 'list') add('matrix.open', t('matrix.open'), () => app.openMatrix());
 

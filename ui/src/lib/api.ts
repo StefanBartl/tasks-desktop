@@ -1,6 +1,6 @@
 // The hub's routes, as typed calls. Only the shapes the UI needs.
 
-import type { Areas, Check, DonePreview, Estimate, Next, PlanFor, Result, Snapshot, TaskDocument } from './contract';
+import type { Areas, Check, DonePreview, Estimate, Finished, Next, PlanFor, Result, Snapshot, TaskDocument } from './contract';
 
 export class ApiError extends Error {
   constructor(
@@ -292,6 +292,18 @@ export class Hub {
   planFor(id: string, direction: 'needs' | 'unlocks', signal?: AbortSignal): Promise<PlanFor> {
     const path = `/api/tasks/plan_for?id=${encodeURIComponent(id).replace(/%2F/gi, '/')}&direction=${direction}`;
     return this.json<PlanFor>(path, signal ? { signal } : undefined);
+  }
+
+  /** The finished tasks of the Backlogs and what they add up to (the engine counts; `since` and `until` are days). */
+  finished(
+    query: { area?: string; since?: string; until?: string; limit?: number; offset?: number },
+    signal?: AbortSignal,
+  ): Promise<Finished> {
+    const parts = Object.entries(query)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => `${key}=${encodeURIComponent(String(value)).replace(/%2F/gi, '/')}`);
+    const path = `/api/tasks/finished${parts.length > 0 ? `?${parts.join('&')}` : ''}`;
+    return this.json<Finished>(path, signal ? { signal } : undefined);
   }
 
   /** What finishing a task would do, and the token `done` needs. */
