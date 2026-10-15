@@ -1324,6 +1324,17 @@ test('finished: the figures of a period come from the engine, a click on an area
   await expect(list).not.toContainText('Done without an effort');
   expect(await violations(page)).toEqual([]);
 
+  // A window that cuts the month: only the part inside it counts, and the page agrees with the row (the bug of the
+  // 30th is out of it, the feature of the 31st is in).
+  await page.getByRole('button', { name: 'Show everything' }).click();
+  await page.getByLabel('From', { exact: true }).fill('2025-12-31');
+  const cut = page.getByRole('region', { name: 'Over time' });
+  await expect(cut.getByRole('row', { name: /2025-12 1/ })).toBeVisible();
+  await cut.getByRole('button', { name: '2025-12' }).click();
+  await expect(status).toContainText('1 task finished.');
+  await expect(list).toContainText('Shipped feature');
+  await expect(list).not.toContainText('Shipped bug');
+
   // A period without a finished task says so.
   await page.getByRole('button', { name: 'Show everything' }).click();
   await page.getByLabel('From', { exact: true }).fill('2020-01-01');
