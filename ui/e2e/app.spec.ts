@@ -1264,10 +1264,11 @@ test('connections: the links between areas, narrowed to the chosen areas, and th
   await pair(page);
   await chooseView(page, 'View', 'Connections');
   // The fixture has one task of cascade.nvim that waits for one of lib.nvim.
-  const row = page.locator('tr', { hasText: 'cascade.nvim ↔ lib.nvim' });
+  const row = page.locator('.pairs > li', { hasText: 'cascade.nvim ↔ lib.nvim' });
   await expect(row).toBeVisible();
   await row.getByText('cascade.nvim ↔ lib.nvim').click();
-  await expect(row).toContainText('waits for');
+  // The edges are in the page closed or open: it is the click that makes them visible.
+  await expect(row.getByText('waits for')).toBeVisible();
   await expectAccessible(page, 'the connections');
 
   // Only lib.nvim chosen: no link between two chosen areas. Both chosen: the link is back.
@@ -1324,18 +1325,75 @@ test('more filters: any field, switched on in a row of chips that can be taken o
   await expectAccessible(page, 'the list with more filters on');
 
   // A second field combines with it; taking its chip off leaves the first.
+  const alpha = page.locator('button.row').filter({ has: page.locator('.id', { hasText: /^lib\.nvim\/alpha$/ }) });
   await page.getByRole('combobox', { name: 'Changed' }).selectOption('7');
   await expect(chips).toContainText('Changed');
-  expect(await total()).toBeLessThanOrEqual(narrowed);
-  await page.getByRole('button', { name: /^Switch off: Changed/ }).click();
+  // The tasks of the fixture were changed on 2026-01-01: not within 7 days, but more than 90 days ago.
+  await expect(alpha).toHaveCount(0);
+  await page.getByRole('combobox', { name: 'Changed' }).selectOption('older');
+  await expect(alpha).toHaveCount(1);
+  // Taking a chip off keeps the focus in the row of chips (here on the next control), not on the page.
+  const off = page.getByRole('button', { name: /^Switch off: Changed/ });
+  await off.focus();
+  await off.click();
   await expect(chips).not.toContainText('Changed');
   expect(await total()).toBe(narrowed);
+  await expect(page.locator('.active :focus')).toHaveCount(1);
 
   // Reset takes every chip away and the whole list is back.
   await page.getByRole('button', { name: 'Reset all filters' }).click();
   await expect(chips).toHaveCount(0);
   expect(await total()).toBe(all);
   expect(await violations(page)).toEqual([]);
+});
+
+test('explanations: the popup stays while the pointer crosses to it, follows from chip to chip, and survives the scroll of a focused element', async ({
+  page,
+}) => {
+  await pair(page);
+  await chooseView(page, 'View', 'Plan');
+  const tip = page.locator('#hint-tip');
+  const chips = page.locator('.chips .chip');
+
+  // The pointer goes from the chip to its popup in small steps, over the elements in between: it stays.
+  await chips.nth(0).hover();
+  await expect(tip).toBeVisible();
+  const box = await tip.boundingBox();
+  if (!box) throw new Error('popup not drawn');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 30 });
+  await page.waitForTimeout(500);
+  await expect(tip).toBeVisible();
+
+  // From one chip to the next one over the gap: the next chip gets its popup (a pending show is not lost).
+  await chips.nth(0).hover();
+  await expect(tip).toContainText('No open blocker');
+  const next = await chips.nth(1).boundingBox();
+  if (!next) throw new Error('chip not drawn');
+  await page.mouse.move(next.x + next.width / 2, next.y + next.height / 2, { steps: 30 });
+  await expect(tip).toContainText('Waits for a decision');
+
+  // An element below the fold: the browser scrolls it into view when it gets the focus, and the popup follows.
+  await page.setViewportSize({ width: 1000, height: 300 });
+  await page.keyboard.press('Escape');
+  const info = page.locator('.info').last();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(info).not.toBeInViewport();
+  await info.focus();
+  await expect(tip).toBeVisible();
+  await expect(tip).toBeInViewport();
+});
+
+test('explanations: every info button has a name of its own, and its text is not read twice', async ({ page }) => {
+  await pair(page);
+  await chooseView(page, 'View', 'Plan');
+  await expect(page.getByRole('button', { name: 'Explanation: Counters' })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Explanation: Estimate' })).toHaveCount(1);
+  const info = page.getByRole('button', { name: 'Explanation: Counters' });
+  await info.focus();
+  // The button already points at its own copy of the text: the popup adds no second pointer to the same words.
+  const described = (await info.getAttribute('aria-describedby')) ?? '';
+  expect(described.split(/\s+/).filter(Boolean)).toHaveLength(1);
+  expect(described).not.toContain('hint-tip');
 });
 
 test('the plan header: the label belongs to the choice, the button comes after it and stays inside the window', async ({

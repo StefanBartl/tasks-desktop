@@ -6,5 +6,5 @@
   const id = `info-${Math.random().toString(36).slice(2, 9)}`;
 </script>
 
-<button type="button" class="info" data-hint={hint} aria-label={label} aria-describedby={id}>ⓘ</button>
+<button type="button" class="info" data-hint={hint} data-hint-own aria-label={label} aria-describedby={id}>ⓘ</button>
 <span {id} class="sr-only">{hint}</span>

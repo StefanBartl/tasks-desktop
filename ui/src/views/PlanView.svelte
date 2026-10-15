@@ -83,7 +83,7 @@
               ><strong>{n}</strong> {labelOf(app.lang, 'state', String(state))}</span
             >
           {/each}
-          <Info hint={statesLegend} label={t('hint.about', { what: t('plan.summary') })} />
+          <Info hint={statesLegend} label={t('hint.about', { what: t('plan.counters') })} />
         {/if}
       </div>
       <div class="toolbar">
@@ -117,7 +117,7 @@
             total: estimate.tasks,
             days: formatNumber(app.lang, estimate.days),
           })}
-          <Info hint={t('hint.estimate')} label={t('hint.about', { what: t('plan.summary') })} />
+          <Info hint={t('hint.estimate')} label={t('hint.about', { what: t('plan.estimate_what') })} />
         </p>
       {/if}
     </section>
@@ -157,7 +157,7 @@
             <li>
               {t('plan.same_file', { stage: group.stage })}: <code>{markHidden(group.file)}</code>
               ({markHidden(group.ids.join(', '))})
-              <Info hint={t('hint.same_file')} label={t('hint.about', { what: t('plan.warnings') })} />
+              <Info hint={t('hint.same_file')} label={t('hint.about', { what: t('plan.same_file_what') })} />
             </li>
           {/each}
           {#each warnings as w, i (i)}

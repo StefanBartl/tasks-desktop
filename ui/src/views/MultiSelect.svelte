@@ -7,6 +7,8 @@
     label: string;
     /** More words for the option (a hint, or the real name behind a label). */
     title?: string;
+    /** Shown after the label, in brackets; not searched (a count would make the search find digits). */
+    suffix?: string;
   }
 
   let {
@@ -107,7 +109,7 @@
                 checked={selected.includes(option.value)}
                 onchange={() => toggle(option.value)}
               />
-              <span>{option.label}</span>
+              <span>{option.label}{option.suffix === undefined ? '' : ` (${option.suffix})`}</span>
             </label>
           </li>
         {/each}

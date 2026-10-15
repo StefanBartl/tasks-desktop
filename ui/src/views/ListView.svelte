@@ -16,12 +16,13 @@
     extraCount,
     fieldOptions,
     without,
+    withSelected,
     type ActiveFilter,
     type FieldKey,
     type ReminderChoice,
     type UpdatedWindow,
   } from '../lib/filter';
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { EFFORT_SIZES, badTag, parseTags } from '../lib/fields';
   import { isApplyKey } from '../lib/bulk';
   import { REMIND_CHOICES } from '../lib/remind';
@@ -39,26 +40,41 @@
   let moreOpen = $state(false);
   const fieldLabel = (key: FieldKey): string => t(`filter.field.${key}` as Key);
   function valueLabel(key: FieldKey, value: string): string {
-    if (value === NONE) return t('filter.none');
+    // For the state of the plan `none` is a task the plan has not placed; for the others it is "not written".
+    if (value === NONE) return key === 'state' ? t('filter.unplaced') : t('filter.none');
     if (key === 'prio') return `P${value}`;
     if (key === 'state') return labelOf(app.lang, 'state', value);
     return markHidden(value);
   }
-  const fieldChoices = $derived(
+  // What the tasks have: it follows the tasks and the language only, not every change of a filter.
+  const baseChoices = $derived(
     FIELD_KEYS.map((key) => ({
       key,
       options: fieldOptions(app.tasks, key).map((o) => ({
         value: o.value,
-        label: `${valueLabel(key, o.value)} (${o.count})`,
+        label: valueLabel(key, o.value),
+        suffix: String(o.count),
       })),
-    }))
+    })),
+  );
+  const fieldChoices = $derived(
+    baseChoices
       // A field that no task has a value for offers nothing to choose, unless it is on.
-      .filter((f) => f.options.some((o) => o.value !== NONE) || (app.filter.fields[f.key]?.length ?? 0) > 0),
+      .filter((f) => f.options.some((o) => o.value !== NONE) || (app.filter.fields[f.key]?.length ?? 0) > 0)
+      // A value that is on although no task has it any more stays in the choice (with 0), so it can be switched off.
+      .map((f) => ({
+        ...f,
+        options: withSelected(f.options, app.filter.fields[f.key] ?? [], (v) => ({
+          value: v,
+          label: valueLabel(f.key, v),
+          suffix: '0',
+        })),
+      })),
   );
   function chipLabel(item: ActiveFilter): string {
     switch (item.kind) {
       case 'area':
-        return `${t('nav.areas')}: ${item.value}`;
+        return `${t('nav.areas')}: ${app.shortAreas ? areaLabel(item.value, app.areaNames) : item.value}`;
       case 'status':
         return `${t('list.filter.status')}: ${t(`status.${item.value}` as Key)}`;
       case 'actor':
@@ -74,6 +90,20 @@
     }
   }
   const chips = $derived(activeFilters(app.filter).map((item) => ({ item, label: chipLabel(item) })));
+  let chipList: HTMLUListElement | undefined = $state();
+  let moreSummary: HTMLElement | undefined = $state();
+  /** Switch one filter off and keep the focus where it was: on the chip that took its place, else on the fold. */
+  async function removeChip(item: ActiveFilter, index: number): Promise<void> {
+    app.filter = without(app.filter, item);
+    await tick();
+    const buttons = chipList?.querySelectorAll<HTMLButtonElement>('li button');
+    (buttons && buttons.length > 0 ? buttons[Math.min(index, buttons.length - 1)] : moreSummary)?.focus();
+  }
+  async function clearFilters(): Promise<void> {
+    app.resetFilter();
+    await tick();
+    moreSummary?.focus();
+  }
   const extraOn = $derived(extraCount(app.filter));
   const areaOptions = $derived(
     app.areaNames
@@ -201,7 +231,7 @@
       />
     </div>
     <details class="more" open={moreOpen} ontoggle={(e) => (moreOpen = e.currentTarget.open)}>
-      <summary>{t('filter.more')}{extraOn > 0 ? ` (${extraOn})` : ''}</summary>
+      <summary bind:this={moreSummary}>{t('filter.more')}{extraOn > 0 ? ` (${extraOn})` : ''}</summary>
       <div class="more-body">
         {#each fieldChoices as f (f.key)}
           <MultiSelect
@@ -244,18 +274,18 @@
       </div>
     </details>
     {#if chips.length > 0}
-      <ul class="active" aria-label={t('filter.active')}>
-        {#each chips as c (c.item.kind + ':' + c.item.value)}
+      <ul class="active" aria-label={t('filter.active')} bind:this={chipList}>
+        {#each chips as c, index (c.item.kind + ':' + c.item.value)}
           <li>
             <span>{c.label}</span>
             <button
               type="button"
               aria-label={t('filter.remove', { what: c.label })}
-              onclick={() => (app.filter = without(app.filter, c.item))}>×</button
+              onclick={() => void removeChip(c.item, index)}>×</button
             >
           </li>
         {/each}
-        <li><button type="button" class="linkish" onclick={() => app.resetFilter()}>{t('filter.clear')}</button></li>
+        <li><button type="button" class="linkish" onclick={() => void clearFilters()}>{t('filter.clear')}</button></li>
       </ul>
     {/if}
     <p class="count" role="status">

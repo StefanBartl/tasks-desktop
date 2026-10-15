@@ -62,41 +62,47 @@ export function installTooltips(doc: Document, win: Window & typeof globalThis):
 
   let current: HTMLElement | null = null;
   let describedBefore: string | null = null;
+  let viaFocus = false;
   let showTimer: number | undefined;
   let hideTimer: number | undefined;
 
   const hintOf = (target: EventTarget | null): HTMLElement | null =>
     target instanceof win.Element ? target.closest<HTMLElement>('[data-hint]') : null;
 
-  function cancel(): void {
+  // A timer that is replaced is stopped first: a lost timer would still fire and take the popup away (or the
+  // pending show of the next element) under the pointer.
+  function cancelShow(): void {
     win.clearTimeout(showTimer);
+    showTimer = undefined;
+  }
+  function cancelHide(): void {
     win.clearTimeout(hideTimer);
+    hideTimer = undefined;
+  }
+  function scheduleHide(): void {
+    cancelHide();
+    hideTimer = win.setTimeout(hide, HIDE_DELAY_MS);
   }
 
+  /** The element describes itself (`Info.svelte` keeps the text in the page): the popup adds nothing to it. */
+  const ownsDescription = (el: HTMLElement): boolean => el.hasAttribute('data-hint-own');
+
   function hide(): void {
-    cancel();
-    if (current) {
+    cancelShow();
+    cancelHide();
+    if (current && !ownsDescription(current)) {
       // Only what this popup added is taken away: a description the element had of its own stays.
       const rest = withoutToken(current.getAttribute('aria-describedby'), TIP_ID);
       if (rest === '' && describedBefore === null) current.removeAttribute('aria-describedby');
       else current.setAttribute('aria-describedby', rest);
-      current = null;
     }
+    current = null;
+    viaFocus = false;
     tip.hidden = true;
     host.hidden = true;
   }
 
-  function show(el: HTMLElement): void {
-    const text = el.dataset.hint ?? '';
-    if (text === '') return hide();
-    if (current && current !== el) hide();
-    current = el;
-    describedBefore = el.getAttribute('aria-describedby');
-    tip.textContent = text;
-    host.setAttribute('aria-label', regionLabel());
-    host.hidden = false;
-    tip.hidden = false;
-    el.setAttribute('aria-describedby', withToken(describedBefore, TIP_ID));
+  function place(el: HTMLElement): void {
     const anchor = el.getBoundingClientRect();
     const size = tip.getBoundingClientRect();
     const at = placeTip(
@@ -108,38 +114,63 @@ export function installTooltips(doc: Document, win: Window & typeof globalThis):
     tip.style.top = `${at.y}px`;
   }
 
+  function show(el: HTMLElement, byFocus: boolean): void {
+    const text = el.dataset.hint ?? '';
+    if (text === '') return hide();
+    if (current && current !== el) hide();
+    // The same element again (hovered, then clicked and focused): what it described before is not read anew,
+    // or the popup's own id would count as the element's.
+    if (current !== el) describedBefore = el.getAttribute('aria-describedby');
+    current = el;
+    viaFocus = viaFocus || byFocus;
+    tip.textContent = text;
+    host.setAttribute('aria-label', regionLabel());
+    host.hidden = false;
+    tip.hidden = false;
+    if (!ownsDescription(el)) el.setAttribute('aria-describedby', withToken(describedBefore, TIP_ID));
+    place(el);
+  }
+
   const onOver = (e: Event): void => {
     if (e.target instanceof win.Node && tip.contains(e.target)) {
-      win.clearTimeout(hideTimer);
+      cancelHide();
       return;
     }
     const el = hintOf(e.target);
     if (!el) {
-      if (!tip.hidden) hideTimer = win.setTimeout(hide, HIDE_DELAY_MS);
+      cancelShow();
+      if (!tip.hidden) scheduleHide();
       return;
     }
-    win.clearTimeout(hideTimer);
+    cancelHide();
     if (el === current) return;
-    win.clearTimeout(showTimer);
-    showTimer = win.setTimeout(() => show(el), SHOW_DELAY_MS);
+    cancelShow();
+    showTimer = win.setTimeout(() => show(el, false), SHOW_DELAY_MS);
   };
   const onOut = (e: Event): void => {
-    win.clearTimeout(showTimer);
+    cancelShow();
     if (!tip.hidden && (hintOf(e.target) || (e.target instanceof win.Node && tip.contains(e.target)))) {
-      hideTimer = win.setTimeout(hide, HIDE_DELAY_MS);
+      scheduleHide();
     }
   };
   const onFocusIn = (e: Event): void => {
     const el = hintOf(e.target);
-    if (el) show(el);
+    if (el) show(el, true);
   };
   const onFocusOut = (): void => hide();
   const onKey = (e: KeyboardEvent): void => {
-    // Not stopped: Escape also closes the dialog or the menu that may be open.
-    if (e.key === 'Escape' && !tip.hidden) hide();
+    // The popup is closed by this Escape and by nothing else: it is not also the Escape of a dialog or a menu.
+    if (e.key === 'Escape' && !tip.hidden) {
+      hide();
+      e.stopPropagation();
+    }
   };
   const onScroll = (): void => {
-    if (!tip.hidden) hide();
+    if (tip.hidden) return;
+    // The browser scrolls a focused element into view after `focusin`: the popup follows it. A scroll with the
+    // pointer takes the popup away (it would stand where the element no longer is).
+    if (viaFocus && current) place(current);
+    else hide();
   };
 
   doc.addEventListener('mouseover', onOver);
