@@ -186,6 +186,9 @@
                 <span class="meta">
                   <span class="id">{card.id}</span>
                   {#if !card.valid}<span class="tag bad">!</span>{/if}
+                  {#if app.crossAreas(card.id).length >= 2}
+                    <span class="tag soft" title={t('cross.mark', { n: app.crossAreas(card.id).length, areas: app.crossAreas(card.id).join(', ') })}>↔ {app.crossAreas(card.id).length}</span>
+                  {/if}
                   <span class="tag soft">{card.prio !== undefined ? `P${card.prio}` : '?'}</span>
                   {#if card.effort}<span class="tag soft">{card.effort}</span>{/if}
                   {#if card.actor}<span class="tag soft">{labelOf(app.lang, 'actor', card.actor)}</span>{/if}

@@ -6,9 +6,9 @@ import { planOp, type PlanForm, type PlanPreview } from './planwizard';
 import { columnsOf, isColumn, neighbourColumn, placeNear, stepInGroup, type Move } from './board';
 import { ApiError, type CheckJobState, type Hub, type HubArea, type HubAreas, type SearchResult, type VaultList } from './api';
 import { cacheableClass, cacheableList, type ListStore } from './cache';
-import type { Check, DonePreview, Estimate, Finished, MovePlan, Next, PlanFor, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
+import type { Check, DonePreview, Estimate, Finished, Links, MovePlan, Next, PlanFor, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import type { Op } from './api';
-import { touchedAreas } from './cross';
+import { indexOfLinks, touchedAreas } from './cross';
 import { parsePrefs, type Prefs as FinishedPrefs } from './finished';
 import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
 import { inboxOf, triageKey } from './inbox';
@@ -138,6 +138,8 @@ export class App {
   shortAreas = $state(true);
   /** The day of the reader, `YYYY-MM-DD`; renewed when the window is looked at again. */
   today = $state(localToday());
+  /** Where the areas hang together, from the engine (null while it has not said, or when it cannot). */
+  links = $state<Links | null>(null);
   /** Whether the list shows the finished tasks under the open ones. */
   showFinished = $state(false);
   /** The period and the step the view of the finished tasks was left on. */
@@ -272,7 +274,7 @@ export class App {
   // ── derived ───────────────────────────────────────────────────────────
 
   /** For every task the areas it touches (its own and those of the tasks it is linked with). */
-  crossIndex = $derived.by(() => touchedAreas(this.tasks));
+  crossIndex = $derived.by(() => (this.links ? indexOfLinks(this.links) : touchedAreas(this.tasks)));
 
   get shown(): TaskEntry[] {
     return applyFilter(this.tasks, this.filter, this.today, this.crossIndex);
@@ -1643,7 +1645,27 @@ export class App {
       // No classes, no cache: nothing is written.
     }
     void this.loadVaults();
+    void this.loadLinks();
     if (this.view === 'today') await this.loadNext();
+  }
+
+  /** The links between areas, once per state of the vault. An engine without them leaves the page to read them from the list. */
+  private async loadLinks(): Promise<void> {
+    const rev = this.snapshot?.rev;
+    if (!this.can('links') || this.capabilities === null || rev === undefined || this.links?.rev === rev) return;
+    try {
+      const doc = await this.env.hub.links();
+      // An answer for a state that has gone by meanwhile is not kept; the next read asks again.
+      if (this.snapshot?.rev === doc.rev) this.links = doc;
+    } catch {
+      // The links read from the list stand in.
+    }
+  }
+
+  /** The areas a task touches when that is more than its own (from the links), else none. */
+  crossAreas(id: string): string[] {
+    const touched = this.crossIndex.get(id);
+    return touched && touched.size >= 2 ? [...touched].sort() : [];
   }
 
   /** Read the list of vaults; a hub without one (404) simply has no menu entries. */

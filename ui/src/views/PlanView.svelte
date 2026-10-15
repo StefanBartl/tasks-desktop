@@ -190,6 +190,9 @@
                 >
                 <span class="meta">
                   {#if critical.has(task.id)}<span class="tag crit">{t('plan.on_path')}</span>{/if}
+                  {#if app.crossAreas(task.id).length >= 2}
+                    <span class="tag soft" title={t('cross.mark', { n: app.crossAreas(task.id).length, areas: app.crossAreas(task.id).join(', ') })}>↔ {app.crossAreas(task.id).length}</span>
+                  {/if}
                   <span class="tag">{labelOf(app.lang, 'status', task.status)}</span>
                   {#if task.readiness && task.readiness.state !== 'ready' && task.readiness.state !== 'unknown'}
                     <span class="tag soft">{labelOf(app.lang, 'state', task.readiness.state)}</span>

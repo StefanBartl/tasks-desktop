@@ -582,6 +582,7 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/api/tasks/rescan", post(rescan))
         .route("/api/tasks/done_preview", get(done_preview))
         .route("/api/tasks/finished", get(finished))
+        .route("/api/tasks/links", get(links))
         .route("/api/tasks/plan_for", get(plan_for))
         .route("/api/tasks/check", get(check_state))
         .route(
@@ -1785,6 +1786,18 @@ async fn done_preview(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) 
         );
     };
     match ask(&st, EngineMethod::DonePreview, Some(&json!({ "id": id }))).await {
+        Ok(reply) => json_response(StatusCode::OK, reply.text, None),
+        Err(response) => response,
+    }
+}
+
+/// `GET /api/tasks/links`: where the areas hang together (the links between the open tasks of different areas). A
+/// read without parameters; the finding of the links is the engine's.
+async fn links(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
+    if let Some(response) = no_query(query.as_deref()) {
+        return response;
+    }
+    match ask(&st, EngineMethod::Links, None).await {
         Ok(reply) => json_response(StatusCode::OK, reply.text, None),
         Err(response) => response,
     }

@@ -37,6 +37,7 @@ pub enum Method {
     Estimate,
     Next,
     Areas,
+    Links,
     Finished,
     DonePreview,
     PlanFor,
@@ -57,6 +58,7 @@ impl Method {
             Self::Estimate => "estimate",
             Self::Next => "next",
             Self::Areas => "areas",
+            Self::Links => "links",
             Self::Finished => "finished",
             Self::DonePreview => "done_preview",
             Self::PlanFor => "plan_for",
@@ -77,6 +79,7 @@ impl Method {
             Self::Estimate => "tasks.estimate",
             Self::Next => "tasks.next",
             Self::Areas => "tasks.areas",
+            Self::Links => "tasks.links",
             Self::Finished => "tasks.finished",
             Self::DonePreview => "tasks.donepreview",
             Self::PlanFor => "tasks.planfor",
@@ -87,7 +90,10 @@ impl Method {
     /// Whether the method carries a request or parameters at all.
     #[must_use]
     pub fn takes_params(self) -> bool {
-        !matches!(self, Self::Hello | Self::Snapshot | Self::Areas)
+        !matches!(
+            self,
+            Self::Hello | Self::Snapshot | Self::Areas | Self::Links
+        )
     }
 
     /// Parse the name of a route or a request. Nothing else is accepted.
@@ -103,6 +109,7 @@ impl Method {
             "estimate" => Self::Estimate,
             "next" => Self::Next,
             "areas" => Self::Areas,
+            "links" => Self::Links,
             "finished" => Self::Finished,
             "done_preview" => Self::DonePreview,
             "plan_for" => Self::PlanFor,

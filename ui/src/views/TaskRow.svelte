@@ -15,6 +15,8 @@
     markLabel,
     flagged = 0,
     flagTitle = '',
+    crossAreas = [],
+    crossTitle = '',
   }: {
     task: TaskEntry;
     lang: Lang;
@@ -27,6 +29,9 @@
     /** How many findings of the check are about this task. */
     flagged?: number;
     flagTitle?: string;
+    /** The areas the task touches when that is more than its own (from the links). */
+    crossAreas?: readonly string[];
+    crossTitle?: string;
   } = $props();
 
   // A word this version does not know is shown as it is.
@@ -55,6 +60,7 @@
   <span class="meta">
     {#if !task.valid}<span class="tag bad">!</span>{/if}
     {#if flagged > 0}<span class="tag bad" title={flagTitle}>⚑ {flagged}</span>{/if}
+    {#if crossAreas.length >= 2}<span class="tag soft" title={crossTitle}>↔ {crossAreas.length}</span>{/if}
     {#if due}<span class="tag due" title={task.remind}>⏰ {task.remind}</span>{/if}
     <span class="tag" data-hint={hintOf(lang, 'hint.status', task.status)}>{status}</span>
     {#if state && task.readiness?.state !== 'unknown'}<span class="tag soft" data-hint={hintOf(lang, 'hint.state', task.readiness?.state)}>{state}</span>{/if}

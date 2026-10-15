@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { areaOfId, connectsAreas, crossEdges, pairsOf, touchedAreas } from './cross';
+import {
+  areaOfId,
+  areasOfPairs,
+  connectsAreas,
+  crossEdges,
+  indexOfLinks,
+  pairsOf,
+  pairsOfLinks,
+  touchedAreas,
+} from './cross';
+import type { Links } from './contract';
 import { task } from './fixtures';
 
 const a1 = task('lib/a1', { blocked_by: ['rules/r1'], after: ['lib/a2'] });
@@ -75,5 +85,51 @@ describe('a name written twice', () => {
     const edges = crossEdges([x, y]);
     expect(edges.map((e) => e.kind).sort()).toEqual(['after', 'blocked_by']);
     expect(pairsOf(edges)[0]?.edges).toHaveLength(2);
+  });
+});
+
+describe('the links of the engine', () => {
+  const doc = {
+    pairs: [
+      {
+        a: 'lib',
+        b: 'rules',
+        count: 3,
+        kinds: { blocked_by: 1, refs: 1, plan: 1 },
+        // one edge is cut from the list; the count still says three
+        edges: [
+          { from: 'rules/r1', from_area: 'rules', to_area: 'lib', kind: 'blocked_by', to: 'lib/a1' },
+          { from: 'rules/r2', from_area: 'rules', to_area: 'lib', kind: 'refs', ref: 'lib@803de65' },
+        ],
+      },
+      {
+        a: 'cas',
+        b: 'rules',
+        count: 1,
+        kinds: { plan: 1 },
+        edges: [{ from: 'cas/c1', from_area: 'cas', to_area: 'rules', kind: 'plan', to: 'rules/p' }],
+      },
+    ],
+    tasks: [
+      { id: 'rules/r1', areas: ['lib', 'rules'] },
+      { id: 'cas/c1', areas: ['cas', 'rules'] },
+    ],
+  } as unknown as Links;
+
+  it('gives the pairs as they come, with the count of the engine and the kinds of the edges', () => {
+    const pairs = pairsOfLinks(doc);
+    expect(pairs.map((p) => `${p.a}|${p.b}:${p.count}/${p.edges.length}`)).toEqual(['lib|rules:3/2', 'cas|rules:1/1']);
+    expect(pairs[0]?.edges.map((e) => e.kind)).toEqual(['blocked_by', 'refs']);
+    expect(pairs[0]?.edges[1]).toMatchObject({ ref: 'lib@803de65', fromArea: 'rules', toArea: 'lib' });
+    expect(pairs[0]?.edges[1]).not.toHaveProperty('to');
+  });
+  it('keeps only the pairs between chosen areas', () => {
+    expect(pairsOfLinks(doc, ['lib', 'rules']).map((p) => p.a)).toEqual(['lib']);
+    expect(pairsOfLinks(doc, ['lib'])).toEqual([]);
+  });
+  it('indexes the touched areas by task, and names the areas of a matrix once', () => {
+    expect([...(indexOfLinks(doc).get('cas/c1') ?? [])]).toEqual(['cas', 'rules']);
+    expect(indexOfLinks(doc).get('lib/zzz')).toBeUndefined();
+    expect(areasOfPairs(pairsOfLinks(doc))).toEqual(['cas', 'lib', 'rules']);
   });
 });

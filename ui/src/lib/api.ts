@@ -1,6 +1,6 @@
 // The hub's routes, as typed calls. Only the shapes the UI needs.
 
-import type { Areas, Check, DonePreview, Estimate, Finished, Next, PlanFor, Result, Snapshot, TaskDocument } from './contract';
+import type { Areas, Check, DonePreview, Estimate, Finished, Links, Next, PlanFor, Result, Snapshot, TaskDocument } from './contract';
 
 export class ApiError extends Error {
   constructor(
@@ -304,6 +304,11 @@ export class Hub {
       .map(([key, value]) => `${key}=${encodeURIComponent(String(value)).replace(/%2F/gi, '/')}`);
     const path = `/api/tasks/finished${parts.length > 0 ? `?${parts.join('&')}` : ''}`;
     return this.json<Finished>(path, signal ? { signal } : undefined);
+  }
+
+  /** Where the areas hang together: the links between the open tasks of different areas. */
+  links(): Promise<Links> {
+    return this.json<Links>('/api/tasks/links');
   }
 
   /** What finishing a task would do, and the token `done` needs. */
