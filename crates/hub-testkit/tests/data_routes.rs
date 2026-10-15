@@ -290,6 +290,12 @@ async fn queries_that_are_not_plain_are_refused_before_the_engine() {
         "/api/tasks/task?id=/b",
         "/api/tasks/task?id=a/",
         "/api/tasks/areas?x=1",
+        "/api/tasks/links?x=1",
+        "/api/tasks/links?area=a",
+        "/api/tasks/finished?x=1",
+        "/api/tasks/finished?limit=abc",
+        "/api/tasks/finished?offset=-1",
+        "/api/tasks/finished?area=a&area=b",
         "/api/tasks/snapshot?x=1",
     ] {
         let r = get(&h, path, &[]).await;

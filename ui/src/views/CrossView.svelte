@@ -13,9 +13,16 @@
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
 
   // From the engine when it says (it finds refs and plans too); an engine without it leaves the two kinds of the list.
-  const allPairs = $derived(app.links ? pairsOfLinks(app.links) : pairsOf(crossEdges(app.tasks)));
+  // Only the links of this very state count; while the engine's answer is on its way nothing is read from the list.
+  const doc = $derived(app.linksNow);
+  const pending = $derived(app.linksPending);
+  const allPairs = $derived(doc ? pairsOfLinks(doc) : pending ? [] : pairsOf(crossEdges(app.tasks)));
   const pairs = $derived(
-    app.links ? pairsOfLinks(app.links, app.filter.areas) : pairsOf(crossEdges(app.tasks), app.filter.areas),
+    doc
+      ? pairsOfLinks(doc, app.filter.areas)
+      : pending
+        ? []
+        : pairsOf(crossEdges(app.tasks), app.filter.areas),
   );
   const areasWithLinks = $derived(new Set(pairs.flatMap((p) => [p.a, p.b])));
   const linkCount = $derived(pairs.reduce((sum, p) => sum + p.count, 0));
@@ -23,9 +30,11 @@
   const matrixAreas = $derived(areasOfPairs(pairs));
   const countOf = (x: string, y: string): number =>
     pairs.find((p) => (p.a === x && p.b === y) || (p.a === y && p.b === x))?.count ?? 0;
-  /** The pair that is open (a click on a cell of the matrix opens it). */
-  let openKey = $state<string | null>(null);
+  /** The pairs that are open (a click on a cell of the matrix opens one). */
+  let openKeys = $state<string[]>([]);
   const keyOf = (a: string, b: string): string => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
+  /** An element id for every pair (names of areas that differ in one character an id would replace stay apart). */
+  const idOf = $derived(new Map(pairs.map((p, i) => [keyOf(p.a, p.b), `pair-${i}`])));
   const titles = $derived(new Map(app.tasks.map((task) => [task.id, task.title])));
   const areaOptions = $derived(
     areasOfPairs(allPairs)
@@ -43,8 +52,10 @@
   }
   /** Open the pair a cell of the matrix is about and bring it into view. */
   function openPair(x: string, y: string): void {
-    openKey = keyOf(x, y);
-    document.getElementById(`pair-${keyOf(x, y).replace(/\W/g, '_')}`)?.scrollIntoView({ block: 'nearest' });
+    const key = keyOf(x, y);
+    if (!openKeys.includes(key)) openKeys = [...openKeys, key];
+    const id = idOf.get(key);
+    if (id) document.getElementById(id)?.scrollIntoView({ block: 'nearest' });
   }
   function open(id: string): void {
     app.reveal(id);
@@ -84,7 +95,9 @@
     {/if}
   </section>
 
-  {#if pairs.length === 0}
+  {#if pending}
+    <p class="muted" role="status">{t('state.loading')}</p>
+  {:else if pairs.length === 0}
     <p class="muted">{app.filter.areas.length > 0 ? t('cross.none_chosen') : t('cross.none')}</p>
   {:else}
     {#if matrixAreas.length >= 2}
@@ -111,7 +124,11 @@
                       <button
                         type="button"
                         class="link"
-                        aria-label={t('cross.cell', { a: nameOf(row), b: nameOf(col), n: countOf(row, col) })}
+                        aria-label={t(countOf(row, col) === 1 ? 'cross.cell_one' : 'cross.cell', {
+                          a: nameOf(row),
+                          b: nameOf(col),
+                          n: countOf(row, col),
+                        })}
                         onclick={() => openPair(row, col)}>{countOf(row, col)}</button
                       >
                     {:else}
@@ -129,13 +146,14 @@
     <section class="card" aria-label={t('cross.pairs')}>
       <ul class="plain pairs">
         {#each pairs as pair (pair.a + '|' + pair.b)}
-          <li id={`pair-${keyOf(pair.a, pair.b).replace(/\W/g, '_')}`}>
+          <li id={idOf.get(keyOf(pair.a, pair.b))}>
             <details
-              open={openKey === keyOf(pair.a, pair.b)}
+              open={openKeys.includes(keyOf(pair.a, pair.b))}
               ontoggle={(e) => {
                 const k = keyOf(pair.a, pair.b);
-                if (e.currentTarget.open) openKey = k;
-                else if (openKey === k) openKey = null;
+                const isOpen = openKeys.includes(k);
+                if (e.currentTarget.open && !isOpen) openKeys = [...openKeys, k];
+                else if (!e.currentTarget.open && isOpen) openKeys = openKeys.filter((x) => x !== k);
               }}
             >
               <summary>
@@ -143,7 +161,7 @@
                 <span class="n">({pair.count})</span>
               </summary>
               <ul class="plain edges">
-                {#each pair.edges as edge (edge.from + '>' + edge.kind + '>' + (edge.to ?? edge.ref ?? '') + '>' + edge.toArea)}
+                {#each pair.edges as edge, i (i + '>' + edge.from + '>' + edge.kind + '>' + (edge.to ?? edge.ref ?? '') + '>' + edge.toArea)}
                   <li>
                     <button type="button" class="link" onclick={() => open(edge.from)}
                       >{markHidden(titles.get(edge.from) ?? edge.from)}</button
