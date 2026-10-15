@@ -139,6 +139,21 @@ class FakeHub {
     if (etag !== null && etag === this.doc.digest) return { kind: 'not_modified' as const };
     return { kind: 'fresh' as const, doc: this.doc, etag: this.doc.digest ?? null };
   }
+  /** While set, the links do not answer; `linksFail` makes them refuse (a busy engine). */
+  linksHold: Promise<void> | null = null;
+  linksFail = false;
+  async links() {
+    if (this.linksHold) await this.linksHold;
+    if (this.linksFail) throw new ApiError(503, 'engine_busy', 'x');
+    return {
+      kind: 'tasks.links',
+      rev: this.doc.rev,
+      edge_count: 1,
+      truncated: false,
+      pairs: [],
+      tasks: [{ id: 'pub/a', areas: ['lib', 'pub'] }],
+    } as never;
+  }
   async areas() {
     this.areasCalls += 1;
     return { areas: this.areaList, unclassified: [], private: [] };
@@ -968,6 +983,40 @@ describe('writing', () => {
       m.app.stop();
       expect(m.app.can('reorder')).toBe(true);
       expect(m.app.view).toBe('board');
+    });
+
+    describe('the links between areas', () => {
+      it('shows nothing from the list while the answer of the engine is on its way', async () => {
+        const m = make({ token: 't' });
+        m.hub.capabilities = ['links'];
+        let release: () => void = () => {};
+        m.hub.linksHold = new Promise<void>((r) => (release = r));
+        await m.app.start(null);
+        m.app.stop();
+        expect(m.app.linksPending).toBe(true);
+        expect(m.app.crossIndex.size).toBe(0);
+        release();
+        await vi.waitFor(() => expect(m.app.linksNow).not.toBeNull());
+        expect(m.app.linksPending).toBe(false);
+        expect(m.app.crossAreas('pub/a')).toEqual(['lib', 'pub']);
+      });
+
+      it('does not keep the links of an older state when the engine cannot answer for the new one', async () => {
+        const m = make({ token: 't' });
+        m.hub.capabilities = ['links'];
+        await m.app.start(null);
+        m.app.stop();
+        await vi.waitFor(() => expect(m.app.linksNow).not.toBeNull());
+        expect(m.app.crossAreas('pub/a')).toEqual(['lib', 'pub']);
+        m.hub.linksFail = true;
+        m.hub.doc = snapshot([task('pub/a', { etag: 'e2' })], 'rev:2');
+        await m.app.refresh();
+        await vi.waitFor(() => expect(m.app.linksFailed).toBe(true));
+        expect(m.app.linksNow).toBeNull();
+        expect(m.app.linksPending).toBe(false);
+        // Read from the list now: the old answer would still say that the task touches `lib`.
+        expect(m.app.crossAreas('pub/a')).toEqual([]);
+      });
     });
 
     it('offers both where the engine names them', async () => {

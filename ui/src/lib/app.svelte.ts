@@ -140,6 +140,8 @@ export class App {
   today = $state(localToday());
   /** Where the areas hang together, from the engine (null while it has not said, or when it cannot). */
   links = $state<Links | null>(null);
+  /** The engine could not answer the last question for the links: the page reads the two kinds from the list. */
+  linksFailed = $state(false);
   /** Whether the list shows the finished tasks under the open ones. */
   showFinished = $state(false);
   /** The period and the step the view of the finished tasks was left on. */
@@ -274,7 +276,23 @@ export class App {
   // ── derived ───────────────────────────────────────────────────────────
 
   /** For every task the areas it touches (its own and those of the tasks it is linked with). */
-  crossIndex = $derived.by(() => (this.links ? indexOfLinks(this.links) : touchedAreas(this.tasks)));
+  crossIndex = $derived.by(() => {
+    const doc = this.linksNow;
+    if (doc) return indexOfLinks(doc);
+    // The engine will say: nothing is shown from the list meanwhile (it would be a second rule, and a flicker).
+    if (this.linksPending) return new Map<string, Set<string>>();
+    return touchedAreas(this.tasks);
+  });
+
+  /** The links of the state of the list that is shown, or null (an older state is never shown as the current one). */
+  get linksNow(): Links | null {
+    return this.links !== null && this.links.rev === this.snapshot?.rev ? this.links : null;
+  }
+
+  /** The engine has links and the answer for this state is still on its way. */
+  get linksPending(): boolean {
+    return this.capabilities !== null && this.can('links') && !this.linksFailed && this.linksNow === null;
+  }
 
   get shown(): TaskEntry[] {
     return applyFilter(this.tasks, this.filter, this.today, this.crossIndex);
@@ -1558,6 +1576,7 @@ export class App {
     this.next = null;
     this.nextFor = null;
     this.hubAreas = [];
+    this.links = null;
     this.detail = { state: 'none' };
     this.cachedAt = null;
     this.etag = null;
@@ -1656,9 +1675,14 @@ export class App {
     try {
       const doc = await this.env.hub.links();
       // An answer for a state that has gone by meanwhile is not kept; the next read asks again.
-      if (this.snapshot?.rev === doc.rev) this.links = doc;
+      if (this.snapshot?.rev === doc.rev) {
+        this.links = doc;
+        this.linksFailed = false;
+      }
     } catch {
-      // The links read from the list stand in.
+      // The links read from the list stand in, and no older state of the engine's answer is shown.
+      this.links = null;
+      this.linksFailed = true;
     }
   }
 

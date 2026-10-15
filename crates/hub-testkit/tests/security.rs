@@ -382,6 +382,8 @@ async fn every_data_route_needs_a_session() {
         "/api/tasks/task",
         "/api/tasks/next",
         "/api/tasks/areas",
+        "/api/tasks/links",
+        "/api/tasks/finished",
         "/api/tasks/events",
         "/api/tasks/ops",
         "/api/anything-at-all",
