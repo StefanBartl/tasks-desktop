@@ -142,7 +142,9 @@ class FakeHub {
   /** While set, the links do not answer; `linksFail` makes them refuse (a busy engine). */
   linksHold: Promise<void> | null = null;
   linksFail = false;
+  linksCalls = 0;
   async links() {
+    this.linksCalls += 1;
     if (this.linksHold) await this.linksHold;
     if (this.linksFail) throw new ApiError(503, 'engine_busy', 'x');
     return {
@@ -999,6 +1001,21 @@ describe('writing', () => {
         await vi.waitFor(() => expect(m.app.linksNow).not.toBeNull());
         expect(m.app.linksPending).toBe(false);
         expect(m.app.crossAreas('pub/a')).toEqual(['lib', 'pub']);
+      });
+
+      it('asks once for a state while the answer is on its way', async () => {
+        const m = make({ token: 't' });
+        m.hub.capabilities = ['links'];
+        let release: () => void = () => {};
+        m.hub.linksHold = new Promise<void>((r) => (release = r));
+        await m.app.start(null);
+        m.app.stop();
+        await m.app.refresh();
+        await m.app.refresh();
+        expect(m.hub.linksCalls).toBe(1);
+        release();
+        await vi.waitFor(() => expect(m.app.linksNow).not.toBeNull());
+        expect(m.hub.linksCalls).toBe(1);
       });
 
       it('does not keep the links of an older state when the engine cannot answer for the new one', async () => {

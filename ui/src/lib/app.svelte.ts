@@ -1668,10 +1668,16 @@ export class App {
     if (this.view === 'today') await this.loadNext();
   }
 
+  /** The rev the links are being asked for. */
+  private linksAsked: string | null = null;
+
   /** The links between areas, once per state of the vault. An engine without them leaves the page to read them from the list. */
   private async loadLinks(): Promise<void> {
     const rev = this.snapshot?.rev;
     if (!this.can('links') || this.capabilities === null || rev === undefined || this.links?.rev === rev) return;
+    // One question per state: a read that arrives while the answer is on its way does not ask again.
+    if (this.linksAsked === rev) return;
+    this.linksAsked = rev;
     try {
       const doc = await this.env.hub.links();
       // An answer for a state that has gone by meanwhile is not kept; the next read asks again.
@@ -1683,6 +1689,8 @@ export class App {
       // The links read from the list stand in, and no older state of the engine's answer is shown.
       this.links = null;
       this.linksFailed = true;
+    } finally {
+      if (this.linksAsked === rev) this.linksAsked = null;
     }
   }
 
