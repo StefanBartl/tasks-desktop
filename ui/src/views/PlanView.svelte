@@ -7,6 +7,7 @@
   import { chosenPlan, criticalIds, firstTasks, phaseCounts, stagesOf, warningsOf } from '../lib/plan';
   import { markHidden } from '../lib/text';
   import GraphPanel from './GraphPanel.svelte';
+  import PlanFinished from './PlanFinished.svelte';
 
   let { app }: { app: App } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) =>
@@ -168,6 +169,8 @@
     {/if}
 
     <GraphPanel {app} />
+
+    <PlanFinished {app} {planId} />
 
     <section class="stages" tabindex="-1" aria-label={t('plan.stages')}>
       {#each drawn as stage (stage.stage ?? 'cycle')}

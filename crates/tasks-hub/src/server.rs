@@ -1790,18 +1790,18 @@ async fn done_preview(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) 
     }
 }
 
-/// `GET /api/tasks/finished?area=&since=&until=&limit=&offset=`: the finished tasks of the Backlogs, newest first, and
+/// `GET /api/tasks/finished?area=&plan=&since=&until=&limit=&offset=`: the finished tasks of the Backlogs, newest first, and
 /// what all that match add up to. A read; the counting is the engine's. The days are checked by the engine.
 async fn finished(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
     let params = match parse_query(
         query.as_deref(),
-        &["area", "since", "until", "limit", "offset"],
+        &["area", "plan", "since", "until", "limit", "offset"],
     ) {
         Ok(p) => p,
         Err(why) => return error_body(StatusCode::BAD_REQUEST, "bad_query", why),
     };
     let mut request = serde_json::Map::new();
-    for key in ["area", "since", "until"] {
+    for key in ["area", "plan", "since", "until"] {
         if let Some(value) = params.get(key) {
             request.insert(key.to_owned(), json!(value));
         }

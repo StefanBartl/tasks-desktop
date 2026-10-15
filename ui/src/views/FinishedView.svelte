@@ -15,9 +15,11 @@
   let { app }: { app: App } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
 
-  let preset = $state<Preset>('90');
-  let custom = $state({ from: '', to: '' });
-  let step = $state<'month' | 'week'>('month');
+  const preset = $derived(app.finishedPrefs.preset);
+  const custom = $derived({ from: app.finishedPrefs.from, to: app.finishedPrefs.to });
+  const step = $derived(app.finishedPrefs.step);
+  const remember = (change: Partial<typeof app.finishedPrefs>): void =>
+    app.setFinishedPrefs({ ...app.finishedPrefs, ...change });
   /** A month or a week clicked in the table: it replaces the period until it is taken off. */
   let drill = $state<{ range: Range; label: string } | null>(null);
   let area = $state<string | undefined>(undefined);
@@ -99,7 +101,7 @@
         <select
           value={preset}
           onchange={(e) => {
-            preset = e.currentTarget.value as Preset;
+            remember({ preset: e.currentTarget.value as Preset });
             drill = null;
           }}
         >
@@ -109,8 +111,8 @@
         </select>
       </label>
       {#if preset === 'custom' && !drill}
-        <label class="field">{t('done.from')} <input type="date" bind:value={custom.from} /></label>
-        <label class="field">{t('done.to')} <input type="date" bind:value={custom.to} /></label>
+        <label class="field">{t('done.from')} <input type="date" value={custom.from} oninput={(e) => remember({ from: e.currentTarget.value })} /></label>
+        <label class="field">{t('done.to')} <input type="date" value={custom.to} oninput={(e) => remember({ to: e.currentTarget.value })} /></label>
       {/if}
       {#if narrowed}
         <span class="muted">{t('done.showing', { what: narrowedText })}</span>
@@ -172,7 +174,7 @@
         <h3 id="done-over-time">{t('done.over_time')}</h3>
         <label class="field"
           >{t('done.step')}
-          <select bind:value={step}>
+          <select value={step} onchange={(e) => remember({ step: e.currentTarget.value === 'week' ? 'week' : 'month' })}>
             <option value="month">{t('done.step.month')}</option>
             <option value="week">{t('done.step.week')}</option>
           </select>

@@ -3,6 +3,7 @@
   import { labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
   import Detail from './Detail.svelte';
+  import FinishedList from './FinishedList.svelte';
   import TextHits from './TextHits.svelte';
   import TaskRow from './TaskRow.svelte';
   import MultiSelect from './MultiSelect.svelte';
@@ -297,6 +298,11 @@
         {t('list.help')}</span
       >
     </p>
+    {#if app.can('finished')}
+      <label class="show-finished"
+        ><input type="checkbox" bind:checked={app.showFinished} /> {t('list.show_finished')}</label
+      >
+    {/if}
     {#if app.marks.length > 0}
       <div class="bulk" role="group" aria-label={t('bulk.change')}>
         <strong aria-live="polite">{t('bulk.count', { n: app.marks.length })}</strong>
@@ -378,6 +384,9 @@
       {:else}
         <p class="empty">{t('list.none')}</p>
       {/each}
+      {#if app.showFinished && app.can('finished')}
+        <FinishedList {app} />
+      {/if}
     </div>
   </section>
   <Detail {app} />
@@ -526,6 +535,10 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 0.2rem 0.5rem;
+  }
+  .show-finished {
+    display: block;
+    padding: 0 0.75rem 0.5rem;
   }
   .rows {
     overflow: auto;

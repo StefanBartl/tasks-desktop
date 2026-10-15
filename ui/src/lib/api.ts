@@ -296,7 +296,7 @@ export class Hub {
 
   /** The finished tasks of the Backlogs and what they add up to (the engine counts; `since` and `until` are days). */
   finished(
-    query: { area?: string; since?: string; until?: string; limit?: number; offset?: number },
+    query: { area?: string; plan?: string; since?: string; until?: string; limit?: number; offset?: number },
     signal?: AbortSignal,
   ): Promise<Finished> {
     const parts = Object.entries(query)
