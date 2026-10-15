@@ -1283,6 +1283,9 @@ test('connections: the links between areas, narrowed to the chosen areas, and th
   await expect(row.getByText('waits for')).toBeHidden();
   await cell.click();
   await expect(row.getByText('waits for')).toBeVisible();
+  // The matrix is symmetric: the pair is one button, not two; the click moves the focus to the pair it opened.
+  await expect(page.getByRole('button', { name: /^cascade\.nvim and lib\.nvim:|^lib\.nvim and cascade\.nvim:/ })).toHaveCount(1);
+  await expect(row.locator('summary')).toBeFocused();
 
   // Only lib.nvim chosen: no link between two chosen areas. Both chosen: the link is back.
   await page.getByRole('region', { name: 'Links between areas' }).getByRole('button', { name: 'Areas' }).click();

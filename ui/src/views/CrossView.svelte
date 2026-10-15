@@ -47,15 +47,20 @@
   );
   const nameOf = (area: string): string => (app.shortAreas ? areaLabel(area, app.areaNames) : area);
 
+  const KNOWN_KINDS = new Set<string>(['blocked_by', 'after', 'refs', 'plan']);
   function verb(edge: CrossEdge): string {
-    return t(`cross.kind.${edge.kind}` as Key);
+    // A kind a later engine adds is said in general words, not as a key.
+    return t(KNOWN_KINDS.has(edge.kind) ? (`cross.kind.${edge.kind}` as Key) : 'cross.kind.other');
   }
   /** Open the pair a cell of the matrix is about and bring it into view. */
   function openPair(x: string, y: string): void {
     const key = keyOf(x, y);
     if (!openKeys.includes(key)) openKeys = [...openKeys, key];
     const id = idOf.get(key);
-    if (id) document.getElementById(id)?.scrollIntoView({ block: 'nearest' });
+    const item = id ? document.getElementById(id) : null;
+    item?.scrollIntoView({ block: 'nearest' });
+    // The click moves on to the pair it opened (a keyboard user would otherwise stay in the matrix without a sign).
+    item?.querySelector('summary')?.focus();
   }
   function open(id: string): void {
     app.reveal(id);
@@ -103,10 +108,13 @@
     {#if matrixAreas.length >= 2}
       <section class="card" aria-labelledby="cross-matrix-title">
         <h3 id="cross-matrix-title" class="eyebrow">{t('cross.matrix')}</h3>
-        <table>
+        <!-- A wide matrix scrolls in its own box, which the keyboard can reach. -->
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <div class="scroll" tabindex="0">
+        <table aria-labelledby="cross-matrix-title">
           <thead>
             <tr>
-              <td></td>
+              <th scope="col"><span class="sr-only">{t('cross.matrix')}</span></th>
               {#each matrixAreas as col (col)}
                 <th scope="col">{markHidden(nameOf(col))}</th>
               {/each}
@@ -120,6 +128,9 @@
                   <td class="num">
                     {#if row === col}
                       <span class="muted" aria-hidden="true">·</span>
+                    {:else if row > col}
+                      <!-- The matrix is symmetric: the pair is a button once, above the diagonal. -->
+                      <span class="muted" aria-hidden="true"></span>
                     {:else if countOf(row, col) > 0}
                       <button
                         type="button"
@@ -140,6 +151,7 @@
             {/each}
           </tbody>
         </table>
+        </div>
       </section>
     {/if}
 
@@ -248,6 +260,9 @@
   }
   .n {
     color: var(--muted);
+  }
+  .scroll {
+    overflow-x: auto;
   }
   table {
     border-collapse: collapse;
