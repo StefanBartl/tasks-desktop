@@ -20,11 +20,39 @@ pub(super) enum Class {
     Other,
 }
 
-pub(super) fn classify(path: &str) -> Class {
+/// What an app tells the guard about its routes: paths and nothing else. The checks, their order
+/// and the classes are the guard's own, so an app cannot loosen one.
+#[derive(Debug, Clone)]
+pub struct GuardRules {
+    /// The path of `hello`: version and abilities, no credential and no data.
+    hello_path: String,
+    /// POST paths that are counted by the coarse limit of `ops` (a read that is a POST, or a write
+    /// that only its body tells from a dry run) and not by the strict one of the other mutations.
+    coarse_post_paths: Vec<String>,
+}
+
+impl GuardRules {
+    #[must_use]
+    pub fn new(
+        hello_path: impl Into<String>,
+        coarse_post_paths: impl IntoIterator<Item = String>,
+    ) -> Self {
+        Self {
+            hello_path: hello_path.into(),
+            coarse_post_paths: coarse_post_paths.into_iter().collect(),
+        }
+    }
+
+    fn is_coarse(&self, path: &str) -> bool {
+        self.coarse_post_paths.iter().any(|p| p == path)
+    }
+}
+
+pub(super) fn classify(path: &str, rules: &GuardRules) -> Class {
     match path {
         "/" | "/index.html" => Class::Shell,
         p if p.starts_with("/assets/") => Class::Shell,
-        p if p == crate::IDENTITY.route("hello") => Class::Hello,
+        p if p == rules.hello_path => Class::Hello,
         "/auth/exchange" => Class::Exchange,
         "/api/control/pair" => Class::ControlPair,
         p if p.starts_with("/api/") => Class::Api,
@@ -79,7 +107,7 @@ pub(super) fn is_json_content_type(headers: &HeaderMap) -> bool {
 pub(super) static SEC_FETCH_SITE: HeaderName = HeaderName::from_static("sec-fetch-site");
 
 pub(super) async fn guard(State(st): State<Arc<Shared>>, req: Request, next: Next) -> Response {
-    let class = classify(req.uri().path());
+    let class = classify(req.uri().path(), &st.guard_rules);
     let mut response = judge(&st, class, req, next).await;
     set_security_headers(&mut response, class);
     response
@@ -193,7 +221,7 @@ pub(super) async fn judge(st: &Shared, class: Class, req: Request, next: Next) -
     // from a dry run, so the route has a coarse limit here for everything sent to it, and its
     // writes are counted again, strictly, once the handler has read the body.
     if mutation {
-        let limit = if parts.uri.path() == OPS_PATH || parts.uri.path() == ESTIMATE_PATH {
+        let limit = if st.guard_rules.is_coarse(parts.uri.path()) {
             &st.ops_limit
         } else {
             &st.post_limit
@@ -246,11 +274,6 @@ pub(super) async fn judge(st: &Shared, class: Class, req: Request, next: Next) -
     }
 }
 
-pub(super) const OPS_PATH: &str = "/api/tasks/ops";
-/// A read that is a POST (its question is too long for a query): it changes nothing, and has the coarse limit of
-/// `ops` in the guard, not the strict one of the writes.
-pub(super) const ESTIMATE_PATH: &str = "/api/tasks/estimate";
-
 pub(super) fn too_many() -> Response {
     error_body(
         StatusCode::TOO_MANY_REQUESTS,
@@ -300,5 +323,51 @@ pub(super) fn set_security_headers(response: &mut Response, class: Class) {
                  clipboard-read=(), clipboard-write=()",
             ),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rules() -> GuardRules {
+        GuardRules::new(
+            "/api/rules/hello",
+            [
+                "/api/rules/apply".to_owned(),
+                "/api/rules/preview".to_owned(),
+            ],
+        )
+    }
+
+    #[test]
+    fn only_the_hello_of_the_rules_is_open() {
+        let r = rules();
+        assert!(matches!(classify("/api/rules/hello", &r), Class::Hello));
+        // The hello of another app is one more route that needs a session.
+        assert!(matches!(classify("/api/tasks/hello", &r), Class::Api));
+    }
+
+    #[test]
+    fn what_an_app_names_never_leaves_the_api_prefix_or_the_classes() {
+        let r = GuardRules::new("/hello", ["/ops".to_owned()]);
+        // A hello outside /api/ would be an open route the guard did not mean: it is open only
+        // because the app said so, and the other paths outside /api/ stay "not ours".
+        assert!(matches!(classify("/ops", &r), Class::Other));
+        assert!(matches!(classify("/auth/exchange", &r), Class::Exchange));
+        assert!(matches!(
+            classify("/api/control/pair", &r),
+            Class::ControlPair
+        ));
+        assert!(matches!(classify("/assets/app.js", &r), Class::Shell));
+    }
+
+    #[test]
+    fn the_coarse_limit_is_for_the_listed_paths_only() {
+        let r = rules();
+        assert!(r.is_coarse("/api/rules/apply"));
+        assert!(r.is_coarse("/api/rules/preview"));
+        assert!(!r.is_coarse("/api/rules/other"));
+        assert!(!r.is_coarse("/api/rules/apply/"));
     }
 }
