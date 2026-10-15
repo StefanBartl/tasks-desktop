@@ -56,8 +56,11 @@ export const emptyFilter: Filter = {
 
 /** A task with no `actor` is chosen by this word. */
 export const NO_ACTOR = 'none';
-/** A task that does not carry a field is chosen by this word. */
-export const NONE = 'none';
+/**
+ * A task that does not carry a field is chosen by this value. It starts with a control character, which a tag, a
+ * plan or a phase cannot hold (the engine refuses one), so no real value is mistaken for it.
+ */
+export const NONE = '\u0000none';
 
 /** The values a task has for a field (`none` when it has no value). */
 export function fieldValues(task: TaskEntry, key: FieldKey): string[] {
@@ -107,15 +110,36 @@ export function fieldOptions(
   }
   const order = ORDER[key] ?? [];
   const rank = (v: string): number => (v === NONE ? 2 : order.includes(v) ? 0 : 1);
+  // `0.5d` and `0.25d` are decimals, not two numbers around a dot: efforts in days sort by their value.
+  const days = (v: string): number | null => {
+    const m = /^(\d+(?:\.\d+)?)d$/.exec(v);
+    return m ? Number(m[1]) : null;
+  };
+  const byValue = (a: string, b: string): number => {
+    const x = days(a);
+    const y = days(b);
+    return x !== null && y !== null ? x - y : a.localeCompare(b, undefined, { numeric: true });
+  };
   return [...counts.entries()]
     .map(([value, count]) => ({ value, count }))
     .sort(
       (a, b) =>
         rank(a.value) - rank(b.value) ||
-        (rank(a.value) === 0
-          ? order.indexOf(a.value) - order.indexOf(b.value)
-          : a.value.localeCompare(b.value, undefined, { numeric: true })),
+        (rank(a.value) === 0 ? order.indexOf(a.value) - order.indexOf(b.value) : byValue(a.value, b.value)),
     );
+}
+
+/**
+ * The options of a choice with the values that are on added when no task has them any more: the choice must still
+ * show them, or the chip for such a value could not be matched by an option that can be switched off.
+ */
+export function withSelected<T extends { value: string }>(
+  options: readonly T[],
+  selected: readonly string[],
+  make: (value: string) => T,
+): T[] {
+  const missing = selected.filter((v) => !options.some((o) => o.value === v));
+  return missing.length === 0 ? [...options] : [...options, ...missing.map(make)];
 }
 
 /** Whole days from `from` to `to` (both `YYYY-MM-DD`; a time after the date is ignored). */

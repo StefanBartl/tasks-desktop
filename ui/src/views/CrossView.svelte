@@ -73,40 +73,31 @@
     <p class="muted">{app.filter.areas.length > 0 ? t('cross.none_chosen') : t('cross.none')}</p>
   {:else}
     <section class="card" aria-label={t('cross.pairs')}>
-      <table class="matrix">
-        <caption class="sr-only">{t('cross.pairs')}</caption>
-        <thead>
-          <tr>
-            <th scope="col">{t('cross.areas')}</th>
-            <th scope="col">{t('cross.links')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each pairs as pair (pair.a + '|' + pair.b)}
-            <tr>
-              <th scope="row">
-                <details>
-                  <summary>{markHidden(nameOf(pair.a))} ↔ {markHidden(nameOf(pair.b))}</summary>
-                  <ul class="plain edges">
-                    {#each pair.edges as edge (edge.from + '>' + edge.to + edge.kind)}
-                      <li>
-                        <button type="button" class="link" onclick={() => open(edge.from)}
-                          >{markHidden(titles.get(edge.from) ?? edge.from)}</button
-                        >
-                        <span class="muted"> {verb(edge)} </span>
-                        <button type="button" class="link" onclick={() => open(edge.to)}
-                          >{markHidden(titles.get(edge.to) ?? edge.to)}</button
-                        >
-                      </li>
-                    {/each}
-                  </ul>
-                </details>
-              </th>
-              <td>{pair.edges.length}</td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+      <ul class="plain pairs">
+        {#each pairs as pair (pair.a + '|' + pair.b)}
+          <li>
+            <details>
+              <summary>
+                <span>{markHidden(nameOf(pair.a))} ↔ {markHidden(nameOf(pair.b))}</span>
+                <span class="n">({pair.edges.length})</span>
+              </summary>
+              <ul class="plain edges">
+                {#each pair.edges as edge (edge.from + '>' + edge.to + edge.kind)}
+                  <li>
+                    <button type="button" class="link" onclick={() => open(edge.from)}
+                      >{markHidden(titles.get(edge.from) ?? edge.from)}</button
+                    >
+                    <span class="muted"> {verb(edge)} </span>
+                    <button type="button" class="link" onclick={() => open(edge.to)}
+                      >{markHidden(titles.get(edge.to) ?? edge.to)}</button
+                    >
+                  </li>
+                {/each}
+              </ul>
+            </details>
+          </li>
+        {/each}
+      </ul>
     </section>
   {/if}
 </div>
@@ -145,22 +136,6 @@
   .muted {
     color: var(--muted);
   }
-  .matrix {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  .matrix th,
-  .matrix td {
-    text-align: left;
-    padding: 0.35rem 0.5rem;
-    border-bottom: 1px solid var(--border);
-    vertical-align: top;
-    font-weight: normal;
-  }
-  .matrix td {
-    width: 5rem;
-    text-align: right;
-  }
   .edges {
     margin: 0.4rem 0 0.2rem;
     display: grid;
@@ -169,6 +144,20 @@
   .plain {
     list-style: none;
     padding: 0;
+    margin: 0;
+  }
+  .pairs > li {
+    padding: 0.35rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .pairs > li:last-child {
+    border-bottom: 0;
+  }
+  summary {
+    cursor: pointer;
+  }
+  .n {
+    color: var(--muted);
   }
   .link {
     background: none;

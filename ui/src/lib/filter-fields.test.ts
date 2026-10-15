@@ -9,6 +9,7 @@ import {
   fieldValues,
   matches,
   without,
+  withSelected,
   type Filter,
 } from './filter';
 import type { Readiness } from './contract';
@@ -157,5 +158,57 @@ describe('the filter for tasks that connect areas', () => {
     expect(activeFilters(only({ cross: true }))).toEqual([{ kind: 'cross', value: 'on' }]);
     expect(without(only({ cross: true }), { kind: 'cross', value: 'on' }).cross).toBe(false);
     expect(extraCount(only({ cross: true }))).toBe(1);
+  });
+});
+
+describe('edges the review found', () => {
+  const at = (updated: string) => task('x/t', { updated });
+  const win = (updated: string, window: Filter['updated']): boolean => matches(at(updated), only({ updated: window }), TODAY);
+
+  it('puts the edges of the time windows where they say: 7 days is in, 8 is not; 90 is in, 91 is older', () => {
+    expect(win('2026-10-08', '7')).toBe(true); // 7 days ago
+    expect(win('2026-10-07', '7')).toBe(false); // 8 days ago
+    expect(win('2026-10-07', '30')).toBe(true);
+    expect(win('2026-07-17', '90')).toBe(true); // 90 days ago
+    expect(win('2026-07-16', '90')).toBe(false); // 91 days ago
+    expect(win('2026-07-16', 'older')).toBe(true);
+    expect(win('2026-07-17', 'older')).toBe(false);
+    // a time after the date does not change the day
+    expect(win('2026-10-08T23:59:00', '7')).toBe(true);
+  });
+
+  it('counts a task once for a value it names twice', () => {
+    const twice = task('x/two', { tags: ['ui', 'ui'] });
+    expect(fieldOptions([twice], 'tag')).toEqual([{ value: 'ui', count: 1 }]);
+  });
+
+  it('sorts the efforts in days by their value, after the sizes', () => {
+    const e = (id: string, effort: string) => task(id, { effort: effort as never });
+    const options = fieldOptions([e('x/a', '10d'), e('x/b', '0.5d'), e('x/c', 'M'), e('x/d', '0.25d'), e('x/e', '2d')], 'effort');
+    expect(options.map((o) => o.value)).toEqual(['M', '0.25d', '0.5d', '2d', '10d']);
+  });
+
+  it('does not take a tag that is called none for a task that has no tag', () => {
+    const named = task('x/named', { tags: ['none'] });
+    const bare = task('x/bare');
+    const f = only({ fields: { tag: ['none'] } });
+    expect(matches(named, f, TODAY)).toBe(true);
+    expect(matches(bare, f, TODAY)).toBe(false);
+    expect(matches(bare, only({ fields: { tag: [NONE] } }), TODAY)).toBe(true);
+    expect(matches(named, only({ fields: { tag: [NONE] } }), TODAY)).toBe(false);
+    expect(fieldOptions([named, bare], 'tag').map((o) => o.value)).toEqual(['none', NONE]);
+  });
+});
+
+describe('withSelected', () => {
+  it('adds a value that is on but that no task has any more, and leaves the rest as it is', () => {
+    const options = [{ value: '1' }, { value: '2' }];
+    expect(withSelected(options, ['2'], (value) => ({ value }))).toEqual([{ value: '1' }, { value: '2' }]);
+    expect(withSelected(options, ['2', '9'], (value) => ({ value: `${value}!` }))).toEqual([
+      { value: '1' },
+      { value: '2' },
+      { value: '9!' },
+    ]);
+    expect(withSelected([], [], (value) => ({ value }))).toEqual([]);
   });
 });

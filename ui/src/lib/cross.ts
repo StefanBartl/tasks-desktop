@@ -28,7 +28,8 @@ export function crossEdges(tasks: readonly TaskEntry[]): CrossEdge[] {
   const out: CrossEdge[] = [];
   for (const task of tasks) {
     for (const kind of ['blocked_by', 'after'] as const) {
-      for (const to of task[kind]) {
+      // A name written twice in one list is one link, as the engine counts it.
+      for (const to of new Set(task[kind])) {
         const toArea = areaOfId(to);
         if (open.has(to) && toArea !== task.area) {
           out.push({ from: task.id, to, kind, fromArea: task.area, toArea });

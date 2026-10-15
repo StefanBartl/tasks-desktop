@@ -67,3 +67,13 @@ describe('pairsOf', () => {
     expect(pairsOf([], [])).toEqual([]);
   });
 });
+
+describe('a name written twice', () => {
+  it('is one link, as the engine counts it', () => {
+    const x = task('lib/x', { blocked_by: ['rules/y', 'rules/y'], after: ['rules/y', 'rules/y'] });
+    const y = task('rules/y');
+    const edges = crossEdges([x, y]);
+    expect(edges.map((e) => e.kind).sort()).toEqual(['after', 'blocked_by']);
+    expect(pairsOf(edges)[0]?.edges).toHaveLength(2);
+  });
+});
