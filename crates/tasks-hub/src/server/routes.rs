@@ -599,3 +599,17 @@ pub(super) async fn rescan(State(st): State<Arc<Shared>>) -> Response {
 pub(super) async fn not_found() -> Response {
     error_body(StatusCode::NOT_FOUND, "not_found", "no such route")
 }
+
+/// What this app tells the guard: its `hello` and the two POST routes that have the coarse limit of
+/// `ops`. `ops` takes writes and dry runs (only its body tells them apart: the writes are counted
+/// again, strictly, by the handler). `estimate` is a read that is a POST (its question is too long
+/// for a query): it changes nothing.
+pub(super) fn guard_rules() -> GuardRules {
+    GuardRules::new(
+        crate::IDENTITY.route("hello"),
+        [
+            crate::IDENTITY.route("ops"),
+            crate::IDENTITY.route("estimate"),
+        ],
+    )
+}

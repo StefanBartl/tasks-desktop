@@ -71,6 +71,7 @@ mod runtime;
 mod settings;
 mod vaults;
 
+pub use self::guard::GuardRules;
 pub use self::settings::{HubStatus, Limits, ServerConfig, WatchConfig};
 pub use self::vaults::{BoxFuture, VaultAdmin, VaultInfo, VaultList, VaultTarget};
 
@@ -147,6 +148,7 @@ struct Shared {
     limits: Limits,
     instance: String,
     classes: Arc<AreaPolicy>,
+    guard_rules: GuardRules,
     streams: Arc<StreamCounter>,
     ui: UiFiles,
     usage: Option<Arc<UsageLog>>,
@@ -270,6 +272,7 @@ pub async fn start_with(cfg: ServerConfig, extras: Extras) -> std::io::Result<Ru
         limits: limits.clone(),
         instance: instance.clone(),
         classes: cfg.policy,
+        guard_rules: guard_rules(),
         streams: Arc::new(StreamCounter::default()),
         ui: cfg.ui,
         usage: cfg.usage,
