@@ -495,6 +495,22 @@ test('the tiles of the overview can be put in another order with the keys, the o
   await expect(page.getByText('Next task')).toBeVisible();
   const order = () => page.locator('section[data-tile]').evaluateAll((els) =>
     els.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top).map((e) => (e as HTMLElement).dataset.tile));
+  // The tiles are drawn as their data arrives: the count must not change between two looks.
+  const settled = async () => {
+    let seen = -1;
+    await expect
+      .poll(
+        async () => {
+          const n = await page.locator('section[data-tile]').count();
+          const same = n === seen;
+          seen = n;
+          return same;
+        },
+        { intervals: [300] },
+      )
+      .toBe(true);
+  };
+  await settled();
   const before = (await order()) as string[];
   expect(before.length).toBeGreaterThan(1);
 
@@ -511,9 +527,10 @@ test('the tiles of the overview can be put in another order with the keys, the o
   // The order is remembered, and goes back to the standard on request.
   await page.reload();
   await expect(page.getByText(/Next task|Waits for you/).first()).toBeVisible();
+  await settled();
   expect(await order()).toEqual(after);
   await page.getByRole('button', { name: 'Reset the order of the tiles' }).click();
-  expect(await order()).toEqual(before);
+  await expect.poll(order).toEqual(before);
   await expect(page.getByRole('button', { name: 'Reset the order of the tiles' })).toHaveCount(0);
 });
 
@@ -1385,8 +1402,18 @@ test('finished: the list shows them under the open ones, narrowed by the area an
   await chooseView(page, 'View', 'Finished');
   const period = page.getByRole('combobox', { name: /^Period/ });
   await period.selectOption('30');
+  // The view that was left open asks as soon as it is drawn: no question may leave the page without the session
+  // (the hello is the one that needs none). An unsigned one is refused and the page then believes the session lost.
+  const unsigned: string[] = [];
+  page.on('request', (r) => {
+    const url = new URL(r.url());
+    if (url.pathname.startsWith('/api/') && url.pathname !== '/api/tasks/hello' && !r.headers()['authorization']) {
+      unsigned.push(url.pathname);
+    }
+  });
   await page.reload();
   await expect(page.getByRole('combobox', { name: /^Period/ })).toHaveValue('30');
+  expect(unsigned).toEqual([]);
 });
 
 test('finished: a plan shows its finished tasks ticked when asked, and only those of the chosen plan', async ({ page }) => {

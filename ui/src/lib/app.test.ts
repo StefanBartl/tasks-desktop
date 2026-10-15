@@ -585,6 +585,19 @@ describe('App, cache and hub', () => {
     app.stop();
   });
 
+  it('holds the session of the tab as soon as the cached list is drawn, before the hub has answered', async () => {
+    const cached: CachedList = { vault: 'v', rev: null, etag: null, savedAt: 5, tasks: [task('pub/old')] };
+    const { app, hub } = make({ token: 't', cached });
+    hub.hubDown = true;
+    const started = app.start(null);
+    await vi.waitFor(() => expect(app.phase).toBe('ready'));
+    // The view that was left open asks now; its question must not go out without the session.
+    expect(hub.token).toBe('t');
+    app.stop();
+    hub.hubDown = false;
+    await started;
+  });
+
   it('shows the cached list while the hub is not there', async () => {
     const cached: CachedList = {
       vault: 'v',

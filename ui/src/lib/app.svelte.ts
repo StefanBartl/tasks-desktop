@@ -1466,6 +1466,9 @@ export class App {
       if (cached && this.tasks.length === 0) {
         this.tasks = cached.tasks;
         this.cachedAt = cached.savedAt;
+        // The views are drawn from here on and ask the hub at once (the view the page was left on): they carry the
+        // session of this tab. Without it their first question is refused and the page believes the session is lost.
+        this.env.hub.setToken(stored);
         this.phase = 'ready';
       }
     }
@@ -1525,6 +1528,7 @@ export class App {
       return;
     }
     this.env.hub.setToken(token);
+    this.sessionHeld = true;
     this.env.hub.onUnauthorized = () => this.lostSession();
 
     await this.refresh();
@@ -1538,7 +1542,7 @@ export class App {
    * page that is still starting picks it up when it gets there; a paired page keeps its session.
    */
   offerCode(code: string): void {
-    if (this.env.hub.hasToken) return;
+    if (this.sessionHeld) return;
     this.pendingCode = code;
     if (this.phase === 'needs_pairing') void this.start(code);
   }
@@ -1553,7 +1557,11 @@ export class App {
     this.abort?.abort();
   }
 
+  /** The session of this tab was confirmed (a token held for the cached list only is not that). */
+  private sessionHeld = false;
+
   private lostSession(): void {
+    this.sessionHeld = false;
     // The loss is not about a code that was refused at the start.
     this.pairRefused = false;
     // What was asked of the hub is not valid without the session: the dialogs and the graph close, the job is forgotten.
