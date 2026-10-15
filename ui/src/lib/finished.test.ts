@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_PREFS, addDays, isDay, monthRange, parsePrefs, percent, rangeOf, weekRange } from './finished';
+import {
+  DEFAULT_PREFS,
+  intersect,
+  addDays,
+  isDay,
+  monthRange,
+  parsePrefs,
+  percent,
+  rangeOf,
+  weekRange,
+} from './finished';
 
 describe('days', () => {
   it('knows a real calendar day', () => {
@@ -107,5 +117,21 @@ describe('prefs', () => {
         }),
       ),
     ).toEqual(DEFAULT_PREFS);
+  });
+});
+
+describe('intersect', () => {
+  it('keeps the later start and the earlier end', () => {
+    expect(
+      intersect({ since: '2026-09-01', until: '2026-09-30' }, { since: '2026-09-16', until: '2026-10-15' }),
+    ).toEqual({ since: '2026-09-16', until: '2026-09-30' });
+  });
+  it('takes the side that is closed when the other is open', () => {
+    expect(intersect({ since: '2026-09-01', until: '2026-09-30' }, {})).toEqual({
+      since: '2026-09-01',
+      until: '2026-09-30',
+    });
+    expect(intersect({}, { until: '2026-01-31' })).toEqual({ until: '2026-01-31' });
+    expect(intersect({}, {})).toEqual({});
   });
 });

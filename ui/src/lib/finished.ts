@@ -50,6 +50,16 @@ export function rangeOf(preset: Preset, today: string, custom: { from: string; t
   }
 }
 
+/** The days both periods have: a month clicked in a table of the last 30 days is the part of the month inside them. */
+export function intersect(a: Range, b: Range): Range {
+  const out: Range = {};
+  const since = a.since && b.since ? (a.since > b.since ? a.since : b.since) : (a.since ?? b.since);
+  const until = a.until && b.until ? (a.until < b.until ? a.until : b.until) : (a.until ?? b.until);
+  if (since) out.since = since;
+  if (until) out.until = until;
+  return out;
+}
+
 /** The first and the last day of a month `YYYY-MM`. */
 export function monthRange(month: string): Range {
   const m = /^(\d{4})-(\d{2})$/.exec(month);

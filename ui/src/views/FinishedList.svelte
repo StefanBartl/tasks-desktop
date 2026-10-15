@@ -87,7 +87,7 @@
     <p class="problem" role="alert">{problem}</p>
   {:else if doc}
     <ul class="plain">
-      {#each shown as item (item.id)}
+      {#each shown as item (item.file)}
         <li>
           <span class="when">{item.done ?? t('done.undated_row')}</span>
           <span class="title">{markHidden(item.title)}</span>
@@ -138,6 +138,9 @@
     gap: 0.25rem 0.75rem;
     padding: 0.3rem 0;
     border-bottom: 1px solid var(--border);
+  }
+  .title {
+    overflow-wrap: anywhere;
   }
   .when {
     font-variant-numeric: tabular-nums;

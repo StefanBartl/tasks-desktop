@@ -42,16 +42,28 @@
   }
 
   // Asks when it is switched on, when another plan is chosen, and when the vault changes.
+  let loadedFor = '';
   $effect(() => {
     const plan = planId;
     void app.snapshot?.rev;
     if (!show || plan === '') {
       seq += 1;
+      loading = false;
       doc = null;
       items = [];
+      loadedFor = '';
       return;
     }
-    untrack(() => void load(plan, 0));
+    untrack(() => {
+      // Another plan: the old plan's tasks do not stand under the new one while the answer is on its way.
+      if (plan !== loadedFor) {
+        doc = null;
+        items = [];
+        problem = null;
+      }
+      loadedFor = plan;
+      void load(plan, 0);
+    });
   });
 </script>
 
@@ -68,7 +80,7 @@
         <p class="muted">{t('plan.finished_none')}</p>
       {:else}
         <ul class="plain">
-          {#each items as item (item.id)}
+          {#each items as item (item.file)}
             <li>
               <span aria-hidden="true">✓</span>
               <span class="sr-only">{t('plan.finished_mark')}</span>
@@ -111,6 +123,9 @@
     list-style: none;
     padding: 0;
     margin: 0;
+  }
+  .title {
+    overflow-wrap: anywhere;
   }
   li {
     display: flex;

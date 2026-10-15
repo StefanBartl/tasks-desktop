@@ -6,7 +6,7 @@
   import type { App } from '../lib/app.svelte';
   import type { Finished } from '../lib/contract';
   import { ApiError } from '../lib/api';
-  import { PRESETS, monthRange, percent, rangeOf, weekRange, type Preset, type Range } from '../lib/finished';
+  import { PRESETS, intersect, monthRange, percent, rangeOf, weekRange, type Preset, type Range } from '../lib/finished';
   import { areaLabel } from '../lib/filter';
   import { formatNumber, labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
@@ -30,7 +30,10 @@
   let loading = $state(false);
   let seq = 0;
 
-  const range = $derived(drill?.range ?? rangeOf(preset, app.today, custom));
+  // A month or week clicked in a table is the part of it inside the period, so the row's number and the page agree.
+  const range = $derived(
+    drill ? intersect(drill.range, rangeOf(preset, app.today, custom)) : rangeOf(preset, app.today, custom),
+  );
   const stats = $derived(doc?.stats);
   const total = $derived(doc?.total ?? 0);
   const nameOf = (name: string): string => (app.shortAreas ? areaLabel(name, app.areaNames) : name);
@@ -269,7 +272,7 @@
     <section class="card" aria-labelledby="done-tasks">
       <h3 id="done-tasks">{t('done.tasks')}</h3>
       <ul class="plain tasks">
-        {#each items as item (item.id)}
+        {#each items as item (item.file)}
           <li>
             <span class="when">{item.done ?? t('done.undated_row')}</span>
             <span class="title">{markHidden(item.title)}</span>
@@ -371,6 +374,9 @@
     gap: 0.25rem 0.75rem;
     padding: 0.3rem 0;
     border-bottom: 1px solid var(--border);
+  }
+  .title {
+    overflow-wrap: anywhere;
   }
   .when {
     font-variant-numeric: tabular-nums;
