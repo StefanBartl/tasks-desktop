@@ -7,6 +7,7 @@
   import BoardView from './views/BoardView.svelte';
   import InboxView from './views/InboxView.svelte';
   import CrossView from './views/CrossView.svelte';
+  import FinishedView from './views/FinishedView.svelte';
   import Matrix from './views/Matrix.svelte';
   import CheckDialog from './views/CheckDialog.svelte';
   import { triageKey } from './lib/inbox';
@@ -286,6 +287,16 @@
             checked: app.view === 'cross',
             onselect: () => app.setView('cross'),
           },
+          ...(app.can('finished')
+            ? [
+                {
+                  kind: 'radio' as const,
+                  label: t('nav.done'),
+                  checked: app.view === 'done',
+                  onselect: () => app.setView('done'),
+                },
+              ]
+            : []),
           { kind: 'separator' },
           {
             kind: 'action',
@@ -430,7 +441,9 @@
                   ? t('nav.inbox')
                   : app.view === 'cross'
                     ? t('nav.cross')
-                    : t('nav.list')}
+                    : app.view === 'done'
+                      ? t('nav.done')
+                      : t('nav.list')}
         </h1>
         {#if app.view === 'today'}
           <Today {app} />
@@ -442,6 +455,8 @@
           <InboxView {app} />
         {:else if app.view === 'cross'}
           <CrossView {app} />
+        {:else if app.view === 'done'}
+          <FinishedView {app} />
         {:else}
           <ListView {app} bind:searchBox />
         {/if}

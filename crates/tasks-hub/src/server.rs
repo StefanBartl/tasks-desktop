@@ -581,6 +581,7 @@ fn router(shared: Arc<Shared>) -> Router {
         .route("/api/tasks/search", get(search_route))
         .route("/api/tasks/rescan", post(rescan))
         .route("/api/tasks/done_preview", get(done_preview))
+        .route("/api/tasks/finished", get(finished))
         .route("/api/tasks/plan_for", get(plan_for))
         .route("/api/tasks/check", get(check_state))
         .route(
@@ -1784,6 +1785,41 @@ async fn done_preview(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) 
         );
     };
     match ask(&st, EngineMethod::DonePreview, Some(&json!({ "id": id }))).await {
+        Ok(reply) => json_response(StatusCode::OK, reply.text, None),
+        Err(response) => response,
+    }
+}
+
+/// `GET /api/tasks/finished?area=&since=&until=&limit=&offset=`: the finished tasks of the Backlogs, newest first, and
+/// what all that match add up to. A read; the counting is the engine's. The days are checked by the engine.
+async fn finished(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
+    let params = match parse_query(
+        query.as_deref(),
+        &["area", "since", "until", "limit", "offset"],
+    ) {
+        Ok(p) => p,
+        Err(why) => return error_body(StatusCode::BAD_REQUEST, "bad_query", why),
+    };
+    let mut request = serde_json::Map::new();
+    for key in ["area", "since", "until"] {
+        if let Some(value) = params.get(key) {
+            request.insert(key.to_owned(), json!(value));
+        }
+    }
+    for key in ["limit", "offset"] {
+        if let Some(value) = params.get(key) {
+            let Ok(n) = value.parse::<u32>() else {
+                return error_body(
+                    StatusCode::BAD_REQUEST,
+                    "bad_query",
+                    "limit and offset are whole numbers",
+                );
+            };
+            request.insert(key.to_owned(), json!(n));
+        }
+    }
+    let request = serde_json::Value::Object(request);
+    match ask(&st, EngineMethod::Finished, Some(&request)).await {
         Ok(reply) => json_response(StatusCode::OK, reply.text, None),
         Err(response) => response,
     }
