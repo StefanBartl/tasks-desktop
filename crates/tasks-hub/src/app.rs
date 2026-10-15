@@ -38,8 +38,10 @@ pub(crate) fn config_folder(env: &Env) -> Result<PathBuf, String> {
 
 fn app_dir(env: &Env) -> Result<PathBuf, String> {
     config::config_dir(env).ok_or_else(|| {
-        "no config folder: set TASKS_DESKTOP_CONFIG_DIR (APPDATA, XDG_CONFIG_HOME or HOME is missing)"
-            .to_owned()
+        format!(
+            "no config folder: set {} (APPDATA, XDG_CONFIG_HOME or HOME is missing)",
+            crate::IDENTITY.var("CONFIG_DIR")
+        )
     })
 }
 
@@ -49,15 +51,14 @@ fn wanted_port(opts: &ServeOptions, file: &FileConfig, env: &Env) -> Result<u16,
     if let Some(p) = opts.port {
         return Ok(p);
     }
-    if let Some(v) = env.get("TASKS_DESKTOP_PORT") {
+    let port_var = crate::IDENTITY.var("PORT");
+    if let Some(v) = env.get(&port_var) {
         let text = v.to_string_lossy();
         return text
             .parse::<u16>()
             .ok()
             .filter(|p| *p >= 1024)
-            .ok_or_else(|| {
-                format!("TASKS_DESKTOP_PORT is not a port from 1024 to 65535: {text:?}")
-            });
+            .ok_or_else(|| format!("{port_var} is not a port from 1024 to 65535: {text:?}"));
     }
     Ok(file.port.unwrap_or(DEFAULT_PORT))
 }
@@ -75,7 +76,7 @@ pub(crate) async fn running_hub(dir: &std::path::Path) -> Option<HubRecord> {
 
 /// What the program on `port` says to `hello`, if it is a hub of this app.
 async fn hello_of(port: u16) -> Option<Value> {
-    let reply = client::request(port, "GET", "/api/tasks/hello", &[], "")
+    let reply = client::request(port, "GET", &crate::IDENTITY.route("hello"), &[], "")
         .await
         .ok()?;
     let doc: Value = serde_json::from_str(&reply.body).ok()?;
@@ -514,10 +515,14 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
     }
 
     println!(
-        "tasks-desktop hub {} on http://127.0.0.1:{port}/",
+        "{} hub {} on http://127.0.0.1:{port}/",
+        crate::IDENTITY.app,
         crate::VERSION
     );
-    println!("run `tasks-hub open` for a pairing link; Ctrl-C stops the hub");
+    println!(
+        "run `{} open` for a pairing link; Ctrl-C stops the hub",
+        crate::IDENTITY.binary
+    );
 
     wait_for_stop().await;
     registry::remove_record(&dir);
@@ -545,7 +550,7 @@ pub async fn open() -> Result<String, String> {
         .ok_or("no control secret: the hub is not running")?;
 
     // The secret goes only to the process that says it is this hub.
-    let hello = client::request(record.port, "GET", "/api/tasks/hello", &[], "")
+    let hello = client::request(record.port, "GET", &crate::IDENTITY.route("hello"), &[], "")
         .await
         .map_err(|e| format!("the hub does not answer on port {}: {e}", record.port))?;
     let doc: Value = serde_json::from_str(&hello.body).map_err(|_| "not a hub on that port")?;

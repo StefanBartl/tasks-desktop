@@ -8,5 +8,6 @@
 //! `sse` and `pathguard` follow.
 
 pub mod authn;
+pub mod identity;
 pub mod proc;
 pub mod registry;

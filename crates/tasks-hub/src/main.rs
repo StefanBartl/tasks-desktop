@@ -94,7 +94,7 @@ async fn click() -> Result<(), String> {
         None => print!("{}", background::start().await?),
     }
     let url = app::open().await?;
-    if std::env::var_os("TASKS_DESKTOP_NO_LAUNCH").is_some() {
+    if std::env::var_os(tasks_hub::IDENTITY.var("NO_LAUNCH")).is_some() {
         println!("{url}");
         Ok(())
     } else {
