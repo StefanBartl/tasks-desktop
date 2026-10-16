@@ -280,7 +280,7 @@ fn resolve_lib(
     engine_dir: &Path,
 ) -> Result<Resolved<PathBuf>, SetupProblem> {
     // What is set decides, in the order the engine itself uses.
-    let explicit = if let Some(v) = &file.lib_dir {
+    let explicit = if let Some(v) = &file.app.lib_dir {
         Some((v.clone(), Source::Setting))
     } else if let Some(v) = env.path("LIB_NVIM_DIR") {
         Some((v, Source::Env("LIB_NVIM_DIR")))
@@ -368,7 +368,7 @@ pub async fn discover(file: &FileConfig, env: &Env) -> Result<Setup, SetupProble
         lib_dir,
         lib_problem,
         vault,
-        extra_areas: file.extra_areas.clone(),
+        extra_areas: file.app.extra_areas.clone(),
     })
 }
 

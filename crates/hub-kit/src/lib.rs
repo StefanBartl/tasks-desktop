@@ -46,6 +46,7 @@ use tokio::sync::{watch, Semaphore};
 use tokio::task::JoinHandle;
 
 pub mod access;
+pub mod config;
 pub mod engine;
 pub mod env;
 pub mod guard;

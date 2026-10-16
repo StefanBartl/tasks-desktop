@@ -1011,10 +1011,13 @@ mod vault_tests {
             .join("vault");
         let file = FileConfig {
             vault: Some(main),
-            extra_areas: ["ALL", "nvim-config", "docmap-desktop", "migrate.nvim"]
-                .iter()
-                .map(|s| (*s).to_owned())
-                .collect(),
+            app: config::TasksSettings {
+                extra_areas: ["ALL", "nvim-config", "docmap-desktop", "migrate.nvim"]
+                    .iter()
+                    .map(|s| (*s).to_owned())
+                    .collect(),
+                ..config::TasksSettings::default()
+            },
             ..FileConfig::default()
         };
         config::save_file(&cfg, &file).unwrap();

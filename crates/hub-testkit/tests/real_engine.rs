@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use serde_json::{json, Value};
-use tasks_hub::config::{Env, FileConfig};
+use tasks_hub::config::{Env, FileConfig, TasksSettings};
 use tasks_hub::discovery::{discover, Setup, SetupProblem};
 use tasks_hub::engine::{probe, Calls, CliEngine, Engine, EngineError, Method};
 
@@ -37,7 +37,10 @@ async fn engine() -> Option<(CliEngine, Setup)> {
     let env = Env::from_process();
     let file = FileConfig {
         vault: Some(fixture_vault()),
-        extra_areas: fixture_extra_areas(),
+        app: TasksSettings {
+            extra_areas: fixture_extra_areas(),
+            ..TasksSettings::default()
+        },
         ..FileConfig::default()
     };
     match discover(&file, &env).await {
@@ -296,7 +299,10 @@ async fn engines_on(vault: &Path) -> Option<(CliEngine, CliEngine)> {
     let env = Env::from_process();
     let file = FileConfig {
         vault: Some(vault.to_path_buf()),
-        extra_areas: fixture_extra_areas(),
+        app: TasksSettings {
+            extra_areas: fixture_extra_areas(),
+            ..TasksSettings::default()
+        },
         ..FileConfig::default()
     };
     match discover(&file, &env).await {

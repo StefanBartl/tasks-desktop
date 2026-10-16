@@ -11,7 +11,7 @@ use app_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
 use serde_json::Value;
 use tasks_hub::classes::AreaPolicy;
 use tasks_hub::client;
-use tasks_hub::config::{Env, FileConfig};
+use tasks_hub::config::{Env, FileConfig, TasksSettings};
 use tasks_hub::discovery::{discover, SetupProblem};
 use tasks_hub::engine::{probe, CliEngine, Engine};
 use tasks_hub::server::{start, HubStatus, Limits, ServerConfig, WatchConfig};
@@ -87,10 +87,13 @@ async fn an_edit_of_a_task_file_reaches_the_stream_within_two_seconds() {
     let env = Env::from_process();
     let file = FileConfig {
         vault: Some(vault.clone()),
-        extra_areas: ["ALL", "nvim-config", "docmap-desktop", "migrate.nvim"]
-            .iter()
-            .map(|s| (*s).to_owned())
-            .collect(),
+        app: TasksSettings {
+            extra_areas: ["ALL", "nvim-config", "docmap-desktop", "migrate.nvim"]
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect(),
+            ..TasksSettings::default()
+        },
         ..FileConfig::default()
     };
     let setup = match discover(&file, &env).await {
