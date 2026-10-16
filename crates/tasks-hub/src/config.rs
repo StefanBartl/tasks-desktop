@@ -121,12 +121,9 @@ mod tests {
         let cfg: FileConfig = serde_json::from_str(text).unwrap();
         assert_eq!(cfg.app.lib_dir, Some(PathBuf::from("L")));
         assert_eq!(cfg.app.extra_areas, ["ALL"]);
-        let back: serde_json::Value =
-            serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
-        assert_eq!(
-            back,
-            serde_json::from_str::<serde_json::Value>(text).unwrap()
-        );
+        // The text, not the values: a file that is saved keeps the order it always had, so a
+        // person who keeps it in git sees no move of `port`.
+        assert_eq!(serde_json::to_string(&cfg).unwrap(), text);
     }
 
     #[test]

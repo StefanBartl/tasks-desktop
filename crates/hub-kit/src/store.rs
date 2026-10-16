@@ -53,7 +53,7 @@ pub struct SnapshotShape {
 struct Lite {
     digest: Option<String>,
     rev: Option<String>,
-    items: Vec<LiteTask>,
+    items: Vec<LiteItem>,
 }
 
 /// Reads a snapshot for the few things the store needs and skips the rest, with the key of the
@@ -104,7 +104,7 @@ fn parse_lite(text: &str, shape: &SnapshotShape) -> Option<Lite> {
 }
 
 #[derive(Deserialize)]
-struct LiteTask {
+struct LiteItem {
     id: String,
     etag: Option<String>,
     #[serde(default)]
@@ -127,7 +127,7 @@ pub struct Cached {
     /// How many changes the hub has seen since it started.
     pub seq: u64,
     fetched: Instant,
-    /// Task id to etag. `None` when the document could not be read for ids:
+    /// Document id to etag. `None` when the document could not be read for ids:
     /// a change is then told as "anything may differ", not as "all removed".
     ids: Option<BTreeMap<String, Option<String>>>,
 }

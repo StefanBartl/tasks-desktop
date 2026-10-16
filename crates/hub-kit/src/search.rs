@@ -23,11 +23,11 @@ use tokio::task::JoinHandle;
 use crate::engine::{Engine, Method};
 use crate::store::{Change, SnapshotStore};
 
-/// Tasks asked for in one call (the engine ends a page earlier by bytes).
+/// Documents asked for in one call (the engine ends a page earlier by bytes).
 const PAGE: u64 = 1000;
 /// Pages read before the index gives up (a loop that does not end).
 const MAX_PAGES: usize = 50;
-/// More changed tasks than this are not asked for one by one: the index is
+/// More changed documents than this are not asked for one by one: the index is
 /// built again.
 const INCREMENTAL_MAX: usize = 50;
 /// Tries when the vault changes while the pages are read.

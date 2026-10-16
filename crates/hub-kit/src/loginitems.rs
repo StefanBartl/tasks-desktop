@@ -330,7 +330,10 @@ mod tests {
             plist.contains("<string>dev.rules-desktop.hub</string>"),
             "{plist}"
         );
-        for text in [&said, &entry, &plist] {
+        // The message names the file it wrote, and the folder of the test is the temp folder of the
+        // machine: a person whose temp folder has "tasks" in its path must not fail the test.
+        let said_clean = said.replace(&*home.to_string_lossy(), "");
+        for text in [&said_clean, &entry, &plist] {
             assert!(!text.to_lowercase().contains("tasks"), "{text}");
         }
     }

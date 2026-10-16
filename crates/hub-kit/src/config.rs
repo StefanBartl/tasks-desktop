@@ -15,9 +15,10 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use app_core::identity::AppIdentity;
-use serde::de::{DeserializeOwned, Error as _};
+use serde::de::{DeserializeOwned, Error as _, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::{Map, Value};
+use serde_json::value::RawValue;
+use serde_json::Value;
 
 pub use crate::env::Env;
 
@@ -93,12 +94,15 @@ pub struct FileConfig<A = NoSettings> {
     /// A checkout of the engine (the folder with its script).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub engine_dir: Option<PathBuf>,
+    /// What the app keeps in the same file. It is written between `engine_dir` and `port`, where
+    /// the keys of the tasks hub always were, so that a file that is saved keeps its order.
+    /// What the app keeps in the same file. It is written between `engine_dir` and `port`, where
+    /// the keys of the tasks hub always were, so that a file that is saved keeps its order.
+    #[serde(flatten)]
+    pub app: A,
     /// The port the hub tries first (it is part of the origin).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
-    /// What the app keeps in the same file.
-    #[serde(flatten)]
-    pub app: A,
 }
 
 /// The keys of the kit. `deny_unknown_fields` cannot be used together with `flatten`, so the
@@ -119,17 +123,66 @@ struct Core {
 
 const CORE_KEYS: [&str; 6] = ["vault", "vaults", "active", "nvim", "engine_dir", "port"];
 
-impl<'de, A: AppSettings> Deserialize<'de> for FileConfig<A> {
+/// The top level of the file as text per key, in file order. A key that is there twice is an
+/// error, as it is for a derived struct; a value stays text (JSON), so that what is nested in it
+/// is read by the derive of its own type, which refuses a repeated key there as well.
+struct Top(Vec<(String, Box<RawValue>)>);
+
+impl<'de> Deserialize<'de> for Top {
     fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
-        let mut rest = Map::<String, Value>::deserialize(de)?;
-        let mut core = Map::new();
-        for key in CORE_KEYS {
-            if let Some(v) = rest.remove(key) {
-                core.insert(key.to_owned(), v);
+        struct Seen;
+
+        impl<'de> Visitor<'de> for Seen {
+            type Value = Top;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("the settings, an object")
+            }
+
+            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Top, M::Error> {
+                let mut entries: Vec<(String, Box<RawValue>)> = Vec::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    if entries.iter().any(|(k, _)| *k == key) {
+                        return Err(M::Error::custom(format!("duplicate field `{key}`")));
+                    }
+                    entries.push((key, map.next_value()?));
+                }
+                Ok(Top(entries))
             }
         }
-        let core: Core = serde_json::from_value(Value::Object(core)).map_err(D::Error::custom)?;
-        let app: A = serde_json::from_value(Value::Object(rest)).map_err(D::Error::custom)?;
+
+        de.deserialize_map(Seen)
+    }
+}
+
+/// `{"k":v,...}` from the entries, as text.
+fn object_text<'a>(entries: impl Iterator<Item = &'a (String, Box<RawValue>)>) -> String {
+    let parts: Vec<String> = entries
+        .map(|(k, v)| format!("{}:{}", Value::String(k.clone()), v.get()))
+        .collect();
+    format!("{{{}}}", parts.join(","))
+}
+
+impl<'de, A: AppSettings> Deserialize<'de> for FileConfig<A> {
+    fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        let Top(entries) = Top::deserialize(de)?;
+        let is_core = |k: &str| CORE_KEYS.contains(&k);
+        let core_text = object_text(entries.iter().filter(|(k, _)| is_core(k)));
+        let rest_text = object_text(entries.iter().filter(|(k, _)| !is_core(k)));
+        let core: Core = serde_json::from_str(&core_text).map_err(D::Error::custom)?;
+        let app: A = serde_json::from_str(&rest_text).map_err(|e| {
+            let text = e.to_string();
+            // The derive of the app knows its own keys only: the person who mistyped a key of the
+            // kit is told those as well.
+            if text.starts_with("unknown field") {
+                D::Error::custom(format!(
+                    "{text}; the keys of every hub are {}",
+                    CORE_KEYS.join(", ")
+                ))
+            } else {
+                D::Error::custom(text)
+            }
+        })?;
         Ok(Self {
             vault: core.vault,
             vaults: core.vaults,
@@ -405,7 +458,47 @@ mod tests {
             ..FileConfig::default()
         };
         let text = serde_json::to_string(&cfg).unwrap();
-        assert_eq!(text, r#"{"port":20000,"names":["a"]}"#);
+        // The keys of the app sit between the kit's own and the port, the old order of the file.
+        assert_eq!(text, r#"{"names":["a"],"port":20000}"#);
+        let full = FileConfig::<Mine> {
+            vault: Some(PathBuf::from("V")),
+            engine_dir: Some(PathBuf::from("E")),
+            ..cfg
+        };
+        assert_eq!(
+            serde_json::to_string(&full).unwrap(),
+            r#"{"vault":"V","engine_dir":"E","names":["a"],"port":20000}"#
+        );
+    }
+
+    #[test]
+    fn a_key_that_is_there_twice_is_refused_wherever_it_sits() {
+        for (what, text) in [
+            ("a key of the kit", r#"{"vault":"A","vault":"B"}"#),
+            ("a key of the app", r#"{"names":["a"],"names":["b"]}"#),
+            (
+                "a key inside a vault",
+                r#"{"vaults":[{"name":"n","name":"m","path":"/v"}]}"#,
+            ),
+        ] {
+            let err = serde_json::from_str::<FileConfig<Mine>>(text).unwrap_err();
+            assert!(err.to_string().contains("duplicate field"), "{what}: {err}");
+        }
+        // And a file that has each key once is read.
+        assert!(serde_json::from_str::<FileConfig<Mine>>(r#"{"vault":"A","names":[]}"#).is_ok());
+    }
+
+    #[test]
+    fn a_mistyped_key_of_the_kit_is_told_with_the_keys_of_the_kit() {
+        let err = serde_json::from_str::<FileConfig<Mine>>(r#"{"vualt":"x"}"#).unwrap_err();
+        let text = err.to_string();
+        assert!(text.contains("unknown field `vualt`"), "{text}");
+        for key in CORE_KEYS {
+            assert!(text.contains(key), "{key} is not in: {text}");
+        }
+        // A value of the wrong type is not an unknown field and carries no list.
+        let wrong = serde_json::from_str::<FileConfig<Mine>>(r#"{"names":5}"#).unwrap_err();
+        assert!(!wrong.to_string().contains("keys of every hub"), "{wrong}");
     }
 
     #[test]
