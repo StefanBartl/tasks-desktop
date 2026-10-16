@@ -93,6 +93,7 @@ pub(super) fn build_runtime(
 ) -> VaultRuntime {
     let store = SnapshotStore::new(
         engine.clone(),
+        crate::store::SHAPE,
         StoreOptions {
             max_age,
             ..StoreOptions::default()
