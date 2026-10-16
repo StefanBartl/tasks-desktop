@@ -29,7 +29,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use app_core::authn::{Clock, Secret};
+use appkit_core::authn::{Clock, Secret};
 use axum::body::{Body, Bytes};
 use axum::extract::{DefaultBodyLimit, RawQuery, State};
 use axum::http::header::{self, HeaderMap, HeaderValue};
@@ -42,7 +42,7 @@ use serde_json::json;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 
-use hub_kit::{
+use appkit_hub::{
     bearer, error_body, etag_matches, json_response, no_query, not_modified, parse_query, single,
     too_many, vault_request, vault_text, BuildRuntime, ServeParts,
 };
@@ -66,7 +66,7 @@ mod vaults;
 
 pub use self::settings::{ServerConfig, WatchConfig};
 pub use self::vaults::VaultTarget;
-pub use hub_kit::{
+pub use appkit_hub::{
     BoxFuture, GuardRules, HubStatus, Limits, RunningServer, Runtime, VaultAdmin, VaultInfo,
     VaultList,
 };
@@ -131,7 +131,7 @@ impl Drop for StreamGuard {
 }
 
 /// The core of the hub with the runtime of this app.
-type Shared = hub_kit::Core<VaultRuntime>;
+type Shared = appkit_hub::Core<VaultRuntime>;
 
 /// Bind and serve.
 ///
@@ -188,7 +188,7 @@ pub async fn start_with(cfg: ServerConfig, extras: Extras) -> std::io::Result<Ru
             &parts,
         )
     });
-    hub_kit::serve(
+    appkit_hub::serve(
         ServeParts {
             addr: cfg.addr,
             limits: cfg.limits,

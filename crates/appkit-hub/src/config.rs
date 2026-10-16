@@ -14,7 +14,7 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use app_core::identity::AppIdentity;
+use appkit_core::identity::AppIdentity;
 use serde::de::{DeserializeOwned, Error as _, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::RawValue;
@@ -503,7 +503,7 @@ mod tests {
 
     #[test]
     fn what_the_app_checks_is_checked_on_save_and_on_load() {
-        let dir = std::env::temp_dir().join(format!("hub-kit-app-keys-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("appkit-hub-app-keys-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let bad = FileConfig::<Mine> {
             app: Mine {
@@ -521,13 +521,13 @@ mod tests {
 
     #[test]
     fn a_missing_file_is_an_empty_config() {
-        let dir = std::env::temp_dir().join("hub-kit-no-such-config-dir");
+        let dir = std::env::temp_dir().join("appkit-hub-no-such-config-dir");
         let cfg = load_file::<NoSettings>(&dir).expect("missing file is fine");
         assert!(cfg.vault.is_none() && cfg.vaults.is_empty());
     }
 
     fn temp_config(name: &str, bytes: &[u8]) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("hub-kit-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("appkit-hub-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("config.json"), bytes).unwrap();
         dir
@@ -599,7 +599,7 @@ mod tests {
 
     #[test]
     fn saving_writes_what_loading_reads_and_refuses_what_is_not_valid() {
-        let dir = std::env::temp_dir().join(format!("hub-kit-save-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("appkit-hub-save-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let mut cfg = with_vaults(&[("native", abs())], Some("native"));
         cfg.port = Some(20000);

@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
-use app_core::authn::{Secret, SystemClock, CODE_BYTES, TOKEN_BYTES};
-use app_core::registry::{self, HubRecord};
+use appkit_core::authn::{Secret, SystemClock, CODE_BYTES, TOKEN_BYTES};
+use appkit_core::registry::{self, HubRecord};
 use serde_json::Value;
 
 use crate::classes::{self, AreaPolicy};
@@ -32,7 +32,7 @@ pub struct ServeOptions {
 
 /// The folder for `hub.json` and `control.secret`.
 fn app_dir(env: &Env) -> Result<PathBuf, String> {
-    hub_kit::instance::config_folder(env, &crate::IDENTITY)
+    appkit_hub::instance::config_folder(env, &crate::IDENTITY)
 }
 
 /// The port to try first: the option, the environment, the settings file,
@@ -56,7 +56,7 @@ fn wanted_port(opts: &ServeOptions, file: &FileConfig, env: &Env) -> Result<u16,
 /// Is a hub of this app running according to `hub.json`? It is only
 /// believed when the process on that port says the same instance.
 pub(crate) async fn running_hub(dir: &std::path::Path) -> Option<HubRecord> {
-    hub_kit::instance::running_hub(dir, &crate::IDENTITY).await
+    appkit_hub::instance::running_hub(dir, &crate::IDENTITY).await
 }
 
 /// Wait for Ctrl-C, or for SIGTERM where there is one.
@@ -210,7 +210,7 @@ impl ConfigVaults {
     }
 }
 
-use hub_kit::config::is_remote_path;
+use appkit_hub::config::is_remote_path;
 
 /// The last part of a folder: what the page may show of it.
 fn label_of(path: &Path, fallback: &str) -> String {
@@ -455,7 +455,7 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
             // Two hubs that start at the same moment both passed the check
             // above; the bind is what decides. Another hub of this app on
             // the port is "already running", not a reason for a second one.
-            if hub_kit::instance::hello_of(want, &crate::IDENTITY)
+            if appkit_hub::instance::hello_of(want, &crate::IDENTITY)
                 .await
                 .is_some()
             {

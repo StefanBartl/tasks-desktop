@@ -1,7 +1,7 @@
 //! The snapshot the hub holds, and the events that tell it changed: the store is the kit's, this
 //! module states what the tasks hub calls its documents.
 
-pub use hub_kit::store::{
+pub use appkit_hub::store::{
     spawn_refresher, Cached, Change, RefreshOptions, SnapshotShape, SnapshotStore, StoreOptions,
 };
 

@@ -6,8 +6,8 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
-use hub_kit::background::Background;
-pub use hub_kit::background::{
+use appkit_hub::background::Background;
+pub use appkit_hub::background::{
     run_command, start_from, Autostart, InstallOptions, UninstallOptions,
 };
 
@@ -29,7 +29,7 @@ pub(crate) const APP: Background<'static> = Background {
 ///
 /// A text for the person at the terminal.
 pub async fn start() -> Result<String, String> {
-    hub_kit::background::start(&APP).await
+    appkit_hub::background::start(&APP).await
 }
 
 /// Stop the hub that runs (the one `hub.json` names and that answers as it).
@@ -38,7 +38,7 @@ pub async fn start() -> Result<String, String> {
 ///
 /// A text for the person at the terminal.
 pub async fn stop() -> Result<String, String> {
-    hub_kit::background::stop(&APP).await
+    appkit_hub::background::stop(&APP).await
 }
 
 /// Start the hub with the login of the user.
@@ -47,7 +47,7 @@ pub async fn stop() -> Result<String, String> {
 ///
 /// A text for the person at the terminal.
 pub fn autostart(what: Autostart) -> Result<String, String> {
-    hub_kit::background::autostart(&APP, what)
+    appkit_hub::background::autostart(&APP, what)
 }
 
 /// [`autostart`] for the program at `exe` (what `install` registers).
@@ -56,7 +56,7 @@ pub fn autostart(what: Autostart) -> Result<String, String> {
 ///
 /// A text for the person at the terminal.
 pub fn autostart_for(what: Autostart, exe: &Path) -> Result<String, String> {
-    hub_kit::background::autostart_for(&APP, what, exe)
+    appkit_hub::background::autostart_for(&APP, what, exe)
 }
 
 /// Where `install` puts this program.
@@ -65,7 +65,7 @@ pub fn autostart_for(what: Autostart, exe: &Path) -> Result<String, String> {
 ///
 /// The reason there is no install folder.
 pub fn installed_program(env: &Env) -> Result<PathBuf, String> {
-    hub_kit::background::installed_program(&APP, env)
+    appkit_hub::background::installed_program(&APP, env)
 }
 
 /// The file name the program has once installed.
@@ -80,14 +80,14 @@ pub fn program_file() -> String {
 ///
 /// A text for the person at the terminal.
 pub async fn install(opts: InstallOptions) -> Result<String, String> {
-    hub_kit::background::install(&APP, opts).await
+    appkit_hub::background::install(&APP, opts).await
 }
 
 /// Take the integration of the program with the system away.
 pub fn uninstall(
     opts: UninstallOptions,
 ) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send>> {
-    hub_kit::background::uninstall(&APP, opts)
+    appkit_hub::background::uninstall(&APP, opts)
 }
 
 #[cfg(test)]
@@ -111,7 +111,7 @@ mod tests {
     /// they stay what they were, character for character.
     #[test]
     fn the_desktop_link_of_the_tasks_hub_is_the_one_it_always_was() {
-        let make = hub_kit::background::link_script(
+        let make = appkit_hub::background::link_script(
             crate::IDENTITY.title,
             crate::IDENTITY.app,
             r"C:\x\tasks-hub.exe",
@@ -128,7 +128,7 @@ mod tests {
         .join("\r\n");
         assert_eq!(make, wanted_make);
 
-        let remove = hub_kit::background::unlink_script(crate::IDENTITY.title, "tasks-hub.exe");
+        let remove = appkit_hub::background::unlink_script(crate::IDENTITY.title, "tasks-hub.exe");
         let wanted_remove = [
             r#"Set shell = CreateObject("WScript.Shell")"#,
             r#"Set fso = CreateObject("Scripting.FileSystemObject")"#,

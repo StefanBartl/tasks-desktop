@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn a_folder_that_only_changed_inside_is_not_a_change_of_the_folder() {
         // The folder is real here, so the file system answers `Folder`.
-        let dir = std::env::temp_dir().join(format!("hub-kit-watch-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("appkit-hub-watch-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("rules")).unwrap();
         let modified =

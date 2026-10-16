@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use app_core::identity::AppIdentity;
-use hub_kit::{BoxFuture, RunningServer};
+use appkit_core::identity::AppIdentity;
+use appkit_hub::{BoxFuture, RunningServer};
 use tasks_hub::classes::AreaPolicy;
 use tasks_hub::server::{start, ServerConfig};
 

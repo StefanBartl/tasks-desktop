@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use notify::Event;
 use tokio::sync::mpsc::UnboundedSender;
 
-pub use hub_kit::fs_watch::{Entry, Hint, Watcher};
+pub use appkit_hub::fs_watch::{Entry, Hint, Watcher};
 
 /// Names that are tools' leftovers, not tasks: temp files of the engine
 /// (`*.tasks-tmp.*`, `*.frontmatter.*`), lock files, editor backups and
@@ -89,7 +89,7 @@ fn filter(relative: &Path, entry: &dyn Fn() -> Entry) -> bool {
 /// What an event of the watcher asks of the refresher, if anything.
 #[must_use]
 pub fn hint_for(event: &Event, bases: &[PathBuf]) -> Option<Hint> {
-    hub_kit::fs_watch::hint_for(event, bases, filter)
+    appkit_hub::fs_watch::hint_for(event, bases, filter)
 }
 
 /// Watch the vault and send a hint for every change that matters.
@@ -98,7 +98,7 @@ pub fn hint_for(event: &Event, bases: &[PathBuf]) -> Option<Hint> {
 ///
 /// The watcher could not be created or could not watch the folder.
 pub fn start(vault: &Path, hints: UnboundedSender<Hint>) -> notify::Result<Watcher> {
-    hub_kit::fs_watch::start(vault, hints, filter)
+    appkit_hub::fs_watch::start(vault, hints, filter)
 }
 
 #[cfg(test)]

@@ -3,8 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
-use app_core::identity::AppIdentity;
-use app_core::registry::{self, HubRecord};
+use appkit_core::identity::AppIdentity;
+use appkit_core::registry::{self, HubRecord};
 use serde_json::Value;
 
 use crate::client;

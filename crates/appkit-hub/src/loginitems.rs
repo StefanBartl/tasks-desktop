@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use app_core::identity::AppIdentity;
+use appkit_core::identity::AppIdentity;
 
 use crate::env::Env;
 
@@ -339,7 +339,8 @@ mod tests {
     }
 
     fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("hub-kit-login-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("appkit-hub-login-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

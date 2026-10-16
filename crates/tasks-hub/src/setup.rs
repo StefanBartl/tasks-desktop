@@ -3,8 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
-use hub_kit::setup::SetupApp;
-pub use hub_kit::setup::{Console, Io};
+use appkit_hub::setup::SetupApp;
+pub use appkit_hub::setup::{Console, Io};
 
 use crate::config::{Env, TasksSettings};
 
@@ -19,7 +19,7 @@ const APP: SetupApp<'static> = SetupApp {
 /// Whether there is a person to ask.
 #[must_use]
 pub fn interactive(env: &Env) -> bool {
-    hub_kit::setup::interactive(&APP, env)
+    appkit_hub::setup::interactive(&APP, env)
 }
 
 /// The questions of a first start. Returns the installed program to start the hub from, when there is one.
@@ -28,13 +28,13 @@ pub fn interactive(env: &Env) -> bool {
 ///
 /// A text for the person at the console (the settings cannot be read or written, the install failed).
 pub async fn run(io: &mut dyn Io, env: &Env) -> Result<Option<PathBuf>, String> {
-    hub_kit::setup::run::<TasksSettings>(&APP, io, env).await
+    appkit_hub::setup::run::<TasksSettings>(&APP, io, env).await
 }
 
 /// The settings as they are now (for the tests of the vault step).
 #[must_use]
 pub fn vault_in_settings(dir: &Path) -> Option<PathBuf> {
-    hub_kit::setup::vault_in_settings::<TasksSettings>(dir)
+    appkit_hub::setup::vault_in_settings::<TasksSettings>(dir)
 }
 
 #[cfg(test)]

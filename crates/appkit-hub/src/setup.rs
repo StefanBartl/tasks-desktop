@@ -27,7 +27,7 @@ pub struct SetupApp<'a> {
 }
 
 impl SetupApp<'_> {
-    fn identity(&self) -> &app_core::identity::AppIdentity {
+    fn identity(&self) -> &appkit_core::identity::AppIdentity {
         self.background.login.identity
     }
 }
@@ -317,7 +317,7 @@ mod tests {
     use super::*;
     use crate::config::NoSettings;
     use crate::loginitems::LoginApp;
-    use app_core::identity::AppIdentity;
+    use appkit_core::identity::AppIdentity;
 
     /// An app that is not the one this kit was made from.
     const IDENTITY: AppIdentity = AppIdentity {
@@ -393,7 +393,8 @@ mod tests {
     }
 
     fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("hub-kit-setup-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("appkit-hub-setup-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

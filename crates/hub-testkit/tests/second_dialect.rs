@@ -1,4 +1,4 @@
-//! `CliEngine` against the fake engine of a second app: the seam of `hub-kit` knows no call, no
+//! `CliEngine` against the fake engine of a second app: the seam of `appkit-hub` knows no call, no
 //! kind, no variable and no script by name, so an engine with other ones works the same.
 //!
 //! The dialect is the one of `rules.nvim`: `rules.*` kinds, `RULES_VAULT`, its list under `rules`.
@@ -7,10 +7,10 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use hub_kit::engine::{
+use appkit_hub::engine::{
     probe, CliEngine, CliEngineConfig, Engine, EngineDialect, EngineError, Method, MethodSpec,
 };
-use hub_kit::env::Env;
+use appkit_hub::env::Env;
 use serde_json::{json, Value};
 
 static SPECS: [MethodSpec; 3] = [

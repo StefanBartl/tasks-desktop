@@ -353,7 +353,7 @@ mod tests {
     }
 
     fn core_with(first: &Arc<OtherRuntime>) -> Arc<Core<OtherRuntime>> {
-        use app_core::authn::SystemClock;
+        use appkit_core::authn::SystemClock;
         let clock: Arc<dyn Clock> = Arc::new(SystemClock::new());
         let ttl = Duration::from_secs(60);
         Arc::new(Core {
