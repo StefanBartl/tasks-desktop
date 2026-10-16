@@ -8,12 +8,10 @@
 pub mod app;
 pub mod background;
 pub mod classes;
-pub mod client;
 pub mod config;
 pub mod discovery;
 pub mod editor;
 pub mod engine;
-pub mod loginitems;
 pub mod search;
 pub mod server;
 pub mod setup;
@@ -21,7 +19,7 @@ pub mod store;
 pub mod ui;
 pub mod watch;
 
-pub use hub_kit::usage;
+pub use hub_kit::{client, loginitems, usage};
 
 /// The names this app gives itself: config folder, environment variables, login entries, program
 /// file, port and route namespace all come from here.
@@ -32,6 +30,12 @@ pub const IDENTITY: app_core::identity::AppIdentity = app_core::identity::AppIde
     title: "Tasks",
     default_port: 17615,
     route_ns: "tasks",
+};
+
+/// What the login entries and the launcher say about this app.
+pub const LOGIN: hub_kit::loginitems::LoginApp<'static> = hub_kit::loginitems::LoginApp {
+    identity: &IDENTITY,
+    summary: "the task overview",
 };
 
 /// Version of this hub, as reported by `hello`.

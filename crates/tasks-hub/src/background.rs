@@ -278,7 +278,7 @@ pub fn autostart_for(what: Autostart, exe: &Path) -> Result<String, String> {
             Autostart::Off => loginitems::Action::Off,
             Autostart::Status => loginitems::Action::Status,
         };
-        return loginitems::login_entry(platform, action, exe, &Env::from_process());
+        return loginitems::login_entry(&crate::LOGIN, platform, action, exe, &Env::from_process());
     }
     run_key(what, exe, &RegExe(system_program("reg.exe")?))
 }
@@ -825,7 +825,7 @@ fn remove_shortcut(env: &Env) -> Result<String, String> {
         let Some(platform) = loginitems::Platform::current() else {
             return Ok(String::new());
         };
-        return loginitems::remove_launcher(platform, env);
+        return loginitems::remove_launcher(&crate::LOGIN, platform, env);
     }
     // Only a link of that name whose target is this program: a link of the person's own
     // that happens to be called "Tasks" is not ours to delete.
@@ -866,7 +866,7 @@ fn shortcut(exe: &Path) -> Result<String, String> {
     if !cfg!(windows) {
         let platform =
             loginitems::Platform::current().ok_or("a launcher is not built for this system")?;
-        return loginitems::launcher(platform, exe, &Env::from_process());
+        return loginitems::launcher(&crate::LOGIN, platform, exe, &Env::from_process());
     }
     let text = exe.to_string_lossy();
     if text.contains(['"', '\r', '\n']) {
