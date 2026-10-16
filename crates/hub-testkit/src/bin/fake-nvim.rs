@@ -1,5 +1,9 @@
 //! A stand-in for `nvim --headless -u NONE -l scripts/tasks.lua call <method>`.
 //!
+//! The engine it plays is read from the script it is given: `tasks.lua` and `tasks-host.lua` are the
+//! tasks engine, a script whose name starts with `rules` plays a second engine (see
+//! `hub_testkit::dialect`): its own kinds, plugin, vault variable and key of the list.
+//!
 //! It answers like the engine would, and does what the request under
 //! `"fake"` asks it to, so a test can make it slow, noisy, wrong or loud:
 //!
@@ -7,7 +11,7 @@
 //! * `stamp`: put `started_ms` and `ended_ms` (since the epoch) in the answer;
 //! * `echo_env`: put the names of its environment in the answer;
 //! * `echo_stdin`: put the bytes it received on stdin in the answer;
-//! * `error`: answer with a `tasks.error` of that code;
+//! * `error`: answer with an error document (`tasks.error`, `rules.error`) of that code;
 //! * `kind`, `schema`: answer with another kind or schema than asked for;
 //! * `marker`: write this file after the wait, so a test can tell that the
 //!   process ran to the end (or that it never started);
@@ -15,10 +19,18 @@
 //! * `huge`: answer with a string of this many bytes.
 
 use std::io::{Read, Write};
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use hub_testkit::dialect::{FakeDialect, TASKS};
 use serde_json::{json, Value};
-use tasks_hub::engine::Calls;
+
+/// The engine this process plays, set once from its arguments.
+static DIALECT: OnceLock<&'static FakeDialect> = OnceLock::new();
+
+fn dialect() -> &'static FakeDialect {
+    DIALECT.get().copied().unwrap_or(&TASKS)
+}
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -28,11 +40,12 @@ fn now_ms() -> u64 {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let _ = DIALECT.set(FakeDialect::of_args(&args));
     if args.iter().any(|a| a == "--version") {
         println!("NVIM v0.12.2");
         return;
     }
-    if args.iter().any(|a| a.ends_with("tasks-host.lua")) {
+    if args.iter().any(|a| FakeDialect::is_host_script(a)) {
         host_loop();
         return;
     }
@@ -59,7 +72,7 @@ fn main() {
 /// the process on the spot (a crash); `fake.hang` never answers.
 fn host_loop() {
     use std::io::BufRead;
-    let vault = std::env::var("TASKS_VAULT").unwrap_or_default();
+    let vault = std::env::var(dialect().vault_var).unwrap_or_default();
     // `<vault>/.fake-host-starts` counts how often a host was started.
     if let Ok(mut starts) = std::fs::OpenOptions::new()
         .create(true)
@@ -125,7 +138,7 @@ fn respond(method: &str, raw: &[u8], started: u64) -> Value {
     // test that cannot put a `fake` into the request (the routes build their
     // own) can still see which reads ran.
     if method == "task" {
-        let vault = std::env::var("TASKS_VAULT").unwrap_or_default();
+        let vault = std::env::var(dialect().vault_var).unwrap_or_default();
         let base = std::path::Path::new(&vault);
         if let Ok(text) = std::fs::read_to_string(base.join(".fake-task-ms")) {
             use std::io::Write as _;
@@ -142,7 +155,7 @@ fn respond(method: &str, raw: &[u8], started: u64) -> Value {
     // `<vault>/.fake-check-ms` makes a `check` take that long, and `<vault>/.fake-check-fail` makes it fail (with the
     // vault in what it says on stderr, as a real failure would).
     if method == "check" {
-        let vault = std::env::var("TASKS_VAULT").unwrap_or_default();
+        let vault = std::env::var(dialect().vault_var).unwrap_or_default();
         let base = std::path::Path::new(&vault);
         if let Ok(text) = std::fs::read_to_string(base.join(".fake-check-ms")) {
             std::thread::sleep(Duration::from_millis(text.trim().parse().unwrap_or(0)));
@@ -163,30 +176,26 @@ fn respond(method: &str, raw: &[u8], started: u64) -> Value {
     if let Some(code) = fake.get("exit").and_then(Value::as_i64) {
         eprintln!(
             "fake-nvim failed in {}",
-            std::env::var("TASKS_VAULT").unwrap_or_default()
+            std::env::var(dialect().vault_var).unwrap_or_default()
         );
         std::process::exit(i32::try_from(code).unwrap_or(1));
     }
 
-    let kind = fake.get("kind").and_then(Value::as_str).map_or_else(
-        || {
-            Calls::parse(method)
-                .map_or("tasks.unknown", |m| m.reply_kind())
-                .to_owned()
-        },
-        str::to_owned,
-    );
+    let kind = fake
+        .get("kind")
+        .and_then(Value::as_str)
+        .map_or_else(|| dialect().kind(method).to_owned(), str::to_owned);
     let schema = fake.get("schema").and_then(Value::as_u64).unwrap_or(1);
     let mut doc = json!({
         "schema": schema,
-        "plugin": "tasks.nvim",
+        "plugin": dialect().plugin,
         "kind": kind,
         "generated_at": "2026-01-01T00:00:00Z",
         "vault": {"id": "vault"},
         "engine": {"version": "0.0.0-fake", "git": "0000000", "nvim": "0.12.2"},
     });
     if let Some(code) = fake.get("error").and_then(Value::as_str) {
-        doc["kind"] = json!("tasks.error");
+        doc["kind"] = json!(dialect().error_kind);
         doc["code"] = json!(code);
         doc["message"] = json!("the fake engine refused");
         doc["retryable"] = json!(false);
@@ -210,7 +219,7 @@ fn respond(method: &str, raw: &[u8], started: u64) -> Value {
                 // With `<vault>/.fake-n` the document follows that number, so a
                 // test can change "the vault" by writing a file; every call is
                 // counted in `<vault>/.fake-calls`.
-                let vault = std::env::var("TASKS_VAULT").unwrap_or_default();
+                let vault = std::env::var(dialect().vault_var).unwrap_or_default();
                 let state = std::path::Path::new(&vault).join(".fake-n");
                 if let Ok(text) = std::fs::read_to_string(&state) {
                     use std::io::Write as _;
@@ -240,18 +249,19 @@ fn respond(method: &str, raw: &[u8], started: u64) -> Value {
                     }
                     doc["digest"] = json!(format!("sha256:{n:016x}"));
                     doc["rev"] = json!(format!("rev:{n:06x}"));
-                    doc["tasks"] = json!(tasks);
+                    doc[dialect().list_key] = json!(tasks);
                 } else {
                     doc["digest"] = json!("sha256:00000000000000aa");
                     doc["rev"] = json!("rev:000001");
                     doc["counts"] = json!({ "listed": 1, "unlisted": 0 });
-                    doc["tasks"] = json!([{ "id": "alpha.nvim/one", "area": "alpha.nvim" }]);
+                    doc[dialect().list_key] =
+                        json!([{ "id": "alpha.nvim/one", "area": "alpha.nvim" }]);
                 }
             }
             "bodies" => {
                 // The bodies follow `<vault>/.fake-n` like the snapshot: the
                 // task `t<i>` holds the word `needle<i>`.
-                let vault = std::env::var("TASKS_VAULT").unwrap_or_default();
+                let vault = std::env::var(dialect().vault_var).unwrap_or_default();
                 let n: u64 = std::fs::read_to_string(std::path::Path::new(&vault).join(".fake-n"))
                     .ok()
                     .and_then(|t| t.trim().parse().ok())
@@ -312,14 +322,14 @@ fn respond(method: &str, raw: &[u8], started: u64) -> Value {
             "task" => {
                 let id = params.get("id").and_then(Value::as_str).unwrap_or("");
                 if id == "alpha.nvim/missing" {
-                    doc["kind"] = json!("tasks.error");
+                    doc["kind"] = json!(dialect().error_kind);
                     doc["code"] = json!("not_found");
                     doc["message"] = json!("no such task");
                     doc["retryable"] = json!(false);
                 } else {
                     doc["task"] = json!({ "id": id });
                     // `<vault>/.fake-task-file` names the file every task is in (the route that opens one).
-                    let vault_dir = std::env::var("TASKS_VAULT").unwrap_or_default();
+                    let vault_dir = std::env::var(dialect().vault_var).unwrap_or_default();
                     if let Ok(file) = std::fs::read_to_string(
                         std::path::Path::new(&vault_dir).join(".fake-task-file"),
                     ) {
@@ -328,7 +338,7 @@ fn respond(method: &str, raw: &[u8], started: u64) -> Value {
                     doc["body"] = json!("");
                     // The state the task was read in follows `<vault>/.fake-n`
                     // like the snapshot, when a test keeps one.
-                    let vault = std::env::var("TASKS_VAULT").unwrap_or_default();
+                    let vault = std::env::var(dialect().vault_var).unwrap_or_default();
                     if let Some(n) =
                         std::fs::read_to_string(std::path::Path::new(&vault).join(".fake-n"))
                             .ok()
@@ -377,7 +387,7 @@ fn respond(method: &str, raw: &[u8], started: u64) -> Value {
                 // Only a vault that keeps a state moves: a test that has none
                 // must not leave a file behind (a vault may be the temp dir).
                 if !dry {
-                    let vault = std::env::var("TASKS_VAULT").unwrap_or_default();
+                    let vault = std::env::var(dialect().vault_var).unwrap_or_default();
                     let file = std::path::Path::new(&vault).join(".fake-n");
                     if let Some(n) = std::fs::read_to_string(&file)
                         .ok()

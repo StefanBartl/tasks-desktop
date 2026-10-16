@@ -9,6 +9,7 @@
 //! * [`subjects`]: the apps the matrix runs for here: the tasks hub, and a second, minimal app
 //!   that is built on `hub-kit` alone and so proves the guard knows nothing of `tasks`.
 
+pub mod dialect;
 pub mod security;
 pub mod subject;
 pub mod subjects;
