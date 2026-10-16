@@ -210,14 +210,7 @@ impl ConfigVaults {
     }
 }
 
-/// Whether a path names anything but a plain drive or mount: a network share, a device, a verbatim or an NT form.
-/// Windows reads `/` and `\` alike, so the separators are made one before the start is looked at (`/\host\share` is
-/// a share too). Every prefix but a drive letter (a share, a device, a verbatim or an NT form) begins with two
-/// separators, or with `/??/` once they are one, so this is the whole test.
-pub(crate) fn is_remote_path(text: &str) -> bool {
-    let flat = text.replace('\\', "/");
-    flat.starts_with("//") || flat.starts_with("/??/")
-}
+use hub_kit::config::is_remote_path;
 
 /// The last part of a folder: what the page may show of it.
 fn label_of(path: &Path, fallback: &str) -> String {

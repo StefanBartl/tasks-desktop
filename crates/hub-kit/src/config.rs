@@ -180,6 +180,16 @@ pub fn valid_vault_name(name: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// Whether a path names anything but a plain drive or mount: a network share, a device, a verbatim or an NT form.
+/// Windows reads `/` and `\` alike, so the separators are made one before the start is looked at (`/\host\share` is
+/// a share too). Every prefix but a drive letter (a share, a device, a verbatim or an NT form) begins with two
+/// separators, or with `/??/` once they are one, so this is the whole test.
+#[must_use]
+pub fn is_remote_path(text: &str) -> bool {
+    let flat = text.replace('\\', "/");
+    flat.starts_with("//") || flat.starts_with("/??/")
+}
+
 impl<A: AppSettings> FileConfig<A> {
     /// Check the values that become part of a path or of a list the engine
     /// splits itself, the vaults and what the app checks of its own keys.

@@ -49,6 +49,7 @@ pub mod access;
 pub mod background;
 pub mod client;
 pub mod config;
+pub mod discovery;
 pub mod engine;
 pub mod env;
 pub mod guard;
@@ -57,6 +58,7 @@ pub mod hub;
 pub mod instance;
 pub mod limits;
 pub mod loginitems;
+pub mod setup;
 pub mod usage;
 pub mod vaults;
 
