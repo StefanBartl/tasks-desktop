@@ -20,6 +20,7 @@ path = "src/main.rs"
 
 [dependencies]
 app-core = { path = "../app-core" }
+hub-kit = { path = "../hub-kit" }
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
 hyper = { version = "1", default-features = false, features = ["http1", "server"] }
 hyper-util = { version = "0.1", default-features = false, features = ["server", "tokio", "service", "http1"] }

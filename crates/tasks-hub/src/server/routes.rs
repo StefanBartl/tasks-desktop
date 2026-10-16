@@ -421,7 +421,7 @@ pub(super) async fn ops(State(st): State<Arc<Shared>>, body: Bytes) -> Response 
         if wrote {
             let _ = st.rt().store.refresh("ops").await;
         }
-        if let Some(usage) = &st.usage {
+        if let Some(usage) = &st.rt().usage {
             usage.touched();
         }
     }
@@ -592,14 +592,10 @@ pub(super) async fn rescan(State(st): State<Arc<Shared>>) -> Response {
     }
     rt.store.request_rescan();
     // The page asks for this when its window gets the focus back.
-    if let Some(usage) = &st.usage {
+    if let Some(usage) = &st.rt().usage {
         usage.touched();
     }
     (StatusCode::ACCEPTED, axum::Json(json!({ "ok": true }))).into_response()
-}
-
-pub(super) async fn not_found() -> Response {
-    error_body(StatusCode::NOT_FOUND, "not_found", "no such route")
 }
 
 /// What this app tells the guard: its `hello` and the two POST routes that have the coarse limit of

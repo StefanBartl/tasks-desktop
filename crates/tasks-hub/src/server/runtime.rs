@@ -12,6 +12,10 @@ pub(super) struct VaultRuntime {
     pub(super) classes: Arc<AreaPolicy>,
     /// Shows a task file in an editor; none in a hub that cannot.
     pub(super) opener: Option<Arc<dyn FileOpener>>,
+    /// How often the interface is used (counts per day), if kept.
+    pub(super) usage: Option<Arc<UsageLog>>,
+    /// The event streams that are open, by session token.
+    pub(super) streams: Arc<StreamCounter>,
     pub(super) engine: Option<Arc<dyn Engine>>,
     pub(super) store: Arc<SnapshotStore>,
     pub(super) search: Option<Arc<SearchIndex>>,
@@ -37,6 +41,8 @@ pub(super) struct VaultRuntime {
 }
 
 impl Runtime for VaultRuntime {
+    type Target = VaultTarget;
+
     fn status(&self) -> &HubStatus {
         &self.status
     }
@@ -51,6 +57,8 @@ impl Runtime for VaultRuntime {
 pub(super) struct AppParts {
     pub(super) classes: Arc<AreaPolicy>,
     pub(super) opener: Option<Arc<dyn FileOpener>>,
+    pub(super) usage: Option<Arc<UsageLog>>,
+    pub(super) streams: Arc<StreamCounter>,
 }
 
 impl VaultRuntime {
@@ -116,6 +124,8 @@ pub(super) fn build_runtime(
         status,
         classes: Arc::clone(&app.classes),
         opener: app.opener.clone(),
+        usage: app.usage.clone(),
+        streams: Arc::clone(&app.streams),
         engine,
         store,
         search,

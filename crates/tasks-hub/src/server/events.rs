@@ -53,7 +53,7 @@ pub(super) async fn events(
     }
     // The guard has checked the session; the token is the key of the count.
     let token = bearer(&headers).unwrap_or_default();
-    let Some(guard) = st
+    let Some(guard) = rt
         .streams
         .acquire(&token, st.limits.max_streams_per_session)
     else {
@@ -73,7 +73,7 @@ pub(super) async fn events(
     let instance = st.instance.clone();
     let shared = Arc::clone(&st);
     // The visit is counted while the stream lives, and ends with it.
-    let visit = VisitGuard::new(st.usage.clone());
+    let visit = VisitGuard::new(rt.usage.clone());
     tokio::spawn(async move {
         let _guard = guard;
         let _visit = visit;
