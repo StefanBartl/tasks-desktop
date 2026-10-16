@@ -1454,6 +1454,10 @@ test('explanations: the board, the inbox and the matrix say what their labels me
   await page.locator('button.card .tag', { hasText: /^P\d$/ }).first().hover();
   await expect(tip).toContainText('Priority: 1 is the most urgent');
   await page.keyboard.press('Escape');
+  // The headings of the board are hover only; the keyboard has the explanation button.
+  await page.getByRole('button', { name: 'Explanation: Board' }).focus();
+  await expect(tip).toContainText('Drop a card on the strip above the columns');
+  await page.keyboard.press('Escape');
 
   await chooseView(page, 'View', 'Inbox');
   await page.getByRole('button', { name: 'Explanation: Inbox' }).focus();
@@ -1469,6 +1473,8 @@ test('explanations: the board, the inbox and the matrix say what their labels me
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Explanation: Effort' }).focus();
   await expect(dialog.locator('#hint-tip')).toBeVisible();
+  // The column header keeps its own name; the explanation button is not part of it.
+  await expect(dialog.getByRole('columnheader', { name: 'Effort', exact: true })).toBeVisible();
   await expect(tip).toContainText('XS is a quarter of a day');
   const covered = await tip.evaluate((el) => {
     const r = el.getBoundingClientRect();
@@ -1477,8 +1483,14 @@ test('explanations: the board, the inbox and the matrix say what their labels me
   });
   expect(covered).toBe(false);
   expect(await violations(page)).toEqual([]);
+  // The first Escape closes only the explanation, with the draft of the dialog still open; the popup goes home to the
+  // page; the second Escape closes the dialog.
   await page.keyboard.press('Escape');
   await expect(tip).toBeHidden();
+  await expect(dialog).toBeVisible();
+  await expect(page.locator('body > .hint-host')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('dialog[open]')).toHaveCount(0);
 });
 
 test('more filters: any field, switched on in a row of chips that can be taken off one by one, and reset', async ({
