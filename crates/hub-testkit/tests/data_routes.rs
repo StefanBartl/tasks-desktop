@@ -25,6 +25,7 @@ struct Hub {
 fn fake_engine() -> Arc<dyn Engine> {
     let dir = std::env::temp_dir();
     Arc::new(CliEngine::new(CliEngineConfig {
+        dialect: tasks_hub::engine::DIALECT,
         nvim: PathBuf::from(env!("CARGO_BIN_EXE_fake-nvim")),
         script: dir.join("scripts").join("tasks.lua"),
         vault: dir,

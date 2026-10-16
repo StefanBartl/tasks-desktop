@@ -83,6 +83,7 @@ async fn rig(name: &str, timing: Timing) -> Rig {
     let vault = unique(name);
     set_n(&vault, 0);
     let engine: Arc<dyn Engine> = Arc::new(CliEngine::new(CliEngineConfig {
+        dialect: tasks_hub::engine::DIALECT,
         nvim: PathBuf::from(env!("CARGO_BIN_EXE_fake-nvim")),
         script: vault.join("scripts").join("tasks.lua"),
         vault: vault.clone(),

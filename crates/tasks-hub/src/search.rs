@@ -20,7 +20,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tokio::task::JoinHandle;
 
-use crate::engine::{Engine, Method};
+use crate::engine::{Calls, Engine};
 use crate::store::{Change, SnapshotStore};
 
 /// Tasks asked for in one call (the engine ends a page earlier by bytes).
@@ -338,7 +338,7 @@ impl SearchIndex {
     async fn page(&self, params: &serde_json::Value) -> Result<Page, String> {
         let reply = self
             .engine
-            .call(Method::Bodies, Some(params))
+            .call(Calls::Bodies, Some(params))
             .await
             .map_err(|e| e.to_string())?;
         serde_json::from_str::<Page>(&reply.text).map_err(|e| format!("a bodies page: {e}"))
@@ -588,6 +588,7 @@ fn percent_decode(value: &str) -> Result<String, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::Method;
 
     fn entry(id: &str, body: &str) -> Entry {
         Entry::new(Item {

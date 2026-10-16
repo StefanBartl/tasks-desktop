@@ -42,6 +42,7 @@ async fn rig(name: &str, with_opener: bool) -> Rig {
     .unwrap();
     let log = base.join("opened.log");
     let engine: Arc<dyn Engine> = Arc::new(CliEngine::new(CliEngineConfig {
+        dialect: tasks_hub::engine::DIALECT,
         nvim: PathBuf::from(env!("CARGO_BIN_EXE_fake-nvim")),
         script: vault.join("scripts").join("tasks.lua"),
         vault: vault.clone(),

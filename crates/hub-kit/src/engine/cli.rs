@@ -1,6 +1,6 @@
-//! `CliEngine`: one `nvim --headless -l scripts/tasks.lua call <method>`
+//! `CliEngine`: one `nvim --headless -l <script> call <method>`
 //! process per question (concept 3.5, stage P2), or, with
-//! [`CliEngine::with_host`], one persistent `scripts/tasks-host.lua` process
+//! [`CliEngine::with_host`], one persistent host process (the script next to it)
 //! that answers many questions (stage P8) and falls back to a process per
 //! question when it cannot.
 //!
@@ -30,9 +30,10 @@ use tokio::sync::{oneshot, Mutex};
 
 use super::host::{Failure, Host, HostSpec};
 use super::wire::ascii_json;
-use super::{child_env, CallFuture, Engine, EngineError, EngineRefusal, Method, Reply, SCHEMA};
-use crate::config::Env;
-use crate::discovery::{engine_script, Setup};
+use super::{
+    child_env, CallFuture, Engine, EngineDialect, EngineError, EngineRefusal, Method, Reply,
+};
+use crate::env::Env;
 
 /// The longest request the engine reads (`api.MAX_REQUEST_BYTES`). A larger
 /// one is refused here, before a process is started for nothing.
@@ -40,6 +41,7 @@ pub const MAX_REQUEST_BYTES: usize = 256 * 1024;
 
 /// The engine switches the hub sets from its own settings.
 pub struct EngineVars<'a> {
+    pub dialect: EngineDialect,
     pub vault: &'a Path,
     pub lib_dir: Option<&'a Path>,
     pub extra_areas: &'a [String],
@@ -48,8 +50,10 @@ pub struct EngineVars<'a> {
 /// What a `CliEngine` needs.
 #[derive(Debug, Clone)]
 pub struct CliEngineConfig {
+    /// The contract of the engine this seam speaks.
+    pub dialect: EngineDialect,
     pub nvim: PathBuf,
-    /// `<tasks.nvim>/scripts/tasks.lua`, absolute.
+    /// The script of the engine, absolute (`<engine>/scripts/tasks.lua`).
     pub script: PathBuf,
     pub vault: PathBuf,
     pub lib_dir: Option<PathBuf>,
@@ -62,24 +66,6 @@ pub struct CliEngineConfig {
     pub max_queue: usize,
     /// The longest answer that is accepted.
     pub max_reply_bytes: usize,
-}
-
-impl CliEngineConfig {
-    #[must_use]
-    pub fn from_setup(setup: &Setup, env: Env) -> Self {
-        Self {
-            nvim: setup.nvim.value.clone(),
-            script: engine_script(&setup.engine_dir.value),
-            vault: setup.vault.value.clone(),
-            lib_dir: setup.lib_dir.as_ref().map(|l| l.value.clone()),
-            extra_areas: setup.extra_areas.clone(),
-            env,
-            timeout: Duration::from_secs(30),
-            max_queue: 64,
-            // The snapshot of the real vault is below 8 MiB (concept 11.1, P1).
-            max_reply_bytes: 16 * 1024 * 1024,
-        }
-    }
 }
 
 /// The head every document starts with.
@@ -133,7 +119,7 @@ const CHECK_TIMEOUT_FACTOR: u32 = 10;
 
 /// Characters that are no use in a line of text shown to a person: controls
 /// and the invisible ones that can reorder or hide text.
-pub(crate) fn is_unprintable(c: char) -> bool {
+pub fn is_unprintable(c: char) -> bool {
     c.is_control()
         || matches!(
             c,
@@ -219,6 +205,7 @@ impl Inner {
         }
 
         let vars = EngineVars {
+            dialect: self.cfg.dialect,
             vault: &self.cfg.vault,
             lib_dir: self.cfg.lib_dir.as_deref(),
             extra_areas: &self.cfg.extra_areas,
@@ -316,14 +303,14 @@ impl Inner {
                 detail: self.scrub(&format!("no document: {stderr}")),
             });
         };
-        if head.schema != Some(SCHEMA) {
+        if head.schema != Some(self.cfg.dialect.schema) {
             return Err(EngineError::Protocol(format!(
                 "unsupported schema {:?}",
                 head.schema
             )));
         }
         let kind = head.kind.unwrap_or_default();
-        if kind == "tasks.error" {
+        if kind == self.cfg.dialect.error_kind {
             return Err(EngineError::Refused(EngineRefusal {
                 code: head.code.unwrap_or_else(|| "internal".to_owned()),
                 message: head.message.unwrap_or_default(),
@@ -369,6 +356,7 @@ impl CliEngine {
             .flatten()
             .map(|script| {
                 let vars = EngineVars {
+                    dialect: cfg.dialect,
                     vault: &cfg.vault,
                     lib_dir: cfg.lib_dir.as_deref(),
                     extra_areas: &cfg.extra_areas,
@@ -506,9 +494,9 @@ fn watched_folders(cfg: &CliEngineConfig) -> Vec<PathBuf> {
     out
 }
 
-/// `tasks-host.lua` next to `tasks.lua`, if the engine has it.
+/// The persistent host next to the script of the engine, if the engine has it.
 fn host_script(cfg: &CliEngineConfig) -> Option<PathBuf> {
-    let script = cfg.script.with_file_name("tasks-host.lua");
+    let script = cfg.script.with_file_name(cfg.dialect.host_script);
     script.is_file().then_some(script)
 }
 

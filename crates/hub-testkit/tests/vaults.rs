@@ -23,6 +23,7 @@ use tasks_hub::store::RefreshOptions;
 
 fn engine_for(vault: &Path) -> Arc<dyn Engine> {
     Arc::new(CliEngine::new(CliEngineConfig {
+        dialect: tasks_hub::engine::DIALECT,
         nvim: PathBuf::from(env!("CARGO_BIN_EXE_fake-nvim")),
         script: vault.join("scripts").join("tasks.lua"),
         vault: vault.to_path_buf(),

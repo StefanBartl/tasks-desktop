@@ -13,7 +13,7 @@ use tasks_hub::classes::AreaPolicy;
 use tasks_hub::client;
 use tasks_hub::config::{Env, FileConfig};
 use tasks_hub::discovery::{discover, SetupProblem};
-use tasks_hub::engine::{probe, CliEngine, CliEngineConfig, Engine};
+use tasks_hub::engine::{probe, CliEngine, Engine};
 use tasks_hub::server::{start, HubStatus, Limits, ServerConfig, WatchConfig};
 use tasks_hub::store::RefreshOptions;
 
@@ -111,7 +111,7 @@ async fn an_edit_of_a_task_file_reaches_the_stream_within_two_seconds() {
         }
         Err(other) => panic!("{other}"),
     };
-    let engine = CliEngine::new(CliEngineConfig::from_setup(&setup, env));
+    let engine = CliEngine::new(tasks_hub::engine::cli_config_from_setup(&setup, env));
     probe(&engine).await.expect("the engine answers hello");
     let engine: Arc<dyn Engine> = Arc::new(engine);
 

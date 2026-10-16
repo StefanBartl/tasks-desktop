@@ -25,6 +25,7 @@ async fn a_stream_is_a_visit_and_the_file_holds_counts_only() {
     let log_path = dir.join("usage.json");
 
     let engine: Arc<dyn Engine> = Arc::new(CliEngine::new(CliEngineConfig {
+        dialect: tasks_hub::engine::DIALECT,
         nvim: PathBuf::from(env!("CARGO_BIN_EXE_fake-nvim")),
         script: dir.join("scripts").join("tasks.lua"),
         vault: dir.clone(),

@@ -18,7 +18,7 @@ use std::io::{Read, Write};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
-use tasks_hub::engine::Method;
+use tasks_hub::engine::Calls;
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -170,8 +170,8 @@ fn respond(method: &str, raw: &[u8], started: u64) -> Value {
 
     let kind = fake.get("kind").and_then(Value::as_str).map_or_else(
         || {
-            Method::parse(method)
-                .map_or("tasks.unknown", Method::reply_kind)
+            Calls::parse(method)
+                .map_or("tasks.unknown", |m| m.reply_kind())
                 .to_owned()
         },
         str::to_owned,

@@ -314,7 +314,7 @@ pub(super) fn start_check_job(
     let runtime = Arc::clone(rt);
     let handle = tokio::spawn(async move {
         let request = serde_json::Value::Object(params);
-        let outcome = engine.call(EngineMethod::Check, Some(&request)).await;
+        let outcome = engine.call(Calls::Check, Some(&request)).await;
         let next = match outcome {
             Ok(reply) => match serde_json::from_str::<serde_json::Value>(&reply.text) {
                 Ok(result) => CheckJob::Done { id, result },

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use tasks_hub::config::Env;
-use tasks_hub::engine::{probe, CliEngine, CliEngineConfig, Engine, EngineError, Method};
+use tasks_hub::engine::{probe, Calls, CliEngine, CliEngineConfig, Engine, EngineError, Method};
 
 fn fake_nvim() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_fake-nvim"))
@@ -19,6 +19,7 @@ fn vault() -> PathBuf {
 
 fn config(env: Env) -> CliEngineConfig {
     CliEngineConfig {
+        dialect: tasks_hub::engine::DIALECT,
         nvim: fake_nvim(),
         script: vault().join("scripts").join("tasks.lua"),
         vault: vault(),
@@ -78,7 +79,7 @@ async fn the_child_gets_only_the_allow_listed_environment() {
     let engine = CliEngine::new(config(env));
     let params = fake(json!({ "echo_env": true }));
     let reply = engine
-        .call(Method::List, Some(&params))
+        .call(Calls::List, Some(&params))
         .await
         .expect("answer");
     let doc: Value = serde_json::from_str(&reply.text).unwrap();
@@ -111,7 +112,7 @@ async fn exactly_one_question_is_in_flight() {
         handles.push(tokio::spawn(async move {
             let params = fake(json!({ "sleep_ms": 150, "stamp": true }));
             let reply = engine
-                .call(Method::List, Some(&params))
+                .call(Calls::List, Some(&params))
                 .await
                 .expect("answer");
             let doc: Value = serde_json::from_str(&reply.text).unwrap();
@@ -146,7 +147,7 @@ async fn a_question_that_takes_too_long_is_killed() {
     let params = fake(json!({ "sleep_ms": 1_500, "marker": ran_on }));
     let started = Instant::now();
     let err = engine
-        .call(Method::List, Some(&params))
+        .call(Calls::List, Some(&params))
         .await
         .expect_err("timeout");
     assert!(matches!(err, EngineError::Timeout), "{err}");
@@ -154,7 +155,7 @@ async fn a_question_that_takes_too_long_is_killed() {
     tokio::time::sleep(Duration::from_millis(2_000)).await;
     assert!(!ran_on.exists(), "the killed process ran on");
     // The engine is usable afterwards: the gate was given back.
-    let again = engine.call(Method::Hello, None).await;
+    let again = engine.call(Calls::Hello, None).await;
     assert!(again.is_ok(), "{again:?}");
 }
 
@@ -170,12 +171,12 @@ async fn a_full_queue_says_busy() {
         let inner = engine.clone();
         let slow = slow.clone();
         handles.push(tokio::spawn(async move {
-            inner.call(Method::List, Some(&slow)).await.map(|_| ())
+            inner.call(Calls::List, Some(&slow)).await.map(|_| ())
         }));
         wait_for_queued(&engine, expected).await;
     }
     let err = engine
-        .call(Method::List, Some(&fake(json!({}))))
+        .call(Calls::List, Some(&fake(json!({}))))
         .await
         .expect_err("busy");
     assert!(matches!(err, EngineError::Busy), "{err}");
@@ -189,7 +190,7 @@ async fn an_error_document_is_a_refusal_with_its_code() {
     let engine = CliEngine::new(config(Env::from_process()));
     let params = fake(json!({ "error": "invalid_argument" }));
     let err = engine
-        .call(Method::List, Some(&params))
+        .call(Calls::List, Some(&params))
         .await
         .expect_err("refusal");
     match err {
@@ -210,7 +211,7 @@ async fn a_wrong_kind_or_schema_is_a_protocol_error() {
         fake(json!({ "schema": 2 })),
     ] {
         let err = engine
-            .call(Method::List, Some(&params))
+            .call(Calls::List, Some(&params))
             .await
             .expect_err("protocol");
         assert!(matches!(err, EngineError::Protocol(_)), "{err}");
@@ -222,7 +223,7 @@ async fn a_process_without_a_document_fails_and_leaks_no_path() {
     let engine = CliEngine::new(config(Env::from_process()));
     let params = fake(json!({ "exit": 3 }));
     let err = engine
-        .call(Method::List, Some(&params))
+        .call(Calls::List, Some(&params))
         .await
         .expect_err("failed");
     match err {
@@ -241,7 +242,7 @@ async fn an_answer_over_the_limit_is_refused() {
     let engine = CliEngine::new(config(Env::from_process()));
     let params = fake(json!({ "huge": 200_000 }));
     let err = engine
-        .call(Method::List, Some(&params))
+        .call(Calls::List, Some(&params))
         .await
         .expect_err("too large");
     assert!(matches!(err, EngineError::Protocol(_)), "{err}");
@@ -253,7 +254,7 @@ async fn stdin_is_printable_ascii_whatever_the_text_holds() {
     let title = "K\u{e4}se \u{1f600}\r\nzwei\u{1a}drei\ttab";
     let params = json!({ "title": title, "fake": { "echo_stdin": true } });
     let reply = engine
-        .call(Method::Ops, Some(&params))
+        .call(Calls::Ops, Some(&params))
         .await
         .expect("answer");
     let doc: Value = serde_json::from_str(&reply.text).unwrap();
@@ -277,9 +278,9 @@ async fn requests_the_hub_would_never_send_are_refused_before_a_process_starts()
     let obj = json!({});
     let arr = json!([1, 2]);
     let cases: [(Method, Option<&Value>); 3] = [
-        (Method::Hello, Some(&obj)),
-        (Method::List, Some(&arr)),
-        (Method::Ops, None),
+        (Calls::Hello, Some(&obj)),
+        (Calls::List, Some(&arr)),
+        (Calls::Ops, None),
     ];
     for (method, params) in cases {
         let err = engine.call(method, params).await.expect_err("bad request");
@@ -292,7 +293,7 @@ async fn requests_the_hub_would_never_send_are_refused_before_a_process_starts()
 
 #[test]
 fn only_the_listed_methods_exist() {
-    assert_eq!(Method::parse("snapshot"), Some(Method::Snapshot));
+    assert_eq!(Calls::parse("snapshot"), Some(Calls::Snapshot));
     for name in [
         "",
         "SNAPSHOT",
@@ -301,7 +302,7 @@ fn only_the_listed_methods_exist() {
         "eval",
         "frobnicate",
     ] {
-        assert_eq!(Method::parse(name), None, "{name:?}");
+        assert_eq!(Calls::parse(name), None, "{name:?}");
     }
 }
 
@@ -311,7 +312,7 @@ async fn a_write_runs_to_its_end_when_the_caller_gives_up() {
     let done = marker("write-survives");
     let request = json!({ "schema": 1, "ops": [], "fake": { "sleep_ms": 400, "marker": done } });
     // The caller is dropped while the child is running: that must not kill it.
-    let call = engine.call(Method::Ops, Some(&request));
+    let call = engine.call(Calls::Ops, Some(&request));
     let outcome = tokio::time::timeout(Duration::from_millis(100), call).await;
     assert!(outcome.is_err(), "the call should still be waiting");
     wait_for_queued(&engine, 0).await;
@@ -322,10 +323,10 @@ async fn a_write_runs_to_its_end_when_the_caller_gives_up() {
 async fn a_read_nobody_waits_for_is_never_started() {
     let engine = CliEngine::new(config(Env::from_process()));
     let blocker = fake(json!({ "sleep_ms": 600 }));
-    let first = engine.call(Method::List, Some(&blocker));
+    let first = engine.call(Calls::List, Some(&blocker));
     let never = marker("abandoned-read");
     let params = fake(json!({ "marker": never }));
-    let second = engine.call(Method::List, Some(&params));
+    let second = engine.call(Calls::List, Some(&params));
     // Start both so both hold a place, then drop the second while it waits.
     let (_, outcome) = tokio::join!(first, async {
         wait_for_queued(&engine, 1).await;
@@ -340,10 +341,10 @@ async fn a_read_nobody_waits_for_is_never_started() {
 async fn a_dry_run_nobody_waits_for_is_never_started() {
     let engine = CliEngine::new(config(Env::from_process()));
     let blocker = fake(json!({ "sleep_ms": 600 }));
-    let first = engine.call(Method::List, Some(&blocker));
+    let first = engine.call(Calls::List, Some(&blocker));
     let never = marker("abandoned-dry-run");
     let request = json!({ "schema": 1, "dry_run": true, "ops": [], "fake": { "marker": never } });
-    let second = engine.call(Method::Ops, Some(&request));
+    let second = engine.call(Calls::Ops, Some(&request));
     let (_, outcome) = tokio::join!(first, async {
         wait_for_queued(&engine, 1).await;
         tokio::time::timeout(Duration::from_millis(100), second).await
@@ -358,7 +359,7 @@ async fn a_dry_run_that_fails_is_a_plain_failure() {
     let engine = CliEngine::new(config(Env::from_process()));
     let request = json!({ "schema": 1, "dry_run": true, "ops": [], "fake": { "exit": 3 } });
     let err = engine
-        .call(Method::Ops, Some(&request))
+        .call(Calls::Ops, Some(&request))
         .await
         .expect_err("failed");
     assert!(!matches!(err, EngineError::OutcomeUnknown(_)), "{err}");
@@ -369,7 +370,7 @@ async fn a_write_that_does_not_end_with_a_document_has_an_unknown_outcome() {
     let engine = CliEngine::new(config(Env::from_process()));
     let request = json!({ "schema": 1, "ops": [], "fake": { "exit": 3 } });
     let err = engine
-        .call(Method::Ops, Some(&request))
+        .call(Calls::Ops, Some(&request))
         .await
         .expect_err("failed");
     assert!(matches!(err, EngineError::OutcomeUnknown(_)), "{err}");
@@ -377,7 +378,7 @@ async fn a_write_that_does_not_end_with_a_document_has_an_unknown_outcome() {
     // The same failure of a read is a plain failure.
     let params = fake(json!({ "exit": 3 }));
     let err = engine
-        .call(Method::List, Some(&params))
+        .call(Calls::List, Some(&params))
         .await
         .expect_err("failed");
     assert!(matches!(err, EngineError::Failed { .. }), "{err}");
@@ -385,7 +386,7 @@ async fn a_write_that_does_not_end_with_a_document_has_an_unknown_outcome() {
     // A refusal is the engine's own answer: nothing was written, say so.
     let request = json!({ "schema": 1, "ops": [], "fake": { "error": "invalid_argument" } });
     let err = engine
-        .call(Method::Ops, Some(&request))
+        .call(Calls::Ops, Some(&request))
         .await
         .expect_err("refused");
     assert!(matches!(err, EngineError::Refused(_)), "{err}");
@@ -398,7 +399,7 @@ async fn a_write_that_times_out_has_an_unknown_outcome() {
     let engine = CliEngine::new(cfg);
     let request = json!({ "schema": 1, "ops": [], "fake": { "sleep_ms": 5_000 } });
     let err = engine
-        .call(Method::Ops, Some(&request))
+        .call(Calls::Ops, Some(&request))
         .await
         .expect_err("timeout");
     assert!(matches!(err, EngineError::OutcomeUnknown(_)), "{err}");
@@ -411,7 +412,7 @@ async fn a_program_that_does_not_start_is_not_an_unknown_outcome() {
     let engine = CliEngine::new(cfg);
     let request = json!({ "schema": 1, "ops": [] });
     let err = engine
-        .call(Method::Ops, Some(&request))
+        .call(Calls::Ops, Some(&request))
         .await
         .expect_err("spawn");
     // Nothing ran, so nothing can have been written.
@@ -427,7 +428,7 @@ async fn a_request_over_the_engine_limit_is_refused_before_a_process_starts() {
     // Non-ASCII characters grow sixfold as escapes: 50 000 of them pass 256 KiB.
     let params = json!({ "title": "\u{e4}".repeat(50_000) });
     let err = engine
-        .call(Method::Ops, Some(&params))
+        .call(Calls::Ops, Some(&params))
         .await
         .expect_err("too large");
     assert!(matches!(err, EngineError::BadRequest(_)), "{err}");
@@ -436,7 +437,7 @@ async fn a_request_over_the_engine_limit_is_refused_before_a_process_starts() {
 #[tokio::test]
 async fn an_answer_is_returned_without_its_line_ending() {
     let engine = CliEngine::new(config(Env::from_process()));
-    let reply = engine.call(Method::Hello, None).await.expect("hello");
+    let reply = engine.call(Calls::Hello, None).await.expect("hello");
     assert!(!reply.text.ends_with('\n') && !reply.text.ends_with('\r'));
     assert!(reply.text.starts_with('{') && reply.text.ends_with('}'));
 }
@@ -458,13 +459,13 @@ async fn a_check_may_take_ten_times_the_usual_time() {
     let (engine, dir) = check_engine("factor", Duration::from_millis(500));
     std::fs::write(dir.join(".fake-check-ms"), "1200").unwrap();
     // 1.2 s is more than the usual 0.5 s ...
-    let check = engine.call(Method::Check, Some(&json!({}))).await;
+    let check = engine.call(Calls::Check, Some(&json!({}))).await;
     assert!(check.is_ok(), "{check:?}");
     assert!(dir.join(".fake-check-done").exists());
     // ... and a question of the usual kind is not given that long.
     std::fs::write(dir.join(".fake-task-ms"), "1200").unwrap();
     let task = engine
-        .call(Method::Task, Some(&json!({ "id": "a/b" })))
+        .call(Calls::Task, Some(&json!({ "id": "a/b" })))
         .await;
     assert!(matches!(task, Err(EngineError::Timeout)), "{task:?}");
 }
@@ -475,7 +476,7 @@ async fn a_check_that_is_given_up_is_stopped_with_its_process() {
     std::fs::write(dir.join(".fake-check-ms"), "1500").unwrap();
     let engine = std::sync::Arc::new(engine);
     let runner = std::sync::Arc::clone(&engine);
-    let job = tokio::spawn(async move { runner.call(Method::Check, Some(&json!({}))).await });
+    let job = tokio::spawn(async move { runner.call(Calls::Check, Some(&json!({}))).await });
     tokio::time::sleep(Duration::from_millis(300)).await;
     job.abort();
     let _ = job.await;

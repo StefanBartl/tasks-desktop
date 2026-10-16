@@ -89,7 +89,7 @@ pub(super) fn engine_failure(error: EngineError) -> Response {
 #[allow(clippy::result_large_err)]
 pub(super) async fn ask(
     st: &Shared,
-    method: EngineMethod,
+    method: Method,
     params: Option<&serde_json::Value>,
 ) -> Result<crate::engine::Reply, Response> {
     let rt = st.rt();

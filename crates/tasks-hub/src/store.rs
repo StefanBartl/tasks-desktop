@@ -22,7 +22,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::{broadcast, Mutex as AsyncMutex, Notify};
 use tokio::task::JoinHandle;
 
-use crate::engine::{Engine, EngineError, Method};
+use crate::engine::{Calls, Engine, EngineError};
 use crate::watch::Hint;
 
 /// The most ids one event names for each of changed, added and removed.
@@ -216,7 +216,7 @@ impl SnapshotStore {
         let Some(engine) = &self.engine else {
             return Err(EngineError::Spawn("no engine".to_owned()));
         };
-        Ok(engine.call(Method::Snapshot, None).await?.text)
+        Ok(engine.call(Calls::Snapshot, None).await?.text)
     }
 
     /// Ask the engine, wait out a transitional state once, install the

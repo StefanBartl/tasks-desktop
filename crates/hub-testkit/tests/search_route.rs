@@ -31,6 +31,7 @@ async fn rig(name: &str) -> Rig {
     std::fs::create_dir_all(vault.join("alpha.nvim").join("ROADMAP").join("tasks")).unwrap();
     std::fs::write(vault.join(".fake-n"), "2").unwrap();
     let engine: Arc<dyn Engine> = Arc::new(CliEngine::new(CliEngineConfig {
+        dialect: tasks_hub::engine::DIALECT,
         nvim: PathBuf::from(env!("CARGO_BIN_EXE_fake-nvim")),
         script: vault.join("scripts").join("tasks.lua"),
         vault: vault.clone(),

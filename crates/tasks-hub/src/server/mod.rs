@@ -49,7 +49,7 @@ use hub_kit::{
 
 use crate::classes::{AreaPolicy, Shown};
 use crate::editor::FileOpener;
-use crate::engine::{Engine, EngineError, Method as EngineMethod};
+use crate::engine::{Calls, Engine, EngineError, Method};
 use crate::search::{self, SearchIndex};
 use crate::store::{self, RefreshOptions, SnapshotStore, StoreOptions};
 use crate::ui::UiFiles;
@@ -320,7 +320,7 @@ mod tests {
     impl Engine for SlowCheck {
         fn call<'a>(
             &'a self,
-            _method: EngineMethod,
+            _method: Method,
             _params: Option<&'a serde_json::Value>,
         ) -> crate::engine::CallFuture<'a> {
             Box::pin(async move {
@@ -507,7 +507,7 @@ mod tests {
     impl Engine for Recording {
         fn call<'a>(
             &'a self,
-            _method: EngineMethod,
+            _method: Method,
             params: Option<&'a serde_json::Value>,
         ) -> crate::engine::CallFuture<'a> {
             Box::pin(async move {
