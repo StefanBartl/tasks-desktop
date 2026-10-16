@@ -19,8 +19,9 @@ pub mod server;
 pub mod setup;
 pub mod store;
 pub mod ui;
-pub mod usage;
 pub mod watch;
+
+pub use hub_kit::usage;
 
 /// The names this app gives itself: config folder, environment variables, login entries, program
 /// file, port and route namespace all come from here.

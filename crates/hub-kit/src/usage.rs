@@ -5,7 +5,7 @@
 //! per day (UTC) the number of visits and the minutes an event stream was
 //! open. Nothing of a task, an area or a person goes in, and nothing leaves
 //! the machine: it is a file next to `config.json`, `usage.json`, and the
-//! command `tasks-hub usage` that reads it.
+//! command of the app that reads it.
 //!
 //! A visit begins with a stream that opens when there was no sign of use
 //! for ten minutes (a reload or a second tab is the same visit). A tab that
@@ -300,8 +300,7 @@ mod tests {
 
     #[test]
     fn only_the_last_days_are_kept() {
-        let dir =
-            std::env::temp_dir().join(format!("tasks-desktop-usage-keep-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hub-kit-usage-keep-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("usage.json");
@@ -342,7 +341,7 @@ mod tests {
 
     #[test]
     fn the_log_survives_a_restart_and_holds_nothing_else() {
-        let dir = std::env::temp_dir().join(format!("tasks-desktop-usage-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hub-kit-usage-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("usage.json");
@@ -364,8 +363,7 @@ mod tests {
 
     #[test]
     fn a_broken_or_foreign_file_is_an_empty_log() {
-        let dir =
-            std::env::temp_dir().join(format!("tasks-desktop-usage-bad-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hub-kit-usage-bad-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("usage.json");
