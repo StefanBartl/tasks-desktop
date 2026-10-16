@@ -31,18 +31,8 @@ pub struct ServeOptions {
 }
 
 /// The folder for `hub.json` and `control.secret`.
-/// The config folder, for the commands of the other modules.
-pub(crate) fn config_folder(env: &Env) -> Result<PathBuf, String> {
-    app_dir(env)
-}
-
 fn app_dir(env: &Env) -> Result<PathBuf, String> {
-    config::config_dir(env).ok_or_else(|| {
-        format!(
-            "no config folder: set {} (APPDATA, XDG_CONFIG_HOME or HOME is missing)",
-            crate::IDENTITY.var("CONFIG_DIR")
-        )
-    })
+    hub_kit::instance::config_folder(env, &crate::IDENTITY)
 }
 
 /// The port to try first: the option, the environment, the settings file,
@@ -66,21 +56,7 @@ fn wanted_port(opts: &ServeOptions, file: &FileConfig, env: &Env) -> Result<u16,
 /// Is a hub of this app running according to `hub.json`? It is only
 /// believed when the process on that port says the same instance.
 pub(crate) async fn running_hub(dir: &std::path::Path) -> Option<HubRecord> {
-    let record = registry::read_record(dir).ok().flatten()?;
-    if record.app != APP_NAME {
-        return None;
-    }
-    let doc = hello_of(record.port).await?;
-    (doc["instance"].as_str() == Some(record.instance.as_str())).then_some(record)
-}
-
-/// What the program on `port` says to `hello`, if it is a hub of this app.
-async fn hello_of(port: u16) -> Option<Value> {
-    let reply = client::request(port, "GET", &crate::IDENTITY.route("hello"), &[], "")
-        .await
-        .ok()?;
-    let doc: Value = serde_json::from_str(&reply.body).ok()?;
-    (reply.status == 200 && doc["app"] == APP_NAME).then_some(doc)
+    hub_kit::instance::running_hub(dir, &crate::IDENTITY).await
 }
 
 /// Wait for Ctrl-C, or for SIGTERM where there is one.
@@ -486,7 +462,10 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
             // Two hubs that start at the same moment both passed the check
             // above; the bind is what decides. Another hub of this app on
             // the port is "already running", not a reason for a second one.
-            if hello_of(want).await.is_some() {
+            if hub_kit::instance::hello_of(want, &crate::IDENTITY)
+                .await
+                .is_some()
+            {
                 return Err(format!("a hub is already running on port {want}"));
             }
             eprintln!("note: port {want} is in use, using a free port; the origin changes");
