@@ -14,9 +14,10 @@ use appkit_hub::config::config_dir;
 use appkit_hub::env::Env;
 use appkit_hub::loginitems::LoginApp;
 use appkit_hub::{instance, HubStatus, Limits, RunningServer};
-use hub_testkit::subject::{StartConfig, Subject};
-use hub_testkit::subjects::{Demo, Tasks, DEMO_IDENTITY};
-use hub_testkit::wire::{request, send, Reply};
+use appkit_testkit::subject::{StartConfig, Subject};
+use appkit_testkit::subjects::{Demo, DEMO_IDENTITY};
+use appkit_testkit::wire::{request, send, Reply};
+use hub_testkit::subjects::Tasks;
 
 /// A running hub, and the secret that lets a program ask it for a pairing code.
 struct Running {

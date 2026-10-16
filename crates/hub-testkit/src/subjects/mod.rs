@@ -1,7 +1,5 @@
-//! The apps the security matrix runs for.
+//! The tasks hub as a subject of the security matrix of `appkit-testkit`.
 
-mod demo;
 mod tasks;
 
-pub use self::demo::{Demo, IDENTITY as DEMO_IDENTITY};
 pub use self::tasks::Tasks;

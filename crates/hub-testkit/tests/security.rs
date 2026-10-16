@@ -1,14 +1,7 @@
-//! The security matrix of the guard (concept 5.5), run for every app that has a hub.
-//!
-//! The tests are written once, in `hub_testkit::security`, and take the app as a parameter. The
-//! tasks hub is the app that is shipped. `Demo` is a second, minimal app on `appkit-hub` alone, with
-//! its own identity and namespace: that it passes the very same tests shows that the guard does
-//! not depend on `tasks`.
+//! The security matrix of the guard (concept 5.5), run for the tasks hub. The tests are written
+//! once, in `appkit_testkit::security`; the kit runs them for its own minimal app, and every app
+//! that has a hub runs them for itself.
 
 mod tasks {
-    hub_testkit::security_matrix!(hub_testkit::subjects::Tasks);
-}
-
-mod demo {
-    hub_testkit::security_matrix!(hub_testkit::subjects::Demo);
+    appkit_testkit::security_matrix!(hub_testkit::subjects::Tasks);
 }

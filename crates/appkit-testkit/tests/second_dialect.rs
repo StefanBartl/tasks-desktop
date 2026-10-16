@@ -1,8 +1,8 @@
-//! `CliEngine` against the fake engine of a second app: the seam of `appkit-hub` knows no call, no
-//! kind, no variable and no script by name, so an engine with other ones works the same.
+//! `CliEngine` against the fake engine of an app that is not the tasks hub: the seam of `appkit-hub`
+//! knows no call, no kind, no variable and no script by name, so any engine works the same.
 //!
 //! The dialect is the one of `rules.nvim`: `rules.*` kinds, `RULES_VAULT`, its list under `rules`.
-//! `fake-nvim` plays it when the script it is given is called `rules.lua`.
+//! The binary `fake-engine` of this kit plays it.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -37,7 +37,7 @@ fn engine(env: Env) -> CliEngine {
     let vault = std::env::temp_dir();
     CliEngine::new(CliEngineConfig {
         dialect: DIALECT,
-        nvim: PathBuf::from(env!("CARGO_BIN_EXE_fake-nvim")),
+        nvim: PathBuf::from(env!("CARGO_BIN_EXE_fake-engine")),
         script: vault.join("scripts").join("rules.lua"),
         vault,
         lib_dir: None,
