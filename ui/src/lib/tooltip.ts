@@ -164,10 +164,12 @@ export function installTooltips(doc: Document, win: Window & typeof globalThis):
   };
   const onFocusOut = (): void => hide();
   const onKey = (e: KeyboardEvent): void => {
-    // The popup is closed by this Escape and by nothing else: it is not also the Escape of a dialog or a menu.
+    // The popup is closed by this Escape and by nothing else: it is not also the Escape of a dialog or a menu. A
+    // modal dialog closes on Escape by its own default action (`cancel`), which `stopPropagation` does not stop.
     if (e.key === 'Escape' && !tip.hidden) {
       hide();
       e.stopPropagation();
+      e.preventDefault();
     }
   };
   const onScroll = (): void => {

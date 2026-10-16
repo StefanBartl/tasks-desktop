@@ -5,6 +5,7 @@
   import type { App } from '../lib/app.svelte';
   import { COLUMNS, COLUMN_FIRST, groupLabel, placeOf, runKey, stageOf, type Column } from '../lib/board';
   import { hintOf, labelOf, translate, type Key } from '../lib/i18n';
+  import Info from './Info.svelte';
   import { markHidden } from '../lib/text';
   import Detail from './Detail.svelte';
 
@@ -134,6 +135,7 @@
   <p class="count">
     <span role="status">{t('list.count', { shown: app.shown.length, total: app.tasks.length })}</span>
     <span class="help">{t('board.help')}</span>
+    <Info hint={t('hint.board')} label={t('hint.about', { what: t('nav.board') })} />
   </p>
   <div class="layout">
     <div class="main" ondragleave={onBoardLeave} role="presentation">

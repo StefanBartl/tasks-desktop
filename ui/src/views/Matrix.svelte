@@ -41,11 +41,11 @@
         <thead>
           <tr>
             <th scope="col">{t('matrix.task')}</th>
-            <th scope="col"
+            <th scope="col" aria-label={t('matrix.effort')}
               >{t('matrix.effort')}
               <Info hint={hintOf(app.lang, 'hint.field', 'effort')} label={t('hint.about', { what: t('matrix.effort') })} /></th
             >
-            <th scope="col"
+            <th scope="col" aria-label={t('matrix.value')}
               >{t('matrix.value')}
               <Info hint={hintOf(app.lang, 'hint.field', 'value')} label={t('hint.about', { what: t('matrix.value') })} /></th
             >
