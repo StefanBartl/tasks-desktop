@@ -52,6 +52,7 @@ pub mod config;
 pub mod discovery;
 pub mod engine;
 pub mod env;
+pub mod fs_watch;
 pub mod guard;
 pub mod http;
 pub mod hub;

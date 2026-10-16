@@ -1,60 +1,20 @@
-//! What changed in the vault, as a hint.
+//! What changed in the vault, as a hint: the watcher is the kit's, the rule of which paths matter
+//! is the tasks hub's own and stays here, so that the kit cannot be made to watch less.
 //!
-//! The watcher does not say *what* changed, only that something that may
-//! matter did. Everything that follows is one rescan by the engine (the
-//! hub never reads task files itself). Events can be lost (Windows drops
-//! some under a burst and says nothing), so a full scan on a timer is the
-//! net under this.
+//! The folders are those the Neovim dashboard watches (`<area>/ROADMAP/tasks` with folder tasks,
+//! `plans`, `Backlog/FEATURES` and `Backlog/TASKS`) plus the vault root, which the dashboard does
+//! not see: a new area appears there.
 //!
-//! The folders are those the Neovim dashboard watches
-//! (`<area>/ROADMAP/tasks` with folder tasks, `plans`, `Backlog/FEATURES`
-//! and `Backlog/TASKS`) plus the vault root, which the dashboard does not
-//! see: a new area appears there.
-//!
-//! A folder task is moved or renamed as a whole (`done`, `move_area`). The
-//! system then reports the folder and not the files in it, so an entry that
-//! sits directly in one of those folders counts when it is a folder, too.
+//! A folder task is moved or renamed as a whole (`done`, `move_area`). The system then reports
+//! the folder and not the files in it, so an entry that sits directly in one of those folders
+//! counts when it is a folder, too.
 
 use std::path::{Path, PathBuf};
 
-use notify::event::ModifyKind;
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
+use notify::Event;
 use tokio::sync::mpsc::UnboundedSender;
 
-/// Why the refresher is woken.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Hint {
-    /// A path that matters changed.
-    Changed,
-    /// The watcher itself failed (a lost event, an overflow): rescan, do
-    /// not trust what was seen.
-    Lost,
-}
-
-/// What sits at a path right now, as far as the question "does it matter"
-/// needs to know.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Entry {
-    /// A regular file, or a folder that only says something inside it
-    /// changed (the files in it have their own events).
-    File,
-    /// A folder (or a link: it may lead to one).
-    Folder,
-    /// Not there any more: removed, or the old name of a rename.
-    Gone,
-}
-
-impl Entry {
-    /// Look at a path. One `lstat`.
-    #[must_use]
-    pub fn of(path: &Path) -> Self {
-        match std::fs::symlink_metadata(path) {
-            Ok(meta) if meta.is_file() => Self::File,
-            Ok(_) => Self::Folder,
-            Err(_) => Self::Gone,
-        }
-    }
-}
+pub use hub_kit::fs_watch::{Entry, Hint, Watcher};
 
 /// Names that are tools' leftovers, not tasks: temp files of the engine
 /// (`*.tasks-tmp.*`, `*.frontmatter.*`), lock files, editor backups and
@@ -121,40 +81,15 @@ pub fn relevant(relative: &Path, entry: impl FnOnce() -> Entry) -> bool {
     }
 }
 
+/// [`relevant`] as the kit's filter.
+fn filter(relative: &Path, entry: &dyn Fn() -> Entry) -> bool {
+    relevant(relative, entry)
+}
+
 /// What an event of the watcher asks of the refresher, if anything.
 #[must_use]
 pub fn hint_for(event: &Event, bases: &[PathBuf]) -> Option<Hint> {
-    // The backend says it dropped events (an overflowing queue): nothing
-    // that was seen can be trusted, and there is no path to judge.
-    if event.need_rescan() {
-        return Some(Hint::Lost);
-    }
-    if matches!(event.kind, EventKind::Access(_)) {
-        return None;
-    }
-    // A folder whose content changed is reported for the folder too
-    // (Windows does); the files in it are what matter, and they have their
-    // own events. A folder that was renamed is not that: it is a change of
-    // the folder itself.
-    let content_only =
-        matches!(event.kind, EventKind::Modify(kind) if !matches!(kind, ModifyKind::Name(_)));
-    let matters = event.paths.iter().any(|path| {
-        let Some(relative) = bases.iter().find_map(|base| path.strip_prefix(base).ok()) else {
-            // A path that does not sit under the root in any spelling we
-            // know: a needless rescan is cheaper than a missed change.
-            return true;
-        };
-        relevant(relative, || match Entry::of(path) {
-            Entry::Folder if content_only => Entry::File,
-            other => other,
-        })
-    });
-    matters.then_some(Hint::Changed)
-}
-
-/// A running watcher; dropping it stops it.
-pub struct Watcher {
-    _inner: RecommendedWatcher,
+    hub_kit::fs_watch::hint_for(event, bases, filter)
 }
 
 /// Watch the vault and send a hint for every change that matters.
@@ -163,31 +98,13 @@ pub struct Watcher {
 ///
 /// The watcher could not be created or could not watch the folder.
 pub fn start(vault: &Path, hints: UnboundedSender<Hint>) -> notify::Result<Watcher> {
-    let root: PathBuf = vault.to_path_buf();
-    // The root as it was written, and as the system may report it: FSEvents
-    // (macOS) names the real path (`/private/var` for `/var`). Without the
-    // second spelling every event would be "not under the root" and the
-    // events of `.git` would wake a scan each.
-    let mut bases = vec![root.clone()];
-    if let Some(real) = root.canonicalize().ok().filter(|real| *real != root) {
-        bases.push(real);
-    }
-    let mut watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
-        let hint = match result {
-            Ok(event) => hint_for(&event, &bases),
-            Err(_) => Some(Hint::Lost),
-        };
-        if let Some(hint) = hint {
-            let _ = hints.send(hint);
-        }
-    })?;
-    watcher.watch(&root, RecursiveMode::Recursive)?;
-    Ok(Watcher { _inner: watcher })
+    hub_kit::fs_watch::start(vault, hints, filter)
 }
 
 #[cfg(test)]
 mod tests {
     use notify::event::{CreateKind, Flag, ModifyKind, RemoveKind, RenameMode};
+    use notify::EventKind;
 
     use super::*;
 
