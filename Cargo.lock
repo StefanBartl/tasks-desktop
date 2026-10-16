@@ -202,6 +202,8 @@ name = "hub-testkit"
 version = "0.0.0"
 dependencies = [
  "app-core",
+ "axum",
+ "hub-kit",
  "serde_json",
  "tasks-hub",
  "tokio",
