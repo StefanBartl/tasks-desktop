@@ -44,7 +44,7 @@ struct Fake {
     added: Mutex<Vec<String>>,
 }
 
-impl VaultAdmin for Fake {
+impl VaultAdmin<VaultTarget> for Fake {
     fn list(&self) -> VaultList {
         let mut vaults = vec![
             VaultInfo {
@@ -173,7 +173,8 @@ async fn rig(name: &str, with_admin: bool) -> Rig {
         }),
     };
     let server = if with_admin {
-        let admin: Arc<dyn VaultAdmin> = Arc::clone(&fake) as Arc<dyn VaultAdmin>;
+        let admin: Arc<dyn VaultAdmin<VaultTarget>> =
+            Arc::clone(&fake) as Arc<dyn VaultAdmin<VaultTarget>>;
         start_with(
             cfg,
             Extras {

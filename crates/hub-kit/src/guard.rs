@@ -1,11 +1,11 @@
 //! The guard: every request passes these eight steps, in this order, before any route runs.
 
-use super::*;
+use crate::*;
 
 // ── the guard ───────────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Class {
+pub enum Class {
     /// The static page of the app, no credential.
     Shell,
     /// `hello`: version and abilities, no credential and no data.
@@ -43,12 +43,18 @@ impl GuardRules {
         }
     }
 
+    /// The path of `hello`.
+    #[must_use]
+    pub fn hello_path(&self) -> &str {
+        &self.hello_path
+    }
+
     fn is_coarse(&self, path: &str) -> bool {
         self.coarse_post_paths.iter().any(|p| p == path)
     }
 }
 
-pub(super) fn classify(path: &str, rules: &GuardRules) -> Class {
+pub fn classify(path: &str, rules: &GuardRules) -> Class {
     match path {
         "/" | "/index.html" => Class::Shell,
         p if p.starts_with("/assets/") => Class::Shell,
@@ -60,7 +66,7 @@ pub(super) fn classify(path: &str, rules: &GuardRules) -> Class {
     }
 }
 
-pub(super) fn method_allowed(class: Class, method: &Method) -> bool {
+pub fn method_allowed(class: Class, method: &Method) -> bool {
     match class {
         Class::Shell | Class::Hello => method == Method::GET,
         Class::Exchange | Class::ControlPair => method == Method::POST,
@@ -70,13 +76,15 @@ pub(super) fn method_allowed(class: Class, method: &Method) -> bool {
     }
 }
 
-pub(super) fn error_body(status: StatusCode, code: &str, message: &str) -> Response {
+pub fn error_body(status: StatusCode, code: &str, message: &str) -> Response {
     let body = json!({ "error": { "code": code, "message": message } });
     (status, axum::Json(body)).into_response()
 }
 
 /// A header that must be there at most once and be plain ASCII.
-pub(super) fn single(headers: &HeaderMap, name: &HeaderName) -> Result<Option<String>, ()> {
+// The one answer to a header that is not is a refusal; there is nothing more to say about it.
+#[allow(clippy::result_unit_err)]
+pub fn single(headers: &HeaderMap, name: &HeaderName) -> Result<Option<String>, ()> {
     let mut values = headers.get_all(name).iter();
     let Some(first) = values.next() else {
         return Ok(None);
@@ -87,12 +95,12 @@ pub(super) fn single(headers: &HeaderMap, name: &HeaderName) -> Result<Option<St
     first.to_str().map(|s| Some(s.to_owned())).map_err(|_| ())
 }
 
-pub(super) fn bearer(headers: &HeaderMap) -> Option<String> {
+pub fn bearer(headers: &HeaderMap) -> Option<String> {
     let value = single(headers, &header::AUTHORIZATION).ok()??;
     value.strip_prefix("Bearer ").map(str::to_owned)
 }
 
-pub(super) fn is_json_content_type(headers: &HeaderMap) -> bool {
+pub fn is_json_content_type(headers: &HeaderMap) -> bool {
     let Ok(Some(value)) = single(headers, &header::CONTENT_TYPE) else {
         return false;
     };
@@ -104,9 +112,9 @@ pub(super) fn is_json_content_type(headers: &HeaderMap) -> bool {
     parts.all(|p| p == "charset=utf-8")
 }
 
-pub(super) static SEC_FETCH_SITE: HeaderName = HeaderName::from_static("sec-fetch-site");
+pub static SEC_FETCH_SITE: HeaderName = HeaderName::from_static("sec-fetch-site");
 
-pub(super) async fn guard<R: Runtime>(
+pub async fn guard<R: Runtime>(
     State(st): State<Arc<Core<R>>>,
     req: Request,
     next: Next,
@@ -117,12 +125,7 @@ pub(super) async fn guard<R: Runtime>(
     response
 }
 
-pub(super) async fn judge<R: Runtime>(
-    st: &Core<R>,
-    class: Class,
-    req: Request,
-    next: Next,
-) -> Response {
+pub async fn judge<R: Runtime>(st: &Core<R>, class: Class, req: Request, next: Next) -> Response {
     let (parts, body) = req.into_parts();
     let headers = &parts.headers;
 
@@ -283,7 +286,7 @@ pub(super) async fn judge<R: Runtime>(
     }
 }
 
-pub(super) fn too_many() -> Response {
+pub fn too_many() -> Response {
     error_body(
         StatusCode::TOO_MANY_REQUESTS,
         "rate_limited",
@@ -291,7 +294,7 @@ pub(super) fn too_many() -> Response {
     )
 }
 
-pub(super) fn set_security_headers(response: &mut Response, class: Class) {
+pub fn set_security_headers(response: &mut Response, class: Class) {
     let h = response.headers_mut();
     h.insert(
         HeaderName::from_static("x-content-type-options"),
@@ -337,7 +340,7 @@ pub(super) fn set_security_headers(response: &mut Response, class: Class) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::*;
 
     fn rules() -> GuardRules {
         GuardRules::new(

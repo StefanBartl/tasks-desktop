@@ -130,6 +130,19 @@ impl UiFiles {
     }
 }
 
+impl hub_kit::Pages for UiFiles {
+    fn page(&self, request_path: &str) -> Option<hub_kit::Page> {
+        self.get(request_path).map(|file| hub_kit::Page {
+            bytes: file.bytes.clone(),
+            content_type: file.content_type,
+        })
+    }
+
+    fn has_index(&self) -> bool {
+        UiFiles::has_index(self)
+    }
+}
+
 fn plain_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 128

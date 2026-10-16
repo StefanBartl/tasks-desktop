@@ -22,35 +22,30 @@
 
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock};
+use std::sync::{Arc, Mutex as StdMutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use app_core::authn::{
-    fetch_site_ok, Clock, HostPolicy, PairingStore, RateLimiter, Secret, SessionStore, CODE_BYTES,
-    TOKEN_BYTES,
-};
+use app_core::authn::{Clock, Secret};
 use axum::body::{Body, Bytes};
-use axum::extract::{DefaultBodyLimit, RawQuery, Request, State};
-use axum::http::header::{self, HeaderMap, HeaderName, HeaderValue};
-use axum::http::{Method, StatusCode};
-use axum::middleware::{self, Next};
+use axum::extract::{DefaultBodyLimit, RawQuery, State};
+use axum::http::header::{self, HeaderMap, HeaderValue};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use futures_core::Stream;
-use hyper::server::conn::http1;
-use hyper_util::rt::{TokioIo, TokioTimer};
-use hyper_util::service::TowerToHyperService;
-use serde::Deserialize;
 use serde_json::json;
-use tokio::net::TcpListener;
-use tokio::sync::{broadcast, mpsc, watch, Semaphore};
+use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
+
+use hub_kit::{
+    bearer, error_body, etag_matches, json_response, no_query, not_modified, parse_query, single,
+    too_many, vault_request, vault_text, BuildRuntime, ServeParts,
+};
 
 use crate::classes::{AreaPolicy, Shown};
 use crate::editor::FileOpener;
@@ -61,28 +56,26 @@ use crate::ui::UiFiles;
 use crate::usage::UsageLog;
 use crate::watch::{self as fswatch, Hint};
 
-mod access;
 mod answer;
 mod check;
 mod events;
-mod guard;
 mod routes;
 mod runtime;
 mod settings;
 mod vaults;
 
-pub use self::guard::GuardRules;
-pub use self::settings::{HubStatus, Limits, ServerConfig, WatchConfig};
-pub use self::vaults::{BoxFuture, VaultAdmin, VaultInfo, VaultList, VaultTarget};
+pub use self::settings::{ServerConfig, WatchConfig};
+pub use self::vaults::VaultTarget;
+pub use hub_kit::{
+    BoxFuture, GuardRules, HubStatus, Limits, RunningServer, Runtime, VaultAdmin, VaultInfo,
+    VaultList,
+};
 
-use self::access::*;
 use self::answer::*;
 use self::check::*;
 use self::events::*;
-use self::guard::*;
 use self::routes::*;
 use self::runtime::*;
-use self::vaults::*;
 
 /// The name the hub gives itself in `hello` and in `hub.json`.
 pub const APP_NAME: &str = crate::IDENTITY.app;
@@ -137,97 +130,8 @@ impl Drop for StreamGuard {
     }
 }
 
-/// What a hub keeps for the vault it reads, as the core sees it: its status for `hello` and the
-/// way to stop what it started. Everything else about it belongs to the app.
-pub trait Runtime: Send + Sync + 'static {
-    /// What `hello` says about the engine. A short code, never a path.
-    fn status(&self) -> &HubStatus;
-    /// Stop what the runtime started; called when another vault is chosen and when the server ends.
-    fn stop(&self);
-}
-
-/// How the app makes the runtime of a vault the person chose.
-pub type BuildRuntime<R> = Arc<dyn Fn(VaultTarget) -> R + Send + Sync>;
-
-/// The state of a hub that does not depend on the app: the guard and its secrets, the pairing and
-/// the sessions, the limits, the page, and the vault that is read (whatever `R` the app keeps for it).
-pub struct Core<R: Runtime> {
-    policy: HostPolicy,
-    pairing: PairingStore,
-    sessions: SessionStore,
-    control: Secret,
-    post_limit: RateLimiter,
-    ops_limit: RateLimiter,
-    exchange_limit: RateLimiter,
-    limits: Limits,
-    instance: String,
-    guard_rules: GuardRules,
-    streams: Arc<StreamCounter>,
-    ui: UiFiles,
-    usage: Option<Arc<UsageLog>>,
-    /// What belongs to the vault that is read; replaced when another is chosen.
-    runtime: StdRwLock<Arc<R>>,
-    /// Makes the runtime of a vault that was chosen.
-    build: BuildRuntime<R>,
-    /// The vaults the person may choose from; none in a hub that has only one.
-    vaults: Option<Arc<dyn VaultAdmin>>,
-    /// One change of vault at a time, from the choice to the swap: two that overlap would leave the hub reading one
-    /// vault while the settings name the other.
-    switching: tokio::sync::Mutex<()>,
-}
-
-impl<R: Runtime> Core<R> {
-    /// The state of the vault that is read now. A request keeps the one it
-    /// took, so a change of vault never splits one answer in two.
-    fn rt(&self) -> Arc<R> {
-        Arc::clone(
-            &self
-                .runtime
-                .read()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-        )
-    }
-}
-
-/// The core with the runtime of this app.
-type Shared = Core<VaultRuntime>;
-
-/// A started server.
-pub struct RunningServer {
-    addr: SocketAddr,
-    instance: String,
-    stop: watch::Sender<bool>,
-    task: JoinHandle<()>,
-    shared: Arc<Shared>,
-}
-
-impl Drop for RunningServer {
-    fn drop(&mut self) {
-        self.shared.rt().stop();
-    }
-}
-
-impl RunningServer {
-    /// The address that was really bound.
-    #[must_use]
-    pub fn addr(&self) -> SocketAddr {
-        self.addr
-    }
-
-    /// The instance id (hex), as `hello` reports it.
-    #[must_use]
-    pub fn instance(&self) -> &str {
-        &self.instance
-    }
-
-    /// Stop accepting, let open requests end, wait for the accept loop.
-    pub async fn shutdown(mut self) {
-        let _ = self.stop.send(true);
-        self.shared.rt().stop();
-        let task = std::mem::replace(&mut self.task, tokio::spawn(async {}));
-        let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
-    }
-}
+/// The core of the hub with the runtime of this app.
+type Shared = hub_kit::Core<VaultRuntime>;
 
 /// Bind and serve.
 ///
@@ -243,7 +147,7 @@ pub async fn start(cfg: ServerConfig) -> std::io::Result<RunningServer> {
 #[derive(Default)]
 pub struct Extras {
     /// The list of vaults the page may choose from.
-    pub vaults: Option<Arc<dyn VaultAdmin>>,
+    pub vaults: Option<Arc<dyn VaultAdmin<VaultTarget>>>,
     /// How a task file is shown in Neovim.
     pub opener: Option<Arc<dyn FileOpener>>,
 }
@@ -255,16 +159,6 @@ pub struct Extras {
 /// As [`start`].
 pub async fn start_with(cfg: ServerConfig, extras: Extras) -> std::io::Result<RunningServer> {
     let Extras { vaults, opener } = extras;
-    if !cfg.addr.ip().is_loopback() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "the server binds loopback addresses only",
-        ));
-    }
-    let listener = TcpListener::bind(cfg.addr).await?;
-    let addr = listener.local_addr()?;
-    let instance = cfg.instance.to_hex();
-    let limits = cfg.limits.clone();
     let (vault, refresh) = match cfg.watch {
         Some(w) => (Some(w.vault), w.refresh),
         None => (None, RefreshOptions::default()),
@@ -272,16 +166,18 @@ pub async fn start_with(cfg: ServerConfig, extras: Extras) -> std::io::Result<Ru
     let parts = AppParts {
         classes: cfg.policy,
         opener,
+        usage: cfg.usage,
+        streams: Arc::new(StreamCounter::default()),
     };
+    let max_age = cfg.limits.snapshot_max_age;
     let runtime = build_runtime(
         cfg.engine,
         cfg.status,
         vault,
-        limits.snapshot_max_age,
+        max_age,
         refresh.clone(),
         &parts,
     );
-    let max_age = limits.snapshot_max_age;
     let build: BuildRuntime<VaultRuntime> = Arc::new(move |target: VaultTarget| {
         build_runtime(
             target.engine,
@@ -292,141 +188,55 @@ pub async fn start_with(cfg: ServerConfig, extras: Extras) -> std::io::Result<Ru
             &parts,
         )
     });
-    let shared = Arc::new(Shared {
-        policy: HostPolicy::loopback(addr.port()),
-        pairing: PairingStore::new(Arc::clone(&cfg.clock), cfg.pairing_ttl),
-        sessions: SessionStore::new(limits.max_sessions),
-        control: cfg.control_secret,
-        post_limit: RateLimiter::new(Arc::clone(&cfg.clock), limits.post_max, limits.post_window),
-        ops_limit: RateLimiter::new(Arc::clone(&cfg.clock), limits.ops_max, limits.ops_window),
-        exchange_limit: RateLimiter::new(cfg.clock, limits.exchange_max, limits.exchange_window),
-        limits: limits.clone(),
-        instance: instance.clone(),
-        guard_rules: guard_rules(),
-        streams: Arc::new(StreamCounter::default()),
-        ui: cfg.ui,
-        usage: cfg.usage,
-        runtime: StdRwLock::new(Arc::new(runtime)),
-        build,
-        vaults,
-        switching: tokio::sync::Mutex::new(()),
-    });
-
-    let app = router(Arc::clone(&shared));
-    let (stop, stop_rx) = watch::channel(false);
-    let task = tokio::spawn(accept_loop(listener, app, limits, stop_rx));
-    Ok(RunningServer {
-        addr,
-        instance,
-        stop,
-        task,
-        shared,
-    })
+    hub_kit::serve(
+        ServeParts {
+            addr: cfg.addr,
+            limits: cfg.limits,
+            clock: cfg.clock,
+            pairing_ttl: cfg.pairing_ttl,
+            control_secret: cfg.control_secret,
+            instance: cfg.instance,
+            app: APP_NAME,
+            version: crate::VERSION,
+            guard_rules: guard_rules(),
+            ui: Arc::new(cfg.ui),
+            runtime,
+            build,
+            vaults,
+        },
+        app_routes,
+    )
+    .await
 }
 
-fn router(shared: Arc<Shared>) -> Router {
+/// The routes of this app, under `/api/tasks/`. The page, `hello`, the pairing and the list of
+/// vaults are the core's; the guard is in front of both.
+fn app_routes(core: &Arc<Shared>) -> Router<Arc<Shared>> {
+    let small = core.limits.small_body_bytes;
+    let r = |name: &str| crate::IDENTITY.route(name);
     Router::new()
-        .route("/", get(shell))
-        .route("/index.html", get(shell))
-        .route("/assets/{name}", get(shell))
-        .route("/api/tasks/hello", get(hello))
-        .route("/api/tasks/snapshot", get(snapshot))
-        .route("/api/tasks/task", get(task))
-        .route("/api/tasks/next", get(next))
-        .route("/api/tasks/areas", get(areas))
-        .route("/api/tasks/events", get(events))
-        .route("/api/tasks/search", get(search_route))
-        .route("/api/tasks/rescan", post(rescan))
-        .route("/api/tasks/done_preview", get(done_preview))
-        .route("/api/tasks/finished", get(finished))
-        .route("/api/tasks/links", get(links))
-        .route("/api/tasks/plan_for", get(plan_for))
-        .route("/api/tasks/check", get(check_state))
+        .route(&r("snapshot"), get(snapshot))
+        .route(&r("task"), get(task))
+        .route(&r("next"), get(next))
+        .route(&r("areas"), get(areas))
+        .route(&r("events"), get(events))
+        .route(&r("search"), get(search_route))
+        .route(&r("rescan"), post(rescan))
+        .route(&r("done_preview"), get(done_preview))
+        .route(&r("finished"), get(finished))
+        .route(&r("links"), get(links))
+        .route(&r("plan_for"), get(plan_for))
+        .route(&r("check"), get(check_state))
         .route(
-            "/api/tasks/check",
-            post(check_start).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
+            &r("check"),
+            post(check_start).layer(DefaultBodyLimit::max(small)),
         )
-        .route("/api/tasks/ops", post(ops))
-        .route("/api/tasks/estimate", post(estimate))
+        .route(&r("ops"), post(ops))
+        .route(&r("estimate"), post(estimate))
         .route(
-            "/api/tasks/open",
-            post(open_file).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
+            &r("open"),
+            post(open_file).layer(DefaultBodyLimit::max(small)),
         )
-        .route("/api/vaults", get(vaults_list))
-        .route(
-            "/api/vaults/add",
-            post(vaults_add).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
-        )
-        .route(
-            "/api/vaults/remove",
-            post(vaults_remove).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
-        )
-        .route(
-            "/api/vaults/select",
-            post(vaults_select).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
-        )
-        .route(
-            "/auth/exchange",
-            post(exchange).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
-        )
-        .route(
-            "/api/control/pair",
-            post(control_pair).layer(DefaultBodyLimit::max(shared.limits.small_body_bytes)),
-        )
-        .fallback(not_found)
-        .layer(DefaultBodyLimit::max(shared.limits.max_body_bytes))
-        .layer(middleware::from_fn_with_state(Arc::clone(&shared), guard))
-        .with_state(shared)
-}
-
-async fn accept_loop(
-    listener: TcpListener,
-    app: Router,
-    limits: Limits,
-    mut stop: watch::Receiver<bool>,
-) {
-    let slots = Arc::new(Semaphore::new(limits.max_connections));
-    loop {
-        let (stream, _peer) = tokio::select! {
-            accepted = listener.accept() => match accepted {
-                Ok(pair) => pair,
-                // A failed accept (a reset while queued, or no file
-                // handle left) is not the end; do not spin on it either.
-                Err(_) => {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                    continue;
-                }
-            },
-            _ = stop.changed() => break,
-        };
-        // Over the limit the connection is closed at once, unread.
-        let Ok(slot) = Arc::clone(&slots).try_acquire_owned() else {
-            drop(stream);
-            continue;
-        };
-        let _ = stream.set_nodelay(true);
-        let service = TowerToHyperService::new(app.clone());
-        let mut conn_stop = stop.clone();
-        let head_bytes = limits.max_head_bytes.max(8 * 1024);
-        let header_timeout = limits.header_timeout;
-        tokio::spawn(async move {
-            let _slot = slot;
-            let conn = http1::Builder::new()
-                .timer(TokioTimer::new())
-                .header_read_timeout(header_timeout)
-                .max_buf_size(head_bytes)
-                .keep_alive(true)
-                .serve_connection(TokioIo::new(stream), service);
-            tokio::pin!(conn);
-            tokio::select! {
-                _ = conn.as_mut() => {}
-                _ = conn_stop.changed() => {
-                    conn.as_mut().graceful_shutdown();
-                    let _ = tokio::time::timeout(Duration::from_secs(5), conn).await;
-                }
-            }
-        });
-    }
 }
 
 #[cfg(test)]
@@ -539,6 +349,8 @@ mod tests {
             &AppParts {
                 classes: Arc::new(AreaPolicy::default()),
                 opener: None,
+                usage: None,
+                streams: Arc::new(StreamCounter::default()),
             },
         ))
     }
@@ -810,120 +622,5 @@ mod tests {
                 .and_then(|v| v.to_str().ok()),
             Some("1")
         );
-    }
-
-    /// A runtime that is not the tasks hub's: the core must serve and swap it all the same.
-    struct OtherRuntime {
-        status: HubStatus,
-        stopped: std::sync::atomic::AtomicBool,
-    }
-
-    impl OtherRuntime {
-        fn new(status: HubStatus) -> Self {
-            Self {
-                status,
-                stopped: std::sync::atomic::AtomicBool::new(false),
-            }
-        }
-    }
-
-    impl Runtime for OtherRuntime {
-        fn status(&self) -> &HubStatus {
-            &self.status
-        }
-
-        fn stop(&self) {
-            self.stopped
-                .store(true, std::sync::atomic::Ordering::SeqCst);
-        }
-    }
-
-    struct TwoVaults;
-
-    impl VaultAdmin for TwoVaults {
-        fn list(&self) -> VaultList {
-            VaultList {
-                active: "a".to_owned(),
-                vaults: Vec::new(),
-            }
-        }
-        fn add<'a>(&'a self, _: &'a str, _: &'a str) -> BoxFuture<'a, Result<(), String>> {
-            Box::pin(async { Err("no".to_owned()) })
-        }
-        fn remove<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<(), String>> {
-            Box::pin(async { Err("no".to_owned()) })
-        }
-        fn select<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<VaultTarget, String>> {
-            Box::pin(async {
-                Ok(VaultTarget {
-                    engine: None,
-                    status: HubStatus {
-                        engine_ready: true,
-                        problem: None,
-                        capabilities: vec!["second".to_owned()],
-                    },
-                    vault: None,
-                })
-            })
-        }
-    }
-
-    fn core_with(first: &Arc<OtherRuntime>) -> Arc<Core<OtherRuntime>> {
-        use app_core::authn::{Secret, SystemClock, CODE_BYTES, TOKEN_BYTES};
-        let clock: Arc<dyn app_core::authn::Clock> = Arc::new(SystemClock::new());
-        let limits = Limits::default();
-        let ttl = Duration::from_secs(60);
-        Arc::new(Core {
-            policy: HostPolicy::loopback(1),
-            pairing: PairingStore::new(Arc::clone(&clock), ttl),
-            sessions: SessionStore::new(4),
-            control: Secret::generate(TOKEN_BYTES).unwrap(),
-            post_limit: RateLimiter::new(Arc::clone(&clock), 10, ttl),
-            ops_limit: RateLimiter::new(Arc::clone(&clock), 10, ttl),
-            exchange_limit: RateLimiter::new(clock, 10, ttl),
-            limits,
-            instance: Secret::generate(CODE_BYTES).unwrap().to_hex(),
-            guard_rules: GuardRules::new("/api/other/hello", []),
-            streams: Arc::new(StreamCounter::default()),
-            ui: UiFiles::none(),
-            usage: None,
-            runtime: StdRwLock::new(Arc::clone(first)),
-            build: Arc::new(|target: VaultTarget| OtherRuntime::new(target.status)),
-            vaults: Some(Arc::new(TwoVaults)),
-            switching: tokio::sync::Mutex::new(()),
-        })
-    }
-
-    async fn json_of(response: Response) -> serde_json::Value {
-        let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
-            .await
-            .unwrap();
-        serde_json::from_slice(&bytes).unwrap()
-    }
-
-    #[tokio::test]
-    async fn the_core_says_hello_for_and_swaps_a_runtime_that_is_not_ours() {
-        let first = Arc::new(OtherRuntime::new(HubStatus {
-            engine_ready: false,
-            problem: Some("engine_unreachable"),
-            capabilities: Vec::new(),
-        }));
-        let core = core_with(&first);
-
-        let before = json_of(hello(State(Arc::clone(&core))).await).await;
-        assert_eq!(before["engine"]["ready"], false);
-        assert_eq!(before["engine"]["problem"], "engine_unreachable");
-
-        let done = vaults_select(
-            State(Arc::clone(&core)),
-            Bytes::from_static(br#"{"name":"b"}"#),
-        )
-        .await;
-        assert_eq!(done.status(), StatusCode::OK);
-        // The old runtime was stopped, and the one the app's callback made is read now.
-        assert!(first.stopped.load(std::sync::atomic::Ordering::SeqCst));
-        let after = json_of(hello(State(core)).await).await;
-        assert_eq!(after["engine"]["ready"], true);
-        assert_eq!(after["engine"]["capabilities"][0], "second");
     }
 }

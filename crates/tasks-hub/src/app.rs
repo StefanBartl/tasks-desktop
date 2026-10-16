@@ -249,7 +249,7 @@ fn label_of(path: &Path, fallback: &str) -> String {
         .map_or_else(|| fallback.to_owned(), |n| n.to_string_lossy().into_owned())
 }
 
-impl VaultAdmin for ConfigVaults {
+impl VaultAdmin<VaultTarget> for ConfigVaults {
     fn list(&self) -> VaultList {
         let file = self.current();
         let mut vaults = Vec::new();
@@ -472,7 +472,8 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
     // it is taken the server still starts, on another port, and says so:
     // the page then has another origin and its stored state does not carry over.
     let nvim = state.nvim.clone();
-    let vaults: Arc<dyn VaultAdmin> = Arc::new(ConfigVaults::new(dir.clone(), env.clone(), file));
+    let vaults: Arc<dyn VaultAdmin<VaultTarget>> =
+        Arc::new(ConfigVaults::new(dir.clone(), env.clone(), file));
     let extras = || Extras {
         vaults: Some(Arc::clone(&vaults)),
         opener: nvim.clone().map(|n| {

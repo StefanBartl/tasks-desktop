@@ -1,0 +1,23 @@
+[package]
+name = "hub-kit"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "The local hub of an app, without the app: the guard, pairing and sessions, the page, the list of vaults, the accept loop"
+
+[lints]
+workspace = true
+
+[dependencies]
+app-core = { path = "../app-core" }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
+hyper = { version = "1", default-features = false, features = ["http1", "server"] }
+hyper-util = { version = "0.1", default-features = false, features = ["server", "tokio", "service", "http1"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["sync", "rt", "rt-multi-thread", "net", "time", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros"] }
