@@ -1,16 +1,10 @@
-//! Test support for the hubs of the apps.
+//! Test support for the tasks hub. What every app's hub shares is in `appkit-testkit`; here is what
+//! is the tasks hub's own:
 //!
-//! * [`wire`]: requests written as raw bytes over a TCP socket, because a real HTTP client would
-//!   "repair" the very things under test (the `Host` header, a header that is too long, a type).
-//! * [`subject`]: what the matrix needs to know about an app: its names, how to start its hub,
-//!   and the routes that need a session.
-//! * [`security`]: the security tests of the guard (concept 5.5), written once and run for every
-//!   app with [`security_matrix!`].
-//! * [`subjects`]: the apps the matrix runs for here: the tasks hub, and a second, minimal app
-//!   that is built on `appkit-hub` alone and so proves the guard knows nothing of `tasks`.
+//! * [`subjects::Tasks`]: the tasks hub as a subject of the security matrix of `appkit-testkit`.
+//! * [`dialect::TASKS`] and [`documents::TASKS_DOCUMENTS`]: what the fake tasks engine calls things
+//!   and the documents it answers with; the binary `fake-nvim` plays it.
 
 pub mod dialect;
-pub mod security;
-pub mod subject;
+pub mod documents;
 pub mod subjects;
-pub mod wire;

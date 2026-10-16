@@ -7,7 +7,7 @@ use appkit_hub::{BoxFuture, RunningServer};
 use tasks_hub::classes::AreaPolicy;
 use tasks_hub::server::{start, ServerConfig};
 
-use crate::subject::{StartConfig, Subject};
+use appkit_testkit::subject::{StartConfig, Subject};
 
 /// `tasks-hub`, with no engine, no vault and no page.
 pub struct Tasks;

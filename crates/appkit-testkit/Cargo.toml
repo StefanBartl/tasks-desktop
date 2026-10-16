@@ -1,0 +1,26 @@
+[package]
+name = "appkit-testkit"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Test support for the hubs built on appkit-hub: the security matrix any app's hub must pass, a second minimal app, and a fake engine"
+
+[lints]
+workspace = true
+
+[lib]
+name = "appkit_testkit"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fake-engine"
+path = "src/bin/fake-engine.rs"
+
+[dependencies]
+appkit-core = { path = "../appkit-core" }
+appkit-hub = { path = "../appkit-hub" }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "time", "net", "io-util"] }

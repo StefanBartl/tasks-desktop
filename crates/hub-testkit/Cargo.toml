@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish = false
-description = "Test support for the hub: a fake Neovim, the security matrix any app's hub must pass, and the tests that need a process"
+description = "Test support for the tasks hub: the tasks hub as a subject of the security matrix, the fake tasks engine, and the tests that need a process"
 
 [lints]
 workspace = true
@@ -21,7 +21,7 @@ path = "src/bin/fake-nvim.rs"
 [dependencies]
 appkit-core = { path = "../appkit-core" }
 appkit-hub = { path = "../appkit-hub" }
+appkit-testkit = { path = "../appkit-testkit" }
 tasks-hub = { path = "../tasks-hub" }
-axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
 serde_json = "1"
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "time", "net", "io-util"] }

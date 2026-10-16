@@ -993,13 +993,14 @@ pub async fn what_is_not_ours_is_not_found_whatever_is_asked(s: &dyn Subject) {
     assert_eq!(r.status, 403, "{r:?}");
 }
 
-/// Makes a `#[tokio::test]` of each test of the matrix, for the subject the expression gives.
+/// Makes a `#[tokio::test]` of each test of the matrix, for the subject the expression gives. The
+/// crate that calls it needs `tokio` with `macros` and `rt-multi-thread`.
 ///
-/// `ignore
-/// mod tasks {
-///     hub_testkit::security_matrix!(hub_testkit::subjects::Tasks);
+/// ```ignore
+/// mod my_app {
+///     appkit_testkit::security_matrix!(my_app_testkit::MyApp);
 /// }
-/// `
+/// ```
 #[macro_export]
 macro_rules! security_matrix {
     ($subject:expr) => {
