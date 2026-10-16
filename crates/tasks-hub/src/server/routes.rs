@@ -75,7 +75,7 @@ pub(super) async fn task(State(st): State<Arc<Shared>>, RawQuery(query): RawQuer
             return json_response(StatusCode::OK, doc, None);
         }
     }
-    match ask(&st, EngineMethod::Task, Some(&json!({ "id": id }))).await {
+    match ask(&st, Calls::Task, Some(&json!({ "id": id }))).await {
         Ok(reply) => {
             // The document names its own `rev`, which is not the snapshot's
             // (it is made over the task and what it touches), so the state is
@@ -119,7 +119,7 @@ pub(super) async fn next(State(st): State<Arc<Shared>>, RawQuery(query): RawQuer
         request.insert("area".to_owned(), json!(area));
     }
     let request = serde_json::Value::Object(request);
-    match ask(&st, EngineMethod::Next, Some(&request)).await {
+    match ask(&st, Calls::Next, Some(&request)).await {
         Ok(reply) => json_response(StatusCode::OK, reply.text, None),
         Err(response) => response,
     }
@@ -132,7 +132,7 @@ pub(super) async fn areas(State(st): State<Arc<Shared>>, RawQuery(query): RawQue
     if let Some(response) = no_query(query.as_deref()) {
         return response;
     }
-    let reply = match ask(&st, EngineMethod::Areas, None).await {
+    let reply = match ask(&st, Calls::Areas, None).await {
         Ok(r) => r,
         Err(response) => return response,
     };
@@ -366,7 +366,7 @@ pub(super) async fn estimate(State(st): State<Arc<Shared>>, body: Bytes) -> Resp
         Ok(r) => r,
         Err(why) => return error_body(StatusCode::BAD_REQUEST, "bad_request", &why),
     };
-    match ask(&st, EngineMethod::Estimate, Some(&request)).await {
+    match ask(&st, Calls::Estimate, Some(&request)).await {
         Ok(reply) => json_response(StatusCode::OK, reply.text, None),
         Err(response) => response,
     }
@@ -393,7 +393,7 @@ pub(super) async fn ops(State(st): State<Arc<Shared>>, body: Bytes) -> Response 
     if !dry_run && !st.post_limit.allow() {
         return too_many();
     }
-    let reply = match ask(&st, EngineMethod::Ops, Some(&request)).await {
+    let reply = match ask(&st, Calls::Ops, Some(&request)).await {
         Ok(reply) => reply,
         Err(response) => {
             // A write that ended without an answer may have been carried out:
@@ -445,7 +445,7 @@ pub(super) async fn done_preview(
             "id must be <area>/<slug>",
         );
     };
-    match ask(&st, EngineMethod::DonePreview, Some(&json!({ "id": id }))).await {
+    match ask(&st, Calls::DonePreview, Some(&json!({ "id": id }))).await {
         Ok(reply) => json_response(StatusCode::OK, reply.text, None),
         Err(response) => response,
     }
@@ -457,7 +457,7 @@ pub(super) async fn links(State(st): State<Arc<Shared>>, RawQuery(query): RawQue
     if let Some(response) = no_query(query.as_deref()) {
         return response;
     }
-    match ask(&st, EngineMethod::Links, None).await {
+    match ask(&st, Calls::Links, None).await {
         Ok(reply) => json_response(StatusCode::OK, reply.text, None),
         Err(response) => response,
     }
@@ -492,7 +492,7 @@ pub(super) async fn finished(State(st): State<Arc<Shared>>, RawQuery(query): Raw
         }
     }
     let request = serde_json::Value::Object(request);
-    match ask(&st, EngineMethod::Finished, Some(&request)).await {
+    match ask(&st, Calls::Finished, Some(&request)).await {
         Ok(reply) => json_response(StatusCode::OK, reply.text, None),
         Err(response) => response,
     }
@@ -522,7 +522,7 @@ pub(super) async fn plan_for(State(st): State<Arc<Shared>>, RawQuery(query): Raw
         );
     }
     let request = json!({ "id": id, "direction": direction });
-    match ask(&st, EngineMethod::PlanFor, Some(&request)).await {
+    match ask(&st, Calls::PlanFor, Some(&request)).await {
         Ok(reply) => json_response(StatusCode::OK, reply.text, None),
         Err(response) => response,
     }
@@ -559,7 +559,7 @@ pub(super) async fn open_file(State(st): State<Arc<Shared>>, body: Bytes) -> Res
     let Some(vault) = rt.vault.clone() else {
         return engine_unavailable(&st);
     };
-    let reply = match ask(&st, EngineMethod::Task, Some(&json!({ "id": id }))).await {
+    let reply = match ask(&st, Calls::Task, Some(&json!({ "id": id }))).await {
         Ok(r) => r,
         Err(response) => return response,
     };

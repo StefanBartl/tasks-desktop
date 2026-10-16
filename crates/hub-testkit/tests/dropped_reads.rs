@@ -26,6 +26,7 @@ async fn a_request_that_is_dropped_while_it_waits_never_reaches_the_engine() {
     std::fs::write(vault.join(".fake-task-ms"), "400").unwrap();
 
     let engine: Arc<dyn Engine> = Arc::new(CliEngine::new(CliEngineConfig {
+        dialect: tasks_hub::engine::DIALECT,
         nvim: PathBuf::from(env!("CARGO_BIN_EXE_fake-nvim")),
         script: vault.join("scripts").join("tasks.lua"),
         vault: vault.clone(),

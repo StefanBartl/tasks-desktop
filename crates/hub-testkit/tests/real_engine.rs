@@ -14,7 +14,7 @@ use std::time::SystemTime;
 use serde_json::{json, Value};
 use tasks_hub::config::{Env, FileConfig};
 use tasks_hub::discovery::{discover, Setup, SetupProblem};
-use tasks_hub::engine::{probe, CliEngine, CliEngineConfig, Engine, EngineError, Method};
+use tasks_hub::engine::{probe, Calls, CliEngine, Engine, EngineError, Method};
 
 fn fixture_vault() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -42,7 +42,7 @@ async fn engine() -> Option<(CliEngine, Setup)> {
     };
     match discover(&file, &env).await {
         Ok(setup) => {
-            let cfg = CliEngineConfig::from_setup(&setup, env);
+            let cfg = tasks_hub::engine::cli_config_from_setup(&setup, env);
             Some((CliEngine::new(cfg), setup))
         }
         Err(
@@ -100,10 +100,10 @@ async fn a_read_leaves_the_vault_as_it_was() {
     assert!(!before.is_empty());
     let task = json!({ "id": "lib.nvim/alpha" });
     for (method, params) in [
-        (Method::Snapshot, None),
-        (Method::Areas, None),
-        (Method::Next, None),
-        (Method::Task, Some(&task)),
+        (Calls::Snapshot, None),
+        (Calls::Areas, None),
+        (Calls::Next, None),
+        (Calls::Task, Some(&task)),
     ] {
         engine.call(method, params).await.expect("a read");
     }
@@ -125,7 +125,7 @@ async fn the_snapshot_of_the_fixture_vault_is_complete() {
     let Some((engine, _)) = engine().await else {
         return;
     };
-    let reply = engine.call(Method::Snapshot, None).await.expect("snapshot");
+    let reply = engine.call(Calls::Snapshot, None).await.expect("snapshot");
     assert_eq!(reply.kind, "tasks.snapshot");
     let doc: Value = serde_json::from_str(&reply.text).unwrap();
     let tasks = doc["tasks"].as_array().expect("tasks");
@@ -142,10 +142,10 @@ async fn the_bodies_are_one_state_with_the_snapshot_and_the_search_finds_them() 
     let Some((engine, _)) = engine().await else {
         return;
     };
-    let snapshot = engine.call(Method::Snapshot, None).await.expect("snapshot");
+    let snapshot = engine.call(Calls::Snapshot, None).await.expect("snapshot");
     let snapshot: Value = serde_json::from_str(&snapshot.text).unwrap();
     let reply = engine
-        .call(Method::Bodies, Some(&json!({ "limit": 1000 })))
+        .call(Calls::Bodies, Some(&json!({ "limit": 1000 })))
         .await
         .expect("bodies");
     assert_eq!(reply.kind, "tasks.bodies");
@@ -173,7 +173,7 @@ async fn the_bodies_are_one_state_with_the_snapshot_and_the_search_finds_them() 
     // A named id, and one that is not there.
     let named = engine
         .call(
-            Method::Bodies,
+            Calls::Bodies,
             Some(&json!({ "ids": ["lib.nvim/alpha", "nope.nvim/missing"] })),
         )
         .await
@@ -189,10 +189,7 @@ async fn one_task_comes_back_with_its_body() {
         return;
     };
     let params = json!({ "id": "lib.nvim/alpha" });
-    let reply = engine
-        .call(Method::Task, Some(&params))
-        .await
-        .expect("task");
+    let reply = engine.call(Calls::Task, Some(&params)).await.expect("task");
     let doc: Value = serde_json::from_str(&reply.text).unwrap();
     assert_eq!(doc["task"]["id"], "lib.nvim/alpha");
     assert!(doc["body"].is_string());
@@ -205,7 +202,7 @@ async fn an_unknown_parameter_is_refused_by_the_engine() {
     };
     let params = json!({ "colour": "red" });
     let err = engine
-        .call(Method::List, Some(&params))
+        .call(Calls::List, Some(&params))
         .await
         .expect_err("refused");
     match err {
@@ -226,7 +223,7 @@ async fn text_mode_hazards_reach_the_engine_intact() {
         let doc: Value = serde_json::from_str(text).unwrap();
         doc["tasks"].as_array().map_or(0, Vec::len)
     };
-    let before = engine.call(Method::Snapshot, None).await.expect("snapshot");
+    let before = engine.call(Calls::Snapshot, None).await.expect("snapshot");
     let new_task = |id: &str, title: &str| {
         json!({
             "schema": 1,
@@ -241,7 +238,7 @@ async fn text_mode_hazards_reach_the_engine_intact() {
     // have cut the request off and been answered "not valid JSON".
     let hazard = new_task("c-hazard", "Zeile\r\nund\u{1a}danach");
     let reply = engine
-        .call(Method::Ops, Some(&hazard))
+        .call(Calls::Ops, Some(&hazard))
         .await
         .expect("a result document");
     assert_eq!(reply.kind, "tasks.result");
@@ -259,14 +256,14 @@ async fn text_mode_hazards_reach_the_engine_intact() {
     // Non-ASCII text arrives as it was written and is accepted.
     let clean = new_task("c-unicode", "K\u{e4}se \u{1f600} und \u{4e2d}\u{6587}");
     let reply = engine
-        .call(Method::Ops, Some(&clean))
+        .call(Calls::Ops, Some(&clean))
         .await
         .expect("a result document");
     let doc: Value = serde_json::from_str(&reply.text).unwrap();
     assert_eq!(doc["ok"], true, "{}", reply.text);
 
     // A dry run judged the operations and wrote nothing.
-    let after = engine.call(Method::Snapshot, None).await.expect("snapshot");
+    let after = engine.call(Calls::Snapshot, None).await.expect("snapshot");
     assert_eq!(count(&before.text), count(&after.text), "a dry run wrote");
 }
 
@@ -304,7 +301,7 @@ async fn engines_on(vault: &Path) -> Option<(CliEngine, CliEngine)> {
     };
     match discover(&file, &env).await {
         Ok(setup) => {
-            let cfg = CliEngineConfig::from_setup(&setup, env);
+            let cfg = tasks_hub::engine::cli_config_from_setup(&setup, env);
             Some((CliEngine::with_host(cfg.clone()), CliEngine::new(cfg)))
         }
         Err(problem) => {
@@ -338,14 +335,14 @@ async fn the_host_answers_with_the_documents_of_the_process_way() {
         return;
     };
     let cases: Vec<(Method, Option<Value>)> = vec![
-        (Method::Hello, None),
-        (Method::Snapshot, None),
-        (Method::Areas, None),
-        (Method::List, Some(json!({ "limit": 20 }))),
-        (Method::Bodies, Some(json!({ "limit": 50 }))),
-        (Method::Next, Some(json!({ "n": 3 }))),
-        (Method::Task, Some(json!({ "id": "lib.nvim/alpha" }))),
-        (Method::Task, Some(json!({ "id": "lib.nvim/no-such-task" }))),
+        (Calls::Hello, None),
+        (Calls::Snapshot, None),
+        (Calls::Areas, None),
+        (Calls::List, Some(json!({ "limit": 20 }))),
+        (Calls::Bodies, Some(json!({ "limit": 50 }))),
+        (Calls::Next, Some(json!({ "n": 3 }))),
+        (Calls::Task, Some(json!({ "id": "lib.nvim/alpha" }))),
+        (Calls::Task, Some(json!({ "id": "lib.nvim/no-such-task" }))),
     ];
     for (method, params) in cases {
         let a = host.call(method, params.as_ref()).await;
@@ -367,7 +364,7 @@ async fn the_host_never_answers_from_before_a_change_of_the_vault() {
     let Some((host, _)) = engines_on(&vault).await else {
         return;
     };
-    let before = host.call(Method::Snapshot, None).await.unwrap();
+    let before = host.call(Calls::Snapshot, None).await.unwrap();
     let before = steady(&before.text);
     let task = vault
         .join("lib.nvim")
@@ -383,7 +380,7 @@ async fn the_host_never_answers_from_before_a_change_of_the_vault() {
     assert_eq!(text.len(), changed.len());
     std::fs::write(&task, &changed).unwrap();
 
-    let after = steady(&host.call(Method::Snapshot, None).await.unwrap().text);
+    let after = steady(&host.call(Calls::Snapshot, None).await.unwrap().text);
     assert_ne!(before["digest"], after["digest"], "the change was not seen");
     assert_ne!(before["rev"], after["rev"]);
     let id = "lib.nvim/beta";
@@ -405,14 +402,14 @@ async fn the_host_never_answers_from_before_a_change_of_the_vault() {
         .join("tasks")
         .join("fresh-one.md");
     std::fs::write(&fresh, "---\ntitle: Fresh one\nstatus: open\n---\nBody.\n").unwrap();
-    let with = steady(&host.call(Method::Snapshot, None).await.unwrap().text);
+    let with = steady(&host.call(Calls::Snapshot, None).await.unwrap().text);
     assert!(with["tasks"]
         .as_array()
         .unwrap()
         .iter()
         .any(|t| t["id"] == "lib.nvim/fresh-one"));
     std::fs::remove_file(&fresh).unwrap();
-    let without = steady(&host.call(Method::Snapshot, None).await.unwrap().text);
+    let without = steady(&host.call(Calls::Snapshot, None).await.unwrap().text);
     assert!(!without["tasks"]
         .as_array()
         .unwrap()
@@ -426,7 +423,7 @@ async fn a_write_through_the_host_is_seen_by_the_next_read() {
     let Some((host, process)) = engines_on(&vault).await else {
         return;
     };
-    let before = steady(&host.call(Method::Snapshot, None).await.unwrap().text);
+    let before = steady(&host.call(Calls::Snapshot, None).await.unwrap().text);
     let task = before["tasks"]
         .as_array()
         .unwrap()
@@ -443,13 +440,13 @@ async fn a_write_through_the_host_is_seen_by_the_next_read() {
             "patch": { "prio": 3 }
         }]
     });
-    let done = host.call(Method::Ops, Some(&request)).await.unwrap();
+    let done = host.call(Calls::Ops, Some(&request)).await.unwrap();
     let done = steady(&done.text);
     assert_eq!(done["ok"], true, "{done}");
 
     // Through the host and through a fresh process: the same new state.
-    let a = steady(&host.call(Method::Snapshot, None).await.unwrap().text);
-    let b = steady(&process.call(Method::Snapshot, None).await.unwrap().text);
+    let a = steady(&host.call(Calls::Snapshot, None).await.unwrap().text);
+    let b = steady(&process.call(Calls::Snapshot, None).await.unwrap().text);
     assert_eq!(a, b);
     assert_ne!(a["digest"], before["digest"]);
 }
@@ -460,7 +457,7 @@ async fn a_patch_with_null_takes_a_key_away_through_the_host() {
     let Some((host, _)) = engines_on(&vault).await else {
         return;
     };
-    let before = steady(&host.call(Method::Snapshot, None).await.unwrap().text);
+    let before = steady(&host.call(Calls::Snapshot, None).await.unwrap().text);
     let find = |doc: &Value| {
         doc["tasks"]
             .as_array()
@@ -477,10 +474,10 @@ async fn a_patch_with_null_takes_a_key_away_through_the_host() {
         "client_op_id": "null-1",
         "ops": [{ "op": "set", "id": "lib.nvim/beta", "if_match": task["etag"], "patch": { "prio": null } }]
     });
-    let done = steady(&host.call(Method::Ops, Some(&request)).await.unwrap().text);
+    let done = steady(&host.call(Calls::Ops, Some(&request)).await.unwrap().text);
     assert_eq!(done["ok"], true, "{done}");
     let after = find(&steady(
-        &host.call(Method::Snapshot, None).await.unwrap().text,
+        &host.call(Calls::Snapshot, None).await.unwrap().text,
     ));
     assert!(after.get("prio").is_none_or(Value::is_null), "{after}");
 }
@@ -492,14 +489,14 @@ async fn an_estimate_is_one_state_with_the_snapshot_and_takes_assumptions_withou
     };
     let snapshot: Value = serde_json::from_str(
         &engine
-            .call(Method::Snapshot, None)
+            .call(Calls::Snapshot, None)
             .await
             .expect("snapshot")
             .text,
     )
     .unwrap();
     let all = engine
-        .call(Method::Estimate, Some(&json!({})))
+        .call(Calls::Estimate, Some(&json!({})))
         .await
         .expect("estimate");
     assert_eq!(all.kind, "tasks.estimate");
@@ -511,7 +508,7 @@ async fn an_estimate_is_one_state_with_the_snapshot_and_takes_assumptions_withou
     let id = snapshot["tasks"][0]["id"].as_str().unwrap().to_owned();
     let drafted = engine
         .call(
-            Method::Estimate,
+            Calls::Estimate,
             Some(&json!({ "ids": [id], "assume": [{ "id": id, "effort": "XL", "value": 5 }] })),
         )
         .await
@@ -522,7 +519,7 @@ async fn an_estimate_is_one_state_with_the_snapshot_and_takes_assumptions_withou
     assert_eq!(drafted["n_with_effort"], 1);
     let refused = engine
         .call(
-            Method::Estimate,
+            Calls::Estimate,
             Some(&json!({ "ids": [id], "assume": [{ "id": id, "effort": "huge" }] })),
         )
         .await;
@@ -539,7 +536,7 @@ async fn the_graph_of_a_task_is_one_state_with_the_snapshot() {
     };
     let snapshot: Value = serde_json::from_str(
         &engine
-            .call(Method::Snapshot, None)
+            .call(Calls::Snapshot, None)
             .await
             .expect("snapshot")
             .text,
@@ -558,7 +555,7 @@ async fn the_graph_of_a_task_is_one_state_with_the_snapshot() {
         .expect("the fixture has a task that waits");
     let id = waiting["id"].as_str().unwrap();
     let reply = engine
-        .call(Method::PlanFor, Some(&json!({ "id": id })))
+        .call(Calls::PlanFor, Some(&json!({ "id": id })))
         .await
         .expect("plan_for");
     assert_eq!(reply.kind, "tasks.planfor");
@@ -569,7 +566,7 @@ async fn the_graph_of_a_task_is_one_state_with_the_snapshot() {
     assert!(doc["total"].as_u64().unwrap() >= 2);
     assert!(!doc["edges"].as_array().unwrap().is_empty());
     let unknown = engine
-        .call(Method::PlanFor, Some(&json!({ "id": "nope.nvim/missing" })))
+        .call(Calls::PlanFor, Some(&json!({ "id": "nope.nvim/missing" })))
         .await;
     assert!(
         matches!(unknown, Err(EngineError::Refused(_))),
@@ -584,14 +581,14 @@ async fn a_check_is_one_state_with_the_snapshot_and_names_what_is_wrong_without_
     };
     let snapshot: Value = serde_json::from_str(
         &engine
-            .call(Method::Snapshot, None)
+            .call(Calls::Snapshot, None)
             .await
             .expect("snapshot")
             .text,
     )
     .unwrap();
     let reply = engine
-        .call(Method::Check, Some(&json!({})))
+        .call(Calls::Check, Some(&json!({})))
         .await
         .expect("check");
     assert_eq!(reply.kind, "tasks.check");
@@ -608,7 +605,7 @@ async fn a_check_is_one_state_with_the_snapshot_and_names_what_is_wrong_without_
         );
     }
     let refused = engine
-        .call(Method::Check, Some(&json!({ "stale": "all" })))
+        .call(Calls::Check, Some(&json!({ "stale": "all" })))
         .await;
     assert!(
         matches!(refused, Err(EngineError::Refused(_))),

@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use serde_json::json;
 use tasks_hub::config::Env;
-use tasks_hub::engine::{CliEngine, CliEngineConfig, Engine, EngineError, Method};
+use tasks_hub::engine::{Calls, CliEngine, CliEngineConfig, Engine, EngineError};
 
 fn vault(name: &str) -> PathBuf {
     let vault =
@@ -21,6 +21,7 @@ fn vault(name: &str) -> PathBuf {
 
 fn config(vault: &Path, timeout: Duration) -> CliEngineConfig {
     CliEngineConfig {
+        dialect: tasks_hub::engine::DIALECT,
         nvim: PathBuf::from(env!("CARGO_BIN_EXE_fake-nvim")),
         script: vault.join("scripts").join("tasks.lua"),
         vault: vault.to_path_buf(),
@@ -82,18 +83,18 @@ async fn many_questions_one_process_and_the_same_documents() {
     let host = CliEngine::with_host(config(&dir, Duration::from_secs(10)));
     let process = CliEngine::new(config(&dir, Duration::from_secs(10)));
 
-    for method in [Method::Hello, Method::Snapshot, Method::Areas] {
+    for method in [Calls::Hello, Calls::Snapshot, Calls::Areas] {
         let a = host.call(method, None).await.unwrap();
         let b = process.call(method, None).await.unwrap();
         assert_eq!(a, b, "{}", method.as_str());
     }
     let params = json!({ "id": "alpha.nvim/t1" });
-    let a = host.call(Method::Task, Some(&params)).await.unwrap();
-    let b = process.call(Method::Task, Some(&params)).await.unwrap();
+    let a = host.call(Calls::Task, Some(&params)).await.unwrap();
+    let b = process.call(Calls::Task, Some(&params)).await.unwrap();
     assert_eq!(a, b);
     // The engine's own refusal comes through as a refusal.
     let refused = host
-        .call(Method::Task, Some(&json!({ "id": "alpha.nvim/missing" })))
+        .call(Calls::Task, Some(&json!({ "id": "alpha.nvim/missing" })))
         .await;
     assert!(matches!(refused, Err(EngineError::Refused(r)) if r.code == "not_found"));
 
@@ -111,15 +112,15 @@ async fn many_questions_one_process_and_the_same_documents() {
 async fn a_host_that_crashes_on_a_read_is_replaced_and_the_read_is_asked_again() {
     let dir = vault("crash-read");
     let host = CliEngine::with_host(config(&dir, Duration::from_secs(10)));
-    host.call(Method::Hello, None).await.unwrap();
+    host.call(Calls::Hello, None).await.unwrap();
     assert_eq!(starts(&dir), 1);
 
     // The host dies with this question; the answer comes from a process.
     let crash = json!({ "fake": { "host_exit": 1 } });
-    let reply = host.call(Method::Next, Some(&crash)).await.unwrap();
+    let reply = host.call(Calls::Next, Some(&crash)).await.unwrap();
     assert_eq!(reply.kind, "tasks.next");
     // The next question starts a new host.
-    host.call(Method::Snapshot, None).await.unwrap();
+    host.call(Calls::Snapshot, None).await.unwrap();
     assert_eq!(starts(&dir), 2);
     assert!(host.host_running().await);
 }
@@ -128,16 +129,16 @@ async fn a_host_that_crashes_on_a_read_is_replaced_and_the_read_is_asked_again()
 async fn a_host_that_crashes_on_a_write_leaves_the_outcome_open() {
     let dir = vault("crash-write");
     let host = CliEngine::with_host(config(&dir, Duration::from_secs(10)));
-    host.call(Method::Hello, None).await.unwrap();
+    host.call(Calls::Hello, None).await.unwrap();
 
     let crash = json!({ "fake": { "host_exit": 1 }, "ops": [] });
-    let err = host.call(Method::Ops, Some(&crash)).await.unwrap_err();
+    let err = host.call(Calls::Ops, Some(&crash)).await.unwrap_err();
     assert!(
         matches!(err, EngineError::OutcomeUnknown(_)),
         "a write that was sent and not answered is not asked again: {err}"
     );
     // And the engine is usable afterwards.
-    assert!(host.call(Method::Hello, None).await.is_ok());
+    assert!(host.call(Calls::Hello, None).await.is_ok());
     assert_eq!(starts(&dir), 2);
 }
 
@@ -145,24 +146,24 @@ async fn a_host_that_crashes_on_a_write_leaves_the_outcome_open() {
 async fn a_question_that_hangs_kills_the_host_and_is_a_timeout() {
     let dir = vault("hang");
     let host = CliEngine::with_host(config(&dir, Duration::from_millis(700)));
-    host.call(Method::Hello, None).await.unwrap();
+    host.call(Calls::Hello, None).await.unwrap();
     let first = pid(&dir);
 
     let hang = json!({ "fake": { "host_hang": 1 } });
-    let err = host.call(Method::Next, Some(&hang)).await.unwrap_err();
+    let err = host.call(Calls::Next, Some(&hang)).await.unwrap_err();
     assert!(matches!(err, EngineError::Timeout), "{err}");
     assert!(wait_gone(first).await, "the hung host was killed");
     // A write that times out is open, not failed.
     let err = host
         .call(
-            Method::Ops,
+            Calls::Ops,
             Some(&json!({ "fake": { "host_hang": 1 }, "ops": [] })),
         )
         .await
         .unwrap_err();
     assert!(matches!(err, EngineError::OutcomeUnknown(_)), "{err}");
 
-    assert!(host.call(Method::Hello, None).await.is_ok());
+    assert!(host.call(Calls::Hello, None).await.is_ok());
 }
 
 #[tokio::test]
@@ -172,7 +173,7 @@ async fn a_host_that_cannot_start_is_left_alone_and_the_process_way_answers() {
     let host = CliEngine::with_host(config(&dir, Duration::from_secs(10)));
 
     for _ in 0..6 {
-        let reply = host.call(Method::Snapshot, None).await.unwrap();
+        let reply = host.call(Calls::Snapshot, None).await.unwrap();
         assert_eq!(reply.kind, "tasks.snapshot");
     }
     // Three failures in a row and the host is not tried again for a while.
@@ -185,7 +186,7 @@ async fn an_engine_without_a_host_script_asks_one_process_per_question() {
     let dir = vault("no-script");
     std::fs::remove_file(dir.join("scripts").join("tasks-host.lua")).unwrap();
     let host = CliEngine::with_host(config(&dir, Duration::from_secs(10)));
-    host.call(Method::Hello, None).await.unwrap();
+    host.call(Calls::Hello, None).await.unwrap();
     assert_eq!(starts(&dir), 0);
     assert!(!host.host_running().await);
 }
@@ -194,7 +195,7 @@ async fn an_engine_without_a_host_script_asks_one_process_per_question() {
 async fn a_host_that_was_killed_from_outside_is_replaced_without_an_error() {
     let dir = vault("killed");
     let host = CliEngine::with_host(config(&dir, Duration::from_secs(10)));
-    host.call(Method::Hello, None).await.unwrap();
+    host.call(Calls::Hello, None).await.unwrap();
     let first = pid(&dir);
 
     let status = if cfg!(windows) {
@@ -213,7 +214,7 @@ async fn a_host_that_was_killed_from_outside_is_replaced_without_an_error() {
     assert!(wait_gone(first).await);
 
     // Not an error for the caller, not even for a write: nothing was sent.
-    let reply = host.call(Method::Snapshot, None).await.unwrap();
+    let reply = host.call(Calls::Snapshot, None).await.unwrap();
     assert_eq!(reply.kind, "tasks.snapshot");
     assert_eq!(starts(&dir), 2);
     assert_ne!(pid(&dir), first);
@@ -226,9 +227,9 @@ async fn a_host_is_replaced_when_the_engines_files_change() {
         config(&dir, Duration::from_secs(10)),
         Duration::from_millis(50),
     );
-    host.call(Method::Hello, None).await.unwrap();
+    host.call(Calls::Hello, None).await.unwrap();
     tokio::time::sleep(Duration::from_millis(120)).await;
-    host.call(Method::Hello, None).await.unwrap();
+    host.call(Calls::Hello, None).await.unwrap();
     assert_eq!(starts(&dir), 1, "nothing changed: the same host");
 
     // A file of the engine's code appears, as after a `git pull`.
@@ -236,7 +237,7 @@ async fn a_host_is_replaced_when_the_engines_files_change() {
     std::fs::write(dir.join("lua").join("changed.lua"), "return {}").unwrap();
     tokio::time::sleep(Duration::from_millis(120)).await;
     let first = pid(&dir);
-    host.call(Method::Hello, None).await.unwrap();
+    host.call(Calls::Hello, None).await.unwrap();
     assert_eq!(starts(&dir), 2, "the changed code got a new host");
     assert!(wait_gone(first).await, "the old host is gone");
 
@@ -248,6 +249,6 @@ async fn a_host_is_replaced_when_the_engines_files_change() {
     )
     .unwrap();
     tokio::time::sleep(Duration::from_millis(120)).await;
-    host.call(Method::Hello, None).await.unwrap();
+    host.call(Calls::Hello, None).await.unwrap();
     assert_eq!(starts(&dir), 3);
 }

@@ -16,7 +16,7 @@ use crate::client;
 use crate::config::{self, Env, FileConfig};
 use crate::discovery::discover;
 use crate::editor::TerminalOpener;
-use crate::engine::{probe, CliEngine, CliEngineConfig, Engine, Method};
+use crate::engine::{cli_config_from_setup, probe, Calls, CliEngine, Engine};
 use crate::server::{
     self, BoxFuture, Extras, HubStatus, Limits, ServerConfig, VaultAdmin, VaultInfo, VaultList,
     VaultTarget, WatchConfig, APP_NAME, DEFAULT_PORT,
@@ -130,7 +130,7 @@ async fn engine_state(file: &FileConfig, env: &Env) -> EngineState {
         Ok(setup) => setup,
         Err(problem) => return failed(problem.code(), problem.to_string()),
     };
-    let cfg = CliEngineConfig::from_setup(&setup, env.clone());
+    let cfg = cli_config_from_setup(&setup, env.clone());
     // A persistent engine process answers in milliseconds where a process per
     // question needs a second; `TASKS_HUB_ENGINE=process` asks for the
     // one-process-per-question way (a bug hunt, an old engine).
@@ -368,7 +368,7 @@ impl VaultAdmin<VaultTarget> for ConfigVaults {
 /// The names of the areas the engine knows.
 async fn area_names(engine: &dyn Engine) -> Result<Vec<String>, String> {
     let reply = engine
-        .call(Method::Areas, None)
+        .call(Calls::Areas, None)
         .await
         .map_err(|e| e.to_string())?;
     let doc: Value = serde_json::from_str(&reply.text).map_err(|e| e.to_string())?;
