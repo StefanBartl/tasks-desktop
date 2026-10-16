@@ -191,6 +191,7 @@ dependencies = [
  "axum",
  "hyper",
  "hyper-util",
+ "notify",
  "serde",
  "serde_json",
  "tokio",
