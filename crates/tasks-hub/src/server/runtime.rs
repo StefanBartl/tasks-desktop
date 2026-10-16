@@ -100,7 +100,9 @@ pub(super) fn build_runtime(
         },
     );
     // The text of the tasks, for the search: kept by the hub, read by the engine.
-    let search = engine.clone().map(SearchIndex::new);
+    let search = engine
+        .clone()
+        .map(|engine| SearchIndex::new(engine, crate::engine::Calls::Bodies));
     let folder = vault.clone();
     let mut jobs = Vec::new();
     if let Some(index) = &search {
