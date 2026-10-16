@@ -90,7 +90,7 @@ pub(super) async fn events(
         loop {
             let message = tokio::select! {
                 change = changes.recv() => match change {
-                    Ok(c) => c.to_sse(),
+                    Ok(c) => c.to_sse(crate::store::SHAPE.event),
                     // This client was too slow for the buffer: it must read again.
                     Err(broadcast::error::RecvError::Lagged(_)) => {
                         "event: resync\ndata: {}\n\n".to_owned()

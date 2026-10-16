@@ -60,6 +60,7 @@ pub mod instance;
 pub mod limits;
 pub mod loginitems;
 pub mod setup;
+pub mod store;
 pub mod usage;
 pub mod vaults;
 
