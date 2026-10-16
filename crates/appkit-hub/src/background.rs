@@ -14,7 +14,7 @@ use std::pin::Pin;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use app_core::identity::AppIdentity;
+use appkit_core::identity::AppIdentity;
 
 use crate::env::Env;
 use crate::instance;
@@ -1164,9 +1164,9 @@ mod tests {
 
     #[test]
     fn a_probe_is_found_in_the_store_of_a_package_and_only_there() {
-        let base = std::env::temp_dir().join(format!("hub-kit-pkg-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("appkit-hub-pkg-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
-        let rel = Path::new("hub-kit");
+        let rel = Path::new("appkit-hub");
         let store = base
             .join("Packages")
             .join("Some_pkg")
@@ -1212,10 +1212,10 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn a_packaged_app_is_noticed_in_the_local_and_the_roaming_store() {
-        let base = std::env::temp_dir().join(format!("hub-kit-warn-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("appkit-hub-warn-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let local = base.join("Local");
-        let config = base.join("Roaming").join("hub-kit");
+        let config = base.join("Roaming").join("appkit-hub");
         std::fs::create_dir_all(&local).unwrap();
         std::fs::create_dir_all(&config).unwrap();
         let env = Env::from_pairs([
@@ -1240,8 +1240,8 @@ mod tests {
 
         // A folder below the roaming AppData in the Roaming store.
         let store = local.join("Packages").join("Q_two").join("LocalCache");
-        std::fs::create_dir_all(store.join("Roaming").join("hub-kit")).unwrap();
-        std::fs::write(store.join("Roaming").join("hub-kit").join(&probe), b"").unwrap();
+        std::fs::create_dir_all(store.join("Roaming").join("appkit-hub")).unwrap();
+        std::fs::write(store.join("Roaming").join("appkit-hub").join(&probe), b"").unwrap();
         let warning = private_storage_warning(&env, &config).unwrap();
         assert!(warning.contains("Q_two"), "{warning}");
         let _ = std::fs::remove_dir_all(&base);
@@ -1254,7 +1254,8 @@ mod tests {
     }
 
     fn settings_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("hub-kit-purge-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("appkit-hub-purge-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir

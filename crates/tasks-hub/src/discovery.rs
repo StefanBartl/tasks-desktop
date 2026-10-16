@@ -4,8 +4,8 @@
 
 use std::path::{Path, PathBuf};
 
-use hub_kit::discovery::AppInputs;
-pub use hub_kit::discovery::{parse_nvim_version, DiscoverySpec, Setup, SetupProblem, MIN_NVIM};
+use appkit_hub::discovery::AppInputs;
+pub use appkit_hub::discovery::{parse_nvim_version, DiscoverySpec, Setup, SetupProblem, MIN_NVIM};
 
 use crate::config::{Env, FileConfig};
 
@@ -21,7 +21,7 @@ pub const SPEC: DiscoverySpec = DiscoverySpec {
 /// The engine entry point inside a tasks.nvim checkout.
 #[must_use]
 pub fn engine_script(engine_dir: &Path) -> PathBuf {
-    hub_kit::discovery::engine_script(&SPEC, engine_dir)
+    appkit_hub::discovery::engine_script(&SPEC, engine_dir)
 }
 
 /// Resolve everything the engine needs and probe Neovim.
@@ -34,7 +34,7 @@ pub async fn discover(file: &FileConfig, env: &Env) -> Result<Setup, SetupProble
         lib_dir: file.app.lib_dir.as_deref(),
         extra_areas: &file.app.extra_areas,
     };
-    hub_kit::discovery::discover(&SPEC, file, inputs, env).await
+    appkit_hub::discovery::discover(&SPEC, file, inputs, env).await
 }
 
 #[cfg(test)]

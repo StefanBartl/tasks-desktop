@@ -1,15 +1,15 @@
-//! The settings of the hub: the keys every app has come from `hub-kit`, the two keys of the tasks
+//! The settings of the hub: the keys every app has come from `appkit-hub`, the two keys of the tasks
 //! engine are [`TasksSettings`].
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-pub use hub_kit::config::{
+pub use appkit_hub::config::{
     valid_vault_name, AppSettings, ConfigError, Resolved, Source, VaultEntry, MAIN_VAULT,
     MAX_VAULTS,
 };
-pub use hub_kit::env::Env;
+pub use appkit_hub::env::Env;
 
 /// The keys of `config.json` that only the tasks engine has.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -35,7 +35,7 @@ impl AppSettings for TasksSettings {
 }
 
 /// The settings file of the tasks hub.
-pub type FileConfig = hub_kit::config::FileConfig<TasksSettings>;
+pub type FileConfig = appkit_hub::config::FileConfig<TasksSettings>;
 
 /// The longest name of an area the hub accepts.
 const MAX_AREA_NAME: usize = 128;
@@ -63,10 +63,10 @@ pub fn valid_area_name(name: &str) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// The config folder of this app on this device (see [`hub_kit::config::config_dir`]).
+/// The config folder of this app on this device (see [`appkit_hub::config::config_dir`]).
 #[must_use]
 pub fn config_dir(env: &Env) -> Option<PathBuf> {
-    hub_kit::config::config_dir(env, &crate::IDENTITY)
+    appkit_hub::config::config_dir(env, &crate::IDENTITY)
 }
 
 /// Load `config.json` from `dir`. A missing file is an empty config.
@@ -75,7 +75,7 @@ pub fn config_dir(env: &Env) -> Option<PathBuf> {
 ///
 /// [`ConfigError`] when the file exists and cannot be read or is not valid.
 pub fn load_file(dir: &Path) -> Result<FileConfig, ConfigError> {
-    hub_kit::config::load_file(dir)
+    appkit_hub::config::load_file(dir)
 }
 
 /// Write `config.json` into `dir` in one step.
@@ -84,7 +84,7 @@ pub fn load_file(dir: &Path) -> Result<FileConfig, ConfigError> {
 ///
 /// The reason, as text.
 pub fn save_file(dir: &Path, cfg: &FileConfig) -> Result<(), String> {
-    hub_kit::config::save_file(dir, cfg)
+    appkit_hub::config::save_file(dir, cfg)
 }
 
 #[cfg(test)]

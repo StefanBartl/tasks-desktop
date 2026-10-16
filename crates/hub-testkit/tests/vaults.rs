@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use app_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
+use appkit_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
 use common::Sse;
 use serde_json::Value;
 use tasks_hub::classes::AreaPolicy;

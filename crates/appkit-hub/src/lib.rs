@@ -24,7 +24,7 @@ use std::pin::Pin;
 use std::sync::{Arc, RwLock as StdRwLock};
 use std::time::Duration;
 
-use app_core::authn::{
+use appkit_core::authn::{
     fetch_site_ok, Clock, HostPolicy, PairingStore, RateLimiter, Secret, SessionStore, CODE_BYTES,
     TOKEN_BYTES,
 };

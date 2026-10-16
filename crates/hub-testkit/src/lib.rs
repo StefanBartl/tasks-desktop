@@ -7,7 +7,7 @@
 //! * [`security`]: the security tests of the guard (concept 5.5), written once and run for every
 //!   app with [`security_matrix!`].
 //! * [`subjects`]: the apps the matrix runs for here: the tasks hub, and a second, minimal app
-//!   that is built on `hub-kit` alone and so proves the guard knows nothing of `tasks`.
+//!   that is built on `appkit-hub` alone and so proves the guard knows nothing of `tasks`.
 
 pub mod dialect;
 pub mod security;

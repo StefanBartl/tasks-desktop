@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use app_core::proc::{self, ProcError};
+use appkit_core::proc::{self, ProcError};
 use serde::Deserialize;
 use serde_json::Value;
 use tokio::sync::{oneshot, Mutex};

@@ -19,11 +19,11 @@ pub mod store;
 pub mod ui;
 pub mod watch;
 
-pub use hub_kit::{client, loginitems, usage};
+pub use appkit_hub::{client, loginitems, usage};
 
 /// The names this app gives itself: config folder, environment variables, login entries, program
 /// file, port and route namespace all come from here.
-pub const IDENTITY: app_core::identity::AppIdentity = app_core::identity::AppIdentity {
+pub const IDENTITY: appkit_core::identity::AppIdentity = appkit_core::identity::AppIdentity {
     app: "tasks-desktop",
     binary: "tasks-hub",
     env_prefix: "TASKS_DESKTOP",
@@ -33,7 +33,7 @@ pub const IDENTITY: app_core::identity::AppIdentity = app_core::identity::AppIde
 };
 
 /// What the login entries and the launcher say about this app.
-pub const LOGIN: hub_kit::loginitems::LoginApp<'static> = hub_kit::loginitems::LoginApp {
+pub const LOGIN: appkit_hub::loginitems::LoginApp<'static> = appkit_hub::loginitems::LoginApp {
     identity: &IDENTITY,
     summary: "the task overview",
 };

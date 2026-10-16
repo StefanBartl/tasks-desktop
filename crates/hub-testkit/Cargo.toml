@@ -19,8 +19,8 @@ name = "fake-nvim"
 path = "src/bin/fake-nvim.rs"
 
 [dependencies]
-app-core = { path = "../app-core" }
-hub-kit = { path = "../hub-kit" }
+appkit-core = { path = "../appkit-core" }
+appkit-hub = { path = "../appkit-hub" }
 tasks-hub = { path = "../tasks-hub" }
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
 serde_json = "1"

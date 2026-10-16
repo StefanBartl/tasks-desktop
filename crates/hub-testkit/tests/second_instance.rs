@@ -1,19 +1,19 @@
 //! A second hub next to the first: another port, its own `hub.json`, its own login entry. The two
-//! apps are the tasks hub and `Demo`, which share nothing but `hub-kit`.
+//! apps are the tasks hub and `Demo`, which share nothing but `appkit-hub`.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use app_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
-use app_core::identity::AppIdentity;
-use app_core::registry::{self, HubRecord};
-use hub_kit::background::{installed_program, Background};
-use hub_kit::config::config_dir;
-use hub_kit::env::Env;
-use hub_kit::loginitems::LoginApp;
-use hub_kit::{instance, HubStatus, Limits, RunningServer};
+use appkit_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
+use appkit_core::identity::AppIdentity;
+use appkit_core::registry::{self, HubRecord};
+use appkit_hub::background::{installed_program, Background};
+use appkit_hub::config::config_dir;
+use appkit_hub::env::Env;
+use appkit_hub::loginitems::LoginApp;
+use appkit_hub::{instance, HubStatus, Limits, RunningServer};
 use hub_testkit::subject::{StartConfig, Subject};
 use hub_testkit::subjects::{Demo, Tasks, DEMO_IDENTITY};
 use hub_testkit::wire::{request, send, Reply};

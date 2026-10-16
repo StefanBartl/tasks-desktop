@@ -1,15 +1,15 @@
-//! A second app, built on `hub-kit` alone: it has its own identity, its own namespace and its own
+//! A second app, built on `appkit-hub` alone: it has its own identity, its own namespace and its own
 //! routes, and it knows nothing of `tasks-hub`. That the matrix passes for it is the proof that the
 //! guard, the pairing and the limits do not depend on the app.
 
 use std::sync::Arc;
 
-use app_core::identity::AppIdentity;
-use axum::routing::{get, post};
-use axum::Router;
-use hub_kit::{
+use appkit_core::identity::AppIdentity;
+use appkit_hub::{
     serve, BoxFuture, Core, GuardRules, HubStatus, Page, Pages, RunningServer, Runtime, ServeParts,
 };
+use axum::routing::{get, post};
+use axum::Router;
 
 use crate::subject::{StartConfig, Subject};
 

@@ -300,7 +300,8 @@ mod tests {
 
     #[test]
     fn only_the_last_days_are_kept() {
-        let dir = std::env::temp_dir().join(format!("hub-kit-usage-keep-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("appkit-hub-usage-keep-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("usage.json");
@@ -341,7 +342,7 @@ mod tests {
 
     #[test]
     fn the_log_survives_a_restart_and_holds_nothing_else() {
-        let dir = std::env::temp_dir().join(format!("hub-kit-usage-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("appkit-hub-usage-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("usage.json");
@@ -363,7 +364,7 @@ mod tests {
 
     #[test]
     fn a_broken_or_foreign_file_is_an_empty_log() {
-        let dir = std::env::temp_dir().join(format!("hub-kit-usage-bad-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("appkit-hub-usage-bad-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("usage.json");

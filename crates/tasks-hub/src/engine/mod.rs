@@ -1,10 +1,10 @@
-//! The engine seam of the tasks hub: the seam itself is `hub_kit::engine`; what is the tasks
+//! The engine seam of the tasks hub: the seam itself is `appkit_hub::engine`; what is the tasks
 //! engine's own is here: its calls, its dialect and how a setup becomes a `CliEngine`.
 //!
 //! A [`Method`] is a closed list, never a string from outside (concept 5.5 Nr. 8): the only way
 //! from a name to a call is [`Calls::parse`].
 
-pub use hub_kit::engine::*;
+pub use appkit_hub::engine::*;
 
 use crate::config::Env;
 use crate::discovery::{engine_script, Setup};
@@ -34,7 +34,7 @@ pub const DIALECT: EngineDialect = EngineDialect {
 /// A [`ProbeProblem`] when the engine does not answer, speaks another
 /// contract version or lacks a capability.
 pub async fn probe(engine: &dyn Engine) -> Result<EngineInfo, ProbeProblem> {
-    hub_kit::engine::probe(engine, &DIALECT).await
+    appkit_hub::engine::probe(engine, &DIALECT).await
 }
 
 /// The configuration of a `CliEngine` for what the setup found.

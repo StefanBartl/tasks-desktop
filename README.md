@@ -149,7 +149,7 @@ terminal: `.\tools\dev-hub.ps1` (until Ctrl-C), `-Background` (start and open th
 ## Layout
 
 ```
-crates/app-core/    process runner, auth rules, pairing and sessions, hub.json (no task or Tauri knowledge)
+crates/appkit-core/    process runner, auth rules, pairing and sessions, hub.json (no task or Tauri knowledge)
 crates/tasks-hub/   config, discovery, engine trait and CliEngine, the server, the program (lib + bin)
 crates/hub-testkit/ a fake Neovim and the tests that need a process or a socket
 e2e/fixture/vault   synthetic vault (no real data), made by tools/make-fixture-vault.lua

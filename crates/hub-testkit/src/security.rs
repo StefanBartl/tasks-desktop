@@ -13,9 +13,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use app_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
-use app_core::identity::AppIdentity;
-use hub_kit::{HubStatus, Limits, RunningServer};
+use appkit_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
+use appkit_core::identity::AppIdentity;
+use appkit_hub::{HubStatus, Limits, RunningServer};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 

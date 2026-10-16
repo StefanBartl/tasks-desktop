@@ -4,9 +4,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use app_core::authn::{ManualClock, Secret};
-use app_core::identity::AppIdentity;
-use hub_kit::{BoxFuture, HubStatus, Limits, RunningServer};
+use appkit_core::authn::{ManualClock, Secret};
+use appkit_core::identity::AppIdentity;
+use appkit_hub::{BoxFuture, HubStatus, Limits, RunningServer};
 
 /// How a test wants the hub started.
 pub struct StartConfig {

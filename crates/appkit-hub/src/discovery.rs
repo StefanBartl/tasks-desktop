@@ -12,7 +12,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use app_core::proc;
+use appkit_core::proc;
 
 use crate::config::{AppSettings, Env, FileConfig, Resolved, Source};
 use crate::engine::child_env;
@@ -450,7 +450,7 @@ mod tests {
     }
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("hub-kit-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("appkit-hub-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -547,7 +547,7 @@ mod tests {
     #[test]
     fn an_absolute_path_entry_is_searched() {
         let dir = temp_dir("path-absolute");
-        let name = program_names("hub-kit-found")[0].clone();
+        let name = program_names("appkit-hub-found")[0].clone();
         std::fs::write(dir.join(&name), b"").unwrap();
         let joined = std::env::join_paths([&dir]).unwrap();
         let env = Env::from_pairs([("PATH", joined)]);
