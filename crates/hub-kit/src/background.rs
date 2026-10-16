@@ -28,6 +28,9 @@ pub struct Background<'a> {
     /// addition to those of the kit (`config.json`, `usage.json`, `hub.json`, `control.secret`,
     /// `hub.log`). Nothing else is ever removed there.
     pub extra_files: &'a [&'a str],
+    /// What `uninstall` tells the person to run to delete the program file, which a running
+    /// program cannot delete (`scripts/uninstall`): the script is the app's, shipped with it.
+    pub uninstall_script: &'a str,
 }
 
 impl Background<'_> {
@@ -304,12 +307,17 @@ pub fn autostart_for(app: &Background<'_>, what: Autostart, exe: &Path) -> Resul
         };
         return loginitems::login_entry(&app.login, platform, action, exe, &Env::from_process());
     }
-    run_key(
-        app.run_value(),
-        what,
-        exe,
-        &RegExe(system_program("reg.exe")?),
-    )
+    run_key_for(app, what, exe, &RegExe(system_program("reg.exe")?))
+}
+
+/// The login entry of the app in the `Run` key, through `reg`: the value is the app's name.
+fn run_key_for(
+    app: &Background<'_>,
+    what: Autostart,
+    exe: &Path,
+    reg: &dyn Registry,
+) -> Result<String, String> {
+    run_key(app.run_value(), what, exe, reg)
 }
 
 /// What one call of `reg.exe` came to: whether it succeeded, what it printed and what it complained of.
@@ -784,9 +792,9 @@ fn purge_settings(app: &Background<'_>, dir: &Path) -> Result<String, String> {
 
 /// Take the integration of the program with the system away: stop the hub, the login entry, the
 /// link or launcher, and (when asked) the settings. The program file itself is left: it is the
-/// one that runs, and a running program cannot delete itself on every system; the scripts
-/// `scripts/uninstall.*` remove the install folder after this program has ended. The vault and
-/// the tasks are never touched.
+/// one that runs, and a running program cannot delete itself on every system; the script the app
+/// names ([`Background::uninstall_script`]) removes the install folder after this program has
+/// ended. The vault and the documents in it are never touched.
 ///
 /// # Errors
 ///
@@ -834,16 +842,22 @@ async fn uninstall_steps(app: &Background<'_>, opts: UninstallOptions) -> Result
             dir.display()
         ));
     }
-    out.push_str(&format!(
-        "the program file is left at {}: delete it (scripts/uninstall does)\n",
-        exe.display()
-    ));
+    out.push_str(&program_left_text(app, &exe));
     if failed.is_empty() {
         Ok(out)
     } else {
         print!("{out}");
         Err(failed.join("; "))
     }
+}
+
+/// What `uninstall` says about the program file it leaves, and who deletes it.
+fn program_left_text(app: &Background<'_>, exe: &Path) -> String {
+    format!(
+        "the program file is left at {}: delete it ({} does)\n",
+        exe.display(),
+        app.uninstall_script
+    )
 }
 
 /// Take the link of the desktop (named by the title of the app) away (Windows), or the launcher (Linux).
@@ -857,16 +871,7 @@ fn remove_shortcut(app: &Background<'_>, env: &Env) -> Result<String, String> {
     // Only a link of that name whose target is this program: a link of the person's own
     // that happens to have the same name is not ours to delete.
     let title = app.identity().title;
-    let program = app.identity().program_file();
-    let len = program.len();
-    let script = format!(
-        "Set shell = CreateObject(\"WScript.Shell\")\r\n\
-Set fso = CreateObject(\"Scripting.FileSystemObject\")\r\n\
-path = shell.SpecialFolders(\"Desktop\") & \"\\{title}.lnk\"\r\n\
-If fso.FileExists(path) Then\r\n\
-  If LCase(Right(shell.CreateShortcut(path).TargetPath, {len})) = \"{program}\" Then fso.DeleteFile path, True\r\n\
-End If\r\n"
-    );
+    let script = unlink_script(title, &app.identity().program_file());
     let path = std::env::temp_dir().join(format!(
         "{}-unlink-{}.vbs",
         app.identity().app,
@@ -890,6 +895,36 @@ End If\r\n"
     }
 }
 
+/// The script that deletes the link `<title>.lnk` of the desktop, only when it points at the
+/// program `program` (a link of the person's own that has the same name stays).
+#[must_use]
+pub fn unlink_script(title: &str, program: &str) -> String {
+    let len = program.len();
+    format!(
+        "Set shell = CreateObject(\"WScript.Shell\")\r\n\
+Set fso = CreateObject(\"Scripting.FileSystemObject\")\r\n\
+path = shell.SpecialFolders(\"Desktop\") & \"\\{title}.lnk\"\r\n\
+If fso.FileExists(path) Then\r\n\
+  If LCase(Right(shell.CreateShortcut(path).TargetPath, {len})) = \"{program}\" Then fso.DeleteFile path, True\r\n\
+End If\r\n"
+    )
+}
+
+/// The script that makes the link `<title>.lnk` on the desktop: it starts `target` with
+/// `start --open`; the description names the app.
+#[must_use]
+pub fn link_script(title: &str, app: &str, target: &str) -> String {
+    format!(
+        "Set link = CreateObject(\"WScript.Shell\").CreateShortcut(\
+CreateObject(\"WScript.Shell\").SpecialFolders(\"Desktop\") & \"\\{title}.lnk\")\r\n\
+link.TargetPath = \"{target}\"\r\n\
+link.Arguments = \"start --open\"\r\n\
+link.WindowStyle = 7\r\n\
+link.Description = \"{app}: start the hub and open the page\"\r\n\
+link.Save\r\n"
+    )
+}
+
 /// A link on the desktop (named by the title of the app) that starts the hub and opens the page.
 fn shortcut(app: &Background<'_>, exe: &Path) -> Result<String, String> {
     if !cfg!(windows) {
@@ -903,15 +938,7 @@ fn shortcut(app: &Background<'_>, exe: &Path) -> Result<String, String> {
     }
     let title = app.identity().title;
     let app = app.identity().app;
-    let script = format!(
-        "Set link = CreateObject(\"WScript.Shell\").CreateShortcut(\
-CreateObject(\"WScript.Shell\").SpecialFolders(\"Desktop\") & \"\\{title}.lnk\")\r\n\
-link.TargetPath = \"{text}\"\r\n\
-link.Arguments = \"start --open\"\r\n\
-link.WindowStyle = 7\r\n\
-link.Description = \"{app}: start the hub and open the page\"\r\n\
-link.Save\r\n"
-    );
+    let script = link_script(title, app, &text);
     let dir = std::env::temp_dir();
     let path = dir.join(format!("{app}-link-{}.vbs", std::process::id()));
     std::fs::write(&path, vbs_bytes(&script)).map_err(|e| format!("cannot write a script: {e}"))?;
@@ -948,6 +975,7 @@ mod tests {
             summary: "the rule overview",
         },
         extra_files: &EXTRA,
+        uninstall_script: "scripts/rules-uninstall",
     };
     const RUN_VALUE: &str = "rules-desktop";
 
@@ -977,6 +1005,52 @@ mod tests {
         let bad = Env::from_pairs([("RULES_DESKTOP_INSTALL_DIR", "relative")]);
         let why = installed_program(&APP, &bad).unwrap_err();
         assert!(why.contains("RULES_DESKTOP_INSTALL_DIR"), "{why}");
+    }
+
+    /// The path from `autostart_for` to the registry: the value is the name of the app that was
+    /// given, not a literal (the other tests of the `Run` key pass the value themselves).
+    #[test]
+    fn the_login_entry_is_written_under_the_name_of_the_app() {
+        let reg = FakeRegistry::new(None);
+        run_key_for(&APP, Autostart::On, Path::new(EXE), &reg).unwrap();
+        let calls = reg.calls();
+        let at = calls[0].iter().position(|a| a == "/v").unwrap();
+        assert_eq!(calls[0][at + 1], "rules-desktop");
+        let status = run_key_for(&APP, Autostart::Status, Path::new(EXE), &reg).unwrap();
+        assert!(status.starts_with("on: "), "{status}");
+        assert!(
+            reg.calls()
+                .iter()
+                .flatten()
+                .all(|a| !a.to_lowercase().contains("tasks-desktop")),
+            "{:?}",
+            reg.calls()
+        );
+    }
+
+    /// The scripts of the desktop link say the title and the names of the app, and the program they
+    /// delete a link for is the app's.
+    #[test]
+    fn the_scripts_of_the_desktop_link_come_from_the_app() {
+        let make = link_script(IDENTITY.title, IDENTITY.app, r"C:\Apps\rules-hub.exe");
+        assert!(make.contains(r"\Rules.lnk"), "{make}");
+        assert!(make.contains(r#"link.TargetPath = "C:\Apps\rules-hub.exe""#));
+        assert!(make.contains("rules-desktop: start the hub and open the page"));
+        let program = IDENTITY.program_file();
+        let remove = unlink_script(IDENTITY.title, &program);
+        assert!(remove.contains(r"\Rules.lnk"), "{remove}");
+        assert!(remove.contains(&format!("\"{program}\" Then fso.DeleteFile")));
+        assert!(remove.contains(&format!("{}))", program.len())));
+        for text in [&make, &remove] {
+            assert!(!text.to_lowercase().contains("tasks"), "{text}");
+        }
+    }
+
+    #[test]
+    fn the_script_that_deletes_the_program_is_the_apps() {
+        let said = program_left_text(&APP, Path::new("/x/rules-hub"));
+        assert!(said.contains("(scripts/rules-uninstall does)"), "{said}");
+        assert!(!said.contains("scripts/uninstall"), "{said}");
     }
 
     fn io_error(code: i32) -> std::io::Error {

@@ -573,6 +573,31 @@ mod tests {
         // Without the setting the search finds it.
         let got = resolve_engine_of(&Cfg::default(), &env).unwrap();
         assert_eq!(got.value, repos.join("rules.nvim"));
+        // The place it was found is told with the name of the checkout of this app.
+        assert_eq!(
+            got.source,
+            Source::Search("REPOS_DIR/rules.nvim".to_owned())
+        );
+    }
+
+    #[test]
+    fn lib_is_looked_for_next_to_the_checkout_of_the_engine_of_this_app() {
+        let parent = temp_dir("lib-next-to");
+        let engine = parent.join("rules.nvim");
+        std::fs::create_dir_all(&engine).unwrap();
+        std::fs::create_dir_all(parent.join("lib.nvim").join("lua").join("lib").join("nvim"))
+            .unwrap();
+        // No REPOS_DIR and no setting: the sibling of the engine is the only place.
+        let got = resolve_lib(&SPEC, None, &Env::default(), &engine).unwrap();
+        assert_eq!(got.value, parent.join("lib.nvim"));
+        assert_eq!(
+            got.source,
+            Source::Search("next to the rules.nvim checkout".to_owned())
+        );
+        // A setting decides, and is named as such.
+        let set = parent.join("lib.nvim");
+        let got = resolve_lib(&SPEC, Some(&set), &Env::default(), &engine).unwrap();
+        assert_eq!(got.source, Source::Setting);
     }
 
     #[test]

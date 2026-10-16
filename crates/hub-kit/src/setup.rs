@@ -334,6 +334,7 @@ mod tests {
             summary: "the rule overview",
         },
         extra_files: &[],
+        uninstall_script: "scripts/rules-uninstall",
     };
     const APP: SetupApp<'static> = SetupApp {
         background: &BACKGROUND,
@@ -459,6 +460,14 @@ mod tests {
         ask_vault(&mut io, &env, &dir).unwrap();
         assert_eq!(io.asked.len(), VAULT_TRIES);
         assert_eq!(vault_in_settings(&dir), None);
+        // The person is told what a vault is in the words of the app, and where to set it later.
+        assert_eq!(
+            io.said.first().map(String::as_str),
+            Some(APP.vault_explained)
+        );
+        let last = io.said.last().unwrap();
+        assert!(last.contains("RULES_VAULT"), "{last}");
+        assert!(!last.to_lowercase().contains("tasks"), "{last}");
     }
 
     #[test]
@@ -481,9 +490,16 @@ mod tests {
 
     #[test]
     fn nothing_is_asked_without_a_person_or_when_it_is_switched_off() {
-        let off = Env::from_pairs([(no_setup(), "1"), (assume_terminal(), "1")]);
+        // The names are spelt out here: a helper that builds them from the same code as the kit
+        // would stay green with a prefix that is hard-coded in the kit.
+        assert_eq!(no_setup(), "RULES_DESKTOP_NO_SETUP");
+        assert_eq!(assume_terminal(), "RULES_DESKTOP_ASSUME_TERMINAL");
+        let off = Env::from_pairs([
+            ("RULES_DESKTOP_NO_SETUP", "1"),
+            ("RULES_DESKTOP_ASSUME_TERMINAL", "1"),
+        ]);
         assert!(!interactive(&off));
-        let piped = Env::from_pairs([(assume_terminal(), "1")]);
+        let piped = Env::from_pairs([("RULES_DESKTOP_ASSUME_TERMINAL", "1")]);
         assert!(interactive(&piped));
     }
 

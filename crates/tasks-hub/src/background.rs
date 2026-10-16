@@ -20,6 +20,7 @@ const EXTRA_FILES: [&str; 3] = ["setup.json", "areas.json", "areas.proposed.json
 pub(crate) const APP: Background<'static> = Background {
     login: crate::LOGIN,
     extra_files: &EXTRA_FILES,
+    uninstall_script: "scripts/uninstall",
 };
 
 /// Start a hub in the background unless one runs. Returns what to print.
@@ -102,6 +103,44 @@ mod tests {
             ["setup.json", "areas.json", "areas.proposed.json"]
         );
         assert_eq!(APP.login.summary, "the task overview");
+        assert_eq!(APP.uninstall_script, "scripts/uninstall");
         assert!(program_file().starts_with("tasks-hub"));
+    }
+
+    /// The scripts of the desktop link were typed here before the kit made them; for the tasks hub
+    /// they stay what they were, character for character.
+    #[test]
+    fn the_desktop_link_of_the_tasks_hub_is_the_one_it_always_was() {
+        let make = hub_kit::background::link_script(
+            crate::IDENTITY.title,
+            crate::IDENTITY.app,
+            r"C:\x\tasks-hub.exe",
+        );
+        let wanted_make = [
+            r#"Set link = CreateObject("WScript.Shell").CreateShortcut(CreateObject("WScript.Shell").SpecialFolders("Desktop") & "\Tasks.lnk")"#,
+            r#"link.TargetPath = "C:\x\tasks-hub.exe""#,
+            r#"link.Arguments = "start --open""#,
+            "link.WindowStyle = 7",
+            r#"link.Description = "tasks-desktop: start the hub and open the page""#,
+            "link.Save",
+            "",
+        ]
+        .join("\r\n");
+        assert_eq!(make, wanted_make);
+
+        let remove = hub_kit::background::unlink_script(crate::IDENTITY.title, "tasks-hub.exe");
+        let wanted_remove = [
+            r#"Set shell = CreateObject("WScript.Shell")"#,
+            r#"Set fso = CreateObject("Scripting.FileSystemObject")"#,
+            r#"path = shell.SpecialFolders("Desktop") & "\Tasks.lnk""#,
+            "If fso.FileExists(path) Then",
+            // No indent: in the Rust source the `\` at the end of the line took the spaces of the
+            // next line with it, and so it did in the script that was typed here before.
+            r#"If LCase(Right(shell.CreateShortcut(path).TargetPath, 13)) = "tasks-hub.exe" Then fso.DeleteFile path, True"#,
+            "End If",
+            "",
+        ]
+        .join("\r\n");
+        assert_eq!(remove, wanted_remove);
     }
 }
