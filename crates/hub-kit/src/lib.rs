@@ -46,6 +46,7 @@ use tokio::sync::{watch, Semaphore};
 use tokio::task::JoinHandle;
 
 pub mod access;
+pub mod background;
 pub mod client;
 pub mod config;
 pub mod engine;
@@ -53,6 +54,7 @@ pub mod env;
 pub mod guard;
 pub mod http;
 pub mod hub;
+pub mod instance;
 pub mod limits;
 pub mod loginitems;
 pub mod usage;
