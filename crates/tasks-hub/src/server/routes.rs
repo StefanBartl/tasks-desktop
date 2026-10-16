@@ -192,8 +192,8 @@ pub(super) async fn search_route(
         Err(why) => return error_body(StatusCode::BAD_REQUEST, "bad_query", why),
     };
     let (status, tasks, partial, outcome) = match index.status() {
-        search::Status::Ready { tasks, partial } => {
-            ("ready", tasks, partial, index.search(&query, limit))
+        search::Status::Ready { items, partial } => {
+            ("ready", items, partial, index.search(&query, limit))
         }
         search::Status::Building => ("building", 0, false, None),
         search::Status::Failed => ("failed", 0, false, None),

@@ -59,6 +59,7 @@ pub mod hub;
 pub mod instance;
 pub mod limits;
 pub mod loginitems;
+pub mod search;
 pub mod setup;
 pub mod store;
 pub mod usage;
