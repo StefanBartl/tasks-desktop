@@ -52,6 +52,7 @@ pub mod guard;
 pub mod http;
 pub mod hub;
 pub mod limits;
+pub mod usage;
 pub mod vaults;
 
 pub use self::guard::{bearer, error_body, single, too_many, GuardRules};
