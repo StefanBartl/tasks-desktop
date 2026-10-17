@@ -98,8 +98,9 @@
           {#if item.effort}<span class="muted">{item.effort}</span>{/if}
         </li>
       {:else}
-        <!-- The period had tasks, the areas or the words of the list keep them out: another sentence than "none". -->
-        <li class="muted">{t(loaded.length > 0 ? 'done.none_match' : 'done.none')}</li>
+        <!-- The period had tasks, the areas or the words of the list keep them out: another sentence than "none".
+             With one area the engine was asked for that area alone, so an empty answer says nothing of the others. -->
+        <li class="muted">{t(loaded.length > 0 ? 'done.none_match' : oneArea !== undefined ? 'done.none_area' : 'done.none')}</li>
       {/each}
     </ul>
     <p class="muted" role="status">{t('list.count', { shown: shown.length, total: doc.total })}</p>

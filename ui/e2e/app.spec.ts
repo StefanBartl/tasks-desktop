@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expectAccessible, violations, watchViolations } from './a11y';
 import { STATE } from './global';
 import { pairingLink } from './hub';
 
@@ -10,27 +11,6 @@ test.use({ locale: 'en-US' });
 
 const state = (): { config: string; vault: string; token: string } =>
   JSON.parse(readFileSync(STATE, 'utf8')) as { config: string; vault: string; token: string };
-
-/** Everything the page reports about a policy it broke, from the start. */
-async function watchViolations(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    const w = window as unknown as { __violations: string[] };
-    w.__violations = [];
-    document.addEventListener('securitypolicyviolation', (e) => {
-      w.__violations.push(`${e.violatedDirective} ${e.blockedURI}`);
-    });
-  });
-}
-
-async function violations(page: Page): Promise<string[]> {
-  return page.evaluate(() => (window as unknown as { __violations: string[] }).__violations);
-}
-
-/** No accessibility violation on the page as it is now (axe; rule WEB-23). */
-async function expectAccessible(page: Page, what: string): Promise<void> {
-  const result = await new AxeBuilder({ page }).analyze();
-  expect(result.violations, `${what}: ${JSON.stringify(result.violations, null, 1)}`).toEqual([]);
-}
 
 /** What the page wrote to the console: an error or a warning is a finding. */
 const consoleProblems = new WeakMap<Page, string[]>();
@@ -190,7 +170,7 @@ test('a code that is refused is said so, with the way out', async ({ page }) => 
   await watchViolations(page);
   await page.goto(`/#pair=${'ab'.repeat(16)}`);
   await expect(page.getByRole('heading', { name: /not paired/i })).toBeVisible();
-  await expect(page.getByRole('alert')).toContainText(/not accepted/i);
+  await expect(page.getByRole('alert').filter({ hasText: /not accepted/i })).toBeVisible();
   await expect(page.getByText('tasks-hub open')).toBeVisible();
   await expectAccessible(page, 'the refused pairing page');
   expect(await violations(page)).toEqual([]);
@@ -467,6 +447,11 @@ test('the German page has no violations either', async ({ page }) => {
   await showListDe(page);
   const result = await new AxeBuilder({ page }).analyze();
   expect(result.violations, JSON.stringify(result.violations, null, 1)).toEqual([]);
+  // The region of the hint popup is named in German too: the word comes from the page, not from the kit.
+  await chooseView(page, 'Ansicht', 'Plan');
+  await page.locator('.chips .info').focus();
+  await expect(page.getByRole('region', { name: 'Erklärung', exact: true })).toBeAttached();
+  await page.keyboard.press('Escape');
   await chooseView(page, 'Ansicht', 'Board');
   await expect(page.getByRole('group', { name: 'Board' })).toBeVisible();
   await expectAccessible(page, 'the board, German');
@@ -663,7 +648,7 @@ test('a task is created, changed, taken back and finished through the engine', a
   // A tag the engine would refuse is told before anything is sent, and the text stays in the field.
   await detail.getByLabel('Tags').fill('ui, bad#tag');
   await detail.getByLabel('Tags').blur();
-  await expect(page.getByRole('status').getByText(/bad#tag/)).toBeVisible();
+  await expect(page.getByRole('alert').getByText(/bad#tag/)).toBeVisible();
   await expect(detail.getByLabel('Tags')).toHaveValue('ui, bad#tag');
 
   // Emptying a field takes the key out of the file.
@@ -824,7 +809,7 @@ test('a task that changed meanwhile fails alone in a batch; the others are saved
   await bar.getByLabel('Priority').selectOption('1');
   await bar.getByRole('button', { name: 'Apply to the marked' }).click();
 
-  const toast = page.getByRole('status');
+  const toast = page.getByRole('alert');
   await expect(toast.getByText(/2 saved, 1 not/)).toBeVisible();
   // Only the task that failed stays marked; the other two are P1.
   await expect(page.getByText('1 marked')).toBeVisible();
@@ -833,7 +818,7 @@ test('a task that changed meanwhile fails alone in a batch; the others are saved
 
   // The way back takes the two that went through back, as one batch.
   await toast.getByRole('button', { name: 'Undo' }).click();
-  await expect(toast.getByText('Undone.')).toBeVisible();
+  await expect(page.getByRole('status').getByText('Undone.')).toBeVisible();
   await expect(page.locator('.rows .line', { hasText: 'P1' })).toHaveCount(0);
   expect(consoleProblems.get(page)).toEqual([]);
 });
@@ -1164,7 +1149,7 @@ test('a tag that was refused does not travel to the next task', async ({ page })
   const tags = page.locator('aside.detail').getByLabel('Tags');
   await tags.fill('keep, bad#tag');
   await tags.blur();
-  await expect(page.getByRole('status').getByText(/bad#tag/)).toBeVisible();
+  await expect(page.getByRole('alert').getByText(/bad#tag/)).toBeVisible();
   await expect(tags).toHaveValue('keep, bad#tag');
   await open(page, 'lib.nvim/travel-e2e-2');
   await expect(tags).toHaveValue('');
@@ -1219,7 +1204,7 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
   // The order can stand before the write is answered: its "Saved." would replace what the next key tells.
   await settled(page);
   await page.keyboard.press('Shift+K');
-  await expect(page.getByRole('status').getByText(/end of its priority group/)).toBeVisible();
+  await expect(page.getByRole('alert').getByText(/end of its priority group/)).toBeVisible();
 
   // Drag one card onto the lower half of another: the order changes by a reorder.
   const cards = column('open').locator('.card');
@@ -1262,7 +1247,7 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
   await expect(column('open').locator('.card', { hasText: other })).toHaveAttribute('draggable', 'true');
   await drag(page, column('open').locator('.card', { hasText: other }), rest.first(), 'lower');
   expect(writes).toBe(0);
-  await expect(page.getByRole('status').getByText(/holds inside one priority/)).toBeVisible();
+  await expect(page.getByRole('alert').getByText(/holds inside one priority/)).toBeVisible();
 
   // The other way - a card without a priority dropped under the card of priority 1 - asks whether the priority
   // goes with it. No is nothing sent; yes is one batch (the priority, then the place), read back after a reload.
@@ -1320,6 +1305,8 @@ test('explanations: a chip says what it means on hover, the info button on focus
   const info = page.locator('.chips .info');
   await info.focus();
   await expect(tip).toBeVisible();
+  // The region of the popup carries the page's word (the kit has none): here the English one.
+  await expect(page.getByRole('region', { name: 'Explanation', exact: true })).toBeAttached();
   await expect(tip).toContainText('freed');
   await expect(tip).toContainText('Its status says blocked');
   await expect(info).toHaveAttribute('aria-describedby', /\S+/);
@@ -1790,10 +1777,10 @@ test('the board does not place a card beside one of its priority in another stag
   // Down from a would be "after b": another stage. The board says it is at the edge and asks the engine nothing.
   await open.locator('.card', { hasText: 'Stage e2e a' }).click();
   await page.keyboard.press('Shift+J');
-  await expect(page.getByRole('status').getByText(/end of its priority group/)).toBeVisible();
+  await expect(page.getByRole('alert').getByText(/end of its priority group/)).toBeVisible();
   expect(writes).toBe(0);
   await drag(page, open.locator('.card', { hasText: 'Stage e2e a' }), open.locator('.card', { hasText: 'Stage e2e b' }), 'lower');
-  await expect(page.getByRole('status').getByText(/holds inside one priority/)).toBeVisible();
+  await expect(page.getByRole('alert').getByText(/holds inside one priority/)).toBeVisible();
   expect(writes).toBe(0);
   expect(await violations(page)).toEqual([]);
 });
@@ -2135,15 +2122,15 @@ test('marking stops at 100: "Mark all" says so, and the box of the 101st row jum
 
     await page.getByRole('button', { name: 'Mark all shown' }).click();
     await expect(page.getByText('100 marked')).toBeVisible();
-    await expect(page.getByRole('status').getByText('At most 100 tasks in one batch.')).toBeVisible();
+    await expect(page.getByRole('alert').getByText('At most 100 tasks in one batch.')).toBeVisible();
     await expect(page.locator('.rows .line input.mark:checked')).toHaveCount(100);
 
     // The 101st box is refused: it is not left checked on the screen, and the count stays.
     const last = page.locator('.rows .line').last().locator('input.mark');
-    await page.getByRole('status').getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('alert').getByRole('button', { name: 'Close' }).click();
     await last.scrollIntoViewIfNeeded();
     await last.click();
-    await expect(page.getByRole('status').getByText('At most 100 tasks in one batch.')).toBeVisible();
+    await expect(page.getByRole('alert').getByText('At most 100 tasks in one batch.')).toBeVisible();
     await expect(last).not.toBeChecked();
     await expect(page.getByText('100 marked')).toBeVisible();
     await expect(page.locator('.rows .line input.mark:checked')).toHaveCount(100);
@@ -2186,7 +2173,7 @@ test('the bulk bar sets effort, a reminder and tags, takes a tag off, and the fi
   });
   await bar.getByPlaceholder('Add tags').fill('bad,tag, a#b');
   await bar.getByRole('button', { name: 'Apply to the marked' }).click();
-  await expect(page.getByRole('status').getByText(/a#b/)).toBeVisible();
+  await expect(page.getByRole('alert').getByText(/a#b/)).toBeVisible();
   expect(writes).toBe(0);
 
   await bar.getByPlaceholder('Add tags').fill('batch, shared');
@@ -2514,14 +2501,14 @@ test('the title, the summary and the relations are changed in the detail, and th
   // The title may not be empty: said on the page, nothing is sent.
   await detail.getByLabel('Title', { exact: true }).fill('   ');
   await detail.getByLabel('Title', { exact: true }).press('Enter');
-  await expect(page.getByRole('status').getByText('The title may not be empty.')).toBeVisible();
+  await expect(page.getByRole('alert').getByText('The title may not be empty.')).toBeVisible();
   await expect(detail.getByLabel('Title', { exact: true })).toHaveValue('Task that was renamed');
 
   // A relation to a task that is not there is refused by the engine in its words, and the file stays as it was.
   const before = readFileSync(file, 'utf8');
   await detail.getByLabel('After').fill('lib.nvim/does-not-exist');
   await detail.getByLabel('After').press('Enter');
-  await expect(page.getByRole('status').getByText(/Not accepted/)).toBeVisible();
+  await expect(page.getByRole('alert').getByText(/Not accepted/)).toBeVisible();
   expect(readFileSync(file, 'utf8')).toBe(before);
 
   // A real one is written.
@@ -2554,7 +2541,7 @@ test('the vaults menu lists the vault that is read, and the dialog adds, shows a
   await dialog.getByLabel(/^Name/).fill('elsewhere');
   await dialog.getByLabel(/^Folder/).fill(join(state().vault, 'no-such-folder-here'));
   await dialog.getByRole('button', { name: 'Add', exact: true }).click();
-  await expect(page.getByRole('status').getByText(/there is no such folder/)).toBeVisible();
+  await expect(page.getByRole('alert').getByText(/there is no such folder/)).toBeVisible();
   await expect(dialog.getByText('elsewhere')).toHaveCount(0);
 
   // A real folder is added (the same one under another name: the dialog only lists it).
@@ -2745,7 +2732,7 @@ test('the text of a task is edited in the detail: written whole, taken back by u
   await expect(detail.getByRole('textbox', { name: /Text of the task/ })).toHaveValue('My draft.');
   writeFileSync(file, readFileSync(file, 'utf8').replace('The old text.', 'Changed elsewhere.'));
   await detail.getByRole('button', { name: 'Save text' }).click();
-  await expect(page.getByRole('status').getByText(/Not accepted|changed/i).last()).toBeVisible();
+  await expect(page.getByRole('alert').getByText(/Not accepted|changed/i).last()).toBeVisible();
   expect(readFileSync(file, 'utf8')).toContain('Changed elsewhere.');
   await expect(detail.getByRole('textbox', { name: /Text of the task/ })).toHaveValue('My draft.');
   await detail.getByRole('button', { name: 'Cancel' }).click();

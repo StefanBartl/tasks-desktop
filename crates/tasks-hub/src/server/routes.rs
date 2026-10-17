@@ -134,17 +134,41 @@ pub(super) async fn about(State(st): State<Arc<Shared>>, RawQuery(query): RawQue
         return response;
     }
     let rt = st.rt();
+    // An engine that is there but does not answer is told apart from no engine: the report says which.
+    let mut problem: Option<&'static str> = None;
     let engine = match &rt.engine {
         None => None,
         Some(engine) => match engine.call(Calls::Hello, None).await {
-            Ok(reply) => serde_json::from_str::<serde_json::Value>(&reply.text)
-                .ok()
-                .map(|doc| doc["engine"].clone()),
-            Err(_) => None,
+            Ok(reply) => match serde_json::from_str::<serde_json::Value>(&reply.text) {
+                Ok(doc) => Some(doc["engine"].clone()),
+                Err(_) => {
+                    problem = Some("engine_failed");
+                    None
+                }
+            },
+            Err(error) => {
+                problem = Some(about_problem(&error));
+                None
+            }
         },
     };
-    let body = crate::about::document(engine.as_ref());
+    let body = crate::about::document(engine.as_ref(), problem);
     json_response(StatusCode::OK, body.to_string(), None)
+}
+
+/// A short, fixed word for why the engine did not answer `hello` (no text of the engine, no path).
+fn about_problem(error: &EngineError) -> &'static str {
+    match error {
+        EngineError::Refused(_) => "engine_refused",
+        EngineError::BadRequest(_) => "bad_request",
+        EngineError::Busy => "engine_busy",
+        EngineError::Timeout => "engine_timeout",
+        EngineError::Spawn(_) => "engine_spawn",
+        EngineError::Process(_) | EngineError::Failed { .. } | EngineError::OutcomeUnknown(_) => {
+            "engine_failed"
+        }
+        EngineError::Protocol(_) => "engine_protocol",
+    }
 }
 
 /// The areas, each with the class it is shown with. An area the file does

@@ -8,6 +8,7 @@ const about: About = {
   os: 'windows',
   arch: 'x86_64',
   engine: { version: '0.9.0', git: 'faf2078', nvim: '0.12.2' },
+  engineProblem: null,
   pinned: { engine: 'faf2078d08ee7632a884bde2b2dee95fef7dfe25', lib: '6f302183bd289417de806aaed11a5a6a4b4724ab' },
 };
 
@@ -26,6 +27,12 @@ describe('reportText', () => {
     expect(text).not.toContain('build');
     expect(text).toContain('Engine: none is running');
     expect(text).toContain('Tested with: tasks.nvim unknown, lib.nvim unknown');
+  });
+  it('tells an engine that runs but did not answer apart from no engine', () => {
+    const text = reportText('en', { ...about, engine: null, engineProblem: 'engine_timeout' });
+    expect(text).toContain('Engine: running, but it did not answer (engine_timeout)');
+    expect(text).not.toContain('none is running');
+    expect(reportText('de', { ...about, engine: null, engineProblem: 'engine_busy' })).toContain('hat aber nicht geantwortet (engine_busy)');
   });
   it('keeps every value on one line and short, whatever the hub said', () => {
     const text = reportText('en', { ...about, version: ' 1.0\n\u0000evil' + String.fromCharCode(0x200b) + ' ' + 'x'.repeat(500) });
@@ -51,7 +58,11 @@ describe('engineMatchesPin', () => {
     expect(engineMatchesPin({ ...about, engine: { ...about.engine!, git: 'deadbee' } })).toBe(false);
     expect(engineMatchesPin({ ...about, engine: null })).toBeNull();
     expect(engineMatchesPin({ ...about, pinned: { engine: null, lib: null } })).toBeNull();
-    // A commit too short to say anything is no match.
-    expect(engineMatchesPin({ ...about, engine: { ...about.engine!, git: 'fa' } })).toBe(false);
+    // A word that is no commit says nothing about a difference: the engine says "unknown" when it has no git, and a
+    // warning that the engine differs would be a claim nobody can back.
+    expect(engineMatchesPin({ ...about, engine: { ...about.engine!, git: 'unknown' } })).toBeNull();
+    expect(engineMatchesPin({ ...about, engine: { ...about.engine!, git: 'not-hex-7' } })).toBeNull();
+    expect(engineMatchesPin({ ...about, engine: { ...about.engine!, git: 'fa' } })).toBeNull();
+    expect(engineMatchesPin({ ...about, pinned: { ...about.pinned, engine: 'moved' } })).toBeNull();
   });
 });

@@ -54,7 +54,13 @@ class FakeHub {
     if (this.hubDown) throw new Error('down');
     return { instance: 'i', version: '0', engine: { ready: this.engineReady, problem: 'x', capabilities: this.capabilities } };
   }
+  /** Each answer of `about` waits for the next of these gates first (none: it answers at once). */
+  aboutGates: Promise<void>[] = [];
+  aboutCalls = 0;
   async about() {
+    this.aboutCalls += 1;
+    const gate = this.aboutGates.shift();
+    if (gate) await gate;
     if (this.hubDown) throw new Error('down');
     return {
       app: 'tasks-desktop',
@@ -62,7 +68,8 @@ class FakeHub {
       build: null,
       os: 'test',
       arch: 'x',
-      engine: { version: '0', git: 'abc1234', nvim: '0' },
+      engine: this.engineReady ? { version: '0', git: 'abc1234', nvim: '0' } : null,
+      engineProblem: null,
       pinned: { engine: 'abc1234abc1234abc1234abc1234abc1234abc12', lib: null },
     };
   }
@@ -2793,5 +2800,75 @@ describe('the order of the tiles of the overview', () => {
     expect(kept.app.tileOrder).toEqual(['waiting', 'next', 'remind', 'cdx']);
     const broken = make({ token: 't', prefs: new Map([['tasks-desktop.tiles-order', '{']]) });
     expect(broken.app.tileOrder).toEqual(['next', 'waiting', 'remind', 'cdx']);
+  });
+});
+
+describe('the Info dialog', () => {
+  async function ready() {
+    const m = make({ token: 't' });
+    await m.app.start(null);
+    expect(m.app.phase).toBe('ready');
+    m.app.stop();
+    return m;
+  }
+
+  it('shows the words of the hub, with the focus the person came for, and says why when the hub did not answer', async () => {
+    const { app, hub } = await ready();
+    app.openAbout('report');
+    expect(app.about).toEqual({ state: 'loading', focus: 'report' });
+    await vi.waitFor(() => expect(app.about.state).toBe('ok'));
+    expect(app.about).toMatchObject({ state: 'ok', focus: 'report', doc: { engine: { git: 'abc1234' } } });
+    expect(hub.aboutCalls).toBe(1);
+    hub.hubDown = true;
+    app.openAbout();
+    await vi.waitFor(() => expect(app.about.state).toBe('failed'));
+    expect(app.about).toEqual({ state: 'failed', message: 'down' });
+  });
+
+  it('throws an answer away that belongs to an opening that was closed, and an older one never wins', async () => {
+    const { app, hub } = await ready();
+    let releaseA = (): void => undefined;
+    let releaseB = (): void => undefined;
+    hub.aboutGates = [new Promise<void>((r) => (releaseA = r)), new Promise<void>((r) => (releaseB = r))];
+    app.openAbout('report');
+    app.closeAbout();
+    expect(app.about).toEqual({ state: 'closed' });
+    releaseA();
+    await new Promise((r) => setTimeout(r, 0));
+    // The first answer came after the dialog was closed: it does not open it again.
+    expect(app.about).toEqual({ state: 'closed' });
+    hub.aboutGates = [new Promise<void>((r) => (releaseA = r)), new Promise<void>((r) => (releaseB = r))];
+    app.openAbout('report');
+    app.closeAbout();
+    app.openAbout('info');
+    releaseA();
+    await new Promise((r) => setTimeout(r, 0));
+    // The answer of the first opening arrived first: the second opening keeps waiting for its own.
+    expect(app.about).toEqual({ state: 'loading', focus: 'info' });
+    releaseB();
+    await vi.waitFor(() => expect(app.about.state).toBe('ok'));
+    expect(app.about).toMatchObject({ state: 'ok', focus: 'info' });
+  });
+
+  it('is there for the page whose engine is not, with the session of the tab, and not before the pairing', async () => {
+    const m = make({ token: 't' });
+    m.hub.engineReady = false;
+    const started = m.app.start(null);
+    await vi.waitFor(() => expect(m.app.phase).toBe('unavailable'));
+    expect(m.app.canAbout).toBe(true);
+    m.app.openAbout('report');
+    await vi.waitFor(() => expect(m.app.about.state).toBe('ok'));
+    expect(m.app.about).toMatchObject({ state: 'ok', focus: 'report', doc: { engine: null } });
+    m.app.stop();
+    m.hub.engineReady = true;
+    await started;
+
+    const unpaired = make();
+    await unpaired.app.start(null);
+    expect(unpaired.app.phase).toBe('needs_pairing');
+    expect(unpaired.app.canAbout).toBe(false);
+    unpaired.app.openAbout();
+    expect(unpaired.app.about).toEqual({ state: 'closed' });
+    unpaired.app.stop();
   });
 });

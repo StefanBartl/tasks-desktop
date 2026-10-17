@@ -477,7 +477,7 @@
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <pre class="body" tabindex="0">{markHidden(body)}</pre>
       {:else}
-        <div class="body prose"><Blocks {blocks} /></div>
+        <div class="body prose"><Blocks {blocks} headingBase={2} /></div>
       {/if}
       {#if detail.doc.body_truncated}<p class="muted">{t('detail.body_truncated')}</p>{/if}
       {#if app.can('append_note')}

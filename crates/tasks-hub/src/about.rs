@@ -57,11 +57,14 @@ fn is_commit(value: &str) -> bool {
 
 /// The document of `GET /api/tasks/about`. `engine` is the `engine` object of the engine's `hello`
 /// (`version`, `git`, `nvim`); only those three words are taken over, whatever else the engine
-/// says. `None` when there is no engine: the part of the app is still told.
+/// says. `None` when there is no engine, or when the one that runs did not answer: then
+/// `engine_problem` carries the hub's short word for it (`engine_timeout`, ...), so that a report
+/// does not claim "no engine" of an engine that hangs. The part of the app is told either way.
 #[must_use]
-pub fn document(engine: Option<&Value>) -> Value {
+pub fn document(engine: Option<&Value>, engine_problem: Option<&str>) -> Value {
     let pins = pins();
     json!({
+        "engine_problem": engine_problem,
         "schema": 1,
         "kind": "hub.about",
         "app": crate::IDENTITY.app,
@@ -116,8 +119,9 @@ mod tests {
             "nvim": "0.12.2",
             "vault": "C:/Users/someone/vault",
         });
-        let doc = document(Some(&engine));
+        let doc = document(Some(&engine), None);
         assert_eq!(doc["kind"], "hub.about");
+        assert!(doc["engine_problem"].is_null());
         assert_eq!(doc["app"], "tasks-desktop");
         assert_eq!(doc["version"], crate::VERSION);
         assert_eq!(doc["engine"]["version"], "1.2.3");
@@ -132,10 +136,18 @@ mod tests {
 
     #[test]
     fn without_an_engine_the_app_is_still_described() {
-        let doc = document(None);
+        let doc = document(None, None);
         assert!(doc["engine"].is_null());
+        assert!(doc["engine_problem"].is_null());
         assert_eq!(doc["version"], crate::VERSION);
         // A reply that is not an object (the engine answered nonsense) is treated as no engine.
-        assert!(document(Some(&json!("text")))["engine"].is_null());
+        assert!(document(Some(&json!("text")), None)["engine"].is_null());
+    }
+
+    #[test]
+    fn an_engine_that_did_not_answer_is_told_apart_from_no_engine() {
+        let doc = document(None, Some("engine_timeout"));
+        assert!(doc["engine"].is_null());
+        assert_eq!(doc["engine_problem"], "engine_timeout");
     }
 }

@@ -15,8 +15,10 @@ export interface About {
   build: string | null;
   os: string;
   arch: string;
-  /** `null` while no engine runs. */
+  /** `null` while no engine runs, or while the one that runs did not answer (then `engineProblem` says why). */
   engine: { version: string | null; git: string | null; nvim: string | null } | null;
+  /** The code of the hub when an engine is there but did not answer `hello` (`engine_timeout`, `engine_busy`, ...). */
+  engineProblem: string | null;
   /** The commits `engine.lock` pins: what this build was tested with. */
   pinned: { engine: string | null; lib: string | null };
 }
@@ -31,14 +33,20 @@ function word(value: string | null | undefined, unknown: string): string {
   return clean === '' ? unknown : clean.slice(0, 120);
 }
 
-/** Does the engine that answers match the commit this build was tested with? `null` when one of the two is unknown. */
+/** A commit as the engine or the lock names it: 7 to 40 hex digits (the engine says "unknown" when it has none). */
+const COMMIT = /^[0-9a-f]{7,40}$/i;
+
+/**
+ * Does the engine that answers match the commit this build was tested with? `null` when one of the two is unknown:
+ * a word that is no commit says nothing about a difference, so it is no warning either.
+ */
 export function engineMatchesPin(about: About): boolean | null {
   const running = about.engine?.git ?? null;
   const pinned = about.pinned.engine;
-  if (!running || !pinned) return null;
+  if (!running || !pinned || !COMMIT.test(running) || !COMMIT.test(pinned)) return null;
   const a = running.toLowerCase();
   const b = pinned.toLowerCase();
-  return a.length >= 7 && (b.startsWith(a) || a.startsWith(b));
+  return b.startsWith(a) || a.startsWith(b);
 }
 
 /** The report as a text: the versions, then the three questions the person answers. */
@@ -60,7 +68,9 @@ export function reportText(lang: Lang, about: About): string {
           git: word(about.engine.git, unknown),
           nvim: word(about.engine.nvim, unknown),
         })
-      : t('about.report.line_engine_none'),
+      : about.engineProblem
+        ? t('about.report.line_engine_failed', { problem: word(about.engineProblem, unknown) })
+        : t('about.report.line_engine_none'),
     t('about.report.line_pinned', {
       engine: word(about.pinned.engine, unknown),
       lib: word(about.pinned.lib, unknown),

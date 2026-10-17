@@ -181,6 +181,7 @@ export class Hub {
         typeof engine === 'object' && engine !== null
           ? { version: part(engine, 'version'), git: part(engine, 'git'), nvim: part(engine, 'nvim') }
           : null,
+      engineProblem: text(doc['engine_problem']),
       pinned: { engine: part(pinned, 'engine'), lib: part(pinned, 'lib') },
     };
   }
