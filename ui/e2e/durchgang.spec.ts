@@ -1,19 +1,26 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
+import { expectAccessible, violations, watchViolations } from './a11y';
 import { STATE } from './global';
 
 // The findings of the walk through the page (2026-10-17): layout, keyboard and wording, each with the test that was
-// red before its fix. The page is the one of `app.spec.ts`, paired the same way.
+// red before its fix. The page is the one of `app.spec.ts`, paired the same way; every test runs axe on the state
+// it makes and ends with the policy violations of the page (none).
 
 test.use({ locale: 'en-US' });
 
 const state = (): { token: string } => JSON.parse(readFileSync(STATE, 'utf8')) as { token: string };
 
 async function pair(page: Page): Promise<void> {
+  await watchViolations(page);
   await page.addInitScript((token) => sessionStorage.setItem('tasks-desktop.session', token), state().token);
   await page.goto('/');
   await expect(page.getByRole('menubar')).toBeVisible();
 }
+
+test.afterEach(async ({ page }) => {
+  expect(await violations(page)).toEqual([]);
+});
 
 async function showList(page: Page): Promise<void> {
   await page.getByRole('menuitem', { name: 'View', exact: true }).click();
@@ -34,6 +41,7 @@ test('the fields of the detail are one line tall (the text editor had taken thei
   const label = page.locator('aside.detail .edit label').first();
   const labelBox = await label.boundingBox();
   expect(labelBox?.height ?? 0).toBeLessThan(90);
+  await expectAccessible(page, 'the list with the detail open');
 });
 
 test('in a narrow window the title of a row keeps a width and its tags wrap', async ({ page }) => {
@@ -56,6 +64,7 @@ test('in a narrow window the title of a row keeps a width and its tags wrap', as
   expect(measured.tags, 'a row with tags').toBeGreaterThanOrEqual(3);
   // 6rem at the page's 14px: the tags took it down to zero before.
   expect(measured.title, measured.id).toBeGreaterThanOrEqual(80);
+  await expectAccessible(page, 'the list in a narrow window');
 });
 
 test('the last menu opens inside the window, and a choice closes when the focus leaves it', async ({ page }) => {
@@ -67,13 +76,20 @@ test('the last menu opens inside the window, and a choice closes when the focus 
   const box = await popup.boundingBox();
   expect(box, 'the popup has a box').not.toBeNull();
   expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(480);
+  await expectAccessible(page, 'the open Help menu');
   await page.keyboard.press('Escape');
 
   await showList(page);
-  await page.getByRole('button', { name: /^Areas/ }).click();
+  await page.getByRole('button', { name: 'Areas', exact: true }).click();
   const choice = page.getByRole('group', { name: 'Areas' });
   await expect(choice).toBeVisible();
-  // Shift+Tab leaves the choice for the control before it: the popup must not stay open behind.
+  // A press on the padding of the popup (no control there) keeps it open: the person is still in the choice.
+  await choice.getByRole('checkbox').first().focus();
+  await choice.click({ position: { x: 3, y: 3 } });
+  await expect(choice).toBeVisible();
+  await expectAccessible(page, 'the open choice of areas');
+  // Shift+Tab from the trigger leaves the choice for the control before it: the popup must not stay open behind.
+  await page.getByRole('button', { name: 'Areas', exact: true }).focus();
   await page.keyboard.press('Shift+Tab');
   await expect(choice).toHaveCount(0);
 });
@@ -106,6 +122,7 @@ test('a sign on a row has a word for the screen reader, the count alone is live,
   // The detail is a landmark named for what it is, not for one of its sections.
   await row.click();
   await expect(page.getByRole('complementary', { name: 'Task detail' })).toBeVisible();
+  await expectAccessible(page, 'the list with a task without a priority and its detail');
 });
 
 test('a blocker that is not in the list is no button, and "Close" is no direction of the graph', async ({ page }) => {
@@ -124,6 +141,7 @@ test('a blocker that is not in the list is no button, and "Close" is no directio
   const direction = page.getByRole('group', { name: 'Direction' });
   await expect(direction).toBeVisible();
   await expect(direction.getByRole('button', { name: 'Close' })).toHaveCount(0);
+  await expectAccessible(page, 'the detail with the graph open');
   await page.getByRole('button', { name: 'Close', exact: true }).first().click();
 });
 
@@ -136,7 +154,13 @@ test('a refusal is an alert, a "Saved." is not', async ({ page }) => {
   await dialog.getByLabel(/^Name/).fill('nowhere');
   await dialog.getByLabel(/^Folder/).fill('Z:/no/such/folder/durchgang');
   await dialog.getByRole('button', { name: 'Add', exact: true }).click();
-  await expect(page.getByRole('alert').getByText(/there is no such folder/)).toBeVisible();
+  const alert = page.getByRole('alert').filter({ hasText: /there is no such folder/ });
+  await expect(alert).toBeVisible();
+  // The alert is a live region of its own: not inside the polite status region, which would read it a second time
+  // or at the wrong moment.
+  await expect(alert.locator('xpath=ancestor::*[@aria-live or @role="status"]')).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: /there is no such folder/ })).toHaveCount(0);
+  await expectAccessible(page, 'the vaults dialog with a refusal');
   await dialog.getByRole('button', { name: 'Close' }).click();
 });
 
@@ -151,4 +175,24 @@ test('words that only match tasks the filters keep out say so', async ({ page })
   await page.keyboard.press('Escape');
   await page.getByPlaceholder('Search id and title').fill('plain body');
   await expect(page.getByText('The words occur in tasks the filters of the list keep out.')).toBeVisible();
+  await expectAccessible(page, 'the list with hidden hits');
+});
+
+test('the finished tasks under the list say "none of this area" for one area, not "none at all"', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  await page.getByLabel('Show finished tasks under the list').check();
+  const finished = page.getByRole('region', { name: 'Finished' });
+  await expect(finished).toBeVisible();
+  // The last 90 days: the fixture's finished tasks (2025-12-30 ... 2026-01-02) are out of it; another spec may have
+  // finished a lib.nvim task today. With one area the engine is asked for that area alone, so an empty answer says
+  // nothing about the period as a whole: the sentence must not claim that nothing was finished.
+  await finished.getByLabel('Period').selectOption('90');
+  await page.getByRole('button', { name: 'Areas', exact: true }).click();
+  const choice = page.getByRole('group', { name: 'Areas' });
+  await choice.getByRole('checkbox', { name: /^cascade\.nvim/ }).check();
+  await page.keyboard.press('Escape');
+  await expect(finished.getByText('No task of this area was finished in this period.')).toBeVisible();
+  await expect(finished.getByText('No task was finished in this period.')).toHaveCount(0);
+  await expectAccessible(page, 'the finished tasks of one area');
 });

@@ -13,7 +13,7 @@ use serde_json::Value;
 use tasks_hub::classes::{AreaPolicy, Class, Entry};
 use tasks_hub::client;
 use tasks_hub::config::Env;
-use tasks_hub::engine::{CliEngine, CliEngineConfig, Engine};
+use tasks_hub::engine::{CallFuture, CliEngine, CliEngineConfig, Engine, EngineError, Method};
 use tasks_hub::server::{start, HubStatus, Limits, RunningServer, ServerConfig};
 
 struct Hub {
@@ -351,4 +351,26 @@ async fn about_without_an_engine_still_names_the_build() {
     assert!(doc["engine"].is_null(), "{doc}");
     assert!(doc["version"].as_str().is_some_and(|v| !v.is_empty()));
     assert_eq!(doc["pinned"]["engine"].as_str().map(str::len), Some(40));
+}
+
+/// An engine that is there and never answers: every question times out.
+struct Mute;
+
+impl Engine for Mute {
+    fn call<'a>(&'a self, _method: Method, _params: Option<&'a Value>) -> CallFuture<'a> {
+        Box::pin(async { Err(EngineError::Timeout) })
+    }
+}
+
+#[tokio::test]
+async fn about_tells_an_engine_that_did_not_answer_apart_from_no_engine() {
+    let h = hub(Some(Arc::new(Mute)), ready()).await;
+    let r = get(&h, "/api/tasks/about", &[]).await;
+    assert_eq!(r.status, 200, "{r:?}");
+    let doc: Value = serde_json::from_str(&r.body).unwrap();
+    assert_eq!(doc["kind"], "hub.about");
+    // Not "no engine": the hub says the engine is running (hello) and that it did not answer, by its word.
+    assert!(doc["engine"].is_null(), "{doc}");
+    assert_eq!(doc["engine_problem"], "engine_timeout");
+    assert!(doc["version"].as_str().is_some_and(|v| !v.is_empty()));
 }

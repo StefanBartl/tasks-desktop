@@ -9,19 +9,27 @@
   const toast = $derived(app.toast);
 </script>
 
-<div class="toasts" role="status" aria-live="polite">
-  {#if toast}
-    <!-- A refusal is an alert: it interrupts, where a "Saved." waits its turn. -->
-    <div class="toast" class:error={toast.kind === 'error'} role={toast.kind === 'error' ? 'alert' : undefined}>
-      <span>{toast.text}</span>
-      {#if toast.undo}
-        <button type="button" disabled={app.answering} onclick={() => void app.undo()}>{t('write.undo')}</button>
-      {/if}
-      <button type="button" class="close" aria-label={t('write.dismiss')} onclick={() => app.dismissToast()}
-        >×</button
-      >
-    </div>
-  {/if}
+{#snippet body(shown: NonNullable<typeof toast>)}
+  <div class="toast" class:error={shown.kind === 'error'}>
+    <span>{shown.text}</span>
+    {#if shown.undo}
+      <button type="button" disabled={app.answering} onclick={() => void app.undo()}>{t('write.undo')}</button>
+    {/if}
+    <button type="button" class="close" aria-label={t('write.dismiss')} onclick={() => app.dismissToast()}
+      >×</button
+    >
+  </div>
+{/snippet}
+
+<!-- Two live regions that stand from the start and never nest: a refusal is an alert (it interrupts), a "Saved."
+     waits its turn in the status region. A live region inside another is read twice, or at the wrong time. -->
+<div class="toasts">
+  <div role="status" aria-live="polite">
+    {#if toast && toast.kind !== 'error'}{@render body(toast)}{/if}
+  </div>
+  <div role="alert">
+    {#if toast && toast.kind === 'error'}{@render body(toast)}{/if}
+  </div>
 </div>
 
 <style>

@@ -4,6 +4,7 @@
   import { waitingForMe } from '../lib/filter';
   import { dueItems } from '../lib/remind';
   import { hintOf, labelOf, translate, type Key } from '../lib/i18n';
+  import { effortWords } from '../lib/next';
   import { markHidden } from '../lib/text';
   import { tasksOf, type CountKey } from '../lib/counts';
   import CountPanel from './CountPanel.svelte';
@@ -190,7 +191,7 @@
           <p class="muted">
             <span data-hint={hintOf(app.lang, 'hint.status', next.task.status)}>{labelOf(app.lang, 'status', next.task.status)}</span> ·
             <span data-hint={hintOf(app.lang, 'hint', 'prio')}>{next.task.prio !== undefined ? t('today.next.prio', { n: next.task.prio }) : t('mark.no_prio')}</span> ·
-            <span data-hint={hintOf(app.lang, 'hint', 'effort')}>{t('today.next.effort', { effort: next.task.effort ?? '?' })}</span>
+            <span data-hint={hintOf(app.lang, 'hint', 'effort')}>{effortWords(app.lang, next.task.effort)}</span>
             {#if why(next.task)} · {why(next.task)}{/if}
           </p>
           {#if next.alternatives.length > 0}

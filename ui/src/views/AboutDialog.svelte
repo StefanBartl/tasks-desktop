@@ -65,6 +65,8 @@
       <dd>
         {#if doc.engine}
           {doc.engine.version ?? unknown}, <code>{doc.engine.git ?? unknown}</code>, Neovim {doc.engine.nvim ?? unknown}
+        {:else if doc.engineProblem}
+          {t('about.engine_failed', { problem: doc.engineProblem })}
         {:else}
           {t('about.engine_none')}
         {/if}

@@ -381,13 +381,13 @@
           {
             kind: 'action',
             label: t('menu.about'),
-            disabled: !ready,
+            disabled: !app.canAbout,
             onselect: () => app.openAbout('info'),
           },
           {
             kind: 'action',
             label: t('menu.report'),
-            disabled: !ready,
+            disabled: !app.canAbout,
             onselect: () => app.openAbout('report'),
           },
         ],
@@ -507,8 +507,9 @@
     <Palette {app} />
     <ConflictCenter {app} />
     <VaultsDialog {app} />
-    <AboutDialog {app} />
   {/if}
+  <!-- Outside the ready block: the Info dialog and its report are there when the engine is not (app.canAbout). -->
+  <AboutDialog {app} />
   <Toast {app} />
 </div>
 

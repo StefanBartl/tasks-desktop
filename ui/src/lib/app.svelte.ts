@@ -231,6 +231,8 @@ export class App {
   managingVaults = $state(false);
   /** The Info dialog: closed, asking the hub, the words of the hub, or why it did not answer. */
   about = $state.raw<AboutState>({ state: 'closed' });
+  /** Which opening of the Info dialog an answer belongs to (an older answer is thrown away). */
+  private aboutSeq = 0;
   /** A vault is being chosen or changed: one at a time. */
   vaultBusy = $state(false);
   /** The task that is being finished, with what the engine says that does. */
@@ -1491,6 +1493,9 @@ export class App {
         const hello = await this.env.hub.hello();
         if (!hello.engine.ready) {
           this.problem = hello.engine.problem ?? 'unknown';
+          // A tab that was paired keeps its session here too: the Info dialog and its report (the hub answers
+          // them without an engine) are for exactly this page. A session that is gone is told by the first 401.
+          if (stored && !this.env.hub.hasToken) this.env.hub.setToken(stored);
           this.phase = 'unavailable';
           await this.env.sleep(5000);
           if (this.stopped) return;
@@ -1731,22 +1736,34 @@ export class App {
   }
 
   /** Open the Info dialog (APP-09); `focus` says what the person came for, so that the keyboard lands there. */
+  /**
+   * The Info dialog is for a running page and for the page whose engine is not there: that is when a report is
+   * needed most, and the hub answers `about` without an engine. It needs a session, so the phases before pairing
+   * are out.
+   */
+  get canAbout(): boolean {
+    return this.phase === 'ready' || (this.phase === 'unavailable' && this.env.hub.hasToken);
+  }
+
   openAbout(focus: 'info' | 'report' = 'info'): void {
-    if (this.phase !== 'ready') return;
+    if (!this.canAbout) return;
+    this.aboutSeq += 1;
     this.about = { state: 'loading', focus };
-    void this.loadAbout(focus);
+    void this.loadAbout(focus, this.aboutSeq);
   }
 
   closeAbout(): void {
+    // An answer that is still on its way belongs to this opening, not to the next one.
+    this.aboutSeq += 1;
     this.about = { state: 'closed' };
   }
 
-  private async loadAbout(focus: 'info' | 'report'): Promise<void> {
+  private async loadAbout(focus: 'info' | 'report', seq: number): Promise<void> {
     try {
       const doc = await this.env.hub.about();
-      if (this.about.state !== 'closed') this.about = { state: 'ok', doc, focus };
+      if (seq === this.aboutSeq) this.about = { state: 'ok', doc, focus };
     } catch (error) {
-      if (this.about.state !== 'closed') {
+      if (seq === this.aboutSeq) {
         this.about = { state: 'failed', message: error instanceof Error ? error.message : String(error) };
       }
     }

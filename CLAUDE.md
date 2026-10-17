@@ -32,7 +32,7 @@ python tools/check-control-chars.py
   `python tools/check-appkit-pin.py`.
 - Die Oberfläche nimmt vom selben Tag das Paket `appkit-ui` (Ordner `ui-kit` in appkit: Tokens, Basisregeln,
   MenuBar, MultiSelect, Info, Markdown-Leser, Hinweis-Popup, SSE, Pairing-Code), eingebunden in `ui/package.json`
-  als `git+https://github.com/StefanBartl/appkit.git#vX.Y.Z&path:ui-kit`; `ui/pnpm-lock.yaml` pinnt den Commit,
+  als `"appkit-ui": "github:StefanBartl/appkit#vX.Y.Z&path:ui-kit"` (das `pnpm add "git+https://github.com/StefanBartl/appkit.git#vX.Y.Z&path:ui-kit"` aus dem README des Kits schreibt pnpm in diese Kurzform um; die Pin-Prüfung nimmt beide); `ui/pnpm-lock.yaml` pinnt den Commit,
   `tools/check-appkit-pin.py` verlangt dasselbe Tag und denselben Commit wie `Cargo.lock`. Tag heben: beide
   Stellen (`Cargo.toml` und `ui/package.json`), `cargo update -p appkit-hub`, `cd ui && pnpm install`.
 - Gleichzeitig an `appkit` und hier arbeiten: `[patch."https://github.com/StefanBartl/appkit"]` mit Pfaden in
