@@ -4,7 +4,7 @@
   import type { App } from '../lib/app.svelte';
   import { EFFORT_SIZES, VALUES } from '../lib/fields';
   import { formatNumber, hintOf, translate, type Key } from '../lib/i18n';
-  import Info from './Info.svelte';
+  import Info from 'appkit-ui/Info.svelte';
   import { markHidden } from '../lib/text';
 
   let { app }: { app: App } = $props();

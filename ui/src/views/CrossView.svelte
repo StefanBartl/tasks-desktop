@@ -6,8 +6,8 @@
   import { translate, type Key } from '../lib/i18n';
   import { areasOfPairs, crossEdges, pairsOf, pairsOfLinks, type CrossEdge } from '../lib/cross';
   import { markHidden } from '../lib/text';
-  import Info from './Info.svelte';
-  import MultiSelect from './MultiSelect.svelte';
+  import Info from 'appkit-ui/Info.svelte';
+  import MultiSelect from 'appkit-ui/MultiSelect.svelte';
 
   let { app }: { app: App } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);

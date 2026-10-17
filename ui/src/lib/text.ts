@@ -1,23 +1,7 @@
-// Text from the vault is untrusted. It is only ever shown as text (never as
-// HTML). Characters that hide or reorder what is read are made visible.
+// The text rules of this app. The guard against characters that hide or reorder text is the kit's; it is taken
+// from here so that every view imports one module for "text from the vault".
 
-// Bidi controls, zero-width characters, the byte order mark, soft hyphen and
-// the tag characters.
-const HIDDEN = /[­\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF\u{e0000}-\u{e007f}]/gu;
-
-/** Does the text hold such characters? */
-export function hasHidden(text: string): boolean {
-  HIDDEN.lastIndex = 0;
-  return HIDDEN.test(text);
-}
-
-/** The text with each such character shown as ⟦U+XXXX⟧. */
-export function markHidden(text: string): string {
-  return text.replace(HIDDEN, (c) => {
-    const code = c.codePointAt(0) ?? 0;
-    return `⟦U+${code.toString(16).toUpperCase().padStart(4, '0')}⟧`;
-  });
-}
+export { hasHidden, markHidden } from 'appkit-ui/text';
 
 /** The longest text the engine takes for a task (`set_body`), in characters. */
 export const MAX_BODY_EDIT = 100_000;

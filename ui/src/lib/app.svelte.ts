@@ -18,7 +18,7 @@ import { moved, parseOrder } from './tiles';
 import { bumped, parseFrecency, type Frecency } from './palette';
 import { defaultView, nextView, parseViews, type CountKey, type CountView } from './counts';
 import { conflictsOf, conflictsOfRequest, mergeConflicts, retryOp, type Conflict } from './conflicts';
-import { backoffSeconds, readStream, StreamRefused, type SseMessage } from './sse';
+import { backoffSeconds, readStream, StreamRefused, type SseMessage } from 'appkit-ui/sse';
 import { detectLang, isLang, translate, type Key, type Lang } from './i18n';
 import { localToday } from './remind';
 import type { About } from './about';

@@ -2,7 +2,7 @@
   import type { App } from '../lib/app.svelte';
   import { formatNumber, hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import { areaLabel } from '../lib/filter';
-  import { parseMarkdown } from '../lib/markdown';
+  import { parseMarkdown } from 'appkit-ui/markdown';
   import { editableBody, hasHidden, markHidden, MAX_BODY_EDIT } from '../lib/text';
   import { REMIND_CHOICES } from '../lib/remind';
   import {
@@ -16,7 +16,7 @@
     tagsChanged,
     tagsText,
   } from '../lib/fields';
-  import Blocks from './Blocks.svelte';
+  import Blocks from 'appkit-ui/Blocks.svelte';
 
   let { app }: { app: App } = $props();
 
