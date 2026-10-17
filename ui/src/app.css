@@ -1,4 +1,4 @@
-/* The tokens and the base rules are the kit's (appkit-ui), shared with the other apps: every colour of this page
-   comes from `tokens.css`, no hex or rgb literal lives in the views. What is this app's own stands in its views. */
+/* The tokens and the base rules are the kit's (appkit-ui), shared with the other apps: every colour the CSS of
+   this page states comes from `tokens.css` (tools/check-color-literals.py). What is this app's own stands in its views. */
 @import 'appkit-ui/tokens.css';
 @import 'appkit-ui/base.css';

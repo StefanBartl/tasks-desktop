@@ -17,3 +17,4 @@ Thumbs.db
 .claude/
 # A local [patch] of appkit (see CLAUDE.md): never committed.
 /.cargo/config.toml
+__pycache__/
