@@ -314,6 +314,11 @@ export function activeFilters(filter: Filter): ActiveFilter[] {
   return out;
 }
 
+/** Anything narrows the list: a chosen value, or words in the search box (they are no chip, but they narrow as much). */
+export function narrows(filter: Filter): boolean {
+  return activeFilters(filter).length > 0 || filter.query.trim() !== '';
+}
+
 /** How many of the filters beyond area, status and actor are on. */
 export function extraCount(filter: Filter): number {
   return activeFilters(filter).filter((a) => a.kind !== 'area' && a.kind !== 'status' && a.kind !== 'actor')

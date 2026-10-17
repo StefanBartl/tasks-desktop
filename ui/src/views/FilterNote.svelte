@@ -2,7 +2,7 @@
   // The filter of the list is on for every view (list, board, plan, inbox, overview): this strip says so, names what is
   // on, and switches a single filter off or all of them. The filter itself is changed in the list.
   import type { App } from '../lib/app.svelte';
-  import { activeFilters, without, type ActiveFilter } from '../lib/filter';
+  import { activeFilters, narrows, without, type ActiveFilter } from '../lib/filter';
   import { chipLabel } from '../lib/filter-chips';
   import { translate, type Key } from '../lib/i18n';
 
@@ -18,10 +18,16 @@
   const off = (item: ActiveFilter) => (app.filter = without(app.filter, item));
 </script>
 
-{#if chips.length > 0}
+{#if narrows(app.filter)}
   <div class="note" data-testid="filter-note">
     <p role="status">{t('filter.note', { shown: app.shown.length, total: app.tasks.length })}</p>
     <ul aria-label={t('filter.active')}>
+      {#if app.filter.query.trim() !== ''}
+        <li>
+          <span>{t('filter.query', { text: app.filter.query.trim() })}</span>
+          <button type="button" aria-label={t('filter.remove', { what: t('filter.query', { text: app.filter.query.trim() }) })} onclick={() => app.setQuery('')}>×</button>
+        </li>
+      {/if}
       {#each chips as c (c.item.kind + ':' + c.item.value)}
         <li>
           <span>{c.label}</span>
