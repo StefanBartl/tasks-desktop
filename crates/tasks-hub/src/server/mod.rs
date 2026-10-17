@@ -219,6 +219,7 @@ fn app_routes(core: &Arc<Shared>) -> Router<Arc<Shared>> {
         .route(&r("task"), get(task))
         .route(&r("next"), get(next))
         .route(&r("areas"), get(areas))
+        .route(&r("about"), get(about))
         .route(&r("events"), get(events))
         .route(&r("search"), get(search_route))
         .route(&r("rescan"), post(rescan))

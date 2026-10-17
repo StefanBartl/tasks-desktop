@@ -54,6 +54,18 @@ class FakeHub {
     if (this.hubDown) throw new Error('down');
     return { instance: 'i', version: '0', engine: { ready: this.engineReady, problem: 'x', capabilities: this.capabilities } };
   }
+  async about() {
+    if (this.hubDown) throw new Error('down');
+    return {
+      app: 'tasks-desktop',
+      version: '0',
+      build: null,
+      os: 'test',
+      arch: 'x',
+      engine: { version: '0', git: 'abc1234', nvim: '0' },
+      pinned: { engine: 'abc1234abc1234abc1234abc1234abc1234abc12', lib: null },
+    };
+  }
   async exchange(code: string) {
     this.exchanged.push(code);
     if (this.exchangeGate) await this.exchangeGate;

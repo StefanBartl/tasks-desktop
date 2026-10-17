@@ -39,7 +39,7 @@ impl Subject for Tasks {
 
     fn data_routes(&self) -> Vec<&'static str> {
         vec![
-            "snapshot", "task", "next", "areas", "links", "finished", "events", "ops",
+            "snapshot", "task", "next", "areas", "about", "links", "finished", "events", "ops",
         ]
     }
 }

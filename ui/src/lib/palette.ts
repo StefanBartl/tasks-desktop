@@ -170,7 +170,12 @@ export function paletteItems(
   // Actions first when the words name one well, tasks first when a task matches better than any action does.
   const topAction = actionItems[0]?.score ?? -Infinity;
   const topTask = taskItems[0]?.score ?? -Infinity;
-  const merged = topTask > topAction && words !== '' ? [...taskItems, ...actionItems] : [...actionItems, ...taskItems];
+  if (words === '') {
+    // What was chosen before stays in sight however many actions the page has: the actions give way to the tasks.
+    const room = Math.max(0, limit - taskItems.length);
+    return [...actionItems.slice(0, room), ...taskItems].slice(0, limit);
+  }
+  const merged = topTask > topAction ? [...taskItems, ...actionItems] : [...actionItems, ...taskItems];
   return merged.slice(0, limit);
 }
 

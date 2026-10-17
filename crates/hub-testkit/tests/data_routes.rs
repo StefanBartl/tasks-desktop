@@ -303,3 +303,52 @@ async fn queries_that_are_not_plain_are_refused_before_the_engine() {
         assert_eq!(r.status, 400, "{path}: {r:?}");
     }
 }
+
+#[tokio::test]
+async fn about_names_the_build_and_the_engine_and_no_path() {
+    let h = hub(Some(fake_engine()), ready()).await;
+    let r = get(&h, "/api/tasks/about", &[]).await;
+    assert_eq!(r.status, 200, "{r:?}");
+    let doc: Value = serde_json::from_str(&r.body).unwrap();
+    assert_eq!(doc["kind"], "hub.about");
+    assert_eq!(doc["app"], "tasks-desktop");
+    assert!(doc["version"].as_str().is_some_and(|v| !v.is_empty()));
+    assert!(doc["os"].as_str().is_some_and(|v| !v.is_empty()));
+    assert!(doc["arch"].as_str().is_some_and(|v| !v.is_empty()));
+    // The three words of the engine's hello, as the fake engine says them.
+    assert_eq!(doc["engine"]["version"], "0.0.0-fake");
+    assert_eq!(doc["engine"]["git"], "0000000");
+    assert_eq!(doc["engine"]["nvim"], "0.12.2");
+    assert_eq!(doc["pinned"]["engine"].as_str().map(str::len), Some(40));
+    assert_eq!(doc["pinned"]["lib"].as_str().map(str::len), Some(40));
+    // The fake engine runs in the temp folder; no part of that path may leave the hub (ENG-06).
+    let temp = std::env::temp_dir().to_string_lossy().replace('\\', "/");
+    assert!(
+        !r.body
+            .replace('\\', "/")
+            .contains(temp.trim_end_matches('/')),
+        "{}",
+        r.body
+    );
+    assert!(!r.body.contains("vault"), "{}", r.body);
+    // A query is refused like on every other data route.
+    let r = get(&h, "/api/tasks/about?x=1", &[]).await;
+    assert_eq!(r.status, 400, "{r:?}");
+}
+
+#[tokio::test]
+async fn about_without_an_engine_still_names_the_build() {
+    let status = HubStatus {
+        engine_ready: false,
+        problem: Some("no_vault"),
+        capabilities: Vec::new(),
+    };
+    let h = hub(None, status).await;
+    let r = get(&h, "/api/tasks/about", &[]).await;
+    assert_eq!(r.status, 200, "{r:?}");
+    let doc: Value = serde_json::from_str(&r.body).unwrap();
+    assert_eq!(doc["kind"], "hub.about");
+    assert!(doc["engine"].is_null(), "{doc}");
+    assert!(doc["version"].as_str().is_some_and(|v| !v.is_empty()));
+    assert_eq!(doc["pinned"]["engine"].as_str().map(str::len), Some(40));
+}

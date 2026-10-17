@@ -21,6 +21,7 @@
   import Palette from './views/Palette.svelte';
   import ConflictCenter from './views/ConflictCenter.svelte';
   import VaultsDialog from './views/VaultsDialog.svelte';
+  import AboutDialog from './views/AboutDialog.svelte';
   import Toast from './views/Toast.svelte';
 
   let { app, code }: { app: App; code: string | null } = $props();
@@ -373,6 +374,24 @@
           },
         ],
       },
+      {
+        id: 'help',
+        label: t('menu.help'),
+        items: [
+          {
+            kind: 'action',
+            label: t('menu.about'),
+            disabled: !ready,
+            onselect: () => app.openAbout('info'),
+          },
+          {
+            kind: 'action',
+            label: t('menu.report'),
+            disabled: !ready,
+            onselect: () => app.openAbout('report'),
+          },
+        ],
+      },
     ];
   });
 </script>
@@ -488,6 +507,7 @@
     <Palette {app} />
     <ConflictCenter {app} />
     <VaultsDialog {app} />
+    <AboutDialog {app} />
   {/if}
   <Toast {app} />
 </div>

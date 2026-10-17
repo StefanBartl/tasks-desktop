@@ -117,6 +117,15 @@ describe('the list', () => {
     expect(paletteItems('', [], many, fr, NOW).filter((i) => i.kind === 'task')).toHaveLength(5);
   });
 
+  it('keeps the tasks chosen before in sight with an empty box, however many actions the page has', () => {
+    const crowd = Array.from({ length: PALETTE_LIMIT + 5 }, (_, i) => action(`a${i}`, `Action ${i}`));
+    const f = { [taskKey('docs/readme')]: { n: 1, last: NOW }, 'action:a3': { n: 2, last: NOW } };
+    const items = paletteItems('', crowd, tasks, f, NOW);
+    expect(items).toHaveLength(PALETTE_LIMIT);
+    expect(items[0]?.key).toBe('action:a3');
+    expect(items.map((i) => i.key)).toContain(taskKey('docs/readme'));
+  });
+
   it('matches the id and the title of a task and the label of an action', () => {
     const items = paletteItems('board', actions, tasks, {}, NOW);
     expect(items.map((i) => i.key).sort()).toEqual(['action:go.board', taskKey('lib.nvim/board-undo')].sort());

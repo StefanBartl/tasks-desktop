@@ -1,6 +1,7 @@
 // The hub's routes, as typed calls. Only the shapes the UI needs.
 
 import type { Areas, Check, DonePreview, Estimate, Finished, Links, Next, PlanFor, Result, Snapshot, TaskDocument } from './contract';
+import type { About } from './about';
 
 export class ApiError extends Error {
   constructor(
@@ -159,6 +160,28 @@ export class Hub {
       instance: doc.instance,
       version: doc.version,
       engine: { ...doc.engine, capabilities: doc.engine.capabilities ?? null },
+    };
+  }
+
+  /** What this build is and which engine answers (APP-09): only the words the page shows are taken from the hub. */
+  async about(): Promise<About> {
+    const doc = await this.json<Record<string, unknown>>('/api/tasks/about');
+    const text = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+    const engine = doc['engine'];
+    const pinned = doc['pinned'];
+    const part = (v: unknown, key: string): string | null =>
+      typeof v === 'object' && v !== null ? text((v as Record<string, unknown>)[key]) : null;
+    return {
+      app: text(doc['app']) ?? 'tasks-desktop',
+      version: text(doc['version']) ?? '',
+      build: text(doc['build']),
+      os: text(doc['os']) ?? '',
+      arch: text(doc['arch']) ?? '',
+      engine:
+        typeof engine === 'object' && engine !== null
+          ? { version: part(engine, 'version'), git: part(engine, 'git'), nvim: part(engine, 'nvim') }
+          : null,
+      pinned: { engine: part(pinned, 'engine'), lib: part(pinned, 'lib') },
     };
   }
 
