@@ -132,7 +132,8 @@ export class Hub {
 
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers);
-    if (this.token) headers.set('Authorization', `Bearer ${this.token}`);
+    const sent = this.token;
+    if (sent) headers.set('Authorization', `Bearer ${sent}`);
     const response = await this.fetchFn(this.url(path), {
       ...init,
       headers,
@@ -140,7 +141,9 @@ export class Hub {
       credentials: 'omit',
       referrerPolicy: 'no-referrer',
     });
-    if (response.status === 401) this.onUnauthorized();
+    // The session that was refused is the one that is gone: a refusal that comes after another token was set (a late
+    // answer to a question asked with an old one) says nothing about the new one.
+    if (response.status === 401 && this.token === sent) this.onUnauthorized();
     return response;
   }
 

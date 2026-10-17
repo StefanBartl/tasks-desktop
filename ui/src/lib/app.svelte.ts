@@ -1471,7 +1471,9 @@ export class App {
     this.stopped = false;
     this.phase = 'starting';
     if (code) this.pendingCode = code;
-    const stored = safe(() => this.env.session.getItem(TOKEN_KEY));
+    let stored = safe(() => this.env.session.getItem(TOKEN_KEY));
+    // The session of the tab was handed to the client: when it is gone from it later, the hub refused it.
+    let given = false;
 
     // The first picture comes from the cache, before the hub has answered
     // (and when it does not). Only a tab that was paired shows one. A cache
@@ -1484,6 +1486,8 @@ export class App {
         // The views are drawn from here on and ask the hub at once (the view the page was left on): they carry the
         // session of this tab. Without it their first question is refused and the page believes the session is lost.
         this.env.hub.setToken(stored);
+        this.env.hub.onUnauthorized = () => this.lostSession();
+        given = true;
         this.phase = 'ready';
       }
     }
@@ -1495,7 +1499,12 @@ export class App {
           this.problem = hello.engine.problem ?? 'unknown';
           // A tab that was paired keeps its session here too: the Info dialog and its report (the hub answers
           // them without an engine) are for exactly this page. A session that is gone is told by the first 401.
-          if (stored && !this.env.hub.hasToken) this.env.hub.setToken(stored);
+          if (stored && given && !this.env.hub.hasToken) stored = null;
+          else if (stored && !this.env.hub.hasToken) {
+            this.env.hub.setToken(stored);
+            this.env.hub.onUnauthorized = () => this.lostSession();
+            given = true;
+          }
           this.phase = 'unavailable';
           await this.env.sleep(5000);
           if (this.stopped) return;
@@ -1516,6 +1525,8 @@ export class App {
       }
     }
 
+    // A session the hub refused while this waited is not the one to go on with.
+    if (stored && given && !this.env.hub.hasToken) stored = null;
     let token = stored;
     // The code of the address, or a newer one that was pasted while this waited for the hub or for the answer
     // to the one before. A code that works ends it; one that is refused makes room for the next.
