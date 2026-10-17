@@ -18,3 +18,8 @@ export function marksLegend(lang: Lang): string {
     `?: ${t('mark.legend.unknown')}`,
   ].join('\n');
 }
+
+/** The legend beside the stages of the plan: what a stage is (the word of the engine), then the marks of its lines. */
+export function stagesLegend(lang: Lang): string {
+  return `${translate(lang, 'plan.stage_hint')}\n${marksLegend(lang)}`;
+}

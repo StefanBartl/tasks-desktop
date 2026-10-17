@@ -196,6 +196,7 @@ const en = {
   'plan.stages': 'Stages',
   'plan.stage': 'Stage {n}',
   'plan.no_stage': 'Without a stage',
+  'plan.stage_hint': 'Stage: every task stands in the earliest stage it can be in. Stage 0 waits for no open task; a task of stage n waits for tasks of the stages before it. Without a stage: a cycle holds the task.',
   'plan.whole_vault':
     'The state counts, the estimate and the critical path are those of the whole vault; the phase counts are those of the chosen plan.',
   'plan.on_path': 'critical path',
@@ -924,6 +925,7 @@ const de: Record<Key, string> = {
   'plan.stages': 'Stufen',
   'plan.stage': 'Stufe {n}',
   'plan.no_stage': 'Ohne Stufe',
+  'plan.stage_hint': 'Stufe: jeder Task steht in der frühesten Stufe, in der er stehen kann. Stufe 0 wartet auf keinen offenen Task; ein Task der Stufe n wartet auf Tasks der Stufen davor. Ohne Stufe: ein Zyklus hält den Task fest.',
   'plan.whole_vault':
     'Zustandszahlen, Schätzung und kritischer Pfad gelten für den ganzen Vault; die Phasenzahlen für den gewählten Plan.',
   'plan.on_path': 'kritischer Pfad',

@@ -4,7 +4,7 @@
   import type { App } from '../lib/app.svelte';
   import { formatNumber, hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import Info from 'appkit-ui/Info.svelte';
-  import { marksLegend } from '../lib/legend';
+  import { stagesLegend } from '../lib/legend';
   import { chosenPlan, criticalIds, firstTasks, phaseCounts, stagesOf, warningsOf } from '../lib/plan';
   import { markHidden } from '../lib/text';
   import { narrows } from '../lib/filter';
@@ -177,7 +177,7 @@
     <PlanFinished {app} {planId} />
 
     <section class="stages" tabindex="-1" aria-label={t('plan.stages')}>
-      <p class="legend"><Info hint={marksLegend(app.lang)} label={t('hint.about', { what: t('mark.legend.what') })} /></p>
+      <p class="legend"><Info hint={stagesLegend(app.lang)} label={t('hint.about', { what: t('mark.legend.what') })} /></p>
       {#each drawn as stage (stage.stage ?? 'cycle')}
         <div class="stage card">
           <h2 class="eyebrow">
@@ -186,7 +186,7 @@
           </h2>
           <ul class="plain">
             {#each stage.tasks as task (task.id)}
-              <li class:critical={critical.has(task.id)}>
+              <li class:critical={critical.has(task.id)} data-id={task.id}>
                 <button
                   type="button"
                   class="link"
