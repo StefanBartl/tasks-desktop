@@ -806,9 +806,19 @@ export class App {
   keepMarksShown(): void {
     if (this.marks.length === 0) return;
     const shown = new Set(this.shown.map((t) => t.id));
-    const kept = this.marks.filter((id) => shown.has(id));
+    const arriving = this.#arriving?.ids;
+    const kept = this.marks.filter((id) => shown.has(id) || arriving?.has(id));
     if (kept.length !== this.marks.length) this.marks = kept;
   }
+
+  /**
+   * The new ids a batch of moves gave its marks, and how many reads of the list had begun when it was answered. A
+   * read that began before the answer may bring the list of before (an event of the hub had started it), which does
+   * not know the new ids yet: they are not taken off the marks for it. The first read that began after clears this.
+   */
+  #arriving: { ids: ReadonlySet<string>; before: number } | null = null;
+  /** The reads of the list begun so far (see `#arriving`). */
+  #reads = 0;
 
   clearMarks(): void {
     this.marks = [];
@@ -914,6 +924,8 @@ export class App {
         else if (!r.ok) failed += 1;
       }
       this.marks = followMoves(this.marks, moved);
+      // A read under way now may still bring the list of before: the new ids are kept from it.
+      this.#arriving = { ids: new Set(moved.values()), before: this.#reads };
       // Not `inverseOf`: a later move of the batch may have rewritten a file whose inverse carries the version before.
       const undo = moveUndo(result.results);
       if (failed === 0) this.say('ok', 'bulk.moved', { n: moved.size }, undo);
@@ -1773,6 +1785,7 @@ export class App {
 
   private async readOnce(): Promise<void> {
     const hub = this.env.hub;
+    const seq = ++this.#reads;
     try {
       // A conditional request only when the whole document is held: the
       // cache holds a part of it, and a "not modified" must not leave that
@@ -1790,7 +1803,8 @@ export class App {
       this.phase = 'ready';
       if (this.connection === 'offline') this.connection = 'reconnecting';
       this.keepSelection();
-      this.marks = pruneMarks(this.marks, this.tasks);
+      if (this.#arriving && seq > this.#arriving.before) this.#arriving = null;
+      this.marks = pruneMarks(this.marks, this.tasks, this.#arriving?.ids);
       // What is needed beside the list is read after it is shown: each of
       // these is one more Neovim process of the hub.
       void this.readBeside();

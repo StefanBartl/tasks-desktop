@@ -925,6 +925,65 @@ describe('writing', () => {
     expect(app.toast?.undo?.map((o) => (o.op === 'set' ? o.id : ''))).toEqual(['pub/a', 'pub/c']);
   });
 
+  it('keeps the marks of moved tasks when a read that began before the move answers with the old list', async () => {
+    // Red in CI before the fix: an event of the hub had started a read; it answered after the move with the list of
+    // before, and the marks that had followed the new ids were pruned as gone.
+    const { app, hub } = await ready([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' })]);
+    app.markShown();
+    const before = hub.doc;
+    const after = snapshot([task('other/a', { etag: 'e3' }), task('other/b', { etag: 'e4' })], 'rev:2');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let reads = 0;
+    hub.snapshot = (async () => {
+      reads += 1;
+      if (reads === 1) {
+        await gate;
+        return { kind: 'fresh' as const, doc: before, etag: 'old' };
+      }
+      return { kind: 'fresh' as const, doc: after, etag: 'new' };
+    }) as typeof hub.snapshot;
+    const reading = app.refresh();
+    const moved = (n: number, id: string, to: string) => ({
+      n,
+      op: 'move_area',
+      id,
+      ok: true,
+      outcome: 'moved',
+      new_id: to,
+      changed_ids: [id, to],
+      inverse: { op: 'move_area', id: to, to_area: 'pub' },
+    });
+    hub.next_ops = {
+      kind: 'tasks.result',
+      ok: true,
+      dry_run: false,
+      results: [moved(1, 'pub/a', 'other/a'), moved(2, 'pub/b', 'other/b')],
+    } as unknown as Result;
+    const checks = ['a', 'b'].map((s) => ({ id: `pub/${s}`, newId: `other/${s}`, reasons: [], references: 0, namedBy: [] }));
+    const moving = app.bulkMove('other', checks);
+    await vi.waitFor(() => expect(hub.sent).toHaveLength(1));
+    release();
+    expect(await moving).toBe(2);
+    await reading;
+    // The read that began before the answer showed the list of before: the marks are not taken for it.
+    expect(app.tasks.map((t) => t.id)).toEqual(['pub/a', 'pub/b']);
+    expect(app.marks).toEqual(['other/a', 'other/b']);
+    app.keepMarksShown();
+    expect(app.marks).toEqual(['other/a', 'other/b']);
+    // A read that began after it knows the new ids, and from then on a mark of a task that is gone goes.
+    await app.refresh();
+    expect(app.tasks.map((t) => t.id)).toEqual(['other/a', 'other/b']);
+    expect(app.marks).toEqual(['other/a', 'other/b']);
+    hub.snapshot = (async () => ({
+      kind: 'fresh' as const,
+      doc: snapshot([task('other/a', { etag: 'e3' })], 'rev:3'),
+      etag: 'newer',
+    })) as typeof hub.snapshot;
+    await app.refresh();
+    expect(app.marks).toEqual(['other/a']);
+  });
+
   it('moves at most MOVE_MAX marked tasks in one batch: past it nothing is sent and the limit is told', async () => {
     const many = Array.from({ length: MOVE_MAX + 1 }, (_, i) => task(`pub/m${String(i).padStart(3, '0')}`, { etag: `e${i}` }));
     const { app, hub } = await ready(many);

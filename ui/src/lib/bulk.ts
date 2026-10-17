@@ -11,10 +11,14 @@ export function toggleMark(marks: readonly string[], id: string): string[] {
   return marks.length >= BULK_MAX ? [...marks] : [...marks, id];
 }
 
-/** The marks of the tasks that are still there, in the order they were made. */
-export function pruneMarks(marks: readonly string[], tasks: readonly TaskEntry[]): string[] {
+/** The marks of the tasks that are still there, in the order they were made; `keep` stays although the list lacks it. */
+export function pruneMarks(
+  marks: readonly string[],
+  tasks: readonly TaskEntry[],
+  keep?: ReadonlySet<string>,
+): string[] {
   const ids = new Set(tasks.map((t) => t.id));
-  return marks.filter((m) => ids.has(m));
+  return marks.filter((m) => ids.has(m) || keep?.has(m) === true);
 }
 
 /** Mark every id in `ids` (up to `BULK_MAX`), keeping what is marked. */
