@@ -45,7 +45,8 @@ tasks-hub install [--autostart] [--shortcut]
                                       for the file; --autostart and --shortcut register that copy
                                       (Windows: registry and desktop link; Linux: an autostart
                                       entry and a launcher; macOS: a launch agent). Build with
-                                      `cargo build --release` first: 3.4 MB instead of 5.9 MB.
+                                      `cargo build --release` first (about 3.9 MB: full LTO,
+                                      stripped).
 tasks-hub uninstall [--purge-settings] stop the hub, take away the login entry and the link;
                                       --purge-settings also removes the settings (never the
                                       vault); the program file is left for scripts/uninstall.*

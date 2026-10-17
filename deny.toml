@@ -6,7 +6,7 @@ all-features = false
 
 [advisories]
 # Known vulnerabilities and unmaintained crates are errors.
-unmaintained = "workspace"
+unmaintained = "all"
 yanked = "deny"
 ignore = []
 

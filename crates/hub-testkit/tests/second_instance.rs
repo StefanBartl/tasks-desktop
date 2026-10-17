@@ -233,6 +233,14 @@ async fn a_hub_json_is_believed_only_by_the_app_that_wrote_it_and_only_while_it_
     // The record of the demo hub, in the folder of the demo hub: believed by the demo app.
     registry::write_record(&dir, &record(DEMO_IDENTITY.app, &demo.server)).unwrap();
     assert!(instance::running_hub(&dir, &DEMO_IDENTITY).await.is_some());
+    // The program on that port answers as the demo hub, but as another instance than the record
+    // names (a stale file, and a new hub of the same app got the port): not believed.
+    let mut stale = record(DEMO_IDENTITY.app, &demo.server);
+    stale.instance = Secret::generate(CODE_BYTES).unwrap().to_hex();
+    assert_ne!(stale.instance, demo.server.instance());
+    registry::write_record(&dir, &stale).unwrap();
+    assert!(instance::running_hub(&dir, &DEMO_IDENTITY).await.is_none());
+    registry::write_record(&dir, &record(DEMO_IDENTITY.app, &demo.server)).unwrap();
     // The tasks hub finds the same file and does not believe it: it is another app's.
     assert!(instance::running_hub(&dir, &tasks_hub::IDENTITY)
         .await
@@ -259,4 +267,10 @@ async fn a_hub_json_is_believed_only_by_the_app_that_wrote_it_and_only_while_it_
         registry::read_record(&two).unwrap().unwrap().app,
         tasks_hub::IDENTITY.app
     );
+
+    // Only while it answers: the record that was believed is not, once the hub has stopped.
+    registry::write_record(&dir, &record(DEMO_IDENTITY.app, &demo.server)).unwrap();
+    assert!(instance::running_hub(&dir, &DEMO_IDENTITY).await.is_some());
+    demo.server.shutdown().await;
+    assert!(instance::running_hub(&dir, &DEMO_IDENTITY).await.is_none());
 }

@@ -7,9 +7,9 @@ members = ["crates/tasks-hub", "crates/hub-testkit"]
 # this app at once, point these at a local checkout in a .cargo/config.toml that is not committed
 # (`[patch."https://github.com/StefanBartl/appkit"]`, see the README of appkit).
 [workspace.dependencies]
-appkit-core = { git = "https://github.com/StefanBartl/appkit", tag = "v0.1.0" }
-appkit-hub = { git = "https://github.com/StefanBartl/appkit", tag = "v0.1.0" }
-appkit-testkit = { git = "https://github.com/StefanBartl/appkit", tag = "v0.1.0" }
+appkit-core = { git = "https://github.com/StefanBartl/appkit", tag = "v0.2.0" }
+appkit-hub = { git = "https://github.com/StefanBartl/appkit", tag = "v0.2.0" }
+appkit-testkit = { git = "https://github.com/StefanBartl/appkit", tag = "v0.2.0" }
 
 [workspace.package]
 edition = "2024"
