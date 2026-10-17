@@ -242,3 +242,37 @@ test('the menu bar is one tab stop: Tab leaves it, Left, Right, Home and End wal
   await expect(triggers.nth(1)).toBeFocused();
   await expectAccessible(page, 'the menu bar');
 });
+
+test('"Show more" in the finished view loads the next page and adds it below the first', async ({ page }) => {
+  await pair(page);
+  // The hub's page is 100 tasks: the fixture has four finished ones, so the pages are made from the real answer.
+  await page.route('**/api/tasks/finished**', async (route) => {
+    const url = new URL(route.request().url());
+    const response = await route.fetch();
+    const doc = (await response.json()) as { items: Record<string, unknown>[]; total: number; limit: number; next_offset?: number };
+    const offset = Number(url.searchParams.get('offset') ?? '0');
+    const item = (i: number) => ({
+      area: 'lib.nvim',
+      slug: `paged-${i}`,
+      done: '2025-12-30',
+      kind: 'task',
+      title: `Paged finished task ${i}`,
+      id: `lib.nvim/paged-${i}`,
+      file: `lib.nvim/Backlog/TASKS/2025-12-30_paged-${i}.md`,
+    });
+    const items = offset === 0 ? Array.from({ length: 100 }, (_, i) => item(i)) : Array.from({ length: 20 }, (_, i) => item(100 + i));
+    const body = { ...doc, total: 120, limit: 100, items, ...(offset === 0 ? { next_offset: 100 } : { next_offset: undefined }) };
+    await route.fulfill({ response, json: body });
+  });
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Finished', exact: true }).click();
+  const list = page.getByRole('region', { name: 'Finished tasks, newest first' });
+  await expect(list.getByText('Paged finished task 99')).toBeVisible();
+  await expect(list.getByText('Paged finished task 100')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Show more' }).click();
+  await expect(list.getByText('Paged finished task 119')).toBeVisible();
+  // The first page is still there, and with the last page the button is gone.
+  await expect(list.getByText('Paged finished task 0', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Show more' })).toHaveCount(0);
+  await expectAccessible(page, 'the finished view with two pages');
+});
