@@ -301,3 +301,46 @@ test('the marks of rows, cards and stage lines are explained with one tab stop e
   await page.getByRole('menuitemradio', { name: 'Plan', exact: true }).click();
   await check('section.stages');
 });
+
+// The walk through every view in both languages and both themes (the part of the explanations task that asks for
+// it): no key of the dictionary shows as text, the page does not scroll sideways, axe finds no contrast problem.
+for (const lang of ['en', 'de'] as const) {
+  for (const theme of ['light', 'dark'] as const) {
+    test(`every view reads well in ${lang} and ${theme}: no raw key, no sideways scroll, no violation`, async ({ page }) => {
+      test.slow();
+      await page.addInitScript(
+        ([l, th]) => {
+          localStorage.setItem('tasks-desktop.lang', l!);
+          localStorage.setItem('tasks-desktop.theme', th!);
+        },
+        [lang, theme],
+      );
+      await pair(page);
+      // The memory was read: the menu has the words of the language, the page has the colours of the theme.
+      await expect(page.getByRole('menuitem', { name: lang === 'de' ? 'Ansicht' : 'View', exact: true })).toBeVisible();
+      const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+      const lum = bg.match(/\d+/g)!.slice(0, 3).map(Number).reduce((x, y) => x + y, 0) / 3;
+      expect(theme === 'dark' ? lum < 100 : lum > 150, `${theme} background ${bg}`).toBe(true);
+      const viewMenu = page.getByRole('menubar').getByRole('menuitem').nth(1);
+      await viewMenu.click();
+      const count = await page.getByRole('menuitemradio').count();
+      await page.keyboard.press('Escape');
+      expect(count).toBeGreaterThan(4);
+      for (let i = 0; i < count; i++) {
+        await viewMenu.click();
+        const radio = page.getByRole('menuitemradio').nth(i);
+        const name = (await radio.textContent())?.trim() ?? String(i);
+        await radio.click();
+        await page.waitForTimeout(400);
+        const bad = await page.evaluate(() => {
+          const text = document.body.innerText;
+          const keys = text.split(/\s+/).filter((w) => /^[a-z]+(\.[a-z_]+){1,}$/.test(w) && /^(today|plan|board|list|filter|hint|menu|check|graph|inbox|matrix|count|detail|nav|status|state|prop|vaults|remind|mark)\./.test(w));
+          return { keys, wide: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+        });
+        expect(bad.keys, `${lang} ${theme} ${name}: raw keys`).toEqual([]);
+        expect(bad.wide, `${lang} ${theme} ${name}: sideways scroll`).toBeLessThanOrEqual(1);
+        await expectAccessible(page, `${lang} ${theme} ${name}`);
+      }
+    });
+  }
+}
