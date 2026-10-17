@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { App } from '../lib/app.svelte';
   import { formatNumber, hintOf, labelOf, translate, type Key } from '../lib/i18n';
+  import { areaLabel } from '../lib/filter';
   import { parseMarkdown } from '../lib/markdown';
   import { editableBody, hasHidden, markHidden, MAX_BODY_EDIT } from '../lib/text';
   import { REMIND_CHOICES } from '../lib/remind';
@@ -123,7 +124,7 @@
   }
 </script>
 
-<aside class="detail" aria-label={t('detail.props')}>
+<aside class="detail" aria-label={t('detail.label')}>
   {#if !task}
     <p class="muted">{t('detail.none')}</p>
   {:else}
@@ -198,7 +199,7 @@
               e.currentTarget.value === '' ? null : Number(e.currentTarget.value),
             )}
         >
-          <option value="">–</option>
+          <option value="">{t('field.none')}</option>
           <option value="1">1</option>
           <option value="2">2</option>
           <option value="3">3</option>
@@ -212,7 +213,7 @@
           onchange={(e) =>
             void app.setField(task.id, 'actor', e.currentTarget.value === '' ? null : e.currentTarget.value)}
         >
-          <option value="">–</option>
+          <option value="">{t('field.none')}</option>
           {#each ACTORS as a (a)}
             <option value={a}>{labelOf(app.lang, 'actor', a)}</option>
           {/each}
@@ -226,7 +227,7 @@
           onchange={(e) =>
             void app.setField(task.id, 'kind', e.currentTarget.value === '' ? null : e.currentTarget.value)}
         >
-          <option value="">–</option>
+          <option value="">{t('field.none')}</option>
           {#each KINDS as k (k)}
             <option value={k}>{k}</option>
           {/each}
@@ -240,7 +241,7 @@
           onchange={(e) =>
             void app.setField(task.id, 'effort', e.currentTarget.value === '' ? null : e.currentTarget.value)}
         >
-          <option value="">–</option>
+          <option value="">{t('field.none')}</option>
           {#if task.effort && !(EFFORT_SIZES as readonly string[]).includes(task.effort)}
             <option value={task.effort}>{task.effort}</option>
           {/if}
@@ -261,7 +262,7 @@
               e.currentTarget.value === '' ? null : Number(e.currentTarget.value),
             )}
         >
-          <option value="">–</option>
+          <option value="">{t('field.none')}</option>
           {#each VALUES as v (v)}
             <option value={String(v)}>{v}</option>
           {/each}
@@ -359,7 +360,7 @@
       <dt data-hint={hintOf(app.lang, 'hint.field', 'state')}>{t('prop.state')}</dt>
       <dd>{task.readiness ? labelOf(app.lang, 'state', task.readiness.state) : unknown}</dd>
       <dt>{t('prop.area')}</dt>
-      <dd>{task.area}</dd>
+      <dd>{app.shortAreas ? areaLabel(task.area, app.allAreaNames) : task.area}</dd>
       <dt data-hint={hintOf(app.lang, 'hint.field', 'prio')}>{t('prop.prio')}</dt>
       <dd>{task.prio === undefined ? unknown : `P${task.prio}`}</dd>
       <dt data-hint={hintOf(app.lang, 'hint.field', 'effort')}>{t('prop.effort')}</dt>
@@ -383,9 +384,12 @@
       <ul class="plain">
         {#each task.blocked_by as id, i (`${id}:${i}`)}
           <li>
-            <button type="button" class="link" onclick={() => byId.has(id) && app.reveal(id)}
-              ><code>{id}</code></button
-            >
+            {#if byId.has(id)}
+              <button type="button" class="link" onclick={() => app.reveal(id)}><code>{id}</code></button>
+            {:else}
+              <!-- Not in the list (finished, or a task the page may not show): nothing to reveal, so no button. -->
+              <code>{id}</code>
+            {/if}
             <span class="muted">{statusOf(id)}</span>
           </li>
         {/each}
@@ -438,7 +442,8 @@
       {/if}
       <h3>
         {t('detail.body')}
-        <button type="button" class="switch" aria-pressed={raw} onclick={() => (raw = !raw)}
+        <!-- The label names what the button will do, so it is a plain button, not a pressed one (both at once contradict). -->
+        <button type="button" class="switch" onclick={() => (raw = !raw)}
           >{raw ? t('detail.view_rendered') : t('detail.view_raw')}</button
         >
         {#if app.can('set_body') && editableBody(detail.doc.body, detail.doc.body_truncated) && !editing}
@@ -449,7 +454,7 @@
       <!-- The body is untrusted: it is read into a tree and drawn as
            elements; it never becomes an HTML string. -->
       {#if editing}
-        <label class="edit">
+        <label class="body-edit">
           <span class="muted">{t('detail.body_label')} <small>({t('detail.body_hint')})</small></span>
           <textarea
             bind:value={draft}
@@ -509,7 +514,7 @@
                 movePreview = null;
               }}
             >
-              <option value="">-</option>
+              <option value="">{t('field.none')}</option>
               {#each app.allAreaNames.filter((a) => a !== task.area) as area (area)}
                 <option value={area}>{area}</option>
               {/each}
@@ -679,12 +684,14 @@
     align-items: baseline;
     cursor: pointer;
   }
-  .edit {
+  /* Its own class: `.edit` is the group of the fields above, a wrapping row whose wide fields have a flex basis, and a
+     column rule on the same name turned that basis into a height (every wide field 14rem tall). */
+  .body-edit {
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
   }
-  .edit textarea {
+  .body-edit textarea {
     width: 100%;
     box-sizing: border-box;
     font: inherit;

@@ -36,7 +36,7 @@
   );
   const stats = $derived(doc?.stats);
   const total = $derived(doc?.total ?? 0);
-  const nameOf = (name: string): string => (app.shortAreas ? areaLabel(name, app.areaNames) : name);
+  const nameOf = (name: string): string => (app.shortAreas ? areaLabel(name, app.allAreaNames) : name);
   const days = (n: number): string => formatNumber(app.lang, n);
 
   async function load(query: { area?: string } & Range, offset: number): Promise<void> {

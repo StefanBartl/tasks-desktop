@@ -188,11 +188,11 @@
                 <span class="title">{markHidden(card.title)}</span>
                 <span class="meta">
                   <span class="id">{card.id}</span>
-                  {#if !card.valid}<span class="tag bad" data-hint={t('hint.invalid')}>!</span>{/if}
+                  {#if !card.valid}<span class="tag bad" data-hint={t('hint.invalid')}><span aria-hidden="true">!</span><span class="sr-only">{t('mark.invalid')}</span></span>{/if}
                   {#if app.crossAreas(card.id).length >= 2}
-                    <span class="tag soft" data-hint={t('cross.mark', { n: app.crossAreas(card.id).length, areas: app.crossAreas(card.id).join(', ') })}>↔ {app.crossAreas(card.id).length}</span>
+                    <span class="tag soft" data-hint={t('cross.mark', { n: app.crossAreas(card.id).length, areas: app.crossAreas(card.id).join(', ') })}><span aria-hidden="true">↔ {app.crossAreas(card.id).length}</span><span class="sr-only">{t('mark.cross', { n: app.crossAreas(card.id).length })}</span></span>
                   {/if}
-                  <span class="tag soft" data-hint={hintOf(app.lang, 'hint', 'prio')}>{card.prio !== undefined ? `P${card.prio}` : '?'}</span>
+                  <span class="tag soft" data-hint={hintOf(app.lang, 'hint', 'prio')}>{#if card.prio !== undefined}P{card.prio}{:else}<span aria-hidden="true">?</span><span class="sr-only">{t('mark.no_prio')}</span>{/if}</span>
                   {#if card.effort}<span class="tag soft" data-hint={hintOf(app.lang, 'hint', 'effort')}>{card.effort}</span>{/if}
                   {#if card.actor}<span class="tag soft" data-hint={hintOf(app.lang, 'hint.field', 'actor')}>{labelOf(app.lang, 'actor', card.actor)}</span>{/if}
                   {#if card.steps && card.steps.total > 0}

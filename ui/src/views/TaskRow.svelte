@@ -58,13 +58,14 @@
   <span class="id">{task.id}</span>
   <span class="title">{markHidden(task.title)}</span>
   <span class="meta">
-    {#if !task.valid}<span class="tag bad" data-hint={hintOf(lang, 'hint', 'invalid')}>!</span>{/if}
-    {#if flagged > 0}<span class="tag bad" data-hint={flagTitle}>⚑ {flagged}</span>{/if}
-    {#if crossAreas.length >= 2}<span class="tag soft" data-hint={crossTitle}>↔ {crossAreas.length}</span>{/if}
-    {#if due}<span class="tag due" data-hint={translate(lang, 'remind.due', { date: task.remind ?? '' })}>⏰ {task.remind}</span>{/if}
+    <!-- A sign carries its meaning only for the eye: a screen reader gets the word (the hint is the long form). -->
+    {#if !task.valid}<span class="tag bad" data-hint={hintOf(lang, 'hint', 'invalid')}><span aria-hidden="true">!</span><span class="sr-only">{translate(lang, 'mark.invalid')}</span></span>{/if}
+    {#if flagged > 0}<span class="tag bad" data-hint={flagTitle}><span aria-hidden="true">⚑ {flagged}</span><span class="sr-only">{translate(lang, 'mark.flagged', { n: flagged })}</span></span>{/if}
+    {#if crossAreas.length >= 2}<span class="tag soft" data-hint={crossTitle}><span aria-hidden="true">↔ {crossAreas.length}</span><span class="sr-only">{translate(lang, 'mark.cross', { n: crossAreas.length })}</span></span>{/if}
+    {#if due}<span class="tag due" data-hint={translate(lang, 'remind.due', { date: task.remind ?? '' })}><span aria-hidden="true">⏰ {task.remind}</span><span class="sr-only">{translate(lang, 'mark.due', { date: task.remind ?? '' })}</span></span>{/if}
     <span class="tag" data-hint={hintOf(lang, 'hint.status', task.status)}>{status}</span>
     {#if state && task.readiness?.state !== 'unknown'}<span class="tag soft" data-hint={hintOf(lang, 'hint.state', task.readiness?.state)}>{state}</span>{/if}
-    <span class="tag soft" data-hint={hintOf(lang, 'hint', 'prio')}>{task.prio !== undefined ? `P${task.prio}` : '?'}</span>
+    <span class="tag soft" data-hint={hintOf(lang, 'hint', 'prio')}>{#if task.prio !== undefined}P{task.prio}{:else}<span aria-hidden="true">?</span><span class="sr-only">{translate(lang, 'mark.no_prio')}</span>{/if}</span>
     {#if task.effort}<span class="tag soft" data-hint={hintOf(lang, 'hint', 'effort')}>{task.effort}</span>{/if}
     {#if task.steps && task.steps.total > 0}
       <span class="tag soft" data-hint={hintOf(lang, 'hint', 'steps')}>{task.steps.ticked}/{task.steps.total}</span>
@@ -90,7 +91,8 @@
     flex: 1;
     min-width: 0;
     display: grid;
-    grid-template-columns: minmax(8rem, 14rem) 1fr auto;
+    /* The title keeps a width of its own: the tags wrap before they push it to nothing. */
+    grid-template-columns: minmax(8rem, 14rem) minmax(6rem, 1fr) auto;
     gap: 0.75rem;
     align-items: baseline;
     width: 100%;
@@ -132,7 +134,13 @@
   }
   .meta {
     display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 0.3rem;
+    /* Wider than this the tags take from the title; a row with many of them grows in height instead. */
+    max-width: 18rem;
+  }
+  .tag {
     white-space: nowrap;
   }
   .tag.due {

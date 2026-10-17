@@ -11,7 +11,8 @@
 
 <div class="toasts" role="status" aria-live="polite">
   {#if toast}
-    <div class="toast" class:error={toast.kind === 'error'}>
+    <!-- A refusal is an alert: it interrupts, where a "Saved." waits its turn. -->
+    <div class="toast" class:error={toast.kind === 'error'} role={toast.kind === 'error' ? 'alert' : undefined}>
       <span>{toast.text}</span>
       {#if toast.undo}
         <button type="button" disabled={app.answering} onclick={() => void app.undo()}>{t('write.undo')}</button>

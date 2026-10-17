@@ -3,6 +3,8 @@
 // away with Escape, on scrolling and when the pointer or the focus leaves (WCAG 1.4.13). The text is set as text,
 // never as markup.
 
+import { translate } from './i18n';
+
 export interface Box {
   x: number;
   y: number;
@@ -58,7 +60,8 @@ export function installTooltips(doc: Document, win: Window & typeof globalThis):
   tip.setAttribute('role', 'tooltip');
   host.appendChild(tip);
   doc.body.appendChild(host);
-  const regionLabel = (): string => (doc.documentElement.lang.startsWith('de') ? 'Erklärung' : 'Explanation');
+  // The name of the region comes from the dictionary like every other word of the page.
+  const regionLabel = (): string => translate(doc.documentElement.lang.startsWith('de') ? 'de' : 'en', 'hint.region');
 
   let current: HTMLElement | null = null;
   let describedBefore: string | null = null;

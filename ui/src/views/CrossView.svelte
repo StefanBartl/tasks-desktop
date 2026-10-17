@@ -40,12 +40,12 @@
     areasOfPairs(allPairs)
       .map((name) => ({
         value: name,
-        label: app.shortAreas ? areaLabel(name, app.areaNames) : name,
+        label: app.shortAreas ? areaLabel(name, app.allAreaNames) : name,
         title: name,
       }))
       .sort((x, y) => x.label.localeCompare(y.label)),
   );
-  const nameOf = (area: string): string => (app.shortAreas ? areaLabel(area, app.areaNames) : area);
+  const nameOf = (area: string): string => (app.shortAreas ? areaLabel(area, app.allAreaNames) : area);
 
   const KNOWN_KINDS = new Set<string>(['blocked_by', 'after', 'refs', 'plan']);
   function verb(edge: CrossEdge): string {

@@ -69,7 +69,7 @@
     <label>
       <span>{t('field.prio')}</span>
       <select bind:value={prio}>
-        <option value="">–</option>
+        <option value="">{t('field.none')}</option>
         <option value="1">1</option>
         <option value="2">2</option>
         <option value="3">3</option>

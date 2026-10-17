@@ -39,7 +39,7 @@
       return words.every((w) => text.includes(w));
     }),
   );
-  const nameOf = (name: string): string => (app.shortAreas ? areaLabel(name, app.areaNames) : name);
+  const nameOf = (name: string): string => (app.shortAreas ? areaLabel(name, app.allAreaNames) : name);
 
   async function load(query: { area?: string; since?: string; until?: string }, offset: number): Promise<void> {
     seq += 1;
@@ -85,7 +85,9 @@
   </div>
   {#if problem}
     <p class="problem" role="alert">{problem}</p>
-  {:else if doc}
+  {:else if !doc}
+    <p class="muted" role="status">{t('state.loading')}</p>
+  {:else}
     <ul class="plain">
       {#each shown as item (item.file)}
         <li>
@@ -96,7 +98,8 @@
           {#if item.effort}<span class="muted">{item.effort}</span>{/if}
         </li>
       {:else}
-        <li class="muted">{t('done.none')}</li>
+        <!-- The period had tasks, the areas or the words of the list keep them out: another sentence than "none". -->
+        <li class="muted">{t(loaded.length > 0 ? 'done.none_match' : 'done.none')}</li>
       {/each}
     </ul>
     <p class="muted" role="status">{t('list.count', { shown: shown.length, total: doc.total })}</p>

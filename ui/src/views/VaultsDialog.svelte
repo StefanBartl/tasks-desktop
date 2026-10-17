@@ -46,8 +46,11 @@
           {#if vault.name === list.active}
             <span class="tag soft">{t('vaults.active')}</span>
           {:else}
-            <button type="button" disabled={app.vaultBusy} onclick={() => void app.selectVault(vault.name)}
-              >{t('vaults.choose')}</button
+            <button
+              type="button"
+              disabled={app.vaultBusy}
+              aria-label={`${t('vaults.choose')}: ${vault.name}`}
+              onclick={() => void app.selectVault(vault.name)}>{t('vaults.choose')}</button
             >
             {#if !vault.main}
               <button

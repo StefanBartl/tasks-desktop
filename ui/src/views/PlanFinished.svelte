@@ -72,11 +72,13 @@
   {#if show}
     <section class="card" aria-labelledby="plan-finished-title">
       <h2 id="plan-finished-title" class="eyebrow">
-        {t('plan.finished')} ({doc?.total ?? 0})
+        {t('plan.finished')}{#if doc} ({doc.total}){/if}
       </h2>
       {#if problem}
         <p class="problem" role="alert">{problem}</p>
-      {:else if doc && items.length === 0}
+      {:else if !doc}
+        <p class="muted" role="status">{t('state.loading')}</p>
+      {:else if items.length === 0}
         <p class="muted">{t('plan.finished_none')}</p>
       {:else}
         <ul class="plain">

@@ -99,8 +99,9 @@
       <div class="dir" role="group" aria-label={t('graph.direction')}>
         <button type="button" aria-pressed={graph.direction === 'needs'} onclick={() => app.openGraph(graph.id, 'needs')}>{t('graph.dir.needs')}</button>
         <button type="button" aria-pressed={graph.direction === 'unlocks'} onclick={() => app.openGraph(graph.id, 'unlocks')}>{t('graph.dir.unlocks')}</button>
-        <button type="button" onclick={() => app.closeGraph()}>{t('graph.close')}</button>
       </div>
+      <!-- Closing is no direction: outside the group. -->
+      <button type="button" onclick={() => app.closeGraph()}>{t('graph.close')}</button>
     </header>
     <div role="status" aria-live="polite">
       {#if app.graphProblem}
