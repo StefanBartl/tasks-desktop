@@ -120,7 +120,7 @@
     margin-top: 12vh;
   }
   dialog::backdrop {
-    background: rgb(0 0 0 / 0.45);
+    background: var(--backdrop);
   }
   input {
     width: 100%;

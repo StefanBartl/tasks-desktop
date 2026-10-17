@@ -40,7 +40,7 @@
     border: 1px solid var(--border);
     border-left: 4px solid var(--ok);
     border-radius: var(--radius);
-    box-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
+    box-shadow: var(--shadow);
     padding: 0.5rem 0.75rem;
   }
   .toast.error {

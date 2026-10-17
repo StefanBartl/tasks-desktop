@@ -129,7 +129,7 @@
     overflow: auto;
   }
   dialog::backdrop {
-    background: rgb(0 0 0 / 0.45);
+    background: var(--backdrop);
   }
   h2 {
     margin: 0 0 0.4rem;
