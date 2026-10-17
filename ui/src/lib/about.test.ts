@@ -28,7 +28,7 @@ describe('reportText', () => {
     expect(text).toContain('Tested with: tasks.nvim unknown, lib.nvim unknown');
   });
   it('keeps every value on one line and short, whatever the hub said', () => {
-    const text = reportText('en', { ...about, version: ' 1.0\n\u0000evil​ ' + 'x'.repeat(500) });
+    const text = reportText('en', { ...about, version: ' 1.0\n\u0000evil' + String.fromCharCode(0x200b) + ' ' + 'x'.repeat(500) });
     const line = text.split('\n')[0] ?? '';
     expect(line).toMatch(/^tasks-desktop 1\.0 evil x+ \(build abc1234\)/);
     expect(line.length).toBeLessThan(200);
