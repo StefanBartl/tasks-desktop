@@ -10,21 +10,28 @@
   import Info from 'appkit-ui/Info.svelte';
   import { marksLegend } from '../lib/legend';
   import {
+    DATE_KEYS,
     FIELD_KEYS,
     NONE,
+    RANGE_KEYS,
     REMINDER_CHOICES,
     UPDATED_WINDOWS,
     activeFilters,
     areaLabel,
+    boundOptions,
     extraCount,
     fieldOptions,
     without,
     withSelected,
     type ActiveFilter,
+    type Bound,
+    type DateKey,
     type FieldKey,
+    type RangeKey,
     type ReminderChoice,
     type UpdatedWindow,
   } from '../lib/filter';
+  import { boundLabel, chipLabel as chipText, valueLabel as valueText } from '../lib/filter-chips';
   import { tick, untrack } from 'svelte';
   import { EFFORT_SIZES, badTag, parseTags } from '../lib/fields';
   import { isApplyKey } from '../lib/bulk';
@@ -42,12 +49,31 @@
   // The filters beyond area, status and actor: one choice per field, the values the tasks have, with how many.
   let moreOpen = $state(false);
   const fieldLabel = (key: FieldKey): string => t(`filter.field.${key}` as Key);
-  function valueLabel(key: FieldKey, value: string): string {
-    // For the state of the plan `none` is a task the plan has not placed; for the others it is "not written".
-    if (value === NONE) return key === 'state' ? t('filter.unplaced') : t('filter.none');
-    if (key === 'prio') return `P${value}`;
-    if (key === 'state') return labelOf(app.lang, 'state', value);
-    return markHidden(value);
+  const valueLabel = (key: FieldKey, value: string): string => valueText(app.lang, key, value);
+
+  // "At least / at most" for the fields with an order: the values the tasks have, in their order.
+  const rangeChoices = $derived(
+    RANGE_KEYS.map((key) => ({ key, options: boundOptions(app.tasks, key) })).filter(
+      (r) => r.options.length > 0 || app.filter.ranges[r.key] !== undefined,
+    ),
+  );
+  /** The values to choose from; a bound that is on although no task has it any more stays, so it can be seen and changed. */
+  const boundsWith = (options: readonly Bound[], on: Bound | undefined): Bound[] =>
+    on && !options.some((o) => o.label === on.label) ? [...options, on].sort((a, b) => a.n - b.n) : [...options];
+  /** One end of a range chosen (or taken away with the empty choice); the other end stays. */
+  function setBound(key: RangeKey, end: 'min' | 'max', options: readonly Bound[], label: string): void {
+    const found = options.find((o) => o.label === label);
+    const range = { ...(app.filter.ranges[key] ?? {}) };
+    if (found) range[end] = found;
+    else delete range[end];
+    app.filter = { ...app.filter, ranges: { ...app.filter.ranges, [key]: range } };
+  }
+  /** One end of a span of days typed (or cleared). */
+  function setDay(key: DateKey, end: 'from' | 'to', value: string): void {
+    const span = { ...(app.filter.dates[key] ?? {}) };
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) span[end] = value;
+    else delete span[end];
+    app.filter = { ...app.filter, dates: { ...app.filter.dates, [key]: span } };
   }
   // What the tasks have: it follows the tasks and the language only, not every change of a filter.
   const baseChoices = $derived(
@@ -74,24 +100,8 @@
         })),
       })),
   );
-  function chipLabel(item: ActiveFilter): string {
-    switch (item.kind) {
-      case 'area':
-        return `${t('nav.areas')}: ${app.shortAreas ? areaLabel(item.value, app.allAreaNames) : item.value}`;
-      case 'status':
-        return `${t('list.filter.status')}: ${t(`status.${item.value}` as Key)}`;
-      case 'actor':
-        return `${t('list.filter.actor')}: ${t(`actor.${item.value}` as Key)}`;
-      case 'updated':
-        return `${t('filter.updated')}: ${t(`filter.updated.${item.value}` as Key)}`;
-      case 'reminder':
-        return `${t('filter.reminder')}: ${t(`filter.reminder.${item.value}` as Key)}`;
-      case 'cross':
-        return t('filter.cross.on');
-      default:
-        return `${fieldLabel(item.kind)}: ${valueLabel(item.kind, item.value)}`;
-    }
-  }
+  const chipLabel = (item: ActiveFilter): string =>
+    chipText(app.lang, app.filter, item, { short: app.shortAreas, all: app.allAreaNames });
   const chips = $derived(activeFilters(app.filter).map((item) => ({ item, label: chipLabel(item) })));
   let chipList: HTMLUListElement | undefined = $state();
   let moreSummary: HTMLElement | undefined = $state();
@@ -274,6 +284,36 @@
             {#each REMINDER_CHOICES as r (r)}<option value={r}>{t(`filter.reminder.${r}` as Key)}</option>{/each}
           </select>
         </label>
+        {#each rangeChoices as r (r.key)}
+          {#each ['min', 'max'] as const as end (end)}
+            <label class="pick" data-hint={r.key === 'prio' ? t('filter.range.prio_hint') : r.key === 'effort' ? t('filter.range.effort_hint') : undefined}>
+              <span>{t(`filter.range.${end}` as Key, { field: t(`filter.field.${r.key}` as Key) })}</span>
+              <select
+                data-range={`${r.key}-${end}`}
+                value={app.filter.ranges[r.key]?.[end]?.label ?? ''}
+                onchange={(e) => setBound(r.key, end, r.options, e.currentTarget.value)}
+              >
+                <option value="">{t('filter.whatever')}</option>
+                {#each boundsWith(r.options, app.filter.ranges[r.key]?.[end]) as o (o.label)}
+                  <option value={o.label}>{boundLabel(r.key, o.label)}</option>
+                {/each}
+              </select>
+            </label>
+          {/each}
+        {/each}
+        {#each DATE_KEYS as key (key)}
+          {#each ['from', 'to'] as const as end (end)}
+            <label class="pick">
+              <span>{t(`filter.date.${end}` as Key, { field: t(`filter.date.${key}` as Key) })}</span>
+              <input
+                type="date"
+                data-date={`${key}-${end}`}
+                value={app.filter.dates[key]?.[end] ?? ''}
+                onchange={(e) => setDay(key, end, e.currentTarget.value)}
+              />
+            </label>
+          {/each}
+        {/each}
       </div>
     </details>
     {#if chips.length > 0}

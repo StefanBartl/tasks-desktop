@@ -1,13 +1,14 @@
 <script lang="ts">
   import { type App, type OrderedTile, type Tile } from '../lib/app.svelte';
   import type { TaskBrief } from '../lib/contract';
-  import { waitingForMe } from '../lib/filter';
+  import { activeFilters, waitingForMe } from '../lib/filter';
   import { dueItems } from '../lib/remind';
   import { hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import { effortWords } from '../lib/next';
   import { markHidden } from '../lib/text';
   import { tasksOf, type CountKey } from '../lib/counts';
   import CountPanel from './CountPanel.svelte';
+  import FilterNote from './FilterNote.svelte';
 
   let { app }: { app: App } = $props();
 
@@ -16,9 +17,15 @@
 
   const next = $derived(app.next);
   const snapshot = $derived(app.snapshot);
-  const waiting = $derived(waitingForMe(app.tasks).slice(0, 8));
+  // The filter of the list narrows the blocks of tasks; the next task is the engine's answer and stays.
+  const filtered = $derived(activeFilters(app.filter).length > 0);
+  const shownIds = $derived(new Set(app.shown.map((x) => x.id)));
+  const cdx = $derived((next?.cdx ?? []).filter((b) => !filtered || shownIds.has(b.id)));
+  const alternatives = $derived((next?.alternatives ?? []).filter((b) => !filtered || shownIds.has(b.id)));
+  const waiting = $derived(waitingForMe(app.shown).slice(0, 8));
   const empty = $derived(next?.empty);
-  const reminders = $derived(dueItems(app.tasks, snapshot?.reminders, app.today));
+  // A finished task is not in the list, so no filter can match it.
+  const reminders = $derived(dueItems(app.shown, filtered ? [] : snapshot?.reminders, app.today));
   const shown = (tile: Tile) => !app.hiddenTiles.includes(tile);
   // The counts need the snapshot; without them there is no block to keep room for.
   const showOverview = $derived(shown('counts') && snapshot !== null);
@@ -46,7 +53,7 @@
     const tile = tiles.find((x) => x.count === key);
     if (!key || !tile) return null;
     const total = 'total' in tile && tile.total !== undefined ? tile.total : Number(tile.value);
-    return { key, label: tile.key, tasks: tasksOf(key, app.tasks), total };
+    return { key, label: tile.key, tasks: tasksOf(key, app.shown), total };
   });
 
   /** `v` on a number walks its views; Escape closes (handled by the panel). */
@@ -61,7 +68,7 @@
   const visible = $derived(
     app.tileOrder.filter(
       (tile) =>
-        shown(tile) && (tile !== 'remind' || reminders.length > 0) && (tile !== 'cdx' || (next !== null && next.cdx.length > 0)),
+        shown(tile) && (tile !== 'remind' || reminders.length > 0) && (tile !== 'cdx' || cdx.length > 0),
     ),
   );
   const rank = (tile: OrderedTile) => app.tileOrder.indexOf(tile) + 1;
@@ -178,6 +185,7 @@
     {#if opened}
       <CountPanel {app} key={opened.key} label={t(opened.label)} tasks={opened.tasks} total={opened.total} />
     {/if}
+    <FilterNote {app} />
     <p class="sr-only" aria-live="polite">{app.tileNote}</p>
     {#if app.tileOrderChanged}
       <p class="restore">
@@ -215,10 +223,10 @@
             <span data-hint={hintOf(app.lang, 'hint', 'effort')}>{effortWords(app.lang, next.task.effort)}</span>
             {#if why(next.task)} · {why(next.task)}{/if}
           </p>
-          {#if next.alternatives.length > 0}
+          {#if alternatives.length > 0}
             <h2 class="eyebrow">{t('today.alternatives')}</h2>
             <ul class="plain">
-              {#each next.alternatives as alt, i (`${alt.id}:${i}`)}
+              {#each alternatives as alt, i (`${alt.id}:${i}`)}
                 <li>
                   <button type="button" class="link" onclick={() => open(alt.id)}
                     >{markHidden(alt.title)}</button
@@ -324,10 +332,10 @@
       </section>
     {/if}
 
-    {#if shown('cdx') && next && next.cdx.length > 0}
+    {#if shown('cdx') && cdx.length > 0}
       <section data-tile="cdx" style:order={rank('cdx')} class:drop={over === 'cdx'} ondragover={(e) => dragOver(e, 'cdx')} ondragleave={() => (over = null)} ondrop={(e) => drop(e, 'cdx')} class="card" aria-label={t('today.cdx')}>
         <header>
-          <h2 class="eyebrow">{t('today.cdx')} ({next.cdx.length})</h2>
+          <h2 class="eyebrow">{t('today.cdx')} ({cdx.length})</h2>
           {@render handle('cdx')}
           <button
             type="button"
@@ -338,7 +346,7 @@
           >
         </header>
         <ul class="plain">
-          {#each next.cdx.slice(0, 8) as brief, i (`${brief.id}:${i}`)}
+          {#each cdx.slice(0, 8) as brief, i (`${brief.id}:${i}`)}
             <li>
               <button type="button" class="link" onclick={() => open(brief.id)}
                 >{markHidden(brief.title)}</button
