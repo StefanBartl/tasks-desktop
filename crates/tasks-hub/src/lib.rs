@@ -5,6 +5,7 @@
 //! through a trait so the one-process-per-call `CliEngine` of P2 can later
 //! give way to a persistent host without touching the routes.
 
+pub mod about;
 pub mod app;
 pub mod background;
 pub mod classes;

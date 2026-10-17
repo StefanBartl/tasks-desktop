@@ -125,6 +125,28 @@ pub(super) async fn next(State(st): State<Arc<Shared>>, RawQuery(query): RawQuer
     }
 }
 
+/// `GET /api/tasks/about`: what this build is and which engine it runs (versions and commits, the
+/// platform, the pins of `engine.lock`), for the Info dialog and a bug report (APP-09). Nothing in
+/// it names a path, a vault or a person (ENG-06). Without an engine, or with one that does not
+/// answer, the part of the app is still told: that is when a report is needed most.
+pub(super) async fn about(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
+    if let Some(response) = no_query(query.as_deref()) {
+        return response;
+    }
+    let rt = st.rt();
+    let engine = match &rt.engine {
+        None => None,
+        Some(engine) => match engine.call(Calls::Hello, None).await {
+            Ok(reply) => serde_json::from_str::<serde_json::Value>(&reply.text)
+                .ok()
+                .map(|doc| doc["engine"].clone()),
+            Err(_) => None,
+        },
+    };
+    let body = crate::about::document(engine.as_ref());
+    json_response(StatusCode::OK, body.to_string(), None)
+}
+
 /// The areas, each with the class it is shown with. An area the file does
 /// not name is `unclassified`; so the list tells a person what still needs
 /// a decision.

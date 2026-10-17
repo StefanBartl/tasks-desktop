@@ -46,6 +46,8 @@ export function paletteActions(app: App): PaletteAction[] {
 
   if (app.conflicts.length > 0) add('conflicts.show', t('palette.conflicts', { n: app.conflicts.length }), () => app.openConflicts());
   add('rescan', t('menu.rescan'), () => app.focused());
+  add('about', t('menu.about'), () => app.openAbout('info'));
+  add('report', t('menu.report'), () => app.openAbout('report'));
   add('marks.all', t('bulk.all'), () => {
     app.setView('list');
     app.markShown();

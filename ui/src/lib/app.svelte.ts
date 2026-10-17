@@ -21,6 +21,14 @@ import { conflictsOf, conflictsOfRequest, mergeConflicts, retryOp, type Conflict
 import { backoffSeconds, readStream, StreamRefused, type SseMessage } from './sse';
 import { detectLang, isLang, translate, type Key, type Lang } from './i18n';
 import { localToday } from './remind';
+import type { About } from './about';
+
+/** The state of the Info dialog (APP-09). */
+export type AboutState =
+  | { state: 'closed' }
+  | { state: 'loading'; focus: 'info' | 'report' }
+  | { state: 'ok'; doc: About; focus: 'info' | 'report' }
+  | { state: 'failed'; message: string };
 
 /** The longest line of the notes the engine takes (`append_note`), in characters. */
 const NOTE_MAX = 1000;
@@ -221,6 +229,8 @@ export class App {
   vaultList = $state.raw<VaultList | null>(null);
   /** The dialog of the vaults is open. */
   managingVaults = $state(false);
+  /** The Info dialog: closed, asking the hub, the words of the hub, or why it did not answer. */
+  about = $state.raw<AboutState>({ state: 'closed' });
   /** A vault is being chosen or changed: one at a time. */
   vaultBusy = $state(false);
   /** The task that is being finished, with what the engine says that does. */
@@ -1714,6 +1724,28 @@ export class App {
       this.vaultList = await this.env.hub.vaults();
     } catch {
       this.vaultList = null;
+    }
+  }
+
+  /** Open the Info dialog (APP-09); `focus` says what the person came for, so that the keyboard lands there. */
+  openAbout(focus: 'info' | 'report' = 'info'): void {
+    if (this.phase !== 'ready') return;
+    this.about = { state: 'loading', focus };
+    void this.loadAbout(focus);
+  }
+
+  closeAbout(): void {
+    this.about = { state: 'closed' };
+  }
+
+  private async loadAbout(focus: 'info' | 'report'): Promise<void> {
+    try {
+      const doc = await this.env.hub.about();
+      if (this.about.state !== 'closed') this.about = { state: 'ok', doc, focus };
+    } catch (error) {
+      if (this.about.state !== 'closed') {
+        this.about = { state: 'failed', message: error instanceof Error ? error.message : String(error) };
+      }
     }
   }
 

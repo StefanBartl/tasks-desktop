@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -2869,3 +2870,46 @@ async function checkFindingsStay(page: Page): Promise<void> {
   }
   expect(consoleProblems.get(page)).toEqual([]);
 }
+
+test('help: the about dialog names the build and the engine, and the report carries no path', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+
+  await page.getByRole('menuitem', { name: 'Help', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'About ...' }).click();
+  const dialog = page.getByRole('dialog', { name: 'About tasks-desktop' });
+  await expect(dialog).toBeVisible();
+  // The version of the hub and the commit of the real engine, as the hub tells them.
+  await expect(dialog.getByText(/^\d+\.\d+\.\d+$/)).toBeVisible();
+  await expect(dialog.getByText('Engine (tasks.nvim)')).toBeVisible();
+  const report = await dialog.getByLabel('Report', { exact: true }).inputValue();
+  expect(report).toMatch(/^tasks-desktop \d+\.\d+\.\d+/);
+  expect(report).toMatch(/Engine: tasks\.nvim \S+, commit [0-9a-f]{7,40}, Neovim \d/);
+  expect(report).toMatch(/Tested with: tasks\.nvim [0-9a-f]{40}, lib\.nvim [0-9a-f]{40}/);
+  expect(report).toContain('What happened:');
+  // Nothing of this machine: not the vault, not the config folder, not the temp folder, not the user's name.
+  for (const secret of [state().vault, state().config, tmpdir(), process.env['USERNAME'] ?? process.env['USER'] ?? '\u0000']) {
+    expect(report).not.toContain(secret.replace(/\\/g, '/'));
+    expect(report).not.toContain(secret);
+  }
+  // The form is a link the person follows: a new issue, the report in its body, nothing sent by the page.
+  const href = await dialog.getByRole('link', { name: 'Open the form' }).getAttribute('href');
+  expect(href).not.toBeNull();
+  const url = new URL(href ?? '');
+  expect(url.origin + url.pathname).toBe('https://github.com/StefanBartl/tasks-desktop/issues/new');
+  expect(url.searchParams.get('body')).toBe(report);
+  await expectAccessible(page, 'the about dialog');
+
+  // Escape closes it; "Report a problem" opens it again with the keyboard on the link to the form.
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('menuitem', { name: 'Help', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Report a problem ...' }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('link', { name: 'Open the form' })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
