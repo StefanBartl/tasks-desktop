@@ -104,7 +104,41 @@ async function capture(page: Page, title: string): Promise<void> {
   await dialog.getByLabel('Title').fill(title);
   await dialog.locator('select').first().selectOption('lib.nvim');
   await dialog.getByRole('button', { name: 'Create' }).click();
-  await expect(dialog).toHaveCount(0);
+  // The dialog closes when the write is answered and the list read again. The hub gives the engine 5 s for a call,
+  // and a write may first wait for the engine behind another call: on a busy runner that is more than the 5 s of an
+  // expect (CI, a8827db).
+  await expect(dialog).toHaveCount(0, { timeout: WRITE_BUDGET });
+}
+
+/** How long a test waits for a write to be answered: the engine's 5 s for a call, and a call it may wait behind. */
+const WRITE_BUDGET = 15_000;
+
+/**
+ * No write of the page is on its way: every card of the board can be dragged again. A key or a drag while a write is
+ * on its way is not sent, and the board may already show the move before the answer is there (the hub's event of the
+ * changed file can come first; CI, 5da9dd1).
+ */
+async function settled(page: Page): Promise<void> {
+  await expect(page.locator('.card:not([draggable="true"])')).toHaveCount(0, { timeout: WRITE_BUDGET });
+}
+
+/**
+ * Hold the answer of the next write until the returned function is called: the write reaches the engine (and the hub
+ * tells of the changed file), only the page does not hear the answer yet.
+ */
+async function holdNextWrite(page: Page): Promise<() => void> {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(
+    '**/api/tasks/ops',
+    async (route) => {
+      const answer = await route.fetch();
+      await held;
+      await route.fulfill({ response: answer });
+    },
+    { times: 1 },
+  );
+  return release;
 }
 
 async function open(page: Page, id: string): Promise<void> {
@@ -1135,9 +1169,17 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
   await pair(page);
   await showList(page);
 
-  for (const n of [1, 2, 3]) await capture(page, `Board e2e ${n}`);
+  // The first write is answered late, as by an engine on a busy runner: more than the 5 s an expect waits by default.
+  const late = await holdNextWrite(page);
+  const lateTimer = setTimeout(late, 7_000);
+  // A title of its own for each repeat (--repeat-each with the one worker shares the vault, and the search matches a
+  // word by its start: a later repeat's 'Board1' is not found by an earlier 'Board').
+  const repeat = test.info().repeatEachIndex;
+  const prefix = `Board${repeat === 0 ? '' : repeat} e2e`;
+  for (const n of [1, 2, 3]) await capture(page, `${prefix} ${n}`);
+  clearTimeout(lateTimer);
   // The filter of the list is the filter of the board.
-  await page.getByRole('searchbox', { name: /search/i }).first().fill('Board e2e');
+  await page.getByRole('searchbox', { name: /search/i }).first().fill(prefix);
   await expect(page.locator('.rows .line')).toHaveCount(3);
   await chooseView(page, 'View', 'Board');
 
@@ -1157,7 +1199,7 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
   await expect(page.getByRole('menubar')).toBeVisible();
   // The filter is not kept over a reload: narrow to the three again through the list.
   await chooseView(page, 'View', 'List');
-  await page.getByRole('searchbox', { name: /search/i }).first().fill('Board e2e');
+  await page.getByRole('searchbox', { name: /search/i }).first().fill(prefix);
   await chooseView(page, 'View', 'Board');
   await expect(column('open').locator('.card')).toHaveCount(3);
   expect(await titles('open')).toEqual(moved);
@@ -1166,6 +1208,8 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
   await column('open').locator('.card').nth(1).click();
   await page.keyboard.press('Shift+K');
   await expect.poll(() => titles('open')).toEqual(first);
+  // The order can stand before the write is answered: its "Saved." would replace what the next key tells.
+  await settled(page);
   await page.keyboard.press('Shift+K');
   await expect(page.getByRole('status').getByText(/end of its priority group/)).toBeVisible();
 
@@ -1173,19 +1217,26 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
   const cards = column('open').locator('.card');
   await drag(page, cards.nth(0), cards.nth(2), 'lower');
   await expect.poll(() => titles('open')).toEqual([first[1], first[2], first[0]]);
+  await settled(page);
 
   // Drag a card into another column: the status changes.
   const name = (await titles('open'))[0] as string;
   await drag(page, column('open').locator('.card', { hasText: name }), column('doing'));
   await expect(column('doing').locator('.card', { hasText: name })).toHaveCount(1);
   await expect(column('open').locator('.card')).toHaveCount(2);
+  await settled(page);
 
-  // H and L change the status of the selected card with the keys.
+  // H and L change the status of the selected card with the keys. The answer of L is held: the hub's event of the
+  // changed file moves the card while the write is still on its way, and H is pressed when the write is done.
   await column('doing').locator('.card', { hasText: name }).click();
+  const release = await holdNextWrite(page);
   await page.keyboard.press('Shift+L');
   await expect(column('decision').locator('.card', { hasText: name })).toHaveCount(1);
+  release();
+  await settled(page);
   await page.keyboard.press('Shift+H');
   await expect(column('doing').locator('.card', { hasText: name })).toHaveCount(1);
+  await settled(page);
 
   // A card of another priority is another group: the engine orders inside a group only, so the move is refused.
   const other = (await titles('open'))[0] as string;
@@ -1224,7 +1275,7 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
   await page.reload();
   await expect(page.getByRole('menubar')).toBeVisible();
   await chooseView(page, 'View', 'List');
-  await page.getByRole('searchbox', { name: /search/i }).first().fill('Board e2e');
+  await page.getByRole('searchbox', { name: /search/i }).first().fill(prefix);
   await chooseView(page, 'View', 'Board');
   await expect.poll(() => titles('open')).toEqual([other, mover]);
   await column('open').locator('.card', { hasText: mover }).click();
