@@ -55,15 +55,19 @@ fn alive(pid: u32) -> bool {
             .output()
             .unwrap()
     } else {
-        std::process::Command::new("kill")
-            .args(["-0", &pid.to_string()])
+        // Not `kill -0`: a killed child stays a zombie until its parent (the hub, on its next call) reaps it, and a
+        // zombie answers `kill -0` like a live process (red on Linux in CI). `ps` names its state: Z is gone.
+        std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
             .output()
             .unwrap()
     };
     if cfg!(windows) {
         String::from_utf8_lossy(&out.stdout).contains(&pid.to_string())
     } else {
-        out.status.success()
+        let state = String::from_utf8_lossy(&out.stdout);
+        let state = state.trim();
+        out.status.success() && !state.is_empty() && !state.starts_with('Z')
     }
 }
 
