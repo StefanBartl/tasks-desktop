@@ -104,6 +104,46 @@ jobs:
       # appkit is the one git source: the commit Cargo.lock pins must be the one its tag names now.
       - run: python tools/check-appkit-pin.py
 
+  # The hub's tests with the real engine on Linux as well: the watcher hears
+  # inotify there, which tells a renamed folder (a folder task moved by
+  # move_area or done) in two halves, not as Windows does (TST-08).
+  rust-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
+        with:
+          persist-credentials: false
+      - name: Read the pinned engine commits
+        id: engine
+        run: |
+          echo "commit=$(sed -n 's/^commit *= *//p' engine.lock)" >> "$GITHUB_OUTPUT"
+          echo "lib_commit=$(sed -n 's/^lib_commit *= *//p' engine.lock)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
+        with:
+          repository: StefanBartl/tasks.nvim
+          ref: ${{ steps.engine.outputs.commit }}
+          path: engine/tasks.nvim
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
+        with:
+          repository: StefanBartl/lib.nvim
+          ref: ${{ steps.engine.outputs.lib_commit }}
+          path: engine/lib.nvim
+          persist-credentials: false
+      - uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1
+        with:
+          neovim: true
+          version: v0.12.2
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+      # The interface is part of the binary: it is built first.
+      - name: Build the interface
+        working-directory: ui
+        run: |
+          npm install --global pnpm@11.28.2
+          pnpm install --frozen-lockfile
+          pnpm build
+      - run: cargo test --workspace --locked
+
   ui:
     runs-on: ubuntu-latest
     defaults:
