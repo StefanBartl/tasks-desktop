@@ -1457,6 +1457,11 @@ export class App {
     });
   }
 
+  /** The blocks are not in the standard order (what "reset the order" would change). */
+  get tileOrderChanged(): boolean {
+    return this.tileOrder.some((tile, i) => tile !== ORDERED_TILES[i]);
+  }
+
   resetTileOrder(): void {
     this.tileOrder = [...ORDERED_TILES];
     this.saveOrder();

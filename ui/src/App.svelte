@@ -307,6 +307,12 @@
           },
           {
             kind: 'action',
+            label: t('menu.reset_order'),
+            disabled: !app.tileOrderChanged,
+            onselect: () => app.resetTileOrder(),
+          },
+          {
+            kind: 'action',
             label: t('menu.reset_filter'),
             disabled: !ready,
             onselect: () => app.resetFilter(),

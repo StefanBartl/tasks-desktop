@@ -2890,10 +2890,12 @@ describe('the order of the tiles of the overview', () => {
     const { app, prefs } = make({ token: 't' });
     app.moveTile('cdx', 'next', false, ['next', 'waiting', 'remind', 'cdx']);
     expect(app.tileOrder).toEqual(['cdx', 'next', 'waiting', 'remind']);
+    expect(app.tileOrderChanged).toBe(true);
     expect(app.tileNote).toBe('Eine KI-Sitzung könnte übernehmen ist jetzt Nummer 1 von 4');
     expect(prefs.get('tasks-desktop.tiles-order')).toBe('["cdx","next","waiting","remind"]');
     app.resetTileOrder();
     expect(app.tileOrder).toEqual(['next', 'waiting', 'remind', 'cdx']);
+    expect(app.tileOrderChanged).toBe(false);
 
     const kept = make({ token: 't', prefs: new Map([['tasks-desktop.tiles-order', '["waiting","x","waiting"]']]) });
     expect(kept.app.tileOrder).toEqual(['waiting', 'next', 'remind', 'cdx']);
