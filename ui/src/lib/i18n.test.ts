@@ -37,3 +37,21 @@ describe('labelOf', () => {
     expect(labelOf('en', 'status', 'constructor')).toBe('constructor');
   });
 });
+
+describe('the German explanations', () => {
+  // A status or a state is named by the word the page shows; the word of the file follows in brackets, so that whoever
+  // edits the file finds it ("blockiert (blocked)"). Outside brackets no raw word stands in a German hint.
+  const RAW = /\b(doing|open|blocked|parked|decision|done|ready|waiting|stuck|freed)\b/;
+  it('name a status or a state by the shown word, the raw word only in brackets', () => {
+    for (const [key, text] of Object.entries(dictionaries.de)) {
+      if (!key.startsWith('hint.') && !key.startsWith('mark.legend')) continue;
+      const outside = text.replace(/\([^)]*\)/g, '');
+      expect(outside, key).not.toMatch(RAW);
+    }
+  });
+  it('use one stem for finishing a task: erledigen', () => {
+    for (const [key, text] of Object.entries(dictionaries.de)) {
+      expect(text, key).not.toMatch(/abschlie|schließt ab|abzuschlie/i);
+    }
+  });
+});
