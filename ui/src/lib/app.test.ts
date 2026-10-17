@@ -4,6 +4,7 @@ import { App, type Env } from './app.svelte';
 import type { CachedList, ListStore } from './cache';
 import type { DonePreview, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import { task } from './fixtures';
+import { translate } from './i18n';
 import { emptyForm } from './planwizard';
 
 function snapshot(tasks: TaskEntry[], rev = 'rev:1'): Snapshot {
@@ -1353,6 +1354,41 @@ describe('writing', () => {
       expect(hub.sent).toHaveLength(0);
     });
 
+    it('refuses a move while a write is under way, aloud, and does not keep it for later', async () => {
+      const { app, hub } = await ready([open('pub/a', 'open|1', 'e1'), open('pub/b', 'open|1', 'e2')]);
+      // The answer of the first write hangs until it is released.
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      const answer = hub.ops.bind(hub);
+      hub.ops = async (request: OpsRequest) => {
+        await gate;
+        return answer(request);
+      };
+      const first = app.shiftColumn('pub/a', 1);
+      expect(app.saving).toBe(true);
+      const moves: [string, () => Promise<void>][] = [
+        ['shift', () => app.shiftColumn('pub/b', 1)],
+        ['step', () => app.stepCard('pub/b', 1)],
+        ['column', () => app.dropOnColumn('pub/b', 'doing')],
+        ['near', () => app.dropNear('pub/b', { id: 'pub/a', place: 'before' })],
+        ['done', () => app.dropOnDone('pub/b')],
+      ];
+      for (const [name, move] of moves) {
+        app.dismissToast();
+        await move();
+        expect(app.toast, name).toEqual({ kind: 'error', text: translate(app.lang, 'write.busy') });
+      }
+      release();
+      await first;
+      // Only the first write was sent, and no refused move comes after it.
+      expect(hub.sent).toHaveLength(1);
+      expect(hub.sent[0]?.ops[0]).toMatchObject({ id: 'pub/a', patch: { status: 'parked' } });
+      expect(app.finishing).toBeNull();
+      expect(app.toast?.kind).toBe('ok');
+      await Promise.resolve();
+      expect(hub.sent).toHaveLength(1);
+    });
+
     it('takes a reorder back with the reorder the engine named', async () => {
       const { app, hub } = await ready([open('pub/a', 'open|1', 'e1'), open('pub/b', 'open|1', 'e2')]);
       hub.next_ops = {
@@ -2226,7 +2262,10 @@ describe('the inbox', () => {
     await app.triage('4', false);
     expect(hub.sent).toHaveLength(0);
     const first = app.triage('2', false);
-    await app.triage('3', false);
+    const second = app.triage('3', false);
+    // Refused aloud, not dropped without a word (and not kept for later).
+    expect(app.toast).toEqual({ kind: 'error', text: translate(app.lang, 'write.busy') });
+    await second;
     await first;
     expect(hub.sent).toHaveLength(1);
     expect(hub.sent[0]?.ops[0]).toMatchObject({ patch: { prio: 2 } });

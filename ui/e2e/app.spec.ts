@@ -101,7 +101,7 @@ function detailTitle(page: Page): Locator {
 /**
  * No write of the page is on its way: every card of the board can be dragged again, and the fields of the detail can
  * be edited again (the title is held back only while a write is on its way, and so is the read of the list after its
- * answer). A key or a drag while a write is on its way is not sent, and the board or the inbox may already show the
+ * answer). A key or a drag while a write is on its way is not sent (it is refused with a toast), and the board or the inbox may already show the
  * change before the answer is there (the hub's event of the changed file can come first; CI, 5da9dd1 and a098dff).
  * Without a card and without the title there is nothing that could tell, and the wait would pass at once: that is red.
  */
@@ -1271,9 +1271,13 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
   const answer = nextAnswer(page);
   await page.keyboard.press('Shift+L');
   await expect(column('decision').locator('.card', { hasText: name })).toHaveCount(1, { timeout: WRITE_BUDGET });
+  // A key while the write is on its way is refused aloud (not kept for later): the card stays where it is.
+  await page.keyboard.press('Shift+H');
+  await expect(page.getByRole('alert').getByText('Still saving - try again in a moment.')).toBeVisible();
   release();
   await answer;
   await settled(page);
+  await expect(column('decision').locator('.card', { hasText: name })).toHaveCount(1);
   await write(page, () => page.keyboard.press('Shift+H'));
   await expect(column('doing').locator('.card', { hasText: name })).toHaveCount(1);
 

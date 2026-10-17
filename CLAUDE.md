@@ -61,8 +61,13 @@ python tools/check-control-chars.py
   Suchbegriff darf keinen Task eines anderen Tests treffen).
 - `keyboard.press('F')` sendet kein Shift: Umschalt+f ist `press('Shift+f')`.
 - Eine Taste oder ein Drag, während ein Schreibvorgang unterwegs ist, wird nicht
-  gesendet, und das Event des Hubs kann die Änderung zeigen, bevor die Antwort da
-  ist: vor dem nächsten Schritt `settled(page)` abwarten (alle Karten wieder
+  gesendet, sondern mit dem Fehler-Toast `write.busy` ("Still saving - try again in
+  a moment.", role=alert) abgelehnt (`App.refusedWhileSaving`: Board `J`/`K`/`H`/`L`,
+  Drops, Inbox-Tasten; Karten sind währenddessen nicht ziehbar). Bewusst nicht
+  gepuffert: eine gemerkte Taste träfe eine Liste, die die Person noch nicht gesehen
+  hat (der laufende Schreibvorgang kann die Karte verschieben oder den Task aus der
+  Inbox sortieren). Puffern wäre an dieser einen Stelle einzubauen. Das Event des
+  Hubs kann die Änderung zeigen, bevor die Antwort da ist: vor dem nächsten Schritt `settled(page)` abwarten (alle Karten wieder
   ziehbar, der Titel im Detail wieder bearbeitbar; gilt für Board und Inbox),
   nicht nur die sichtbare Änderung. Auf eine Schreibantwort `WRITE_BUDGET` (15 s)
   warten, nicht die 5 s eines `expect`: einen Schritt, der schreibt, in
