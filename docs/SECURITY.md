@@ -471,7 +471,9 @@ platform backends are about twenty) and its policy is in the repository:
   that come with appkit included.
 * appkit is taken by a tag; `Cargo.lock` pins the commit, and a tag that was
   moved later is caught by `tools/check-appkit-pin.py` (also run in CI): the
-  pinned commit must be the one the tag names now.
+  pinned commit must be the one the tag names now. The page's `appkit-ui`
+  (the folder `ui-kit` of the same repository, pinned by `ui/pnpm-lock.yaml`)
+  must name the same tag and commit; a `link:` to a checkout fails the check.
 * A version that is younger than seven days is not taken
   (`tools/check-lock-age.py`, also run in CI). Cargo has no setting for
   this. A newer version is taken with `cargo update -p <crate> --precise

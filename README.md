@@ -162,7 +162,11 @@ What does not depend on tasks (the guard, pairing and sessions, the engine seam,
 watcher, the search, installing, and the security matrix every app's hub must pass) is
 [appkit](https://github.com/StefanBartl/appkit), taken by the tag named in `Cargo.toml`
 (`[workspace.dependencies]`); `Cargo.lock` pins its commit and `tools/check-appkit-pin.py` checks
-that the tag still names it.
+that the tag still names it. The page takes its shared parts from the same tag (`appkit-ui`, the
+folder `ui-kit` of that repository, named in `ui/package.json` and pinned by `ui/pnpm-lock.yaml`):
+the design tokens and base rules, the menu bar, the multi-select, the info button, the markdown
+reader, the hint popup, the event-stream reader and the pairing code; the same check holds the two
+pins to one commit.
 
 The Tauri shell and the browser tests are added by the phases P2 to P7; the
 plan lives in the maintainer's notes.

@@ -3,7 +3,7 @@
   // the rest up (the critical path) and what the plan warns about.
   import type { App } from '../lib/app.svelte';
   import { formatNumber, hintOf, labelOf, translate, type Key } from '../lib/i18n';
-  import Info from './Info.svelte';
+  import Info from 'appkit-ui/Info.svelte';
   import { chosenPlan, criticalIds, firstTasks, phaseCounts, stagesOf, warningsOf } from '../lib/plan';
   import { markHidden } from '../lib/text';
   import GraphPanel from './GraphPanel.svelte';

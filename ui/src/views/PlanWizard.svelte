@@ -13,7 +13,7 @@
     type PlanForm,
     type PlanPreview,
   } from '../lib/planwizard';
-  import MultiSelect from './MultiSelect.svelte';
+  import MultiSelect from 'appkit-ui/MultiSelect.svelte';
 
   let { app }: { app: App } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) =>

@@ -30,8 +30,15 @@ python tools/check-control-chars.py
   `[workspace.dependencies]` von `Cargo.toml`. Eine Änderung dort: erst in `appkit` (CI grün, neues Tag
   nach `docs/RELEASING.md` dort), dann hier das Tag heben, `cargo update -p appkit-hub` (holt alle drei),
   `python tools/check-appkit-pin.py`.
+- Die Oberfläche nimmt vom selben Tag das Paket `appkit-ui` (Ordner `ui-kit` in appkit: Tokens, Basisregeln,
+  MenuBar, MultiSelect, Info, Markdown-Leser, Hinweis-Popup, SSE, Pairing-Code), eingebunden in `ui/package.json`
+  als `git+https://github.com/StefanBartl/appkit.git#vX.Y.Z&path:ui-kit`; `ui/pnpm-lock.yaml` pinnt den Commit,
+  `tools/check-appkit-pin.py` verlangt dasselbe Tag und denselben Commit wie `Cargo.lock`. Tag heben: beide
+  Stellen (`Cargo.toml` und `ui/package.json`), `cargo update -p appkit-hub`, `cd ui && pnpm install`.
 - Gleichzeitig an `appkit` und hier arbeiten: `[patch."https://github.com/StefanBartl/appkit"]` mit Pfaden in
-  einer **nicht eingecheckten** `.cargo/config.toml`; nie einen Pfad in `Cargo.toml` committen.
+  einer **nicht eingecheckten** `.cargo/config.toml`; nie einen Pfad in `Cargo.toml` committen. Für die
+  Oberfläche `pnpm add link:E:/repos/appkit/ui-kit` und vor dem Commit das Git-Tag zurück (die Pin-Prüfung
+  meldet einen `link:`).
 - Falle: ein `[patch]` (auch per `cargo --config 'patch...'`) schreibt `Cargo.lock` um, die `appkit`-Pakete
   verlieren ihre Git-Quelle. Danach `git checkout -- Cargo.lock`, ohne `--locked` bauen (nur die drei
   `source`-Zeilen dürfen sich ändern), `python tools/check-appkit-pin.py`. Nie eine so umgeschriebene

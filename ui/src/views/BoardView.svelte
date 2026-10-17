@@ -5,7 +5,7 @@
   import type { App } from '../lib/app.svelte';
   import { COLUMNS, COLUMN_FIRST, groupLabel, placeOf, runKey, stageOf, type Column } from '../lib/board';
   import { hintOf, labelOf, translate, type Key } from '../lib/i18n';
-  import Info from './Info.svelte';
+  import Info from 'appkit-ui/Info.svelte';
   import { markHidden } from '../lib/text';
   import Detail from './Detail.svelte';
 

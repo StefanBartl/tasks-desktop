@@ -11,7 +11,7 @@
   import Matrix from './views/Matrix.svelte';
   import CheckDialog from './views/CheckDialog.svelte';
   import { triageKey } from './lib/inbox';
-  import MenuBar, { type Menu } from './views/MenuBar.svelte';
+  import MenuBar, { type Menu } from 'appkit-ui/MenuBar.svelte';
   import PlanView from './views/PlanView.svelte';
   import Capture from './views/Capture.svelte';
   import PlanWizard from './views/PlanWizard.svelte';

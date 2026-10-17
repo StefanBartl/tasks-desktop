@@ -4,8 +4,9 @@ import App from './App.svelte';
 import { Hub } from './lib/api';
 import { App as AppState, type Env } from './lib/app.svelte';
 import { indexedDbStore } from './lib/cache';
-import { takePairingCode } from './lib/pair';
-import { installTooltips } from './lib/tooltip';
+import { translate } from './lib/i18n';
+import { takePairingCode } from 'appkit-ui/pair';
+import { installTooltips } from 'appkit-ui/tooltip';
 
 // The code leaves the address bar before anything else happens.
 const code = takePairingCode(window.location, window.history);
@@ -23,9 +24,9 @@ const env: Env = {
   reload: () => window.location.reload(),
 };
 
-installTooltips(document, window);
-
 const state = new AppState(env);
+// The popup is the kit's; the name of its region is this page's word, in the page's language.
+installTooltips(document, window, { regionLabel: () => translate(state.lang, 'hint.region') });
 mount(App, { target: document.getElementById('app') as HTMLElement, props: { app: state, code } });
 
 // A link from `tasks-hub open` pasted into a tab that is already open changes only the fragment: no reload.

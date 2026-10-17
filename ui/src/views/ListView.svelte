@@ -6,7 +6,7 @@
   import FinishedList from './FinishedList.svelte';
   import TextHits from './TextHits.svelte';
   import TaskRow from './TaskRow.svelte';
-  import MultiSelect from './MultiSelect.svelte';
+  import MultiSelect from 'appkit-ui/MultiSelect.svelte';
   import {
     FIELD_KEYS,
     NONE,

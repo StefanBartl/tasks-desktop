@@ -1,6 +1,8 @@
 // A typed dictionary, German and English, and `Intl` for numbers and dates.
 // The UI language is not the language of the data: titles stay as written.
 
+import { fill, pickLang } from 'appkit-ui/i18n';
+
 export type Lang = 'de' | 'en';
 
 const en = {
@@ -1258,12 +1260,7 @@ export function isLang(value: unknown): value is Lang {
 
 /** The language a browser asks for, German or else English. */
 export function detectLang(preferred: readonly string[]): Lang {
-  for (const tag of preferred) {
-    const base = tag.toLowerCase().split('-')[0];
-    if (base === 'de') return 'de';
-    if (base === 'en') return 'en';
-  }
-  return 'en';
+  return pickLang(preferred, ['de', 'en'], 'en');
 }
 
 export function translate(
@@ -1273,11 +1270,7 @@ export function translate(
 ): string {
   // A key that is not there (never from the code, which is typed) shows as
   // itself rather than breaking the page.
-  const text = dictionaries[lang][key] ?? key;
-  return text.replace(/\{(\w+)\}/g, (whole, name: string) => {
-    const value = params[name];
-    return value === undefined ? whole : String(value);
-  });
+  return fill(dictionaries[lang][key] ?? key, params);
 }
 
 /** "5 min", "2 h": how long ago, in the unit that fits. */

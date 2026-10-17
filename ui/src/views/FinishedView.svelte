@@ -10,7 +10,7 @@
   import { areaLabel } from '../lib/filter';
   import { formatNumber, labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
-  import Info from './Info.svelte';
+  import Info from 'appkit-ui/Info.svelte';
 
   let { app }: { app: App } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
