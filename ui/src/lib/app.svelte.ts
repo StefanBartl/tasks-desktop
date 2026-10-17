@@ -5,7 +5,7 @@ import { type TagEdit, bulkSetOps, markAll, pruneMarks, toggleMark } from './bul
 import { planOp, type PlanForm, type PlanPreview } from './planwizard';
 import { columnsOf, isColumn, neighbourColumn, placeNear, stepInGroup, type Move } from './board';
 import { ApiError, type CheckJobState, type Hub, type HubArea, type HubAreas, type SearchResult, type VaultList } from './api';
-import { cacheableClass, cacheableList, type ListStore } from './cache';
+import { cacheableClass, cacheableList, type CachedList, type ListStore } from './cache';
 import type { Check, DonePreview, Estimate, Finished, Links, MovePlan, Next, PlanFor, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import type { Op } from './api';
 import { indexOfLinks, touchedAreas } from './cross';
@@ -1481,14 +1481,19 @@ export class App {
     if (stored) {
       const cached = await within(this.env.cache.load(), 1500);
       if (cached && this.tasks.length === 0) {
-        this.tasks = cached.tasks;
-        this.cachedAt = cached.savedAt;
         // The views are drawn from here on and ask the hub at once (the view the page was left on): they carry the
         // session of this tab. Without it their first question is refused and the page believes the session is lost.
         this.env.hub.setToken(stored);
         this.env.hub.onUnauthorized = () => this.lostSession();
         given = true;
+        this.tasks = cached.tasks;
+        this.cachedAt = cached.savedAt;
         this.phase = 'ready';
+        // The list is of the vault the hub read when it was saved. A hub that reads another one now (chosen in another
+        // tab, or its settings changed) would answer the views of this page for that vault beside a list of the old
+        // one. The first picture does not wait for the hub (that is the use of the cache); the hub is asked at once
+        // (no engine, a moment) and a list of another vault is taken away as soon as it says so.
+        void this.dropCacheOfAnotherVault(cached);
       }
     }
 
@@ -1695,12 +1700,13 @@ export class App {
         this.hubAreas = (await this.areasRead).areas;
       }
       const list = cacheableList(doc, this.etag, this.hubAreas, this.env.now());
-      if (list) void this.env.cache.save(list);
+      // The list is kept with the vault the hub reads, so that a start can tell a list of another vault.
+      await this.loadVaults();
+      if (list) void this.env.cache.save({ ...list, hubVault: this.vaultList?.active ?? null });
       else void this.env.cache.clear();
     } catch {
       // No classes, no cache: nothing is written.
     }
-    void this.loadVaults();
     void this.loadLinks();
     if (this.view === 'today') await this.loadNext();
   }
@@ -1738,6 +1744,35 @@ export class App {
   }
 
   /** Read the list of vaults; a hub without one (404) simply has no menu entries. */
+  /** Take the cached list away when the hub names another vault than the one it was saved of. */
+  private async dropCacheOfAnotherVault(cached: CachedList): Promise<void> {
+    let now: { name: string | null };
+    try {
+      now = await this.hubVaultName();
+    } catch {
+      return; // A hub that does not answer says nothing against the list.
+    }
+    if (cached.hubVault === undefined || now.name === cached.hubVault) return;
+    void this.env.cache.clear();
+    // Only while the cached list is what is shown: a list the hub sent meanwhile stays.
+    if (this.cachedAt !== cached.savedAt) return;
+    this.tasks = [];
+    this.cachedAt = null;
+    this.select(null);
+    this.marks = [];
+    this.phase = 'starting';
+  }
+
+  /** The name of the vault the hub reads now (`null`: a hub with one vault and no list); fails when the hub does not answer. */
+  private async hubVaultName(): Promise<{ name: string | null }> {
+    try {
+      return { name: (await this.env.hub.vaults()).active };
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return { name: null };
+      throw error;
+    }
+  }
+
   async loadVaults(): Promise<void> {
     try {
       this.vaultList = await this.env.hub.vaults();
