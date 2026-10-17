@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -940,6 +941,62 @@ test('the inbox sorts tasks with single keys and nothing else', async ({ page })
   await page.keyboard.press('u');
   await expect(toast.getByText('Undone.')).toBeVisible();
   await expect(inbox.locator('.row', { hasText: 'lib.nvim/inbox-e2e-3' })).toContainText('no who');
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('ten tasks are sorted in the inbox with the keyboard alone, from the search to the last key', async ({ page }) => {
+  // Acceptance of P5: ten tasks triaged with the keyboard only (no click, no pointer after the page is open).
+  const slugs = Array.from({ length: 10 }, (_, i) => `kbd-triage-e2e-${String(i).padStart(2, '0')}`);
+  const file = (slug: string) => join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
+  for (const slug of slugs) {
+    writeFileSync(file(slug), `---\ntitle: Keyboard triage ${slug}\nstatus: open\nkind: task\n---\n\nUnsorted.\n`);
+  }
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  // The search narrows the inbox too: '/' goes to the box, Tab leaves it, g i opens the inbox.
+  await page.keyboard.press('/');
+  await expect(page.getByRole('searchbox', { name: /search/i }).first()).toBeFocused();
+  await page.keyboard.type('kbd-triage-e2e');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('g');
+  await page.keyboard.press('i');
+  const inbox = page.locator('section.inbox');
+  await expect(inbox.locator('.row')).toHaveCount(10, { timeout: WRITE_BUDGET });
+  await expectAccessible(page, 'the inbox narrowed by the search');
+  // The inbox selects its first row; j and k move.
+  await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/${slugs[0]}`);
+  await page.keyboard.press('j');
+  await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/${slugs[1]}`);
+  await page.keyboard.press('k');
+  await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/${slugs[0]}`);
+  // Each task: a priority, an effort and a who, one key each; with the last it leaves and the next takes its place.
+  const prio = ['1', '2', '3'];
+  const effort = ['a', 's', 'd', 'f'];
+  const who = ['m', 'p', 'i'];
+  for (const [n, slug] of slugs.entries()) {
+    await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/${slug}`);
+    const keys = [prio[n % 3], effort[n % 4], who[n % 3]] as string[];
+    for (const [k, key] of keys.entries()) {
+      if (n === slugs.length - 1 && k === keys.length - 1) {
+        // The last key empties the inbox: no detail is left to tell that the page settled, the answer does.
+        const answer = nextAnswer(page);
+        await page.keyboard.press(key);
+        await answer;
+      } else {
+        await write(page, () => page.keyboard.press(key));
+      }
+    }
+    await expect(inbox.locator('.row', { hasText: slug })).toHaveCount(0);
+  }
+  await expect(inbox.locator('.row')).toHaveCount(0);
+  for (const [n, slug] of slugs.entries()) {
+    const text = readFileSync(file(slug), 'utf8');
+    expect(text, slug).toMatch(new RegExp(`^prio: ${n % 3 + 1}$`, 'm'));
+    expect(text, slug).toMatch(new RegExp(`^effort: ${['XS', 'S', 'M', 'L'][n % 4]}$`, 'm'));
+    expect(text, slug).toMatch(new RegExp(`^actor: ${['me', 'pair', 'cdx'][n % 3]}$`, 'm'));
+  }
+  expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
@@ -2032,6 +2089,65 @@ test('a finished task with a reminder comes back on Today and the reminder can b
   await card.getByRole('button', { name: new RegExp(`Remove the reminder: ${id}`) }).click();
   await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
   await expect(page.getByRole('region', { name: 'To look at again' })).toHaveCount(0);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
+/** The stages of `tasks plan` of the engine on the vault of the tests: per stage (`-`: none) its ids in plan order. */
+function enginePlan(): { stage: string; ids: string[] }[] {
+  const engine = process.env.TASKS_ENGINE_DIR;
+  if (!engine) throw new Error('TASKS_ENGINE_DIR is not set');
+  const tsv = execFileSync(
+    'nvim',
+    ['--headless', '-u', 'NONE', '-l', join(engine, 'scripts', 'tasks.lua'), 'plan', '--format=tsv', `--vault=${state().vault}`],
+    { encoding: 'utf8' },
+  );
+  const out: { stage: string; ids: string[] }[] = [];
+  for (const line of tsv.split(/\r?\n/)) {
+    const [stage, id] = line.split('\t');
+    if (!stage || !id) continue;
+    const last = out[out.length - 1];
+    if (last?.stage === stage) last.ids.push(id);
+    else out.push({ stage, ids: [id] });
+  }
+  return out;
+}
+
+test('the plan view lists the stages as `tasks plan` of the engine does, in its order, and the stages add up to the counters', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await chooseView(page, 'View', 'Plan');
+  const stages = page.getByRole('region', { name: 'Stages' });
+  await expect(stages.locator('.stage').first()).toBeVisible();
+  /** Per stage of the page: its number (`-`: none), the ids drawn, the total its heading names. */
+  const shown = () =>
+    stages.locator('.stage').evaluateAll((cards) =>
+      cards.map((card) => {
+        const heading = card.querySelector('h2')?.textContent ?? '';
+        return {
+          stage: /(\d+)/.exec(heading.replace(/\(\d+\)\s*$/, ''))?.[1] ?? '-',
+          ids: [...card.querySelectorAll('li[data-id]')].map((li) => li.getAttribute('data-id') ?? ''),
+          total: Number(/\((\d+)\)\s*$/.exec(heading.trim())?.[1] ?? -1),
+        };
+      }),
+    );
+  // The page draws long stages in portions and reads the vault the earlier tests changed: asked until it holds still.
+  const expected = enginePlan();
+  await expect
+    .poll(async () => (await shown()).map(({ stage, ids }) => ({ stage, ids })), { timeout: WRITE_BUDGET })
+    .toEqual(expected);
+  const page_ = await shown();
+  for (const s of page_) expect(s.total, `stage ${s.stage}`).toBe(s.ids.length);
+  // The relative criterion that holds on any vault: the stages add up to the tasks the counters of the plan count.
+  const counters = await page
+    .getByRole('region', { name: 'The plan in numbers' })
+    .locator('.chips > .chip strong')
+    .allInnerTexts();
+  const counted = counters.reduce((sum, n) => sum + Number(n), 0);
+  expect(page_.reduce((sum, s) => sum + s.total, 0)).toBe(counted);
+  expect(counted).toBe(expected.reduce((sum, s) => sum + s.ids.length, 0));
+  expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
