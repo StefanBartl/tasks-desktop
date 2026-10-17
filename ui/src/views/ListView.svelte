@@ -34,7 +34,7 @@
   import { boundLabel, chipLabel as chipText, valueLabel as valueText } from '../lib/filter-chips';
   import { tick, untrack } from 'svelte';
   import { EFFORT_SIZES, badTag, parseTags } from '../lib/fields';
-  import { isApplyKey } from '../lib/bulk';
+  import { isApplyKey, type MoveCheck } from '../lib/bulk';
   import { REMIND_CHOICES } from '../lib/remind';
 
   let { app, searchBox = $bindable(null) }: { app: App; searchBox?: HTMLInputElement | null } =
@@ -163,6 +163,52 @@
     if (Object.keys(patch).length === 0 && add.length === 0 && remove.length === 0) return;
     // What stays marked (a failure) keeps the choice for the second try; with no marks left it starts over.
     await app.bulkSet(patch, add.length > 0 || remove.length > 0 ? { add, remove } : undefined);
+  }
+
+  // Moving the marked tasks: an area is chosen, ONE dry run says per task what would happen, and only then the button
+  // moves those that can go. The answer belongs to the area and the marks it was asked for: another choice hides it.
+  let moveTo = $state('');
+  let moveResult = $state<{ to: string; marks: string; checks: MoveCheck[] } | null>(null);
+  const marksKey = $derived(app.marks.join('\n'));
+  const moveShown = $derived(
+    moveResult !== null && moveResult.to === moveTo && moveResult.marks === marksKey ? moveResult.checks : null,
+  );
+  const movable = $derived(moveShown?.filter((c) => c.reasons.length === 0 && c.newId !== '').length ?? 0);
+  $effect(() => {
+    if (app.marks.length === 0) {
+      moveTo = '';
+      moveResult = null;
+    }
+  });
+  // The data class of an area decides where its tasks may be kept: a move across classes is told, counted per pair.
+  const moveClasses = $derived.by(() => {
+    if (!moveShown) return [];
+    const classOf = (name: string) => app.hubAreas.find((a) => a.name === name)?.data_class ?? '?';
+    const to = classOf(moveTo);
+    const counts = new Map<string, number>();
+    for (const c of moveShown) {
+      if (c.reasons.length > 0) continue;
+      const area = app.tasks.find((task) => task.id === c.id)?.area;
+      if (area === undefined) continue;
+      const from = classOf(area);
+      if (from !== to) counts.set(from, (counts.get(from) ?? 0) + 1);
+    }
+    return [...counts].map(([from, n]) => ({ from, to, n }));
+  });
+  async function checkMoves(): Promise<void> {
+    const to = moveTo;
+    const key = marksKey;
+    if (to === '') return;
+    const checks = await app.previewBulkMove(to);
+    // The person may have chosen another area or other tasks meanwhile: a late answer is not shown for them.
+    if (checks !== null && moveTo === to && marksKey === key) moveResult = { to, marks: key, checks };
+  }
+  async function doMoves(): Promise<void> {
+    if (!moveShown || movable === 0) return;
+    if ((await app.bulkMove(moveTo, moveShown)) > 0) {
+      moveTo = '';
+      moveResult = null;
+    }
   }
 
   function applyOnEnter(event: KeyboardEvent): void {
@@ -409,6 +455,44 @@
           onclick={applyDraft}>{t('bulk.apply')}</button
         >
         <button type="button" onclick={() => app.clearMarks()}>{t('bulk.clear')}</button>
+        {#if app.can('move_area')}
+          <div class="bulk-move" role="group" aria-label={t('bulk.move_label')}>
+            <label>
+              <span class="sr-only">{t('bulk.move_label')}</span>
+              <select bind:value={moveTo} disabled={app.saving}>
+                <option value="">{t('bulk.move_label')}: {t('bulk.keep')}</option>
+                {#each app.allAreaNames as area (area)}<option value={area}>{area}</option>{/each}
+              </select>
+            </label>
+            {#if moveShown && movable > 0}
+              <button type="button" class="apply" disabled={app.saving} onclick={() => void doMoves()}
+                >{t('bulk.move_go', { n: movable })}</button
+              >
+            {:else}
+              <button type="button" disabled={app.saving || moveTo === ''} onclick={() => void checkMoves()}
+                >{t('bulk.move_check')}</button
+              >
+            {/if}
+          </div>
+          {#if moveShown}
+            <div class="bulk-move-result" role="status" aria-label={t('bulk.move_result')}>
+              <ul>
+                {#each moveShown as c (c.id)}
+                  <li class:bad={c.reasons.length > 0}>
+                    {#if c.reasons.length > 0}
+                      {t('bulk.move_refused', { id: c.id, reason: markHidden(c.reasons.join(' ')) })}
+                    {:else}
+                      {t('bulk.move_ok', { id: c.id, new_id: c.newId, n: c.references })}
+                    {/if}
+                  </li>
+                {:else}
+                  <li>{t('bulk.nothing')}</li>
+                {/each}
+              </ul>
+              {#each moveClasses as m (m.from)}<p>{t('bulk.move_class', m)}</p>{/each}
+            </div>
+          {/if}
+        {/if}
       </div>
     {/if}
     <TextHits {app} />
@@ -582,6 +666,23 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 0.2rem 0.5rem;
+  }
+  .bulk-move {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-basis: 100%;
+  }
+  .bulk-move-result {
+    flex-basis: 100%;
+  }
+  .bulk-move-result ul,
+  .bulk-move-result p {
+    margin: 0;
+    padding-left: 1.1rem;
+  }
+  .bulk-move-result .bad {
+    color: var(--bad);
   }
   .show-finished {
     display: block;

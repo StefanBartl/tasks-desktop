@@ -2558,6 +2558,79 @@ test('a task is moved to another area: the id changes, the file follows, the sel
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('the marked tasks are moved to another area in one batch: a dry run first, a taken slug stays with its reason, the files and the references follow, undo brings them back', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  for (const n of [1, 2, 3]) await capture(page, `Bulk move e2e ${n}`);
+  const file = (area: string, n: number) => join(state().vault, area, 'ROADMAP', 'tasks', `bulk-move-e2e-${n}.md`);
+  // The first waits for the second: the reference follows the move (and comes back with the undo).
+  addFrontmatter('bulk-move-e2e-1', 'after: [lib.nvim/bulk-move-e2e-2]');
+  // The slug of the third is taken in the other area: it cannot go there.
+  const occupant = file('cascade.nvim', 3);
+  writeFileSync(occupant, readFileSync(file('lib.nvim', 3), 'utf8').replace(/^title: .*$/m, 'title: Occupant of a slug'));
+  try {
+    // The search finds the occupant too (by its id): four rows, three marked.
+    await page.getByRole('searchbox', { name: /search/i }).first().fill('bulk-move-e2e');
+    await expect(page.locator('.rows .line')).toHaveCount(4);
+    // The page holds the new version of the first file when its relation shows (the version is what is checked on writing).
+    await page.locator('button.row', { hasText: 'Bulk move e2e 1' }).click();
+    await expect(page.locator('aside.detail').getByLabel('After')).toHaveValue(/bulk-move-e2e-2/);
+    // Marked in the order 2, 1, 3: the second's move rewrites the first, so the page has to move the first before it.
+    for (const n of [2, 1, 3]) await page.getByRole('checkbox', { name: `Mark lib.nvim/bulk-move-e2e-${n}` }).check();
+    await expect(page.getByText('3 marked')).toBeVisible();
+    const bar = page.getByRole('group', { name: 'Move the marked to the area' });
+    await expect(bar.getByRole('button', { name: /^Move \d/ })).toHaveCount(0);
+
+    // The dry run: nothing is written, each task is told.
+    await bar.getByRole('combobox').selectOption('cascade.nvim');
+    await bar.getByRole('button', { name: 'Check the moves' }).click();
+    const told = page.getByRole('status', { name: 'What the moves would do' });
+    await expect(told).toContainText('lib.nvim/bulk-move-e2e-1 becomes cascade.nvim/bulk-move-e2e-1');
+    await expect(told).toContainText('lib.nvim/bulk-move-e2e-2 becomes cascade.nvim/bulk-move-e2e-2 (1 place(s) follow)');
+    await expect(told).toContainText('lib.nvim/bulk-move-e2e-3 stays: cascade.nvim/bulk-move-e2e-3 is an open task already');
+    await expectAccessible(page, 'the answer of the dry run of a bulk move');
+    for (const n of [1, 2, 3]) expect(existsSync(file('lib.nvim', n))).toBe(true);
+    expect(existsSync(file('cascade.nvim', 1))).toBe(false);
+
+    // The move: one request, the two that can go go, the third stays marked.
+    let writes = 0;
+    await page.route('**/api/tasks/ops', async (route) => {
+      writes += 1;
+      await route.continue();
+    });
+    await write(page, () => bar.getByRole('button', { name: 'Move 2' }).click());
+    await expect(page.getByRole('status').getByText('Moved: 2.')).toBeVisible();
+    expect(writes).toBe(1);
+    for (const n of [1, 2]) {
+      expect(existsSync(file('lib.nvim', n))).toBe(false);
+      expect(existsSync(file('cascade.nvim', n))).toBe(true);
+    }
+    expect(existsSync(file('lib.nvim', 3))).toBe(true);
+    expect(readFileSync(file('cascade.nvim', 1), 'utf8')).toMatch(/^after: \[?cascade\.nvim\/bulk-move-e2e-2\]?$/m);
+    // The marks and the selection follow the new ids: nothing points at an id that is gone.
+    await expect(page.locator('aside.detail .id')).toHaveText('cascade.nvim/bulk-move-e2e-1');
+    await expect(page.getByText('3 marked')).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: 'Mark cascade.nvim/bulk-move-e2e-2' })).toBeChecked();
+
+    // Taken back: both files and the reference where they were, the selection with them.
+    await write(page, () => page.getByRole('status').getByRole('button', { name: 'Undo' }).click());
+    await expect(page.getByRole('status').getByText('Undone.')).toBeVisible();
+    for (const n of [1, 2]) {
+      expect(existsSync(file('lib.nvim', n))).toBe(true);
+      expect(existsSync(file('cascade.nvim', n))).toBe(false);
+    }
+    expect(readFileSync(file('lib.nvim', 1), 'utf8')).toMatch(/^after: \[?lib\.nvim\/bulk-move-e2e-2\]?$/m);
+    await expect(page.locator('aside.detail .id')).toHaveText('lib.nvim/bulk-move-e2e-1');
+    expect(await violations(page)).toEqual([]);
+    expect(consoleProblems.get(page)).toEqual([]);
+  } finally {
+    rmSync(occupant, { force: true });
+  }
+});
+
 test('the title, the summary and the relations are changed in the detail, and the engine refuses what is wrong', async ({ page }) => {
   await watchViolations(page);
   await pair(page);

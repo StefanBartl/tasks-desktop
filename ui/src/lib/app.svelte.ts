@@ -1,7 +1,19 @@
 // The state of the page and what keeps it true: pairing, the held list, the
 // event stream and the detail of the selected task.
 
-import { type TagEdit, bulkSetOps, markAll, pruneMarks, toggleMark } from './bulk';
+import {
+  type MoveCheck,
+  type TagEdit,
+  bulkMoveOps,
+  bulkSetOps,
+  followMoves,
+  markAll,
+  moveChecks,
+  moveOrder,
+  moveUndo,
+  pruneMarks,
+  toggleMark,
+} from './bulk';
 import { planOp, type PlanForm, type PlanPreview } from './planwizard';
 import { columnsOf, isColumn, neighbourColumn, placeNear, stepInGroup, type Move } from './board';
 import { ApiError, type CheckJobState, type Hub, type HubArea, type HubAreas, type SearchResult, type VaultList } from './api';
@@ -654,8 +666,12 @@ export class App {
       },
     });
     // A move taken back: the task has its old id again, the selection follows it.
-    const back = result?.results.find((r) => r.ok && r.outcome === 'moved' && typeof r.new_id === 'string');
-    if (back?.new_id && ops.some((o) => o.op === 'move_area' && o.id === selectedBefore)) this.select(back.new_id);
+    // Several moves taken back at once: the one of the selected task is found by its place in the batch.
+    const back = result?.results.find((r) => {
+      const op = ops[r.n - 1];
+      return r.ok && r.outcome === 'moved' && typeof r.new_id === 'string' && op?.op === 'move_area' && op.id === selectedBefore;
+    });
+    if (back?.new_id) this.select(back.new_id);
     // Not sent at all (the page is not ready any more): say so, the toast is gone.
     if (!result && !this.toast) this.say('error', 'write.failed', { code: 'offline' });
   }
@@ -838,6 +854,66 @@ export class App {
       return true;
     };
     await this.write(ops, { ...(tags ? { tags } : {}), onAnswer });
+  }
+
+  /**
+   * Ask the engine, in ONE dry run, what moving every marked task to `toArea` would do: per task the new id, the
+   * reasons it cannot be made (a taken slug, an unknown area) and how many places follow. Nothing is written. Null when
+   * nothing is to be moved or the engine could not be asked.
+   */
+  async previewBulkMove(toArea: string): Promise<MoveCheck[] | null> {
+    const ops = bulkMoveOps(this.tasks, this.marks, toArea);
+    if (ops.length === 0) return [];
+    try {
+      const result = await this.env.hub.ops({ client_op_id: this.opId(), dry_run: true, ops });
+      return moveChecks(ops, result.results);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 400) {
+        this.say('error', 'write.invalid', { message: error.message });
+      } else {
+        this.say('error', 'move.unknown');
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Move the marked tasks the dry run let through (`checks` without a reason) to `toArea`, as ONE request with one
+   * `move_area` each, each with the version that was shown. Not all-or-nothing: a task that changed meanwhile fails
+   * alone and is told. A moved task keeps its mark under its new id, and the selection follows it; a failed one stays
+   * marked. Taking it back is the inverses the engine gave. Says how many were moved.
+   */
+  async bulkMove(toArea: string, checks: readonly MoveCheck[]): Promise<number> {
+    const go = new Set(checks.filter((c) => c.reasons.length === 0 && c.newId !== '').map((c) => c.id));
+    // A marked task that names another marked one goes first: the other's move rewrites its file.
+    const ops = moveOrder(
+      bulkMoveOps(this.tasks, this.marks, toArea).filter((o) => go.has(o.id)),
+      checks,
+    );
+    if (ops.length === 0) {
+      this.say('ok', 'bulk.nothing');
+      return 0;
+    }
+    const selectedBefore = this.selectedId;
+    const moved = new Map<string, string>();
+    const onAnswer = (result: Result): boolean => {
+      let failed = 0;
+      for (const r of result.results) {
+        const id = ops[r.n - 1]?.id;
+        if (r.ok && r.outcome === 'moved' && typeof r.new_id === 'string' && id) moved.set(id, r.new_id);
+        else if (!r.ok) failed += 1;
+      }
+      this.marks = followMoves(this.marks, moved);
+      // Not `inverseOf`: a later move of the batch may have rewritten a file whose inverse carries the version before.
+      const undo = moveUndo(result.results);
+      if (failed === 0) this.say('ok', 'bulk.moved', { n: moved.size }, undo);
+      else this.say('error', 'bulk.partial', { done: moved.size, failed }, undo);
+      return true;
+    };
+    await this.write(ops, { onAnswer });
+    const next = selectedBefore === null ? undefined : moved.get(selectedBefore);
+    if (next) this.select(next);
+    return moved.size;
   }
 
   // ── the board ─────────────────────────────────────────────────────────
