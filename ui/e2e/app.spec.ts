@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { expectAccessible, violations, watchViolations } from './a11y';
 import { STATE } from './global';
 import { pairingLink } from './hub';
@@ -93,21 +93,70 @@ async function capture(page: Page, title: string): Promise<void> {
 /** How long a test waits for a write to be answered: the engine's 5 s for a call, and a call it may wait behind. */
 const WRITE_BUDGET = 15_000;
 
+/** The title field of the detail: it is held back only while a write is on its way. */
+function detailTitle(page: Page): Locator {
+  return page.locator('aside.detail').getByLabel('Title', { exact: true });
+}
+
 /**
  * No write of the page is on its way: every card of the board can be dragged again, and the fields of the detail can
- * be edited again (the title is held back only while a write is on its way). A key or a drag while a write is on its
- * way is not sent, and the board or the inbox may already show the change before the answer is there (the hub's event
- * of the changed file can come first; CI, 5da9dd1 and a098dff).
+ * be edited again (the title is held back only while a write is on its way, and so is the read of the list after its
+ * answer). A key or a drag while a write is on its way is not sent, and the board or the inbox may already show the
+ * change before the answer is there (the hub's event of the changed file can come first; CI, 5da9dd1 and a098dff).
+ * Without a card and without the title there is nothing that could tell, and the wait would pass at once: that is red.
  */
 async function settled(page: Page): Promise<void> {
+  const cards = page.locator('.card');
+  const title = detailTitle(page);
+  await expect(cards.or(title).first(), 'settled() needs a card or the title of the detail').toBeAttached();
   await expect(page.locator('.card:not([draggable="true"])')).toHaveCount(0, { timeout: WRITE_BUDGET });
-  const title = page.locator('aside.detail').getByLabel('Title', { exact: true });
   await expect(title.and(page.locator(':disabled'))).toHaveCount(0, { timeout: WRITE_BUDGET });
+}
+
+/** The answer of the next write the page sends (red after WRITE_BUDGET when none is sent or answered). */
+function nextAnswer(page: Page): Promise<unknown> {
+  const answer = page.waitForResponse(
+    (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/tasks/ops',
+    { timeout: WRITE_BUDGET },
+  );
+  // A step that fails before the answer is awaited must not leave a rejection nobody handles.
+  answer.catch(() => undefined);
+  return answer;
+}
+
+/**
+ * Do a step that sends one write, and wait until it is answered and the page has read the list again: what the step
+ * shows can be looked at with the 5 s of an `expect` after that, and the next key or drag is sent. Red when the step
+ * sends no write.
+ */
+async function write(page: Page, step: () => Promise<unknown>): Promise<void> {
+  const answer = nextAnswer(page);
+  await step();
+  await answer;
+  await settled(page);
+}
+
+/** How late a write made slow on purpose reaches the engine: more than the 5 s an `expect` waits by default. */
+const SLOW_WRITE = 6_000;
+
+/**
+ * The calls to `path` (a write: '/api/tasks/ops', a read of the list: '/api/tasks/snapshot') reach the engine `ms`
+ * late, as on a busy runner: the hub's event of the changed file and the answer both come late. `times` calls, or
+ * every call to the end of the test (an unroute would let a call that is being held go on at once).
+ */
+async function slow(page: Page, path: string, ms: number, times?: number): Promise<void> {
+  const late = async (route: Route) => {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+    // A call still held when the test ends has nowhere to go; any other failure shows in the test's own waits.
+    await route.continue().catch(() => undefined);
+  };
+  await page.route((url) => url.pathname === path, late, times === undefined ? {} : { times });
 }
 
 /**
  * Hold the answer of the next write until the returned function is called: the write reaches the engine (and the hub
- * tells of the changed file), only the page does not hear the answer yet.
+ * tells of the changed file), only the page does not hear the answer yet. A test that never calls it is red at its
+ * next wait for the answer (WRITE_BUDGET).
  */
 async function holdNextWrite(page: Page): Promise<() => void> {
   let release!: () => void;
@@ -1082,6 +1131,9 @@ test('the keys of the inbox stay out of fields and dialogs, ignore a held key an
 });
 
 test('the inbox keeps the selection at the place of a task that was sorted, and a selection of none stays', async ({ page }) => {
+  // Every read of the list is slow on purpose from the second key on (1.5 s each), and each write may take a few
+  // seconds on a busy runner: the 30 s of a test are not enough for that (test.slow gives three times as much).
+  test.slow();
   await watchViolations(page);
   await pair(page);
   await showList(page);
@@ -1099,25 +1151,29 @@ test('the inbox keeps the selection at the place of a task that was sorted, and 
   // Sorted from the middle of the list: the selection stays where the task was, on the one that took its place.
   // The answer of the first key is held until the row shows the priority, as the hub's event of the changed file may
   // show it before the answer is there: the next key waits for the answer, not for the picture (a key while a write
-  // is on its way is not sent; CI, a098dff).
+  // is on its way is not sent; CI, a098dff). Every read of the list is slow from then on, and the write is on its way
+  // until the read after its answer is done: only the title of the detail tells that here (the inbox has no card), so
+  // a settled() that did not wait for the title would let 's' go while the write is on its way, and 's' would be lost.
   const release = await holdNextWrite(page);
+  const answer = nextAnswer(page);
   await page.keyboard.press('2');
   await expect(middle).not.toContainText('no priority', { timeout: WRITE_BUDGET });
+  await slow(page, '/api/tasks/snapshot', 1_500);
   release();
+  await answer;
+  await expect(detailTitle(page)).toBeDisabled();
   await settled(page);
-  await page.keyboard.press('s');
-  await expect(middle).not.toContainText('no effort', { timeout: WRITE_BUDGET });
-  await settled(page);
+  await write(page, () => page.keyboard.press('s'));
+  await expect(middle).not.toContainText('no effort');
   // (the engine's order moves a task when its priority is set: the neighbour is looked at before the last key)
   const ids = await inbox.locator('.row .id').allInnerTexts();
   const at = ids.indexOf(`lib.nvim/${slug}-2`);
   expect(at).toBeGreaterThanOrEqual(0);
   const next = ids[at + 1];
   expect(next).toBeDefined();
-  await page.keyboard.press('m');
-  await expect(middle).toHaveCount(0, { timeout: WRITE_BUDGET });
-  await expect(inbox.locator('.row[aria-current="true"] .id')).toHaveText(next as string, { timeout: WRITE_BUDGET });
-  await settled(page);
+  await write(page, () => page.keyboard.press('m'));
+  await expect(middle).toHaveCount(0);
+  await expect(inbox.locator('.row[aria-current="true"] .id')).toHaveText(next as string);
   // Escape selects none; a change of the vault does not put the selection back.
   await page.keyboard.press('Escape');
   await expect(inbox.locator('.row[aria-current="true"]')).toHaveCount(0);
@@ -1158,19 +1214,20 @@ test('a tag that was refused does not travel to the next task', async ({ page })
 test('the board: cards move by key and by drag, the engine keeps the order, a priority border is not crossed', async ({
   page,
 }) => {
+  // Two writes are made slow on purpose (SLOW_WRITE each), and each of the others may take a few seconds on a busy
+  // runner, up to WRITE_BUDGET: the 30 s of a test are not enough for that (test.slow gives three times as much).
+  test.slow();
   await watchViolations(page);
   await pair(page);
   await showList(page);
 
-  // The first write is answered late, as by an engine on a busy runner: more than the 5 s an expect waits by default.
-  const late = await holdNextWrite(page);
-  const lateTimer = setTimeout(late, 7_000);
-  // A title of its own for each repeat (--repeat-each with the one worker shares the vault, and the search matches a
-  // word by its start: a later repeat's 'Board1' is not found by an earlier 'Board').
-  const repeat = test.info().repeatEachIndex;
-  const prefix = `Board${repeat === 0 ? '' : repeat} e2e`;
+  // The first write reaches the engine late, as on a busy runner: more than the 5 s an expect waits by default.
+  await slow(page, '/api/tasks/ops', SLOW_WRITE, 1);
+  // A title of its own for each repeat (--repeat-each with the one worker shares the vault). The search finds a word
+  // anywhere in a title ('Board' finds 'Board1'), so the word of a repeat has a fixed width: no repeat's word is a part
+  // of another's, whatever is in the vault already.
+  const prefix = `Board e2e r${String(test.info().repeatEachIndex).padStart(3, '0')}`;
   for (const n of [1, 2, 3]) await capture(page, `${prefix} ${n}`);
-  clearTimeout(lateTimer);
   // The filter of the list is the filter of the board.
   await page.getByRole('searchbox', { name: /search/i }).first().fill(prefix);
   await expect(page.locator('.rows .line')).toHaveCount(3);
@@ -1182,10 +1239,13 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
   const first = await titles('open');
   expect(first).toHaveLength(3);
 
-  // J moves the selected card one place down inside its group, and the engine's order says so after a reload.
+  // J moves the selected card one place down inside its group, and the engine's order says so after a reload. Each
+  // write below is awaited by write(): its answer gets WRITE_BUDGET, and this one is slow on purpose to hold that.
   await column('open').locator('.card').first().click();
-  await page.keyboard.press('Shift+J');
-  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  await slow(page, '/api/tasks/ops', SLOW_WRITE, 1);
+  await write(page, () => page.keyboard.press('Shift+J'));
+  // (a reorder may renumber the neighbours: "Saved (n files written ...)"; the "Saved." of the last create is gone)
+  await expect(page.getByRole('status').getByText(/^Saved/)).toBeVisible();
   const moved = [first[1], first[0], first[2]];
   await expect.poll(() => titles('open')).toEqual(moved);
   await page.reload();
@@ -1199,42 +1259,40 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
 
   // K takes it back; at the edge of the group there is nowhere to go, and that is told.
   await column('open').locator('.card').nth(1).click();
-  await page.keyboard.press('Shift+K');
+  // (the order can stand before the write is answered: its "Saved." would replace what the next key tells)
+  await write(page, () => page.keyboard.press('Shift+K'));
   await expect.poll(() => titles('open')).toEqual(first);
-  // The order can stand before the write is answered: its "Saved." would replace what the next key tells.
-  await settled(page);
   await page.keyboard.press('Shift+K');
   await expect(page.getByRole('alert').getByText(/end of its priority group/)).toBeVisible();
 
   // Drag one card onto the lower half of another: the order changes by a reorder.
   const cards = column('open').locator('.card');
-  await drag(page, cards.nth(0), cards.nth(2), 'lower');
+  await write(page, () => drag(page, cards.nth(0), cards.nth(2), 'lower'));
   await expect.poll(() => titles('open')).toEqual([first[1], first[2], first[0]]);
-  await settled(page);
 
   // Drag a card into another column: the status changes.
   const name = (await titles('open'))[0] as string;
-  await drag(page, column('open').locator('.card', { hasText: name }), column('doing'));
+  await write(page, () => drag(page, column('open').locator('.card', { hasText: name }), column('doing')));
   await expect(column('doing').locator('.card', { hasText: name })).toHaveCount(1);
   await expect(column('open').locator('.card')).toHaveCount(2);
-  await settled(page);
 
   // H and L change the status of the selected card with the keys. The answer of L is held: the hub's event of the
   // changed file moves the card while the write is still on its way, and H is pressed when the write is done.
   await column('doing').locator('.card', { hasText: name }).click();
   const release = await holdNextWrite(page);
+  const answer = nextAnswer(page);
   await page.keyboard.press('Shift+L');
-  await expect(column('decision').locator('.card', { hasText: name })).toHaveCount(1);
+  await expect(column('decision').locator('.card', { hasText: name })).toHaveCount(1, { timeout: WRITE_BUDGET });
   release();
+  await answer;
   await settled(page);
-  await page.keyboard.press('Shift+H');
+  await write(page, () => page.keyboard.press('Shift+H'));
   await expect(column('doing').locator('.card', { hasText: name })).toHaveCount(1);
-  await settled(page);
 
   // A card of another priority is another group: the engine orders inside a group only, so the move is refused.
   const other = (await titles('open'))[0] as string;
   await column('open').locator('.card', { hasText: other }).click();
-  await page.locator('aside.detail').getByLabel('Priority').selectOption('1');
+  await write(page, () => page.locator('aside.detail').getByLabel('Priority').selectOption('1'));
   await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
   const rest = column('open').locator('.card').filter({ hasNotText: other });
   await expect(rest).toHaveCount(1);
@@ -1261,7 +1319,7 @@ test('the board: cards move by key and by drag, the engine keeps the order, a pr
   await expect(ask).toBeHidden();
   expect(writes).toBe(0);
   await drag(page, column('open').locator('.card', { hasText: mover }), target, 'lower');
-  await ask.getByRole('button', { name: /Set priority 1/ }).click();
+  await write(page, () => ask.getByRole('button', { name: /Set priority 1/ }).click());
   await expect(page.getByRole('status').getByText(/Saved/)).toBeVisible();
   expect(writes).toBe(1);
   await expect.poll(() => titles('open')).toEqual([other, mover]);
