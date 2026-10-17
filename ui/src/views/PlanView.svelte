@@ -211,7 +211,7 @@
           </ul>
         </div>
       {:else}
-        <p class="muted">{t(narrows(app.filter) ? 'plan.empty_filtered' : 'plan.empty')}</p>
+        <p class="muted">{t(narrows(app.filter) && stagesOf(app.tasks, planId === '' ? null : planId).length > 0 ? 'plan.empty_filtered' : 'plan.empty')}</p>
       {/each}
     </section>
   {/if}

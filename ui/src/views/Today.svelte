@@ -53,7 +53,7 @@
     const tile = tiles.find((x) => x.count === key);
     if (!key || !tile) return null;
     const total = 'total' in tile && tile.total !== undefined ? tile.total : Number(tile.value);
-    return { key, label: tile.key, tasks: tasksOf(key, app.shown), total };
+    return { key, label: tile.key, tasks: tasksOf(key, app.shown), unfiltered: tasksOf(key, app.tasks).length, total };
   });
 
   /** `v` on a number walks its views; Escape closes (handled by the panel). */
@@ -183,7 +183,7 @@
 
   <div class="main">
     {#if opened}
-      <CountPanel {app} key={opened.key} label={t(opened.label)} tasks={opened.tasks} total={opened.total} />
+      <CountPanel {app} key={opened.key} label={t(opened.label)} tasks={opened.tasks} unfiltered={opened.unfiltered} total={opened.total} />
     {/if}
     <FilterNote {app} />
     <p class="sr-only" aria-live="polite">{app.tileNote}</p>

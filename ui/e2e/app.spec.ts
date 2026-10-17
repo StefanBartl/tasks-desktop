@@ -3255,8 +3255,26 @@ test('the filter has at least / at most and spans of days, outlives a reload, an
   await expect(page.locator('.inbox button.row')).toHaveCount(0);
   await page.getByTestId('filter-note').getByRole('button', { name: /^Switch off: Search/ }).click();
   await expect(page.getByTestId('filter-note')).toHaveCount(0);
+  await expect(page.locator('main')).toBeFocused();
   await showList(page);
   expect(await shown()).toBe(all);
+
+  // The phase counts of a chosen plan are those of the whole plan: read now, compared once the filter is on.
+  await chooseView(page, 'View', 'Plan');
+  const planSelect = page.locator('label.plan-select select');
+  const planIds = await planSelect.locator('option').evaluateAll((os) =>
+    os.map((o) => (o as HTMLOptionElement).value).filter((v) => v !== ''),
+  );
+  let phasesBefore: string | null = null;
+  for (const id of planIds) {
+    await planSelect.selectOption(id);
+    if ((await page.locator('p.phases').count()) > 0) {
+      phasesBefore = await page.locator('p.phases').innerText();
+      break;
+    }
+  }
+  await planSelect.selectOption('');
+  await showList(page);
   await page.getByText('More filters', { exact: false }).first().click();
 
   // At least: the values the tasks have, in their order; the chip names the end.
@@ -3287,10 +3305,19 @@ test('the filter has at least / at most and spans of days, outlives a reload, an
   for (const view of ['Plan', 'Board', 'Inbox', 'Today']) {
     await chooseView(page, 'View', view);
     await expect(note).toContainText('Filter on: 0 of');
+    if (view === 'Plan' && phasesBefore !== null) {
+      // The plan with phases: its counts do not follow the filter (the strip says so).
+      for (const pid of planIds) {
+        await planSelect.selectOption(pid);
+        if ((await page.locator('p.phases').count()) > 0) break;
+      }
+      await expect.poll(() => page.locator('p.phases').innerText()).toBe(phasesBefore);
+      await planSelect.selectOption('');
+    }
     if (view === 'Plan') {
       await expect(page.locator('.stages .stage li')).toHaveCount(0);
       // The strip says what the filter does not narrow here, and the empty plan is not "no task in this plan".
-      await expect(note).toContainText('stay those of the whole vault');
+      await expect(note).toContainText('It narrows the stages below and nothing else');
       await expect(page.getByText('No task of this plan matches the filter.')).toBeVisible();
     }
     if (view === 'Board') await expect(page.locator('.cards .card')).toHaveCount(0);
@@ -3302,6 +3329,13 @@ test('the filter has at least / at most and spans of days, outlives a reload, an
     await expectAccessible(page, `the ${view} with a filter on`);
   }
   await expect(page.locator('section[data-tile="waiting"] li')).toHaveCount(0);
+  // A number of the overview opened: the engine counts more than are shown, and the filter is named as the cause.
+  const tile = page.locator('button.tile').filter({ hasNotText: /^\s*0\s/ }).first();
+  if ((await tile.count()) > 0) {
+    await tile.click();
+    await expect(page.locator('#count-panel p[role="status"]')).toContainText('the filter hides');
+    await tile.click();
+  }
   await expect(page.locator('section[data-tile="cdx"]')).toHaveCount(0);
 
   // Switched off in the strip of the overview, the filter is gone everywhere.
