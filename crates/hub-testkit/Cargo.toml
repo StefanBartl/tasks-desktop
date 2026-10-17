@@ -19,9 +19,9 @@ name = "fake-nvim"
 path = "src/bin/fake-nvim.rs"
 
 [dependencies]
-appkit-core = { path = "../appkit-core" }
-appkit-hub = { path = "../appkit-hub" }
-appkit-testkit = { path = "../appkit-testkit" }
+appkit-core.workspace = true
+appkit-hub.workspace = true
+appkit-testkit.workspace = true
 tasks-hub = { path = "../tasks-hub" }
 serde_json = "1"
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "time", "net", "io-util"] }

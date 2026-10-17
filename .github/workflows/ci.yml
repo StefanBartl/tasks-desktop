@@ -101,6 +101,8 @@ jobs:
       # No crate version younger than a week (a hijacked release is caught
       # within hours, usually; see tools/check-lock-age.py).
       - run: python tools/check-lock-age.py --min-days 7
+      # appkit is the one git source: the commit Cargo.lock pins must be the one its tag names now.
+      - run: python tools/check-appkit-pin.py
 
   ui:
     runs-on: ubuntu-latest

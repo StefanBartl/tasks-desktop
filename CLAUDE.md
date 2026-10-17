@@ -23,6 +23,16 @@ python tools/check-control-chars.py
 - Ein Fix ohne Test, der ohne den Fix rot wird, gilt nicht als fertig. Nach der
   Sabotage neu bauen (`touch` + `cargo build`), sonst bleibt der Test grün.
 
+## appkit (der geteilte Unterbau)
+
+- Wächter, Pairing, Engine-Naht, Store, Watcher, Suche, Installation und die Sicherheitsmatrix liegen in
+  [appkit](https://github.com/StefanBartl/appkit) (`E:/repos/appkit`), eingebunden per Tag in
+  `[workspace.dependencies]` von `Cargo.toml`. Eine Änderung dort: erst in `appkit` (CI grün, neues Tag
+  nach `docs/RELEASING.md` dort), dann hier das Tag heben, `cargo update -p appkit-hub` (holt alle drei),
+  `python tools/check-appkit-pin.py`.
+- Gleichzeitig an `appkit` und hier arbeiten: `[patch."https://github.com/StefanBartl/appkit"]` mit Pfaden in
+  einer **nicht eingecheckten** `.cargo/config.toml`; nie einen Pfad in `Cargo.toml` committen.
+
 ## Vertrag mit der Engine
 
 - Ändert sich `tasks-export/1`: Engine zuerst (Goldens, Typen, Doku, Changelog, Spec),

@@ -19,8 +19,8 @@ name = "tasks-hub"
 path = "src/main.rs"
 
 [dependencies]
-appkit-core = { path = "../appkit-core" }
-appkit-hub = { path = "../appkit-hub" }
+appkit-core.workspace = true
+appkit-hub.workspace = true
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
 hyper = { version = "1", default-features = false, features = ["http1", "server"] }
 hyper-util = { version = "0.1", default-features = false, features = ["server", "tokio", "service", "http1"] }

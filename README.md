@@ -149,14 +149,19 @@ terminal: `.\tools\dev-hub.ps1` (until Ctrl-C), `-Background` (start and open th
 ## Layout
 
 ```
-crates/appkit-core/    process runner, auth rules, pairing and sessions, hub.json (no task or Tauri knowledge)
-crates/tasks-hub/   config, discovery, engine trait and CliEngine, the server, the program (lib + bin)
-crates/hub-testkit/ a fake Neovim and the tests that need a process or a socket
+crates/tasks-hub/   the routes, the engine calls and the program of the tasks hub (lib + bin)
+crates/hub-testkit/ the fake tasks engine and the tests that need a process or a socket
 e2e/fixture/vault   synthetic vault (no real data), made by tools/make-fixture-vault.lua
 docs/SECURITY.md    what the server checks, and what it does not
 engine.lock         the tasks.nvim and lib.nvim commits this is built against
 ui/                 the browser interface (Svelte 5, Vite, TypeScript)
 ```
+
+What does not depend on tasks (the guard, pairing and sessions, the engine seam, the store, the
+watcher, the search, installing, and the security matrix every app's hub must pass) is
+[appkit](https://github.com/StefanBartl/appkit), taken by the tag named in `Cargo.toml`
+(`[workspace.dependencies]`); `Cargo.lock` pins its commit and `tools/check-appkit-pin.py` checks
+that the tag still names it.
 
 The Tauri shell and the browser tests are added by the phases P2 to P7; the
 plan lives in the maintainer's notes.

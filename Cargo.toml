@@ -1,6 +1,15 @@
 [workspace]
 resolver = "3"
-members = ["crates/appkit-core", "crates/appkit-hub", "crates/appkit-testkit", "crates/tasks-hub", "crates/hub-testkit"]
+members = ["crates/tasks-hub", "crates/hub-testkit"]
+
+# The shared foundation of the hub (https://github.com/StefanBartl/appkit), by tag; Cargo.lock pins the
+# commit and tools/check-appkit-pin.py checks that the tag still names it. To work on appkit and
+# this app at once, point these at a local checkout in a .cargo/config.toml that is not committed
+# (`[patch."https://github.com/StefanBartl/appkit"]`, see the README of appkit).
+[workspace.dependencies]
+appkit-core = { git = "https://github.com/StefanBartl/appkit", tag = "v0.1.0" }
+appkit-hub = { git = "https://github.com/StefanBartl/appkit", tag = "v0.1.0" }
+appkit-testkit = { git = "https://github.com/StefanBartl/appkit", tag = "v0.1.0" }
 
 [workspace.package]
 edition = "2024"
