@@ -592,6 +592,20 @@ test('the tiles of the overview can be put in another order with the keys, the o
   await page.getByRole('button', { name: 'Reset the order of the tiles' }).click();
   await expect.poll(order).toEqual(before);
   await expect(page.getByRole('button', { name: 'Reset the order of the tiles' })).toHaveCount(0);
+
+  // A tap does the same as the arrow key (a touch screen cannot drag): the down button of the first block, then the
+  // menu entry of the View menu puts the standard order back.
+  await page.locator(`section[data-tile="${before[0]}"] button[data-nudge="down"]`).click();
+  await expect.poll(order).toEqual(after);
+  await page.locator(`section[data-tile="${before[0]}"] button[data-nudge="up"]`).click();
+  await expect.poll(order).toEqual(before);
+  await page.locator(`section[data-tile="${before[0]}"] button[data-nudge="down"]`).click();
+  await expect.poll(order).toEqual(after);
+  await page.getByRole('menuitem', { name: 'View' }).click();
+  await page.getByRole('menuitem', { name: 'Reset the order of the tiles' }).click();
+  await expect.poll(order).toEqual(before);
+  await page.getByRole('menuitem', { name: 'View' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Reset the order of the tiles' })).toBeDisabled();
 });
 
 test('the menu bar opens with the keyboard, switches views, language and theme', async ({ page }) => {

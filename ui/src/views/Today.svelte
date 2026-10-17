@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ORDERED_TILES, type App, type OrderedTile, type Tile } from '../lib/app.svelte';
+  import { type App, type OrderedTile, type Tile } from '../lib/app.svelte';
   import type { TaskBrief } from '../lib/contract';
   import { waitingForMe } from '../lib/filter';
   import { dueItems } from '../lib/remind';
@@ -83,13 +83,16 @@
     app.moveTile(from, tile, app.tileOrder.indexOf(from) < app.tileOrder.indexOf(tile), visible);
   }
 
+  /** One place up or down among the blocks on the page; at either end nothing changes. */
+  function step(tile: OrderedTile, up: boolean): void {
+    const target = visible[visible.indexOf(tile) + (up ? -1 : 1)];
+    if (target) app.moveTile(tile, target, !up, visible);
+  }
+
   function handleKey(event: KeyboardEvent, tile: OrderedTile): void {
     if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
     event.preventDefault();
-    const up = event.key === 'ArrowUp';
-    const at = visible.indexOf(tile);
-    const target = visible[at + (up ? -1 : 1)];
-    if (target) app.moveTile(tile, target, !up, visible);
+    step(tile, event.key === 'ArrowUp');
   }
 
   function open(id: string): void {
@@ -102,6 +105,24 @@
 </script>
 
 {#snippet handle(tile: OrderedTile)}
+  {@const name = t(tile === 'remind' ? 'remind.title' : (`today.${tile}` as Key))}
+  <!-- Native dragging does not work on a touch screen: the two buttons do the same with a tap. -->
+  <button
+    type="button"
+    class="nudge"
+    data-nudge="up"
+    aria-label={`${t('today.move_up')}: ${name}`}
+    title={t('today.move_up')}
+    onclick={() => step(tile, true)}>▲</button
+  >
+  <button
+    type="button"
+    class="nudge"
+    data-nudge="down"
+    aria-label={`${t('today.move_down')}: ${name}`}
+    title={t('today.move_down')}
+    onclick={() => step(tile, false)}>▼</button
+  >
   <button
     type="button"
     class="grip"
@@ -158,7 +179,7 @@
       <CountPanel {app} key={opened.key} label={t(opened.label)} tasks={opened.tasks} total={opened.total} />
     {/if}
     <p class="sr-only" aria-live="polite">{app.tileNote}</p>
-    {#if app.tileOrder.some((tile, i) => tile !== ORDERED_TILES[i])}
+    {#if app.tileOrderChanged}
       <p class="restore">
         <button type="button" class="link" onclick={() => app.resetTileOrder()}>{t('today.reset_order')}</button>
       </p>
@@ -398,10 +419,22 @@
     border: 0;
     color: var(--muted);
     cursor: grab;
-    margin-left: auto;
     padding: 0 0.3rem;
     border-radius: var(--radius);
   }
+  header :global(.nudge[data-nudge='up']) {
+    margin-left: auto;
+  }
+  .nudge {
+    background: none;
+    border: 0;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: 0 0.3rem;
+    border-radius: var(--radius);
+  }
+  .nudge:hover,
   .grip:hover {
     color: var(--text);
     background: var(--surface-2);
