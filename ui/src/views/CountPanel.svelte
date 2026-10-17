@@ -6,7 +6,7 @@
   import type { App } from '../lib/app.svelte';
   import { PAGE, groupTasks, viewsOf, type CountKey } from '../lib/counts';
   import type { TaskEntry } from '../lib/contract';
-  import { areaLabel } from '../lib/filter';
+  import { areaLabel, narrows } from '../lib/filter';
   import { translate, type Key } from '../lib/i18n';
   import CountGroup from './CountGroup.svelte';
 
@@ -91,7 +91,7 @@
     >
   </header>
   {#if tasks.length !== total}
-    <p class="muted" role="status">{t('count.of', { n: tasks.length, m: total })}</p>
+    <p class="muted" role="status">{t(narrows(app.filter) ? 'count.of_filtered' : 'count.of', { n: tasks.length, m: total })}</p>
   {/if}
   {#if tasks.length === 0}
     <p class="muted">{t('count.empty')}</p>

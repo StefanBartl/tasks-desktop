@@ -7,6 +7,7 @@
   import { marksLegend } from '../lib/legend';
   import { chosenPlan, criticalIds, firstTasks, phaseCounts, stagesOf, warningsOf } from '../lib/plan';
   import { markHidden } from '../lib/text';
+  import { narrows } from '../lib/filter';
   import FilterNote from './FilterNote.svelte';
   import GraphPanel from './GraphPanel.svelte';
   import PlanFinished from './PlanFinished.svelte';
@@ -42,7 +43,7 @@
   const critical = $derived(criticalIds(snapshot?.plan));
   const phases = $derived(
     phaseCounts(
-      app.shown,
+      app.tasks,
       plans.find((p) => p.id === planId),
     ),
   );
@@ -75,7 +76,7 @@
 </script>
 
 <div class="plan">
-  <FilterNote {app} />
+  <FilterNote {app} plan />
   {#if !snapshot}
     <p class="muted">{t('state.loading')}</p>
   {:else}
@@ -210,7 +211,7 @@
           </ul>
         </div>
       {:else}
-        <p class="muted">{t('plan.empty')}</p>
+        <p class="muted">{t(narrows(app.filter) ? 'plan.empty_filtered' : 'plan.empty')}</p>
       {/each}
     </section>
   {/if}

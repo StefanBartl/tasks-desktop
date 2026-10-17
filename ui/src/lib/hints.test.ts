@@ -46,7 +46,8 @@ describe('hintOf', () => {
       'blocked-without-blocker', 'blocker-freed', 'blocked-by-parked', 'plan-unknown', 'bad-plan', 'bad-phase', 'plan-area',
       'plan-phase', 'plan-target-unknown', 'bad-after', 'bad-order', 'after-self', 'after-dangling', 'wikilink-dangling',
       'wikilink-ambiguous', 'actor-cdx-waits-on-me', 'done-in-roadmap', 'open-in-backlog', 'duplicate-id', 'unreadable',
-      'index-error', 'symlink-task', 'frontmatter-warning', 'title-comment',
+      'index-error', 'symlink-task', 'frontmatter-warning', 'title-comment', 'plan-bad-status', 'plan-bad-area',
+      'plan-bad-target', 'plan-bad-gate',
     ];
     for (const lang of ['en', 'de'] as const) {
       for (const code of codes) expect(hintOf(lang, 'hint.check', code), `${lang} ${code}`).not.toBe('');

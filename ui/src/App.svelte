@@ -421,7 +421,7 @@
     {/if}
   </header>
 
-  <main>
+  <main tabindex="-1">
     <!-- The data is somebody else's text: one task that breaks a view must
          not take the whole page with it. -->
     <svelte:boundary>
