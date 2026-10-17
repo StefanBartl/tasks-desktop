@@ -2,6 +2,7 @@
 // event stream and the detail of the selected task.
 
 import {
+  MOVE_MAX,
   type MoveCheck,
   type TagEdit,
   bulkMoveOps,
@@ -864,6 +865,11 @@ export class App {
   async previewBulkMove(toArea: string): Promise<MoveCheck[] | null> {
     const ops = bulkMoveOps(this.tasks, this.marks, toArea);
     if (ops.length === 0) return [];
+    // Too many moves for one engine call: refused before anything is sent (see `MOVE_MAX`).
+    if (ops.length > MOVE_MAX) {
+      this.say('error', 'bulk.move_limit', { n: MOVE_MAX });
+      return null;
+    }
     try {
       const result = await this.env.hub.ops({ client_op_id: this.opId(), dry_run: true, ops });
       return moveChecks(ops, result.results);
@@ -892,6 +898,10 @@ export class App {
     );
     if (ops.length === 0) {
       this.say('ok', 'bulk.nothing');
+      return 0;
+    }
+    if (ops.length > MOVE_MAX) {
+      this.say('error', 'bulk.move_limit', { n: MOVE_MAX });
       return 0;
     }
     const selectedBefore = this.selectedId;

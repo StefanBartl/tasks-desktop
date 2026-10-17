@@ -4,6 +4,7 @@ import { App, type Env } from './app.svelte';
 import type { CachedList, ListStore } from './cache';
 import type { DonePreview, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import { task } from './fixtures';
+import { MOVE_MAX } from './bulk';
 import { translate } from './i18n';
 import { emptyForm } from './planwizard';
 
@@ -922,6 +923,28 @@ describe('writing', () => {
     expect(app.toast?.kind).toBe('ok');
     // The way back is the inverses in the opposite order, as one batch.
     expect(app.toast?.undo?.map((o) => (o.op === 'set' ? o.id : ''))).toEqual(['pub/a', 'pub/c']);
+  });
+
+  it('moves at most MOVE_MAX marked tasks in one batch: past it nothing is sent and the limit is told', async () => {
+    const many = Array.from({ length: MOVE_MAX + 1 }, (_, i) => task(`pub/m${String(i).padStart(3, '0')}`, { etag: `e${i}` }));
+    const { app, hub } = await ready(many);
+    app.markShown();
+    expect(app.marks).toHaveLength(MOVE_MAX + 1);
+    const told = translate(app.lang, 'bulk.move_limit', { n: MOVE_MAX });
+    expect(await app.previewBulkMove('other')).toBeNull();
+    expect(app.toast).toMatchObject({ kind: 'error', text: told });
+    app.toast = null;
+    // The move itself keeps the limit too, even with a dry run that let every task through.
+    const checks = many.map((t) => ({ id: t.id, newId: `other/${t.id}`, reasons: [], references: 0, namedBy: [] }));
+    expect(await app.bulkMove('other', checks)).toBe(0);
+    expect(app.toast).toMatchObject({ kind: 'error', text: told });
+    expect(hub.sent).toHaveLength(0);
+    // One fewer is asked, in ONE dry run.
+    app.toggleMark(app.marks[0] as string);
+    await app.previewBulkMove('other');
+    expect(hub.sent).toHaveLength(1);
+    expect(hub.sent[0]?.dry_run).toBe(true);
+    expect(hub.sent[0]?.ops).toHaveLength(MOVE_MAX);
   });
 
   // The engine names a failed entry by its position `n` and, for a conflict, in `error.details.id` - not by `id`.

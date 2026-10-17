@@ -267,7 +267,11 @@ holder of the rules. The route:
   `tasks.result`, one entry per operation, never "ok" for a part;
 * scans before it answers when something changed, so the next read is the new
   state and the open streams hear of it; a write that ended without an answer
-  is `502 outcome_unknown` and also starts a scan;
+  is `502 outcome_unknown` and also starts a scan. The page sends at most 50
+  moves to another area in one request (`MOVE_MAX` in `ui/src/lib/bulk.ts`):
+  a move rewrites several files, and 100 of them took 10 s of the 30 s the hub
+  gives one engine call (measured 2026-10-18, 650 open tasks, each moved task
+  named by three others), so a slower machine stays well inside;
 * finishes only with the token of `GET /api/tasks/done_preview` for the version
   of the file that was shown (the engine checks it under the file lock);
 * counts as a use of the interface (`usage`), like a rescan.

@@ -78,6 +78,14 @@ export function bulkSetOps(
   return ops;
 }
 
+/**
+ * The most moves in one batch. A move rewrites several files and asks the vault who names the task; measured
+ * 2026-10-18 on StevesPC against the real engine in a vault of 650 open tasks, each moved task named by three others:
+ * 50 moves 5 s, 100 moves 10 s, against the 30 s the hub gives one engine call (past them the answer is
+ * `outcome_unknown`). Half of `BULK_MAX` keeps a slower machine well inside.
+ */
+export const MOVE_MAX = 50;
+
 /** One `move_area` of the bulk bar. */
 export interface MoveOp {
   op: 'move_area';
