@@ -92,7 +92,7 @@
   <meter min="0" {max} value={count} aria-hidden="true">{count}</meter>
 {/snippet}
 
-<div class="done">
+<div class="done" class:pending={loading} aria-busy={loading}>
   <section class="card head" aria-label={t('done.controls')}>
     <div class="headline">
       <h2 class="eyebrow">{t('nav.done')}</h2>
@@ -122,6 +122,8 @@
         <button type="button" class="linkish" onclick={takeOff}>{t('done.take_off')}</button>
       {/if}
     </div>
+    <!-- The figures below are those of the period before until the answer is there: dimmed, and said in words. -->
+    <div class="muted" role="status">{loading ? t('state.loading') : ''}</div>
     {#if problem}
       <p class="problem" role="alert">{problem}</p>
     {:else if doc}
@@ -295,6 +297,9 @@
     display: grid;
     gap: 1rem;
     align-content: start;
+  }
+  .done.pending > .card:not(.head) {
+    opacity: 0.55;
   }
   .card {
     background: var(--surface);
