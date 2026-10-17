@@ -1180,8 +1180,21 @@ export class App {
     await this.write(asking.ops);
   }
 
+  /**
+   * A key or a drop of the board or the inbox that would write while a write is under way: it is refused aloud (an
+   * error toast, in the alert region) instead of being dropped without a word. It is deliberately not buffered: a key
+   * kept for later would act on a list the person has not seen yet (the write under way may move the card, or sort
+   * the task out of the inbox). Nothing is drawn for the refused move: the board only ever shows the engine's state.
+   */
+  private refusedWhileSaving(): boolean {
+    if (!this.saving || this.phase !== 'ready') return false;
+    this.say('error', 'write.busy');
+    return true;
+  }
+
   /** `id` dropped on `target`: before or after it. */
   async dropNear(id: string, target: { id: string; place: 'before' | 'after' }): Promise<void> {
+    if (this.refusedWhileSaving()) return;
     await this.moveCard(placeNear(this.tasks, id, target, this.can('eff_prio')));
   }
 
@@ -1190,6 +1203,7 @@ export class App {
     const task = this.tasks.find((t) => t.id === id);
     // A card the filter hides is not moved behind the person's back.
     if (!task || !isColumn(task.status) || !this.shown.some((t) => t.id === id)) return;
+    if (this.refusedWhileSaving()) return;
     await this.moveCard(stepInGroup(this.board[task.status], id, dir));
   }
 
@@ -1197,6 +1211,7 @@ export class App {
   async dropOnColumn(id: string, status: string): Promise<void> {
     const task = this.tasks.find((t) => t.id === id);
     if (!task || task.status === status || !isColumn(status)) return;
+    if (this.refusedWhileSaving()) return;
     // Blocked with nothing that blocks it is a warning of the engine: ask for the blocker first.
     if (status === 'blocked' && task.blocked_by.length === 0) {
       if (this.phase === 'ready' && !this.saving) this.blocking = { id };
@@ -1238,6 +1253,7 @@ export class App {
   /** A card dropped on the zone for finished work: the same two steps as the button. */
   async dropOnDone(id: string): Promise<void> {
     if (!this.shown.some((t) => t.id === id)) return;
+    if (this.refusedWhileSaving()) return;
     await this.startFinish(id);
   }
 
@@ -1245,6 +1261,7 @@ export class App {
   async shiftColumn(id: string, dir: 1 | -1): Promise<void> {
     const task = this.tasks.find((t) => t.id === id);
     if (!task || !this.shown.some((t) => t.id === id)) return;
+    if (this.refusedWhileSaving()) return;
     const to = neighbourColumn(task.status, dir);
     if (to) await this.dropOnColumn(id, to);
     // Past the last column lies the strip the mouse drops on to finish: the keyboard gets the same way (with the preview).
@@ -1977,7 +1994,8 @@ export class App {
   async triage(key: string, shift: boolean): Promise<void> {
     const choice = triageKey(key, shift);
     const id = this.selectedId;
-    if (!choice || id === null || this.saving || this.phase !== 'ready') return;
+    if (!choice || id === null || this.phase !== 'ready') return;
+    if (this.refusedWhileSaving()) return;
     const before = this.inbox;
     const at = before.findIndex((t) => t.id === id);
     if (at === -1) return;
