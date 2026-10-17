@@ -65,7 +65,12 @@ python tools/check-control-chars.py
   ist: vor dem nächsten Schritt `settled(page)` abwarten (alle Karten wieder
   ziehbar, der Titel im Detail wieder bearbeitbar; gilt für Board und Inbox),
   nicht nur die sichtbare Änderung. Auf eine Schreibantwort `WRITE_BUDGET` (15 s)
-  warten, nicht die 5 s eines `expect`.
+  warten, nicht die 5 s eines `expect`: einen Schritt, der schreibt, in
+  `write(page, () => ...)` fassen (wartet auf die Antwort und auf `settled`).
+  Absichtlich langsame Schreibvorgänge (`slow`, `holdNextWrite`) brauchen
+  `test.slow()`.
+- Die Suche trifft Teilstrings (`Board` trifft `Board1`): Titel pro Wiederholung
+  mit fester Breite (`r000`, `r001`, ...).
 - `--repeat-each` nur mit dem einen Worker: mit `--workers=4` teilen sich die
   Wiederholungen den Vault, und wer nach Positionen in einer Liste fragt (Inbox),
   sieht die Tasks der anderen kommen und gehen.
