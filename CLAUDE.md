@@ -60,6 +60,11 @@ python tools/check-control-chars.py
 - Die Tests teilen einen Vault: Titel und Dateinamen müssen eindeutig sein (ein
   Suchbegriff darf keinen Task eines anderen Tests treffen).
 - `keyboard.press('F')` sendet kein Shift: Umschalt+f ist `press('Shift+f')`.
+- Eine Taste oder ein Drag, während ein Schreibvorgang unterwegs ist, wird nicht
+  gesendet, und das Event des Hubs kann die Änderung zeigen, bevor die Antwort da
+  ist: vor dem nächsten Schritt `settled(page)` abwarten, nicht nur die sichtbare
+  Änderung. Auf eine Schreibantwort `WRITE_BUDGET` (15 s) warten, nicht die 5 s
+  eines `expect`.
 - Anfragen zählen (`page.on('request')`) für alles, was ein `$effect` auslöst; die
   Unit-Tests sehen keine Effekte. Mehr dazu in der Vorlage `web`.
 
