@@ -2264,12 +2264,14 @@ describe('writing', () => {
     });
 
     it('chooses another vault: the hub is asked, the cached list of the old one goes, the page loads again', async () => {
-      const { app, hub, cleared, reloads } = await readyVaults();
+      const { app, hub, cleared, reloads, prefs } = await readyVaults();
       const before = cleared();
       // A filter of the vault that is left (its areas, tags, plans) is not taken to the next one.
       app.filter = { ...app.filter, areas: ['only-in-main'] };
       await app.selectVault('native');
       expect(app.filter.areas).toEqual([]);
+      // What is read after the reload is the empty filter, not the one of the vault that was left.
+      expect(make({ token: 't', prefs }).app.filter.areas).toEqual([]);
       expect(hub.vaultCalls).toEqual(['select native']);
       expect(cleared()).toBe(before + 1);
       expect(reloads()).toBe(1);
@@ -3060,6 +3062,35 @@ describe('the Info dialog', () => {
 });
 
 describe('the filter outlives a reload and holds in every view', () => {
+  it('is not taken over from another vault, and an older memory becomes one of the vault that is read', async () => {
+    // Made in "native" (chosen in another tab, or in the settings of the hub); the hub reads "main" now.
+    const other = new Map([['tasks-desktop.filter', JSON.stringify({ areas: ['only-in-native'], vault: 'native' })]]);
+    const a = make({ token: 't', prefs: other });
+    expect(a.app.filter.areas).toEqual(['only-in-native']);
+    await a.app.start(null);
+    a.app.stop();
+    await vi.waitFor(() => expect(a.app.vaultList).not.toBeNull());
+    expect(a.app.filter.areas).toEqual([]);
+    expect(JSON.parse(other.get('tasks-desktop.filter') ?? '{}')).toMatchObject({ areas: [], vault: 'main' });
+
+    // An older memory names no vault: it is kept, and is now the filter of "main".
+    const older = new Map([['tasks-desktop.filter', JSON.stringify({ areas: ['kept'] })]]);
+    const b = make({ token: 't', prefs: older });
+    await b.app.start(null);
+    b.app.stop();
+    await vi.waitFor(() => expect(b.app.vaultList).not.toBeNull());
+    expect(b.app.filter.areas).toEqual(['kept']);
+    expect(JSON.parse(older.get('tasks-desktop.filter') ?? '{}')).toMatchObject({ areas: ['kept'], vault: 'main' });
+
+    // The filter of the vault that is read stays.
+    const same = new Map([['tasks-desktop.filter', JSON.stringify({ areas: ['mine'], vault: 'main' })]]);
+    const c = make({ token: 't', prefs: same });
+    await c.app.start(null);
+    c.app.stop();
+    await vi.waitFor(() => expect(c.app.vaultList).not.toBeNull());
+    expect(c.app.filter.areas).toEqual(['mine']);
+  });
+
   it('is remembered without the search words, and read back from the prefs', async () => {
     const { app, prefs } = make({ token: 't' });
     app.filter = { ...app.filter, statuses: ['doing'], ranges: { prio: { max: { label: '2', n: 2 } } } };

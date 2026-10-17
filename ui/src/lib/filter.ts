@@ -376,9 +376,24 @@ export function waitingForMe(tasks: readonly TaskEntry[]): TaskEntry[] {
  * The filter as it is remembered (without the search words, which are for the moment), and the filter read back from
  * what was remembered: a damaged or older memory gives the parts it can and an empty filter for the rest.
  */
-export function serializeFilter(filter: Filter): string {
+export function serializeFilter(filter: Filter, vault?: string | null): string {
   const { query: _query, ...rest } = filter;
-  return JSON.stringify(rest);
+  return JSON.stringify(vault === undefined ? rest : { ...rest, vault });
+}
+
+/**
+ * The vault a remembered filter was made in: a name, `null` for a hub with one vault and no list, `undefined` when
+ * the memory does not say (an older one, or written before the hub named its vault).
+ */
+export function filterVaultOf(text: string | null): string | null | undefined {
+  try {
+    const raw: unknown = text ? JSON.parse(text) : undefined;
+    if (typeof raw !== 'object' || raw === null || !('vault' in raw)) return undefined;
+    const vault = (raw as { vault: unknown }).vault;
+    return typeof vault === 'string' || vault === null ? vault : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function parseFilter(text: string | null): Filter {

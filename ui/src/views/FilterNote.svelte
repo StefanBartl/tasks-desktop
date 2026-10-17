@@ -40,7 +40,7 @@
       {#each chips as c, index (c.item.kind + ':' + c.item.value)}
         <li>
           <span>{c.label}</span>
-          <button type="button" aria-label={t('filter.remove', { what: c.label })} onclick={() => void keepFocus(() => (app.filter = without(app.filter, c.item)), index)}>×</button>
+          <button type="button" aria-label={t('filter.remove', { what: c.label })} onclick={() => void keepFocus(() => (app.filter = without(app.filter, c.item)), index + (app.filter.query.trim() !== '' ? 1 : 0))}>×</button>
         </li>
       {/each}
       <li><button type="button" class="linkish" onclick={() => void keepFocus(() => app.resetFilter(), 0)}>{t('filter.clear')}</button></li>

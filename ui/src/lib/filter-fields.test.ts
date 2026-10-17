@@ -9,6 +9,7 @@ import {
   fieldOptions,
   fieldValues,
   freshFilter,
+  filterVaultOf,
   matches,
   narrows,
   parseFilter,
@@ -285,6 +286,15 @@ describe('what narrows', () => {
 });
 
 describe('the filter that is remembered', () => {
+  it('names the vault it was made in, and says nothing when an older memory does not', () => {
+    expect(filterVaultOf(serializeFilter(freshFilter(), 'native'))).toBe('native');
+    expect(filterVaultOf(serializeFilter(freshFilter(), null))).toBeNull();
+    expect(filterVaultOf(serializeFilter(freshFilter()))).toBeUndefined();
+    expect(filterVaultOf('{')).toBeUndefined();
+    expect(filterVaultOf(JSON.stringify({ vault: 7 }))).toBeUndefined();
+    // The vault is no part of the filter itself.
+    expect(parseFilter(serializeFilter({ ...freshFilter(), statuses: ['doing'] }, 'native')).statuses).toEqual(['doing']);
+  });
   it('comes back as it went, without the search words', () => {
     const f = only({
       areas: ['lib'],

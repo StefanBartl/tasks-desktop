@@ -23,7 +23,7 @@ import type { Check, DonePreview, Estimate, Finished, Links, MovePlan, Next, Pla
 import type { Op } from './api';
 import { indexOfLinks, touchedAreas } from './cross';
 import { parsePrefs, type Prefs as FinishedPrefs } from './finished';
-import { applyFilter, freshFilter, moveSelection, parseFilter, serializeFilter, type Filter } from './filter';
+import { applyFilter, filterVaultOf, freshFilter, moveSelection, parseFilter, serializeFilter, type Filter } from './filter';
 import { inboxOf, triageKey } from './inbox';
 import { findingsByTask, groundOf, judgeFindings, type Finding, type Ground, type Judged } from './check';
 import { assumeOf, changesOf, failedIdsOf, MATRIX_MAX, matrixIds, pruneDraft, withCell, type Draft } from './estimate';
@@ -151,12 +151,17 @@ export class App {
     return this.#filter;
   }
   set filter(value: Filter) {
-    const before = serializeFilter(this.#filter);
+    const before = serializeFilter(this.#filter, this.#filterVault);
     this.#filter = value;
+    // The filter belongs to the vault it was made in (its areas, tags and plans); while the hub has not named its
+    // vault yet, the one the memory names is kept.
+    if (this.vaultList) this.#filterVault = this.vaultList.active;
     // The search words are not remembered: typing in the box writes nothing.
-    const text = serializeFilter(value);
+    const text = serializeFilter(value, this.#filterVault);
     if (text !== before) safe(() => this.env.prefs.setItem('tasks-desktop.filter', text));
   }
+  /** The vault the remembered filter was made in (see `filterVaultOf`). */
+  #filterVault: string | null | undefined = undefined;
   /** Blocks of the Today view the person put away. */
   hiddenTiles = $state<Tile[]>([]);
   tileOrder = $state<OrderedTile[]>([...ORDERED_TILES]);
@@ -292,7 +297,9 @@ export class App {
     this.shortAreas = safe(() => env.prefs.getItem('tasks-desktop.short-areas')) !== 'off';
     const hidden = safe(() => env.prefs.getItem('tasks-desktop.tiles-hidden'));
     this.hiddenTiles = parseTiles(hidden);
-    this.#filter = parseFilter(safe(() => env.prefs.getItem('tasks-desktop.filter')));
+    const remembered = safe(() => env.prefs.getItem('tasks-desktop.filter'));
+    this.#filter = parseFilter(remembered);
+    this.#filterVault = filterVaultOf(remembered);
     this.tileOrder = parseOrder(safe(() => env.prefs.getItem('tasks-desktop.tiles-order')), ORDERED_TILES);
     this.countViews = parseViews(safe(() => env.prefs.getItem('tasks-desktop.count-views')));
     this.frecency = parseFrecency(safe(() => env.prefs.getItem('tasks-desktop.frecency')));
@@ -1888,6 +1895,7 @@ export class App {
     }
     if (cached.hubVault === undefined || now.name === cached.hubVault) return;
     void this.env.cache.clear();
+    if (this.#filterVault !== undefined && this.#filterVault !== now.name) this.filter = freshFilter();
     // Only while the cached list is what is shown: a list the hub sent meanwhile stays.
     if (this.cachedAt !== cached.savedAt) return;
     this.tasks = [];
@@ -1912,7 +1920,13 @@ export class App {
       this.vaultList = await this.env.hub.vaults();
     } catch {
       this.vaultList = null;
+      return;
     }
+    // A filter made in another vault (chosen in another tab, or in the settings of the hub) is not taken over: its
+    // areas, tags and plans are not those of this one. A filter that does not say its vault is now of this one.
+    const active = this.vaultList.active;
+    if (this.#filterVault !== undefined && this.#filterVault !== active) this.filter = freshFilter();
+    else if (this.#filterVault === undefined) this.filter = { ...this.#filter };
   }
 
   /** Open the Info dialog (APP-09); `focus` says what the person came for, so that the keyboard lands there. */
