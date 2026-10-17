@@ -51,6 +51,21 @@ describe('the values of a field', () => {
     expect(fieldValues(c, 'state')).toEqual([NONE]);
     expect(fieldValues(a, 'category')).toEqual(['bug']);
   });
+  it('offers every category the tasks carry, the newer ones of the engine too (no list of its own)', () => {
+    const tasks = [
+      task('lib/ux', { category: ['ux', 'bindings'] }),
+      task('lib/ci', { category: ['refactor', 'tests', 'ci'] }),
+      task('lib/old', { category: ['bug'] }),
+    ];
+    expect(fieldOptions(tasks, 'category').map((o) => o.value)).toEqual([
+      'bindings',
+      'bug',
+      'ci',
+      'refactor',
+      'tests',
+      'ux',
+    ]);
+  });
 });
 
 describe('filtering by a field', () => {
