@@ -2184,7 +2184,10 @@ describe('writing', () => {
     it('chooses another vault: the hub is asked, the cached list of the old one goes, the page loads again', async () => {
       const { app, hub, cleared, reloads } = await readyVaults();
       const before = cleared();
+      // A filter of the vault that is left (its areas, tags, plans) is not taken to the next one.
+      app.filter = { ...app.filter, areas: ['only-in-main'] };
       await app.selectVault('native');
+      expect(app.filter.areas).toEqual([]);
       expect(hub.vaultCalls).toEqual(['select native']);
       expect(cleared()).toBe(before + 1);
       expect(reloads()).toBe(1);

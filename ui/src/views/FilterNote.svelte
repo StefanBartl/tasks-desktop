@@ -5,8 +5,9 @@
   import { activeFilters, narrows, without, type ActiveFilter } from '../lib/filter';
   import { chipLabel } from '../lib/filter-chips';
   import { translate, type Key } from '../lib/i18n';
+  import { tick } from 'svelte';
 
-  let { app }: { app: App } = $props();
+  let { app, plan = false }: { app: App; plan?: boolean } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
 
   const chips = $derived(
@@ -15,26 +16,34 @@
       label: chipLabel(app.lang, app.filter, item, { short: app.shortAreas, all: app.allAreaNames }),
     })),
   );
-  const off = (item: ActiveFilter) => (app.filter = without(app.filter, item));
+  let list: HTMLUListElement | undefined = $state();
+  /** After a change the focus must not fall to the page: it goes to the next chip, else to the view's main area. */
+  async function keepFocus(change: () => void, index: number): Promise<void> {
+    change();
+    await tick();
+    const buttons = list?.querySelectorAll<HTMLButtonElement>('li button');
+    if (buttons && buttons.length > 0) buttons[Math.min(index, buttons.length - 1)]?.focus();
+    else document.querySelector<HTMLElement>('main')?.focus();
+  }
 </script>
 
 {#if narrows(app.filter)}
   <div class="note" data-testid="filter-note">
-    <p role="status">{t('filter.note', { shown: app.shown.length, total: app.tasks.length })}</p>
-    <ul aria-label={t('filter.active')}>
+    <p role="status">{t(plan ? 'filter.note.plan' : 'filter.note', { shown: app.shown.length, total: app.tasks.length })}</p>
+    <ul aria-label={t('filter.active')} bind:this={list}>
       {#if app.filter.query.trim() !== ''}
         <li>
           <span>{t('filter.query', { text: app.filter.query.trim() })}</span>
-          <button type="button" aria-label={t('filter.remove', { what: t('filter.query', { text: app.filter.query.trim() }) })} onclick={() => app.setQuery('')}>×</button>
+          <button type="button" aria-label={t('filter.remove', { what: t('filter.query', { text: app.filter.query.trim() }) })} onclick={() => void keepFocus(() => app.setQuery(''), 0)}>×</button>
         </li>
       {/if}
-      {#each chips as c (c.item.kind + ':' + c.item.value)}
+      {#each chips as c, index (c.item.kind + ':' + c.item.value)}
         <li>
           <span>{c.label}</span>
-          <button type="button" aria-label={t('filter.remove', { what: c.label })} onclick={() => off(c.item)}>×</button>
+          <button type="button" aria-label={t('filter.remove', { what: c.label })} onclick={() => void keepFocus(() => (app.filter = without(app.filter, c.item)), index)}>×</button>
         </li>
       {/each}
-      <li><button type="button" class="linkish" onclick={() => app.resetFilter()}>{t('filter.clear')}</button></li>
+      <li><button type="button" class="linkish" onclick={() => void keepFocus(() => app.resetFilter(), 0)}>{t('filter.clear')}</button></li>
       <li><button type="button" class="linkish" onclick={() => app.setView('list')}>{t('filter.note.change')}</button></li>
     </ul>
   </div>

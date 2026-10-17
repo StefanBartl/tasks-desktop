@@ -154,7 +154,9 @@
       >
         {t('board.done')}
       </div>
-    <div class="board" role="group" aria-label={t('nav.board')}>
+    <!-- A board that scrolls and holds no card (a filter hid them all) has nothing to focus: it takes the focus itself. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div class="board" role="group" aria-label={t('nav.board')} tabindex={COLUMNS.every((c) => visible(c).length === 0) ? 0 : undefined}>
       {#each COLUMNS as column (column)}
         <section
           class="column"

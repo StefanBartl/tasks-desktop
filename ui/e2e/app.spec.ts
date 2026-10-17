@@ -3098,9 +3098,19 @@ test('the filter has at least / at most and spans of days, outlives a reload, an
   for (const view of ['Plan', 'Board', 'Inbox', 'Today']) {
     await chooseView(page, 'View', view);
     await expect(note).toContainText('Filter on: 0 of');
-    if (view === 'Plan') await expect(page.locator('.stages .stage li')).toHaveCount(0);
+    if (view === 'Plan') {
+      await expect(page.locator('.stages .stage li')).toHaveCount(0);
+      // The strip says what the filter does not narrow here, and the empty plan is not "no task in this plan".
+      await expect(note).toContainText('stay those of the whole vault');
+      await expect(page.getByText('No task of this plan matches the filter.')).toBeVisible();
+    }
     if (view === 'Board') await expect(page.locator('.cards .card')).toHaveCount(0);
-    if (view === 'Inbox') await expect(page.locator('.inbox button.row')).toHaveCount(0);
+    if (view === 'Inbox') {
+      await expect(page.locator('.inbox button.row')).toHaveCount(0);
+      await expect(page.getByText('No unsorted task matches the filter.')).toBeVisible();
+      await expect(page.getByText('Everything is sorted')).toHaveCount(0);
+    }
+    await expectAccessible(page, `the ${view} with a filter on`);
   }
   await expect(page.locator('section[data-tile="waiting"] li')).toHaveCount(0);
   await expect(page.locator('section[data-tile="cdx"]')).toHaveCount(0);
@@ -3108,6 +3118,8 @@ test('the filter has at least / at most and spans of days, outlives a reload, an
   // Switched off in the strip of the overview, the filter is gone everywhere.
   await note.getByRole('button', { name: 'Clear all filters' }).click();
   await expect(note).toHaveCount(0);
+  // The strip is gone with the button that was pressed: the focus goes to the main area, not to the page.
+  await expect(page.locator('main')).toBeFocused();
   await showList(page);
   expect(await shown()).toBe(all);
   expect(await violations(page)).toEqual([]);

@@ -3,7 +3,8 @@
   // are read in `App.svelte`, with the others; this view shows the list, what each task still lacks, and the keys.
   import { onMount, untrack } from 'svelte';
   import type { App } from '../lib/app.svelte';
-  import { INBOX_PAGE, missingOf, shownCount } from '../lib/inbox';
+  import { INBOX_PAGE, inboxOf, missingOf, shownCount } from '../lib/inbox';
+  import { narrows } from '../lib/filter';
   import { hintOf, translate, type Key } from '../lib/i18n';
   import Info from 'appkit-ui/Info.svelte';
   import { markHidden } from '../lib/text';
@@ -63,7 +64,7 @@
           </span>
         </button>
       {:else}
-        <p class="empty">{t('inbox.empty')}</p>
+        <p class="empty">{t(narrows(app.filter) && inboxOf(app.tasks).length > 0 ? 'inbox.empty_filtered' : 'inbox.empty')}</p>
       {/each}
       {#if shown < rows.length}
         <button type="button" class="more" onclick={() => (limit = shown + INBOX_PAGE)}>

@@ -1880,6 +1880,8 @@ export class App {
       await this.env.hub.selectVault(name);
       // The list that is cached belongs to the vault that was left.
       await this.env.cache.clear();
+      // The areas, tags and plans of a filter are those of the vault that was left.
+      this.filter = freshFilter();
     });
     if (done) (this.env.reload ?? (() => undefined))();
   }

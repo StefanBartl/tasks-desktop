@@ -334,7 +334,7 @@ for (const lang of ['en', 'de'] as const) {
         await page.waitForTimeout(400);
         const bad = await page.evaluate(() => {
           const text = document.body.innerText;
-          const keys = text.split(/\s+/).filter((w) => /^[a-z]+(\.[a-z_]+){1,}$/.test(w) && /^(today|plan|board|list|filter|hint|menu|check|graph|inbox|matrix|count|detail|nav|status|state|prop|vaults|remind|mark)\./.test(w));
+          const keys = text.split(/\s+/).filter((w) => /^[a-z]+(\.[a-z0-9_-]+){1,}$/.test(w) && /^(today|plan|board|list|filter|hint|menu|check|graph|inbox|matrix|count|detail|nav|status|state|prop|vaults|remind|mark)\./.test(w));
           return { keys, wide: document.documentElement.scrollWidth - document.documentElement.clientWidth };
         });
         expect(bad.keys, `${lang} ${theme} ${name}: raw keys`).toEqual([]);

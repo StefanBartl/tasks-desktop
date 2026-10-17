@@ -439,6 +439,8 @@
     color: var(--muted);
     cursor: pointer;
     font-size: 0.8rem;
+    min-width: 1.6rem;
+    min-height: 1.6rem;
     padding: 0 0.3rem;
     border-radius: var(--radius);
   }
