@@ -4,6 +4,7 @@
   import type { App } from '../lib/app.svelte';
   import { formatNumber, hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import Info from 'appkit-ui/Info.svelte';
+  import { marksLegend } from '../lib/legend';
   import { chosenPlan, criticalIds, firstTasks, phaseCounts, stagesOf, warningsOf } from '../lib/plan';
   import { markHidden } from '../lib/text';
   import GraphPanel from './GraphPanel.svelte';
@@ -173,6 +174,7 @@
     <PlanFinished {app} {planId} />
 
     <section class="stages" tabindex="-1" aria-label={t('plan.stages')}>
+      <p class="legend"><Info hint={marksLegend(app.lang)} label={t('hint.about', { what: t('mark.legend.what') })} /></p>
       {#each drawn as stage (stage.stage ?? 'cycle')}
         <div class="stage card">
           <h2 class="eyebrow">

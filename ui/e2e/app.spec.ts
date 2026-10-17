@@ -2010,7 +2010,7 @@ test('the plan view shows the stages and the critical path, and opens a task', a
   expect(await violations(page)).toEqual([]);
 
   // A task of a stage opens in the list, selected.
-  const first = page.getByRole('region', { name: 'Stages' }).getByRole('button').first();
+  const first = page.getByRole('region', { name: 'Stages' }).locator('.stage').getByRole('button').first();
   const title = (await first.innerText()).trim();
   await first.click();
   await expect(page.locator('aside.detail .task-title')).toHaveText(title);

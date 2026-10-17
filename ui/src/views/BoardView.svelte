@@ -6,6 +6,7 @@
   import { COLUMNS, COLUMN_FIRST, groupLabel, placeOf, runKey, stageOf, type Column } from '../lib/board';
   import { hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import Info from 'appkit-ui/Info.svelte';
+  import { marksLegend } from '../lib/legend';
   import { markHidden } from '../lib/text';
   import Detail from './Detail.svelte';
 
@@ -136,6 +137,7 @@
     <span role="status">{t('list.count', { shown: app.shown.length, total: app.tasks.length })}</span>
     <span class="help">{t('board.help')}</span>
     <Info hint={t('hint.board')} label={t('hint.about', { what: t('nav.board') })} />
+    <Info hint={marksLegend(app.lang)} label={t('hint.about', { what: t('mark.legend.what') })} />
   </p>
   <div class="layout">
     <div class="main" ondragleave={onBoardLeave} role="presentation">

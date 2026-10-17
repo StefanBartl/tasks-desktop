@@ -276,3 +276,28 @@ test('"Show more" in the finished view loads the next page and adds it below the
   await expect(page.getByRole('button', { name: 'Show more' })).toHaveCount(0);
   await expectAccessible(page, 'the finished view with two pages');
 });
+
+test('the marks of rows, cards and stage lines are explained with one tab stop each view, by the keyboard', async ({ page }) => {
+  await pair(page);
+  const legend = (scope: string) => page.locator(scope).getByRole('button', { name: 'Explanation: the marks of a task' });
+  const check = async (scope: string) => {
+    const button = legend(scope);
+    await expect(button).toHaveCount(1);
+    await button.focus();
+    const tip = page.getByRole('tooltip');
+    await expect(tip).toBeVisible();
+    for (const words of ['Priority: 1', '↔ n', '⚑ n', 'not written']) await expect(tip).toContainText(words);
+    // A screen reader hears it with the button, also without the popup.
+    await expect(button).toHaveAttribute('aria-describedby', /\S/);
+    await page.keyboard.press('Escape');
+  };
+  await showList(page);
+  await check('p.count');
+  await expectAccessible(page, 'the list with its legend');
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Board', exact: true }).click();
+  await check('.wrap > p.count');
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Plan', exact: true }).click();
+  await check('section.stages');
+});
