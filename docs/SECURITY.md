@@ -5,8 +5,11 @@ any web page you open in a browser, can try to talk to it. This page says
 what the server does about that, and what it does not.
 
 The numbers (T1 to T10, "rule N") refer to the maintainer's design notes. The
-tests named here are in `crates/hub-testkit/tests/security.rs` unless another
-file is given.
+guard, the pairing, the sessions and the engine seam are those of
+[appkit](https://github.com/StefanBartl/appkit) (its `SECURITY.md` says what holds for every app);
+this page adds what is the tasks hub's own. The security matrix is written in
+`appkit-testkit` and run for this hub by `crates/hub-testkit/tests/security.rs`; other tests
+named here are in `crates/hub-testkit/tests/` unless another file is given.
 
 ## What a request has to pass
 
@@ -462,9 +465,12 @@ The tree is small (about 70 crates, of which the file watcher and its
 platform backends are about twenty) and its policy is in the repository:
 
 * `Cargo.lock` is committed and every build uses `--locked`.
-* `deny.toml` allows a short list of licenses, crates.io only, no git
-  sources, no wildcard versions; `cargo audit` and `cargo deny check` run
+* `deny.toml` allows a short list of licenses, crates.io and one git source
+  (appkit), no wildcard versions; `cargo audit` and `cargo deny check` run
   in CI.
+* appkit is taken by a tag; `Cargo.lock` pins the commit, and a tag that was
+  moved later is caught by `tools/check-appkit-pin.py` (also run in CI): the
+  pinned commit must be the one the tag names now.
 * A version that is younger than seven days is not taken
   (`tools/check-lock-age.py`, also run in CI). Cargo has no setting for
   this. A newer version is taken with `cargo update -p <crate> --precise
