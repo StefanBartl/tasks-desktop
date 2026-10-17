@@ -7,6 +7,8 @@
   import TextHits from './TextHits.svelte';
   import TaskRow from './TaskRow.svelte';
   import MultiSelect from 'appkit-ui/MultiSelect.svelte';
+  import Info from 'appkit-ui/Info.svelte';
+  import { marksLegend } from '../lib/legend';
   import {
     FIELD_KEYS,
     NONE,
@@ -298,6 +300,8 @@
         {#if app.can('estimate')}<button type="button" class="linkish" onclick={() => app.openMatrix()}>{t('matrix.open')}</button> ·{/if}
         {t('list.help')}</span
       >
+      <!-- The marks of the rows, explained with one tab stop (the rows themselves would be hundreds). -->
+      <Info hint={marksLegend(app.lang)} label={t('hint.about', { what: t('mark.legend.what') })} />
     </p>
     {#if app.can('finished')}
       <label class="show-finished"
