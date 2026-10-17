@@ -114,12 +114,15 @@ async function capture(page: Page, title: string): Promise<void> {
 const WRITE_BUDGET = 15_000;
 
 /**
- * No write of the page is on its way: every card of the board can be dragged again. A key or a drag while a write is
- * on its way is not sent, and the board may already show the move before the answer is there (the hub's event of the
- * changed file can come first; CI, 5da9dd1).
+ * No write of the page is on its way: every card of the board can be dragged again, and the fields of the detail can
+ * be edited again (the title is held back only while a write is on its way). A key or a drag while a write is on its
+ * way is not sent, and the board or the inbox may already show the change before the answer is there (the hub's event
+ * of the changed file can come first; CI, 5da9dd1 and a098dff).
  */
 async function settled(page: Page): Promise<void> {
   await expect(page.locator('.card:not([draggable="true"])')).toHaveCount(0, { timeout: WRITE_BUDGET });
+  const title = page.locator('aside.detail').getByLabel('Title', { exact: true });
+  await expect(title.and(page.locator(':disabled'))).toHaveCount(0, { timeout: WRITE_BUDGET });
 }
 
 /**
@@ -1097,42 +1100,47 @@ test('the inbox keeps the selection at the place of a task that was sorted, and 
   await watchViolations(page);
   await pair(page);
   await showList(page);
-  for (const n of [1, 2, 3]) {
-    await page.keyboard.press('c');
-    const capture = page.getByRole('dialog', { name: 'New task' });
-    await capture.getByLabel('Title').fill(`Inbox mid ${n}`);
-    await capture.locator('select').first().selectOption('lib.nvim');
-    await capture.getByRole('button', { name: 'Create' }).click();
-    await expect(capture).toHaveCount(0);
-  }
+  // A name of its own for each repeat (--repeat-each with the one worker shares the vault).
+  const repeat = test.info().repeatEachIndex;
+  const name = `Inbox mid${repeat === 0 ? '' : repeat}`;
+  const slug = `inbox-mid${repeat === 0 ? '' : repeat}`;
+  for (const n of [1, 2, 3]) await capture(page, `${name} ${n}`);
   await page.keyboard.press('g');
   await page.keyboard.press('i');
   const inbox = page.locator('section.inbox');
   await expect(inbox).toBeVisible();
-  const middle = inbox.locator('.row', { hasText: 'lib.nvim/inbox-mid-2' });
+  const middle = inbox.locator('.row', { hasText: `lib.nvim/${slug}-2` });
   await middle.click();
   // Sorted from the middle of the list: the selection stays where the task was, on the one that took its place.
+  // The answer of the first key is held until the row shows the priority, as the hub's event of the changed file may
+  // show it before the answer is there: the next key waits for the answer, not for the picture (a key while a write
+  // is on its way is not sent; CI, a098dff).
+  const release = await holdNextWrite(page);
   await page.keyboard.press('2');
-  await expect(middle).not.toContainText('no priority');
+  await expect(middle).not.toContainText('no priority', { timeout: WRITE_BUDGET });
+  release();
+  await settled(page);
   await page.keyboard.press('s');
-  await expect(middle).not.toContainText('no effort');
+  await expect(middle).not.toContainText('no effort', { timeout: WRITE_BUDGET });
+  await settled(page);
   // (the engine's order moves a task when its priority is set: the neighbour is looked at before the last key)
   const ids = await inbox.locator('.row .id').allInnerTexts();
-  const at = ids.indexOf('lib.nvim/inbox-mid-2');
+  const at = ids.indexOf(`lib.nvim/${slug}-2`);
   expect(at).toBeGreaterThanOrEqual(0);
   const next = ids[at + 1];
   expect(next).toBeDefined();
   await page.keyboard.press('m');
-  await expect(middle).toHaveCount(0);
-  await expect(inbox.locator('.row[aria-current="true"] .id')).toHaveText(next as string);
+  await expect(middle).toHaveCount(0, { timeout: WRITE_BUDGET });
+  await expect(inbox.locator('.row[aria-current="true"] .id')).toHaveText(next as string, { timeout: WRITE_BUDGET });
+  await settled(page);
   // Escape selects none; a change of the vault does not put the selection back.
   await page.keyboard.press('Escape');
   await expect(inbox.locator('.row[aria-current="true"]')).toHaveCount(0);
   writeFileSync(
-    join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', 'inbox-mid-later-e2e.md'),
-    '---\ntitle: Inbox mid later\nstatus: open\n---\n\n## Kontext\n',
+    join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}-later-e2e.md`),
+    `---\ntitle: ${name} later\nstatus: open\n---\n\n## Kontext\n`,
   );
-  await expect(inbox.locator('.row', { hasText: 'inbox-mid-later-e2e' })).toBeVisible({ timeout: 15_000 });
+  await expect(inbox.locator('.row', { hasText: `${slug}-later-e2e` })).toBeVisible({ timeout: 15_000 });
   await page.waitForTimeout(500);
   await expect(inbox.locator('.row[aria-current="true"]')).toHaveCount(0);
   expect(consoleProblems.get(page)).toEqual([]);

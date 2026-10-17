@@ -62,9 +62,13 @@ python tools/check-control-chars.py
 - `keyboard.press('F')` sendet kein Shift: Umschalt+f ist `press('Shift+f')`.
 - Eine Taste oder ein Drag, während ein Schreibvorgang unterwegs ist, wird nicht
   gesendet, und das Event des Hubs kann die Änderung zeigen, bevor die Antwort da
-  ist: vor dem nächsten Schritt `settled(page)` abwarten, nicht nur die sichtbare
-  Änderung. Auf eine Schreibantwort `WRITE_BUDGET` (15 s) warten, nicht die 5 s
-  eines `expect`.
+  ist: vor dem nächsten Schritt `settled(page)` abwarten (alle Karten wieder
+  ziehbar, der Titel im Detail wieder bearbeitbar; gilt für Board und Inbox),
+  nicht nur die sichtbare Änderung. Auf eine Schreibantwort `WRITE_BUDGET` (15 s)
+  warten, nicht die 5 s eines `expect`.
+- `--repeat-each` nur mit dem einen Worker: mit `--workers=4` teilen sich die
+  Wiederholungen den Vault, und wer nach Positionen in einer Liste fragt (Inbox),
+  sieht die Tasks der anderen kommen und gehen.
 - Anfragen zählen (`page.on('request')`) für alles, was ein `$effect` auslöst; die
   Unit-Tests sehen keine Effekte. Mehr dazu in der Vorlage `web`.
 
