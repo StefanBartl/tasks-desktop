@@ -1,6 +1,12 @@
 //! The whole chain against the real engine: a change to a task file in a
 //! (copy of the) fixture vault reaches an open event stream. The concept's
 //! bound is two seconds from the change to the event.
+//!
+//! A folder task is moved as a whole (`move_area`, `done`): the system reports
+//! the folder, not the files in it, and on Linux inotify tells a rename in two
+//! halves. Both ways a folder task changes its area are pinned here: through
+//! the hub's write route, and from outside (the engine run from Neovim renames
+//! the folder while the hub only watches).
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -14,7 +20,7 @@ use tasks_hub::client;
 use tasks_hub::config::{Env, FileConfig, TasksSettings};
 use tasks_hub::discovery::{discover, SetupProblem};
 use tasks_hub::engine::{probe, CliEngine, Engine};
-use tasks_hub::server::{start, HubStatus, Limits, ServerConfig, WatchConfig};
+use tasks_hub::server::{start, HubStatus, Limits, RunningServer, ServerConfig, WatchConfig};
 use tasks_hub::store::RefreshOptions;
 
 mod common;
@@ -77,12 +83,32 @@ async fn session(addr: SocketAddr, control: &str) -> String {
         .to_owned()
 }
 
-#[tokio::test]
-async fn an_edit_of_a_task_file_reaches_the_stream_within_two_seconds() {
-    let vault =
-        std::env::temp_dir().join(format!("tasks-desktop-real-events-{}", std::process::id()));
+/// A hub over a copy of the fixture vault with the real engine, paired, with
+/// an open event stream that said hello.
+struct Rig {
+    server: RunningServer,
+    vault: PathBuf,
+    token: String,
+    sse: Sse,
+}
+
+impl Drop for Rig {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.vault);
+    }
+}
+
+/// The rig, or None when no engine is usable here (red when
+/// `TASKS_DESKTOP_REQUIRE_ENGINE` is set). `prepare` changes the copy of the
+/// vault before the hub reads it.
+async fn rig(name: &str, prepare: impl FnOnce(&Path)) -> Option<Rig> {
+    let vault = std::env::temp_dir().join(format!(
+        "tasks-desktop-real-events-{name}-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&vault);
     copy_dir(&fixture(), &vault);
+    prepare(&vault);
 
     let env = Env::from_process();
     let file = FileConfig {
@@ -110,14 +136,14 @@ async fn an_edit_of_a_task_file_reaches_the_stream_within_two_seconds() {
                 "the engine is required but not usable: {p}"
             );
             eprintln!("skipped: {p}");
-            return;
+            let _ = std::fs::remove_dir_all(&vault);
+            return None;
         }
         Err(other) => panic!("{other}"),
     };
     let engine = CliEngine::new(tasks_hub::engine::cli_config_from_setup(&setup, env));
     probe(&engine).await.expect("the engine answers hello");
     let engine: Arc<dyn Engine> = Arc::new(engine);
-
     let control = Secret::generate(TOKEN_BYTES).unwrap();
     let server = start(ServerConfig {
         addr: "127.0.0.1:0".parse().unwrap(),
@@ -151,22 +177,99 @@ async fn an_edit_of_a_task_file_reaches_the_stream_within_two_seconds() {
     let mut sse = Sse::open(addr, Some(&token)).await.unwrap();
     let hello = sse.next(Duration::from_secs(20)).await.expect("a hello");
     assert!(hello.starts_with("event: hello"), "{hello:?}");
+    Some(Rig {
+        server,
+        vault,
+        token,
+        sse,
+    })
+}
+
+impl Rig {
+    async fn get(&self, path: &str, headers: &[(&str, &str)]) -> client::Reply {
+        let auth = format!("Bearer {}", self.token);
+        let mut all = vec![("Authorization", auth.as_str())];
+        all.extend_from_slice(headers);
+        client::request(self.server.addr().port(), "GET", path, &all, "")
+            .await
+            .unwrap()
+    }
+
+    async fn post_ops(&self, body: &str) -> Value {
+        let auth = format!("Bearer {}", self.token);
+        let origin = format!("http://127.0.0.1:{}", self.server.addr().port());
+        let reply = client::request(
+            self.server.addr().port(),
+            "POST",
+            "/api/tasks/ops",
+            &[
+                ("Content-Type", "application/json"),
+                ("Origin", &origin),
+                ("Authorization", &auth),
+            ],
+            body,
+        )
+        .await
+        .unwrap();
+        assert_eq!(reply.status, 200, "{}", reply.body);
+        serde_json::from_str(&reply.body).unwrap()
+    }
+
+    /// The ids of the open tasks the hub's snapshot holds now.
+    async fn ids(&self) -> Vec<String> {
+        let snap = self.get("/api/tasks/snapshot", &[]).await;
+        let doc: Value = serde_json::from_str(&snap.body).unwrap();
+        doc["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["id"].as_str().map(str::to_owned))
+            .collect()
+    }
+
+    /// Events until one names `id` (anywhere in it), within `within`; the
+    /// time it took. None when none came.
+    async fn change_naming(&mut self, id: &str, within: Duration) -> Option<(Value, Duration)> {
+        let started = Instant::now();
+        loop {
+            let left = within.checked_sub(started.elapsed())?;
+            let change = self.sse.next_change(left).await?;
+            if change.to_string().contains(&format!("\"{id}\"")) {
+                return Some((change, started.elapsed()));
+            }
+        }
+    }
+}
+
+/// A folder task in `lib.nvim` with a file beside its task file.
+fn folder_task(vault: &Path, slug: &str) {
+    let dir = vault
+        .join("lib.nvim")
+        .join("ROADMAP")
+        .join("tasks")
+        .join(slug);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join(format!("{slug}.md")),
+        format!("---\ntitle: Folder task {slug}\nstatus: open\nprio: 2\n---\n\nA folder task.\n"),
+    )
+    .unwrap();
+    std::fs::write(dir.join("asset.txt"), "beside the task").unwrap();
+}
+
+#[tokio::test]
+async fn an_edit_of_a_task_file_reaches_the_stream_within_two_seconds() {
+    let Some(mut r) = rig("edit", |_| {}).await else {
+        return;
+    };
 
     // The snapshot a client holds before the change.
-    let auth = format!("Bearer {token}");
-    let before = client::request(
-        addr.port(),
-        "GET",
-        "/api/tasks/snapshot",
-        &[("Authorization", &auth)],
-        "",
-    )
-    .await
-    .unwrap();
+    let before = r.get("/api/tasks/snapshot", &[]).await;
     let before_etag = before.header("etag").expect("an ETag").to_owned();
 
     // Change a task file the way an editor does: write it in place.
-    let path = vault
+    let path = r
+        .vault
         .join("lib.nvim")
         .join("ROADMAP")
         .join("tasks")
@@ -177,7 +280,8 @@ async fn an_edit_of_a_task_file_reaches_the_stream_within_two_seconds() {
     let started = Instant::now();
     std::fs::write(&path, edited).unwrap();
 
-    let change = sse
+    let change = r
+        .sse
         .next_change(Duration::from_secs(10))
         .await
         .expect("an event");
@@ -194,16 +298,88 @@ async fn an_edit_of_a_task_file_reaches_the_stream_within_two_seconds() {
     assert!(took < Duration::from_secs(2), "took {took:?}");
 
     // The ETag moved, and a client that sends the old one gets the new document.
-    let after = client::request(
-        addr.port(),
-        "GET",
-        "/api/tasks/snapshot",
-        &[("Authorization", &auth), ("If-None-Match", &before_etag)],
-        "",
-    )
-    .await
-    .unwrap();
+    let after = r
+        .get("/api/tasks/snapshot", &[("If-None-Match", &before_etag)])
+        .await;
     assert_eq!(after.status, 200, "{:?}", after.status);
     assert_ne!(after.header("etag"), Some(before_etag.as_str()));
-    let _ = std::fs::remove_dir_all(&vault);
+}
+
+#[tokio::test]
+async fn a_folder_task_moved_through_the_write_route_reaches_the_stream_and_the_snapshot() {
+    let slug = "folio-route";
+    let Some(mut r) = rig("move-route", |v| folder_task(v, slug)).await else {
+        return;
+    };
+    let old = format!("lib.nvim/{slug}");
+    let new = format!("cascade.nvim/{slug}");
+    assert!(r.ids().await.contains(&old), "the hub sees the folder task");
+
+    let doc = r
+        .post_ops(&format!(
+            r#"{{"ops":[{{"op":"move_area","id":"{old}","to_area":"cascade.nvim"}}]}}"#
+        ))
+        .await;
+    assert_eq!(doc["results"][0]["outcome"], "moved", "{doc}");
+    assert_eq!(doc["results"][0]["new_id"], new.as_str(), "{doc}");
+    let moved = r
+        .vault
+        .join("cascade.nvim")
+        .join("ROADMAP")
+        .join("tasks")
+        .join(slug);
+    assert_eq!(
+        std::fs::read_to_string(moved.join("asset.txt")).unwrap(),
+        "beside the task",
+        "the folder moved as a whole"
+    );
+
+    let (_, took) = r
+        .change_naming(&new, Duration::from_secs(10))
+        .await
+        .expect("an event that names the new id");
+    assert!(took < Duration::from_secs(2), "took {took:?}");
+    let ids = r.ids().await;
+    assert!(ids.contains(&new), "{ids:?}");
+    assert!(!ids.contains(&old), "{ids:?}");
+}
+
+#[tokio::test]
+async fn a_folder_task_renamed_from_outside_reaches_the_stream_as_a_whole_within_two_seconds() {
+    // The engine run from Neovim moves the folder; the hub only watches. The
+    // system reports the folder (on Linux: a rename in two halves, from and
+    // to), never the task file in it.
+    let slug = "folio-outside";
+    let Some(mut r) = rig("move-outside", |v| folder_task(v, slug)).await else {
+        return;
+    };
+    let old = format!("lib.nvim/{slug}");
+    let new = format!("cascade.nvim/{slug}");
+    assert!(r.ids().await.contains(&old), "the hub sees the folder task");
+
+    let from = r
+        .vault
+        .join("lib.nvim")
+        .join("ROADMAP")
+        .join("tasks")
+        .join(slug);
+    let to = r
+        .vault
+        .join("cascade.nvim")
+        .join("ROADMAP")
+        .join("tasks")
+        .join(slug);
+    let started = Instant::now();
+    std::fs::rename(&from, &to).unwrap();
+
+    let (change, _) = r
+        .change_naming(&new, Duration::from_secs(10))
+        .await
+        .expect("an event that names the new id");
+    let took = started.elapsed();
+    assert_eq!(change["cause"], "fs", "{change}");
+    assert!(took < Duration::from_secs(2), "took {took:?}");
+    let ids = r.ids().await;
+    assert!(ids.contains(&new), "{ids:?}");
+    assert!(!ids.contains(&old), "the old id is gone: {ids:?}");
 }

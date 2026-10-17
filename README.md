@@ -60,7 +60,8 @@ tasks-hub usage [--days=14]           on how many of the last days the interface
 ## Install from a release
 
 A release on GitHub (a tag `vX.Y.Z`, published by hand after a draft was tried) holds the program for
-Windows, Linux and macOS (macOS is built but not tried), `SHA256SUMS`, and the four scripts below. The
+Windows, Linux and macOS (macOS is built but not tried: the hub's tests with the real engine, the watcher of a
+folder task that moves to another area among them, run on Windows and Linux only), `SHA256SUMS`, and the four scripts below. The
 scripts need no administrator rights and install for one user, so they also work where a signed
 Setup is not allowed. Run them in your own terminal (not elevated, not from inside a program that
 sandboxes AppData).
