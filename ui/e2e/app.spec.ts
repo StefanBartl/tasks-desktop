@@ -563,44 +563,32 @@ test('the overview is at the top right, tiles can be put away, choices combine',
 });
 
 test('the tiles of the overview can be put in another order with the keys, the order stays, and is reset', async ({ page }) => {
+  // The tiles are drawn as their data arrives, the last of it being the next task, asked after the list: the order is
+  // read once that answer is in (a signal, not a pause), and every later look polls until it holds.
+  const nextRead = () => page.waitForResponse((r) => new URL(r.url()).pathname === '/api/tasks/next');
+  let read = nextRead();
   await pair(page);
+  await read;
   await expect(page.getByText('Next task')).toBeVisible();
   const order = () => page.locator('section[data-tile]').evaluateAll((els) =>
     els.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top).map((e) => (e as HTMLElement).dataset.tile));
-  // The tiles are drawn as their data arrives: the count must not change between two looks.
-  const settled = async () => {
-    let seen = -1;
-    await expect
-      .poll(
-        async () => {
-          const n = await page.locator('section[data-tile]').count();
-          const same = n === seen;
-          seen = n;
-          return same;
-        },
-        { intervals: [300] },
-      )
-      .toBe(true);
-  };
-  await settled();
   const before = (await order()) as string[];
   expect(before.length).toBeGreaterThan(1);
+  const after = [before[1], before[0], ...before.slice(2)];
 
   // The first block goes one place down: the grip takes the arrow key and a screen reader hears where it is now.
   const grip = page.locator(`section[data-tile="${before[0]}"] button.grip`);
   await grip.focus();
   await page.keyboard.press('ArrowDown');
-  const after = (await order()) as string[];
-  expect(after[1]).toBe(before[0]);
-  expect(after[0]).toBe(before[1]);
+  await expect.poll(order).toEqual(after);
   await expect(page.locator('p.sr-only[aria-live]')).toContainText(`is now number 2 of ${before.length}`);
   await expect(grip).toBeFocused();
 
   // The order is remembered, and goes back to the standard on request.
+  read = nextRead();
   await page.reload();
-  await expect(page.getByText(/Next task|Waits for you/).first()).toBeVisible();
-  await settled();
-  expect(await order()).toEqual(after);
+  await read;
+  await expect.poll(order).toEqual(after);
   await page.getByRole('button', { name: 'Reset the order of the tiles' }).click();
   await expect.poll(order).toEqual(before);
   await expect(page.getByRole('button', { name: 'Reset the order of the tiles' })).toHaveCount(0);

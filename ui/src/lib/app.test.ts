@@ -211,7 +211,9 @@ class FakeHub {
   };
   vaultCalls: string[] = [];
   vaultError: ApiError | null = null;
+  vaultsCalls = 0;
   async vaults(): Promise<VaultList> {
+    this.vaultsCalls += 1;
     if (!this.vaultDoc) throw new ApiError(404, 'vaults_unavailable', 'no list');
     return this.vaultDoc;
   }
@@ -620,6 +622,46 @@ describe('App, cache and hub', () => {
     expect(hub.snapshotCalls.at(-1)).toBe('rev:1');
     expect(app.tasks.length).toBe(2);
     app.stop();
+  });
+
+  it('shows the cached list only when the hub reads the vault it was saved of', async () => {
+    const old = (hubVault: string | null | undefined): CachedList => ({
+      vault: 'v',
+      ...(hubVault === undefined ? {} : { hubVault }),
+      rev: null,
+      etag: null,
+      savedAt: 5,
+      tasks: [task('pub/old')],
+    });
+    // The engine is not there: the list can only come from the cache, nothing replaces it.
+    const start = async (cached: CachedList, setup: (hub: FakeHub) => void = () => undefined) => {
+      const m = make({ token: 't', cached });
+      m.hub.engineReady = false;
+      setup(m.hub);
+      const started = m.app.start(null);
+      // The cached list is drawn at once; the answer of the hub about its vault comes a moment later.
+      await vi.waitFor(() => expect(m.hub.vaultsCalls).toBeGreaterThan(0));
+      await new Promise((r) => setTimeout(r, 10));
+      const shown = m.app.tasks.map((t) => t.id);
+      m.app.stop();
+      m.hub.engineReady = true;
+      await started;
+      return { shown, cleared: m.cleared() };
+    };
+    // The hub reads another vault now (chosen in another tab): the old list stays away and is forgotten.
+    expect(await start(old('native'))).toEqual({ shown: [], cleared: 1 });
+    // The same vault, a hub with one vault and no list, a list from before this was kept: shown.
+    expect((await start(old('main'))).shown).toEqual(['pub/old']);
+    expect((await start(old(null), (hub) => (hub.vaultDoc = null))).shown).toEqual(['pub/old']);
+    expect((await start(old(undefined))).shown).toEqual(['pub/old']);
+  });
+
+  it('keeps the vault the hub reads with the list it saves', async () => {
+    const m = make({ token: 't' });
+    await m.app.start(null);
+    await vi.waitFor(() => expect(m.saved.length).toBeGreaterThan(0));
+    expect(m.saved.at(-1)?.hubVault).toBe('main');
+    m.app.stop();
   });
 
   it('holds the session of the tab as soon as the cached list is drawn, before the hub has answered', async () => {

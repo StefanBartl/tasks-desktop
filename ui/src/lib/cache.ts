@@ -12,6 +12,12 @@ import type { HubArea } from './api';
 export interface CachedList {
   /** The id of the vault the list is of. */
   vault: string;
+  /**
+   * The vault the hub read when the list was saved, by the name of its list of vaults (`null`: a hub with one vault and
+   * no list). A page that starts asks the hub for it first and shows the list only for the same vault; absent in a
+   * list saved before this was kept.
+   */
+  hubVault?: string | null;
   rev: string | null;
   etag: string | null;
   savedAt: number;
