@@ -142,7 +142,8 @@ jobs:
           npm install --global pnpm@11.28.2
           pnpm install --frozen-lockfile
           pnpm build
-      - run: cargo test --workspace --locked
+      # Every test binary runs, so one red one does not hide the others.
+      - run: cargo test --workspace --locked --no-fail-fast
 
   ui:
     runs-on: ubuntu-latest
