@@ -8,6 +8,7 @@
   import Info from 'appkit-ui/Info.svelte';
   import { markHidden } from '../lib/text';
   import Detail from './Detail.svelte';
+  import FilterNote from './FilterNote.svelte';
 
   let { app }: { app: App } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
@@ -38,6 +39,7 @@
 
 <div class="split">
   <section class="inbox" aria-label={t('nav.inbox')}>
+    <FilterNote {app} />
     <div class="head">
       <p class="count" role="status">{t('inbox.count', { n: rows.length })}</p>
       <Info hint={t('hint.inbox')} label={t('hint.about', { what: t('nav.inbox') })} />

@@ -3027,3 +3027,60 @@ test('help: the about dialog names the build and the engine, and the report carr
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('the filter has at least / at most and spans of days, outlives a reload, and narrows every view', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  const count = page.locator('p.count').first();
+  const shown = async (): Promise<number> => {
+    const m = /(\d+) of (\d+)/.exec((await count.textContent()) ?? '');
+    if (!m) throw new Error('no count');
+    return Number(m[1]);
+  };
+  const all = await shown();
+  expect(all).toBeGreaterThan(0);
+  await page.getByText('More filters', { exact: false }).first().click();
+
+  // At least: the values the tasks have, in their order; the chip names the end.
+  const prioMin = page.locator('select[data-range="prio-min"]');
+  const options = await prioMin.locator('option').evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value).filter((v) => v !== ''));
+  expect(options.length).toBeGreaterThan(0);
+  await prioMin.selectOption(options[options.length - 1]!);
+  const chips = page.getByRole('list', { name: 'Filters that are on' });
+  await expect(chips).toContainText(`Priority: at least P${options[options.length - 1]}`);
+  await prioMin.selectOption('');
+  await expect(chips).toHaveCount(0);
+  expect(await shown()).toBe(all);
+
+  // A span of days: nothing was changed after the day the fixture was written.
+  await page.locator('input[data-date="updated-from"]').fill('2999-01-01');
+  await expect(chips).toContainText('Changed: from 2999-01-01');
+  await expect.poll(shown).toBe(0);
+  await expectAccessible(page, 'the list with a span of days on');
+
+  // The filter is remembered: after a reload it is still on.
+  await page.reload();
+  await expect(page.getByRole('menubar')).toBeVisible();
+  await showList(page).catch(() => undefined);
+  await expect(page.getByRole('list', { name: 'Filters that are on' })).toContainText('Changed: from 2999-01-01');
+
+  // The same filter holds in the plan, the board, the inbox and the overview: each says so and shows nothing of the tasks.
+  const note = page.getByTestId('filter-note');
+  for (const view of ['Plan', 'Board', 'Inbox', 'Today']) {
+    await chooseView(page, 'View', view);
+    await expect(note).toContainText('Filter on: 0 of');
+    if (view === 'Plan') await expect(page.locator('.stages .stage li')).toHaveCount(0);
+    if (view === 'Board') await expect(page.locator('.cards .card')).toHaveCount(0);
+    if (view === 'Inbox') await expect(page.locator('.inbox button.row')).toHaveCount(0);
+  }
+  await expect(page.locator('section[data-tile="waiting"] li')).toHaveCount(0);
+  await expect(page.locator('section[data-tile="cdx"]')).toHaveCount(0);
+
+  // Switched off in the strip of the overview, the filter is gone everywhere.
+  await note.getByRole('button', { name: 'Clear all filters' }).click();
+  await expect(note).toHaveCount(0);
+  await showList(page);
+  expect(await shown()).toBe(all);
+  expect(await violations(page)).toEqual([]);
+});

@@ -7,6 +7,7 @@
   import { marksLegend } from '../lib/legend';
   import { chosenPlan, criticalIds, firstTasks, phaseCounts, stagesOf, warningsOf } from '../lib/plan';
   import { markHidden } from '../lib/text';
+  import FilterNote from './FilterNote.svelte';
   import GraphPanel from './GraphPanel.svelte';
   import PlanFinished from './PlanFinished.svelte';
 
@@ -18,7 +19,7 @@
   const plans = $derived(snapshot?.plans ?? []);
   // A plan that is gone (a change of the vault) is not kept chosen.
   const planId = $derived(chosenPlan(plans, app.planChoice));
-  const stages = $derived(stagesOf(app.tasks, planId === '' ? null : planId));
+  const stages = $derived(stagesOf(app.shown, planId === '' ? null : planId));
   // The first tasks are drawn at once and the rest in the frames after, like the list: a plan of two thousand tasks
   // is not one block of work between the click and the first stage (measured: 50 ms for 600, 150 ms for 2000).
   const FIRST = 200;
@@ -41,7 +42,7 @@
   const critical = $derived(criticalIds(snapshot?.plan));
   const phases = $derived(
     phaseCounts(
-      app.tasks,
+      app.shown,
       plans.find((p) => p.id === planId),
     ),
   );
@@ -74,6 +75,7 @@
 </script>
 
 <div class="plan">
+  <FilterNote {app} />
   {#if !snapshot}
     <p class="muted">{t('state.loading')}</p>
   {:else}

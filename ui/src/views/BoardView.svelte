@@ -9,6 +9,7 @@
   import { marksLegend } from '../lib/legend';
   import { markHidden } from '../lib/text';
   import Detail from './Detail.svelte';
+  import FilterNote from './FilterNote.svelte';
 
   let { app }: { app: App } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) =>
@@ -133,6 +134,7 @@
 </script>
 
 <div class="wrap">
+  <FilterNote {app} />
   <p class="count">
     <span role="status">{t('list.count', { shown: app.shown.length, total: app.tasks.length })}</span>
     <span class="help">{t('board.help')}</span>

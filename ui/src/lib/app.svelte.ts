@@ -10,7 +10,7 @@ import type { Check, DonePreview, Estimate, Finished, Links, MovePlan, Next, Pla
 import type { Op } from './api';
 import { indexOfLinks, touchedAreas } from './cross';
 import { parsePrefs, type Prefs as FinishedPrefs } from './finished';
-import { applyFilter, emptyFilter, moveSelection, type Filter } from './filter';
+import { applyFilter, freshFilter, moveSelection, parseFilter, serializeFilter, type Filter } from './filter';
 import { inboxOf, triageKey } from './inbox';
 import { findingsByTask, groundOf, judgeFindings, type Finding, type Ground, type Judged } from './check';
 import { assumeOf, changesOf, failedIdsOf, MATRIX_MAX, matrixIds, pruneDraft, withCell, type Draft } from './estimate';
@@ -132,7 +132,18 @@ export class App {
   theme = $state<Theme>('auto');
   /** Single-key shortcuts; a person with assistive software may turn them off. */
   shortcuts = $state(true);
-  filter = $state<Filter>({ ...emptyFilter, areas: [], statuses: [], actors: [], fields: {} });
+  #filter = $state<Filter>(freshFilter());
+  /** What is chosen to see. It is remembered (not the search words), so it outlives a reload. */
+  get filter(): Filter {
+    return this.#filter;
+  }
+  set filter(value: Filter) {
+    const before = serializeFilter(this.#filter);
+    this.#filter = value;
+    // The search words are not remembered: typing in the box writes nothing.
+    const text = serializeFilter(value);
+    if (text !== before) safe(() => this.env.prefs.setItem('tasks-desktop.filter', text));
+  }
   /** Blocks of the Today view the person put away. */
   hiddenTiles = $state<Tile[]>([]);
   tileOrder = $state<OrderedTile[]>([...ORDERED_TILES]);
@@ -268,6 +279,7 @@ export class App {
     this.shortAreas = safe(() => env.prefs.getItem('tasks-desktop.short-areas')) !== 'off';
     const hidden = safe(() => env.prefs.getItem('tasks-desktop.tiles-hidden'));
     this.hiddenTiles = parseTiles(hidden);
+    this.#filter = parseFilter(safe(() => env.prefs.getItem('tasks-desktop.filter')));
     this.tileOrder = parseOrder(safe(() => env.prefs.getItem('tasks-desktop.tiles-order')), ORDERED_TILES);
     this.countViews = parseViews(safe(() => env.prefs.getItem('tasks-desktop.count-views')));
     this.frecency = parseFrecency(safe(() => env.prefs.getItem('tasks-desktop.frecency')));
@@ -1382,7 +1394,7 @@ export class App {
 
   /** Take every chosen area, status and actor and the search words away. */
   resetFilter(): void {
-    this.filter = { ...emptyFilter, areas: [], statuses: [], actors: [], fields: {} };
+    this.filter = freshFilter();
     // The text search belongs to the words that are gone.
     this.scheduleTextSearch('', 0);
   }
@@ -1439,7 +1451,7 @@ export class App {
   /** The tasks of a number in the list, with the status filter that fits (only "doing" and "blocked" have one). */
   openCountInList(key: CountKey): void {
     if (key !== 'doing' && key !== 'blocked') return;
-    this.filter = { ...emptyFilter, areas: [], statuses: [key], actors: [], fields: {} };
+    this.filter = { ...freshFilter(), statuses: [key] };
     this.setView('list');
   }
 
@@ -1983,7 +1995,7 @@ export class App {
 
   /** The tasks the inbox view shows: those that lack a priority, an effort or a written actor. */
   get inbox(): TaskEntry[] {
-    return inboxOf(this.tasks);
+    return inboxOf(this.shown);
   }
 
   moveSelectionInbox(delta: number): void {

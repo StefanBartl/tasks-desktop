@@ -2,12 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
   NONE,
   activeFilters,
+  boundOptions,
   applyFilter,
   emptyFilter,
   extraCount,
   fieldOptions,
   fieldValues,
+  freshFilter,
   matches,
+  parseFilter,
+  serializeFilter,
   without,
   withSelected,
   type Filter,
@@ -225,5 +229,82 @@ describe('withSelected', () => {
       { value: '9!' },
     ]);
     expect(withSelected([], [], (value) => ({ value }))).toEqual([]);
+  });
+});
+
+describe('at least / at most and spans of days', () => {
+  // Fixtures carry no `effort_days`; the engine delivers it, so the tests set it.
+  const sized = [
+    task('p/xs', { prio: 3, effort: 'XS', effort_days: 0.25, value: 1, created: '2026-01-05', updated: '2026-02-01T10:00:00Z' }),
+    task('p/m', { prio: 2, effort: 'M', effort_days: 2, value: 3, created: '2026-03-05', remind: '2026-04-01' }),
+    task('p/xl', { prio: 1, effort: 'XL', effort_days: 8, value: 5, created: '2026-06-05' }),
+    task('p/none', {}),
+  ];
+  const got = (f: Partial<Filter>): string[] => applyFilter(sized, only(f), TODAY).map((t) => t.id);
+  const bound = (label: string, n: number) => ({ label, n });
+
+  it('takes the ends in, compares an effort by its days, and leaves out a task that lacks the field', () => {
+    expect(got({ ranges: { prio: { min: bound('2', 2) } } })).toEqual(['p/xs', 'p/m']);
+    expect(got({ ranges: { prio: { max: bound('2', 2) } } })).toEqual(['p/m', 'p/xl']);
+    expect(got({ ranges: { value: { min: bound('3', 3), max: bound('4', 4) } } })).toEqual(['p/m']);
+    expect(got({ ranges: { effort: { min: bound('M', 2) } } })).toEqual(['p/m', 'p/xl']);
+    expect(got({ ranges: { effort: { max: bound('M', 2) } } })).toEqual(['p/xs', 'p/m']);
+    expect(got({ ranges: { effort: { min: bound('S', 1), max: bound('L', 4) } }, fields: { prio: ['2'] } })).toEqual(['p/m']);
+  });
+  it('lists the values the tasks have in the order of their numbers', () => {
+    expect(boundOptions(sized, 'effort')).toEqual([bound('XS', 0.25), bound('M', 2), bound('XL', 8)]);
+    expect(boundOptions(sized, 'prio').map((o) => o.label)).toEqual(['1', '2', '3']);
+  });
+  it('cuts a time field to a span of days, both days included', () => {
+    expect(got({ dates: { created: { from: '2026-03-05' } } })).toEqual(['p/m', 'p/xl']);
+    expect(got({ dates: { created: { to: '2026-03-05' } } })).toEqual(['p/xs', 'p/m']);
+    expect(got({ dates: { created: { from: '2026-02-01', to: '2026-04-01' } } })).toEqual(['p/m']);
+    expect(got({ dates: { updated: { to: '2026-02-01' } } })).toEqual(['p/xs']);
+    expect(got({ dates: { remind: { from: '2026-04-01', to: '2026-04-01' } } })).toEqual(['p/m']);
+  });
+  it('shows a range or a span as one thing that is on, and takes it off as one', () => {
+    const f = only({ ranges: { prio: { min: bound('2', 2) } }, dates: { created: { from: '2026-03-05' } } });
+    expect(activeFilters(f)).toEqual([
+      { kind: 'range', value: 'prio' },
+      { kind: 'date', value: 'created' },
+    ]);
+    expect(extraCount(f)).toBe(2);
+    expect(activeFilters(without(without(f, { kind: 'range', value: 'prio' }), { kind: 'date', value: 'created' }))).toEqual([]);
+  });
+});
+
+describe('the filter that is remembered', () => {
+  it('comes back as it went, without the search words', () => {
+    const f = only({
+      areas: ['lib'],
+      statuses: ['doing'],
+      fields: { tag: ['ui'] },
+      ranges: { effort: { max: { label: 'M', n: 2 } } },
+      dates: { updated: { from: '2026-01-01' } },
+      cross: true,
+      updated: '30',
+      query: 'words',
+    });
+    expect(parseFilter(serializeFilter(f))).toEqual({ ...f, query: '' });
+  });
+  it('takes the good parts of a damaged or older memory and an empty filter for the rest', () => {
+    expect(parseFilter(null)).toEqual(freshFilter());
+    expect(parseFilter('{')).toEqual(freshFilter());
+    expect(parseFilter('[1]')).toEqual(freshFilter());
+    // An older memory has no ranges or dates; wrong shapes and unknown keys are dropped.
+    const got = parseFilter(
+      JSON.stringify({
+        areas: ['a', 7],
+        fields: { tag: ['x'], nonsense: ['y'] },
+        ranges: { prio: { min: { label: 'P', n: 'x' } }, value: { max: { label: '4', n: 4 } } },
+        dates: { created: { from: 'yesterday', to: '2026-02-30x' }, updated: { to: '2026-05-01' } },
+        updated: 'forever',
+      }),
+    );
+    expect(got.areas).toEqual(['a']);
+    expect(got.fields).toEqual({ tag: ['x'] });
+    expect(got.ranges).toEqual({ value: { max: { label: '4', n: 4 } } });
+    expect(got.dates).toEqual({ updated: { to: '2026-05-01' } });
+    expect(got.updated).toBe('');
   });
 });

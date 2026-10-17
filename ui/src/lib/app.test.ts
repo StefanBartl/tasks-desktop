@@ -2973,3 +2973,36 @@ describe('the Info dialog', () => {
     unpaired.app.stop();
   });
 });
+
+describe('the filter outlives a reload and holds in every view', () => {
+  it('is remembered without the search words, and read back from the prefs', async () => {
+    const { app, prefs } = make({ token: 't' });
+    app.filter = { ...app.filter, statuses: ['doing'], ranges: { prio: { max: { label: '2', n: 2 } } } };
+    app.setQuery('hello');
+    expect(JSON.parse(prefs.get('tasks-desktop.filter') ?? '{}')).toMatchObject({
+      statuses: ['doing'],
+      ranges: { prio: { max: { label: '2', n: 2 } } },
+    });
+    expect(prefs.get('tasks-desktop.filter')).not.toContain('hello');
+    const again = make({ token: 't', prefs });
+    expect(again.app.filter.statuses).toEqual(['doing']);
+    expect(again.app.filter.ranges.prio?.max?.n).toBe(2);
+    expect(again.app.filter.query).toBe('');
+    again.app.resetFilter();
+    expect(JSON.parse(prefs.get('tasks-desktop.filter') ?? '{}').statuses).toEqual([]);
+  });
+
+  it('narrows the inbox as it narrows the list', async () => {
+    const m = make({ token: 't' });
+    m.hub.doc = snapshot([
+      task('pub/a', { prio: 1, effort: 'S', actor: 'me', actor_written: true }),
+      task('pub/b', { prio: 3 }),
+      task('pub/c', { prio: 2 }),
+    ]);
+    await m.app.start(null);
+    m.app.stop();
+    expect(m.app.inbox.map((t) => t.id)).toEqual(['pub/b', 'pub/c']);
+    m.app.filter = { ...m.app.filter, ranges: { prio: { min: { label: '3', n: 3 } } } };
+    expect(m.app.inbox.map((t) => t.id)).toEqual(['pub/b']);
+  });
+});
