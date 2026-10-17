@@ -36,6 +36,24 @@ describe('hintOf', () => {
     }
   });
 
+  it('explains every finding code the check of the engine documents, in both languages', () => {
+    // The codes of `lua/tasks_nvim/check.lua` (its header lists them); a code of a newer engine just has no explanation.
+    const codes = [
+      'frontmatter-missing', 'frontmatter-invalid', 'title-missing', 'status-missing', 'field-type', 'unknown-status',
+      'unknown-kind', 'unknown-category', 'unknown-severity', 'bad-prio', 'bad-effort', 'bad-date', 'bad-value', 'bad-actor',
+      'severity-without-bug-or-security', 'slug', 'slug-conflict', 'asset-dangling', 'index-stale', 'bad-blocked-by',
+      'blocked-by-self', 'blocked-by-dangling', 'blocked-by-done', 'blocked-by-cycle', 'doing-while-blocked',
+      'blocked-without-blocker', 'blocker-freed', 'blocked-by-parked', 'plan-unknown', 'bad-plan', 'bad-phase', 'plan-area',
+      'plan-phase', 'plan-target-unknown', 'bad-after', 'bad-order', 'after-self', 'after-dangling', 'wikilink-dangling',
+      'wikilink-ambiguous', 'actor-cdx-waits-on-me', 'done-in-roadmap', 'open-in-backlog', 'duplicate-id', 'unreadable',
+      'index-error', 'symlink-task', 'frontmatter-warning', 'title-comment',
+    ];
+    for (const lang of ['en', 'de'] as const) {
+      for (const code of codes) expect(hintOf(lang, 'hint.check', code), `${lang} ${code}`).not.toBe('');
+      expect(hintOf(lang, 'hint.check', 'a-code-of-a-newer-engine')).toBe('');
+    }
+  });
+
   it('writes the unit of the critical path out', () => {
     expect(dictionaries.en['plan.days']).toContain('days');
     expect(dictionaries.de['plan.days']).toContain('Tage');

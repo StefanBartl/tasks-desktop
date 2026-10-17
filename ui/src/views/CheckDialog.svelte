@@ -2,7 +2,7 @@
   // The check of the vault. It runs in the hub, in the background: this dialog starts it, shows what the hub says of
   // it, and lists the engine's findings with a jump to the task. Closing it does not stop the job.
   import type { App } from '../lib/app.svelte';
-  import { translate, type Key } from '../lib/i18n';
+  import { hintOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
   import { timeOf } from '../lib/check';
 
@@ -66,7 +66,7 @@
           <li class:stale={i >= findings.length}>
             <span class="tag" class:err={f.severity === 'error'}>{f.severity === 'error' ? t('check.error') : t('check.warn')}</span>
             {#if i >= findings.length}<span class="tag">{t('check.stale_task')}</span>{/if}
-            <code>{markHidden(f.code)}</code>
+            <code data-hint={hintOf(app.lang, 'hint.check', f.code) || t('hint.check.code')}>{markHidden(f.code)}</code>
             {#if f.id}
               <button type="button" class="linkish" onclick={() => jump(f.id as string)}>{markHidden(f.id)}</button>
             {:else}

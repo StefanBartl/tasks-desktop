@@ -44,7 +44,7 @@
         <li>
           <span class="what"><strong>{vault.name}</strong> <span class="muted">{vault.label}</span></span>
           {#if vault.name === list.active}
-            <span class="tag soft">{t('vaults.active')}</span>
+            <span class="tag soft" data-hint={t('hint.vaults.active')}>{t('vaults.active')}</span>
           {:else}
             <button
               type="button"

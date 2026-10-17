@@ -4,7 +4,7 @@
   // the engine walks the graph, this only shows it.
   import { untrack } from 'svelte';
   import type { App } from '../lib/app.svelte';
-  import { labelOf, translate, type Key } from '../lib/i18n';
+  import { hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
 
   let { app }: { app: App } = $props();
@@ -97,8 +97,8 @@
     <header>
       <h2 bind:this={heading} tabindex="-1">{t(graph.direction === 'needs' ? 'graph.title.needs' : 'graph.title.unlocks', { id: graph.id })}</h2>
       <div class="dir" role="group" aria-label={t('graph.direction')}>
-        <button type="button" aria-pressed={graph.direction === 'needs'} onclick={() => app.openGraph(graph.id, 'needs')}>{t('graph.dir.needs')}</button>
-        <button type="button" aria-pressed={graph.direction === 'unlocks'} onclick={() => app.openGraph(graph.id, 'unlocks')}>{t('graph.dir.unlocks')}</button>
+        <button type="button" data-hint={t('hint.graph.needs')} aria-pressed={graph.direction === 'needs'} onclick={() => app.openGraph(graph.id, 'needs')}>{t('graph.dir.needs')}</button>
+        <button type="button" data-hint={t('hint.graph.unlocks')} aria-pressed={graph.direction === 'unlocks'} onclick={() => app.openGraph(graph.id, 'unlocks')}>{t('graph.dir.unlocks')}</button>
       </div>
       <!-- Closing is no direction: outside the group. -->
       <button type="button" onclick={() => app.closeGraph()}>{t('graph.close')}</button>
@@ -107,7 +107,7 @@
       {#if app.graphProblem}
         <p class="problem">{app.graphProblem}</p>
       {:else if doc}
-        <p class="count">
+        <p class="count" data-hint={t('hint.graph.count')}>
           {t('graph.count', { n: doc.total })}{doc.truncated ? ` - ${t('graph.truncated', { n: doc.nodes.length })}` : ''}
         </p>
       {:else}
@@ -115,7 +115,7 @@
       {/if}
     </div>
     {#each doc?.cycles ?? [] as cycle, i (i)}
-      <p class="cycle">{t('graph.cycle', { ids: cycle.join(', ') })}</p>
+      <p class="cycle" data-hint={t('hint.graph.cycle')}>{t('graph.cycle', { ids: cycle.join(', ') })}</p>
     {/each}
     <!-- The keys come from the buttons inside the list (arrow keys move between them); the list itself takes no input. -->
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -127,12 +127,12 @@
             <span class="id">{node.id}</span>
           </button>
           <span class="meta">
-            <span class="tag">{labelOf(app.lang, 'status', node.status)}</span>
-            {#if node.state}<span class="tag soft">{labelOf(app.lang, 'state', node.state)}</span>{/if}
-            {#if node.on_critical_path}<span class="tag crit">{t('plan.on_path')}</span>{/if}
+            <span class="tag" data-hint={hintOf(app.lang, 'hint.status', node.status)}>{labelOf(app.lang, 'status', node.status)}</span>
+            {#if node.state}<span class="tag soft" data-hint={hintOf(app.lang, 'hint.state', node.state)}>{labelOf(app.lang, 'state', node.state)}</span>{/if}
+            {#if node.on_critical_path}<span class="tag crit" data-hint={t('hint.critical')}>{t('plan.on_path')}</span>{/if}
           </span>
           {#if waitsFor.get(node.id)}
-            <span class="waits">{t('graph.waits', { ids: (waitsFor.get(node.id) ?? []).join(', ') })}</span>
+            <span class="waits" data-hint={t('hint.graph.waits')}>{t('graph.waits', { ids: (waitsFor.get(node.id) ?? []).join(', ') })}</span>
           {/if}
         </li>
       {/each}

@@ -1012,6 +1012,23 @@ test('the graph of a task lists what it needs and what waits for it, as a list',
   await expect(nodes.nth(1)).toContainText('lib.nvim/alpha');
   await expect(nodes.nth(0)).toContainText('waits for: lib.nvim/alpha');
   await expect(nodes.nth(1)).toHaveAttribute('aria-level', '2');
+  // The parts of the graph explain themselves (hover): the direction, the count, the status tag and the waits line.
+  const tip = page.locator('#hint-tip');
+  await graph.getByRole('button', { name: 'Unlocks' }).hover();
+  await expect(tip).toContainText('The tasks that wait for this one');
+  await page.mouse.move(0, 0);
+  await expect(tip).toBeHidden();
+  await graph.getByRole('status').locator('.count').hover();
+  await expect(tip).toContainText('How many tasks are in this chain');
+  // The popup may lie over the next element: the pointer leaves first (Escape would close the panel).
+  await page.mouse.move(0, 0);
+  await expect(tip).toBeHidden();
+  await nodes.nth(0).locator('.waits').hover();
+  await expect(tip).toContainText('The tasks of this list that this line waits for');
+  await page.mouse.move(0, 0);
+  await expect(tip).toBeHidden();
+  await nodes.nth(1).locator('.tag').first().hover();
+  await expect(tip).not.toBeEmpty();
   await expectAccessible(page, 'graph');
   // The arrow keys move between the nodes.
   await nodes.nth(0).getByRole('button').focus();
