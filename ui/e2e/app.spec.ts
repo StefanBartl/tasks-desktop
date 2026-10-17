@@ -3057,6 +3057,17 @@ test('the filter has at least / at most and spans of days, outlives a reload, an
   };
   const all = await shown();
   expect(all).toBeGreaterThan(0);
+
+  // Words in the search box narrow the other views too, so those say so (the words are no chip of the list).
+  await page.getByRole('searchbox').fill('zzqq-no-task-has-this');
+  await expect.poll(shown).toBe(0);
+  await chooseView(page, 'View', 'Inbox');
+  await expect(page.getByTestId('filter-note')).toContainText('Search: zzqq-no-task-has-this');
+  await expect(page.locator('.inbox button.row')).toHaveCount(0);
+  await page.getByTestId('filter-note').getByRole('button', { name: /^Switch off: Search/ }).click();
+  await expect(page.getByTestId('filter-note')).toHaveCount(0);
+  await showList(page);
+  expect(await shown()).toBe(all);
   await page.getByText('More filters', { exact: false }).first().click();
 
   // At least: the values the tasks have, in their order; the chip names the end.

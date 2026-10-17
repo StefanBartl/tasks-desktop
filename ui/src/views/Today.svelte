@@ -1,7 +1,7 @@
 <script lang="ts">
   import { type App, type OrderedTile, type Tile } from '../lib/app.svelte';
   import type { TaskBrief } from '../lib/contract';
-  import { activeFilters, waitingForMe } from '../lib/filter';
+  import { narrows, waitingForMe } from '../lib/filter';
   import { dueItems } from '../lib/remind';
   import { hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import { effortWords } from '../lib/next';
@@ -18,7 +18,7 @@
   const next = $derived(app.next);
   const snapshot = $derived(app.snapshot);
   // The filter of the list narrows the blocks of tasks; the next task is the engine's answer and stays.
-  const filtered = $derived(activeFilters(app.filter).length > 0);
+  const filtered = $derived(narrows(app.filter));
   const shownIds = $derived(new Set(app.shown.map((x) => x.id)));
   const cdx = $derived((next?.cdx ?? []).filter((b) => !filtered || shownIds.has(b.id)));
   const alternatives = $derived((next?.alternatives ?? []).filter((b) => !filtered || shownIds.has(b.id)));

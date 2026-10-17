@@ -10,6 +10,7 @@ import {
   fieldValues,
   freshFilter,
   matches,
+  narrows,
   parseFilter,
   serializeFilter,
   without,
@@ -270,6 +271,16 @@ describe('at least / at most and spans of days', () => {
     ]);
     expect(extraCount(f)).toBe(2);
     expect(activeFilters(without(without(f, { kind: 'range', value: 'prio' }), { kind: 'date', value: 'created' }))).toEqual([]);
+  });
+});
+
+describe('what narrows', () => {
+  it('counts the search words too, which are no chip', () => {
+    expect(narrows(freshFilter())).toBe(false);
+    expect(narrows({ ...freshFilter(), query: '  ' })).toBe(false);
+    expect(narrows({ ...freshFilter(), query: 'alpha' })).toBe(true);
+    expect(narrows({ ...freshFilter(), statuses: ['doing'] })).toBe(true);
+    expect(activeFilters({ ...freshFilter(), query: 'alpha' })).toEqual([]);
   });
 });
 
