@@ -15,6 +15,18 @@ pub const TASKS: FakeDialect = FakeDialect {
     vault_var: "TASKS_VAULT",
     host_script: "tasks-host.lua",
     list_key: "tasks",
+    // What the fake says it can do: everything the hub needs (`REQUIRED_CAPABILITIES`) and the calls
+    // the routes use, as the engine says it.
+    capabilities: &[
+        "areas",
+        "done_preview",
+        "hello",
+        "list",
+        "next",
+        "ops",
+        "snapshot",
+        "task",
+    ],
     kind_of: tasks_kind,
 };
 

@@ -32,6 +32,10 @@ python tools/check-control-chars.py
   `python tools/check-appkit-pin.py`.
 - Gleichzeitig an `appkit` und hier arbeiten: `[patch."https://github.com/StefanBartl/appkit"]` mit Pfaden in
   einer **nicht eingecheckten** `.cargo/config.toml`; nie einen Pfad in `Cargo.toml` committen.
+- Falle: ein `[patch]` (auch per `cargo --config 'patch...'`) schreibt `Cargo.lock` um, die `appkit`-Pakete
+  verlieren ihre Git-Quelle. Danach `git checkout -- Cargo.lock`, ohne `--locked` bauen (nur die drei
+  `source`-Zeilen dürfen sich ändern), `python tools/check-appkit-pin.py`. Nie eine so umgeschriebene
+  Lock-Datei committen (das Skript meldet dann "no package of ... appkit").
 
 ## Vertrag mit der Engine
 

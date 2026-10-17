@@ -467,7 +467,8 @@ platform backends are about twenty) and its policy is in the repository:
 * `Cargo.lock` is committed and every build uses `--locked`.
 * `deny.toml` allows a short list of licenses, crates.io and one git source
   (appkit), no wildcard versions; `cargo audit` and `cargo deny check` run
-  in CI.
+  in CI. Unmaintained crates are errors in the whole tree, the dependencies
+  that come with appkit included.
 * appkit is taken by a tag; `Cargo.lock` pins the commit, and a tag that was
   moved later is caught by `tools/check-appkit-pin.py` (also run in CI): the
   pinned commit must be the one the tag names now.
