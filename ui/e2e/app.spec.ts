@@ -1507,18 +1507,22 @@ test('finished: the list shows them under the open ones, narrowed by the area an
   await chooseView(page, 'View', 'Finished');
   const period = page.getByRole('combobox', { name: /^Period/ });
   await period.selectOption('30');
-  // The view that was left open asks as soon as it is drawn: no question may leave the page without the session
-  // (the hello is the one that needs none). An unsigned one is refused and the page then believes the session lost.
-  const unsigned: string[] = [];
-  page.on('request', (r) => {
-    const url = new URL(r.url());
-    if (url.pathname.startsWith('/api/') && url.pathname !== '/api/tasks/hello' && !r.headers()['authorization']) {
-      unsigned.push(url.pathname);
-    }
+  // The view that was left open asks as soon as it is drawn from the cache, before the hub has answered hello: that
+  // question must carry the session of the tab (an unsigned one is refused and the page then believes the session
+  // lost). The hello is held back until that question was seen, so the order is the test's, not the timing's; if the
+  // page does not draw from the cache and ask first, the wait for the question runs out and the test is red.
+  let releaseHello: () => void = () => undefined;
+  const helloHeld = new Promise<void>((r) => (releaseHello = r));
+  await page.route('**/api/tasks/hello', async (route) => {
+    await helloHeld;
+    await route.continue();
   });
+  const asked = page.waitForRequest((r) => new URL(r.url()).pathname === '/api/tasks/finished');
   await page.reload();
+  const first = await asked;
+  expect(first.headers()['authorization'] ?? '').toMatch(/^Bearer \S+/);
+  releaseHello();
   await expect(page.getByRole('combobox', { name: /^Period/ })).toHaveValue('30');
-  expect(unsigned).toEqual([]);
 });
 
 test('finished: a plan shows its finished tasks ticked when asked, and only those of the chosen plan', async ({ page }) => {

@@ -380,6 +380,24 @@ describe('App', () => {
     down.app.stop();
   });
 
+  it('drops a session the hub refused while the engine was not there, and goes on to the pairing', async () => {
+    const m = make({ token: 't' });
+    m.hub.engineReady = false;
+    const started = m.app.start(null);
+    await vi.waitFor(() => expect(m.app.phase).toBe('unavailable'));
+    // The Info dialog is open to the page with a session; the hub refuses the old one.
+    expect(m.app.canAbout).toBe(true);
+    m.hub.onUnauthorized();
+    expect(m.app.canAbout).toBe(false);
+    expect(m.hub.token).toBeNull();
+    // The engine comes: the refused session is not taken up again from the tab's memory.
+    m.hub.engineReady = true;
+    await started;
+    expect(m.app.phase).toBe('needs_pairing');
+    expect(m.hub.token).toBeNull();
+    m.app.stop();
+  });
+
   it('forgets a refusal when the session is lost later', async () => {
     const { app, hub } = make({ token: 't' });
     await app.start(null);
