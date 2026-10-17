@@ -196,3 +196,49 @@ test('the finished tasks under the list say "none of this area" for one area, no
   await expect(finished.getByText('No task was finished in this period.')).toHaveCount(0);
   await expectAccessible(page, 'the finished tasks of one area');
 });
+
+test('the finished view dims the old figures and says "Loading" until the answer of the new period is there', async ({ page }) => {
+  await pair(page);
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((r) => (release = r));
+  let held = false;
+  await page.route('**/api/tasks/finished**', async (route) => {
+    if (held) await gate;
+    await route.continue();
+  });
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Finished', exact: true }).click();
+  const view = page.locator('.done');
+  await expect(view).toHaveAttribute('aria-busy', 'false');
+  held = true;
+  await view.locator('section.head select').first().selectOption('all');
+  await expect(view).toHaveAttribute('aria-busy', 'true');
+  await expect(view.getByRole('status').filter({ hasText: 'Loading' })).toBeVisible();
+  release();
+  await expect(view).toHaveAttribute('aria-busy', 'false');
+  await expect(view.getByRole('status').filter({ hasText: 'Loading' })).toHaveCount(0);
+  await expectAccessible(page, 'the finished view after loading');
+});
+
+test('the menu bar is one tab stop: Tab leaves it, Left, Right, Home and End walk the menus', async ({ page }) => {
+  await pair(page);
+  const triggers = page.getByRole('menubar').getByRole('menuitem');
+  const count = await triggers.count();
+  expect(count).toBeGreaterThanOrEqual(4);
+  // Only one trigger takes the tab stop.
+  const stops = await page.evaluate(() => [...document.querySelectorAll('[role="menubar"] button.trigger')].filter((b) => (b as HTMLElement).tabIndex === 0).length);
+  expect(stops).toBe(1);
+  await triggers.first().focus();
+  await page.keyboard.press('End');
+  await expect(triggers.nth(count - 1)).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(triggers.first()).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await expect(triggers.nth(1)).toBeFocused();
+  // The trigger used last holds the stop; Tab goes past the bar, not to the next menu.
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('menubar').locator(':focus')).toHaveCount(0);
+  await page.keyboard.press('Shift+Tab');
+  await expect(triggers.nth(1)).toBeFocused();
+  await expectAccessible(page, 'the menu bar');
+});
