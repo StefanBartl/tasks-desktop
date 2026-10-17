@@ -191,14 +191,15 @@
                 <span class="meta">
                   {#if critical.has(task.id)}<span class="tag crit">{t('plan.on_path')}</span>{/if}
                   {#if app.crossAreas(task.id).length >= 2}
-                    <span class="tag soft" data-hint={t('cross.mark', { n: app.crossAreas(task.id).length, areas: app.crossAreas(task.id).join(', ') })}>↔ {app.crossAreas(task.id).length}</span>
+                    <span class="tag soft" data-hint={t('cross.mark', { n: app.crossAreas(task.id).length, areas: app.crossAreas(task.id).join(', ') })}><span aria-hidden="true">↔ {app.crossAreas(task.id).length}</span><span class="sr-only">{t('mark.cross', { n: app.crossAreas(task.id).length })}</span></span>
                   {/if}
-                  <span class="tag">{labelOf(app.lang, 'status', task.status)}</span>
+                  <!-- The same marks as a row of the list, explained the same way. -->
+                  <span class="tag" data-hint={hintOf(app.lang, 'hint.status', task.status)}>{labelOf(app.lang, 'status', task.status)}</span>
                   {#if task.readiness && task.readiness.state !== 'ready' && task.readiness.state !== 'unknown'}
-                    <span class="tag soft">{labelOf(app.lang, 'state', task.readiness.state)}</span>
+                    <span class="tag soft" data-hint={hintOf(app.lang, 'hint.state', task.readiness.state)}>{labelOf(app.lang, 'state', task.readiness.state)}</span>
                   {/if}
-                  <span class="tag soft">{task.prio !== undefined ? `P${task.prio}` : '?'}</span>
-                  {#if task.effort}<span class="tag soft">{markHidden(task.effort)}</span>{/if}
+                  <span class="tag soft" data-hint={hintOf(app.lang, 'hint', 'prio')}>{#if task.prio !== undefined}P{task.prio}{:else}<span aria-hidden="true">?</span><span class="sr-only">{t('mark.no_prio')}</span>{/if}</span>
+                  {#if task.effort}<span class="tag soft" data-hint={hintOf(app.lang, 'hint', 'effort')}>{markHidden(task.effort)}</span>{/if}
                 </span>
               </li>
             {/each}

@@ -75,7 +75,7 @@
   function chipLabel(item: ActiveFilter): string {
     switch (item.kind) {
       case 'area':
-        return `${t('nav.areas')}: ${app.shortAreas ? areaLabel(item.value, app.areaNames) : item.value}`;
+        return `${t('nav.areas')}: ${app.shortAreas ? areaLabel(item.value, app.allAreaNames) : item.value}`;
       case 'status':
         return `${t('list.filter.status')}: ${t(`status.${item.value}` as Key)}`;
       case 'actor':
@@ -110,7 +110,7 @@
     app.areaNames
       .map((name) => ({
         value: name,
-        label: app.shortAreas ? areaLabel(name, app.areaNames) : name,
+        label: app.shortAreas ? areaLabel(name, app.allAreaNames) : name,
         title: name,
       }))
       .sort((x, y) => x.label.localeCompare(y.label)),
@@ -244,7 +244,7 @@
             searchLabel={t('multi.search')}
           />
         {/each}
-        <label class="pick">
+        <label class="pick" data-hint={t('hint.cross')}>
           <input
             type="checkbox"
             checked={app.filter.cross}
@@ -289,8 +289,9 @@
         <li><button type="button" class="linkish" onclick={() => void clearFilters()}>{t('filter.clear')}</button></li>
       </ul>
     {/if}
-    <p class="count" role="status">
-      {t('list.count', { shown: shown.length, total: app.tasks.length })}
+    <!-- Only the count is a live region: the buttons and the key help beside it are not to be read out again on every change. -->
+    <p class="count">
+      <span role="status">{t('list.count', { shown: shown.length, total: app.tasks.length })}</span>
       <span class="help"
         ><button type="button" class="linkish" onclick={() => app.markShown()}>{t('bulk.all')}</button> ·
         {#if app.can('check')}<button type="button" class="linkish" onclick={() => void app.openChecks()}>{t('check.open')}</button> ·{/if}

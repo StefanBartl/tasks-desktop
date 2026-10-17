@@ -116,7 +116,8 @@
   }
   .row {
     display: grid;
-    grid-template-columns: minmax(8rem, 14rem) 1fr auto;
+    /* The title keeps a width of its own: the marks wrap before they push it to nothing. */
+    grid-template-columns: minmax(8rem, 14rem) minmax(6rem, 1fr) auto;
     gap: 0.75rem;
     align-items: baseline;
     width: 100%;
@@ -152,10 +153,13 @@
   }
   .meta {
     display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 0.3rem;
-    white-space: nowrap;
+    max-width: 18rem;
   }
   .tag {
+    white-space: nowrap;
     font-size: 0.75rem;
     padding: 0 0.4rem;
     border-radius: 999px;

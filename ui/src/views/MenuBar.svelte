@@ -235,6 +235,12 @@
     border-radius: var(--radius);
     box-shadow: 0 6px 20px rgb(0 0 0 / 0.25);
     padding: 0.3rem;
+    max-width: calc(100vw - 1rem);
+  }
+  /* The last menu sits near the right edge in a narrow window: its popup opens to the left. */
+  .menu:last-child .popup {
+    left: auto;
+    right: 0;
   }
   .item {
     display: flex;

@@ -76,7 +76,17 @@
 
 <svelte:window onclick={onWindowClick} />
 
-<div class="multi" bind:this={root} onkeydown={onKey} role="presentation">
+<!-- Focus that leaves the choice (Tab) closes the popup: it must not stay open behind the next control. -->
+<div
+  class="multi"
+  bind:this={root}
+  onkeydown={onKey}
+  onfocusout={(e) => {
+    const to = e.relatedTarget;
+    if (open && root && !(to instanceof Node && root.contains(to))) close(false);
+  }}
+  role="presentation"
+>
   <button
     bind:this={button}
     type="button"
@@ -179,7 +189,10 @@
     padding: 0.2rem 0.3rem;
     border-radius: var(--radius);
     cursor: pointer;
-    white-space: nowrap;
+  }
+  /* A long name (an area, a plan) wraps inside the popup instead of being cut. */
+  li label span {
+    overflow-wrap: anywhere;
   }
   li label:hover {
     background: var(--surface-2);

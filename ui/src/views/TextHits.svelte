@@ -60,6 +60,9 @@
       </ul>
     {:else if search.result.total === 0 && app.shown.length === 0}
       <p class="note" role="status">{t('search.none')}</p>
+    {:else if search.result.hits.length > 0 && app.shown.length === 0}
+      <!-- The text matched, but every hit is a task the filters of the list keep out: say so, or the page looks empty. -->
+      <p class="note" role="status">{t('search.hidden')}</p>
     {/if}
   </section>
 {/if}
@@ -119,7 +122,7 @@
     overflow-wrap: anywhere;
   }
   mark {
-    background: light-dark(#ffe58a, #6b5a00);
+    background: var(--mark);
     color: var(--text);
     border-radius: 2px;
   }

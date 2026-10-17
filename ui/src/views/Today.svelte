@@ -188,9 +188,9 @@
           </button>
           <p class="id"><code>{next.task.id}</code></p>
           <p class="muted">
-            {labelOf(app.lang, 'status', next.task.status)} ·
-            {next.task.prio !== undefined ? `P${next.task.prio}` : '?'} ·
-            {next.task.effort ?? '?'}
+            <span data-hint={hintOf(app.lang, 'hint.status', next.task.status)}>{labelOf(app.lang, 'status', next.task.status)}</span> ·
+            <span data-hint={hintOf(app.lang, 'hint', 'prio')}>{next.task.prio !== undefined ? t('today.next.prio', { n: next.task.prio }) : t('mark.no_prio')}</span> ·
+            <span data-hint={hintOf(app.lang, 'hint', 'effort')}>{t('today.next.effort', { effort: next.task.effort ?? '?' })}</span>
             {#if why(next.task)} · {why(next.task)}{/if}
           </p>
           {#if next.alternatives.length > 0}

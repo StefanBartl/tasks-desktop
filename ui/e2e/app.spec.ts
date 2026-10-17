@@ -978,14 +978,14 @@ test('the check runs as a job in the background and its findings reach the list 
   await watchViolations(page);
   await pair(page);
   await showList(page);
-  await page.getByRole('button', { name: 'Check...' }).click();
+  await page.getByRole('button', { name: 'Check ...' }).click();
   const dialog = page.getByRole('dialog', { name: 'Check the vault' });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('status')).toContainText('No check has run yet.');
   await expectAccessible(page, 'check dialog');
   await dialog.getByRole('button', { name: 'Check now' }).click();
   // The engine's findings, with the task each is about; the fixture has broken tasks.
-  await expect(dialog.getByRole('status')).toContainText(/\d+ errors, \d+ warnings in \d+ task files/, { timeout: 30_000 });
+  await expect(dialog.getByRole('status')).toContainText(/Errors: \d+, warnings: \d+, task files: \d+/, { timeout: 30_000 });
   const findings = dialog.locator('ul.findings li');
   await expect(findings.first()).toBeVisible();
   await expect(findings.filter({ hasText: 'lib.nvim/broken' }).first()).toContainText('bad-');
@@ -1469,7 +1469,7 @@ test('explanations: the board, the inbox and the matrix say what their labels me
 
   // The matrix is a modal dialog: the popup has to be in front of it and inside it, not behind its backdrop.
   await showList(page);
-  await page.getByRole('button', { name: 'Estimate...' }).click();
+  await page.getByRole('button', { name: 'Estimate ...' }).click();
   const dialog = page.locator('dialog[open]');
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Explanation: Effort' }).focus();
@@ -1510,7 +1510,7 @@ test('more filters: any field, switched on in a row of chips that can be taken o
 
   await page.getByText('More filters', { exact: false }).first().click();
   // Priority: the values the tasks have, with how many.
-  await page.getByRole('button', { name: 'Priority' }).click();
+  await page.getByRole('button', { name: 'Priority', exact: true }).click();
   const group = page.getByRole('group', { name: 'Priority' });
   await expect(group.getByRole('checkbox').first()).toBeVisible();
   const first = group.getByRole('checkbox').first();
@@ -1546,7 +1546,7 @@ test('more filters: any field, switched on in a row of chips that can be taken o
   await expect(page.locator('.active :focus')).toHaveCount(1);
 
   // Reset takes every chip away and the whole list is back.
-  await page.getByRole('button', { name: 'Reset all filters' }).click();
+  await page.getByRole('button', { name: 'Clear all filters' }).click();
   await expect(chips).toHaveCount(0);
   expect(await total()).toBe(all);
   expect(await violations(page)).toEqual([]);
@@ -1666,7 +1666,7 @@ test('the plan wizard names the plan with a dry run, refuses what the engine ref
   await expect(create).toBeEnabled();
 
   await dialog.getByLabel('Target task').fill('lib.nvim/alpha');
-  await dialog.getByLabel('State of the plan').selectOption('doing');
+  await dialog.getByLabel('Status of the plan').selectOption('doing');
   await dialog.getByLabel(/Each phase waits/).check();
   await dialog.getByLabel('One line about it').fill('Made by the browser test.');
   await expect(create).toBeEnabled();
@@ -2842,7 +2842,7 @@ test('the findings of the check stay for the tasks that did not change and go on
 });
 
 async function checkFindingsStay(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Check...' }).click();
+  await page.getByRole('button', { name: 'Check ...' }).click();
   const dialog = page.getByRole('dialog', { name: 'Check the vault' });
   await dialog.getByRole('button', { name: 'Check now' }).click();
   await expect(dialog.getByRole('status')).toContainText(/Checked at [0-9]/, { timeout: 30_000 });
@@ -2859,7 +2859,7 @@ async function checkFindingsStay(page: Page): Promise<void> {
   try {
     await expect(flag('lib.nvim/beta')).toHaveCount(0);
     await expect(flag('lib.nvim/broken')).toBeVisible();
-    await page.getByRole('button', { name: 'Check...' }).click();
+    await page.getByRole('button', { name: 'Check ...' }).click();
     await expect(dialog.getByRole('status')).toContainText('1 task(s) changed since this check');
     await expect(dialog.locator('ul.findings li.stale', { hasText: 'lib.nvim/beta' })).toBeVisible();
     await expect(dialog.locator('ul.findings li:not(.stale)', { hasText: 'lib.nvim/broken' }).first()).toBeVisible();

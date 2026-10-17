@@ -1242,8 +1242,11 @@ export class App {
   /** `id` one column to the left or right. */
   async shiftColumn(id: string, dir: 1 | -1): Promise<void> {
     const task = this.tasks.find((t) => t.id === id);
-    const to = neighbourColumn(task?.status, dir);
-    if (task && to && this.shown.some((t) => t.id === id)) await this.dropOnColumn(id, to);
+    if (!task || !this.shown.some((t) => t.id === id)) return;
+    const to = neighbourColumn(task.status, dir);
+    if (to) await this.dropOnColumn(id, to);
+    // Past the last column lies the strip the mouse drops on to finish: the keyboard gets the same way (with the preview).
+    else if (dir === 1) await this.startFinish(id);
   }
 
   /** The selection to the next card of its column (`j`, `k`). */

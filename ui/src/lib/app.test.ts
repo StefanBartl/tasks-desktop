@@ -1246,6 +1246,18 @@ describe('writing', () => {
       expect(hub.sent).toHaveLength(2);
     });
 
+    it('past the last column, the shift opens the preview of finishing (what the strip does for the mouse)', async () => {
+      const parked = task('pub/a', { etag: 'e1', status: 'parked', group: 'parked|1' } as Partial<TaskEntry>);
+      const { app, hub } = await ready([parked]);
+      await app.shiftColumn('pub/a', 1);
+      expect(hub.sent).toHaveLength(0);
+      expect(app.finishing?.id).toBe('pub/a');
+      // The other way is the neighbouring column, as before.
+      app.cancelFinish();
+      await app.shiftColumn('pub/a', -1);
+      expect(hub.sent[0]?.ops[0]).toMatchObject({ patch: { status: 'open' } });
+    });
+
     it('tells a move that numbered the neighbours: more than one file was written', async () => {
       const { app, hub } = await ready([open('pub/a', 'open|1', 'e1'), open('pub/b', 'open|1', 'e2')]);
       hub.next_ops = {

@@ -157,10 +157,13 @@
     background: var(--surface-2);
     font-size: 0.8rem;
   }
+  /* A header cell stays a table cell (flex on it takes the row semantics away); the two lines stack as blocks. */
   tbody th {
     font-weight: normal;
-    display: flex;
-    flex-direction: column;
+  }
+  tbody th .title,
+  tbody th .id {
+    display: block;
   }
   .title {
     overflow: hidden;

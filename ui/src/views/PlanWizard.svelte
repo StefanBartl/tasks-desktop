@@ -102,7 +102,7 @@
       </select>
     </label>
     <div class="field">
-      <span>{t('plan.new.areas')}</span>
+      <!-- The choice carries its own label; a second one above it said the same twice. -->
       <MultiSelect
         label={t('plan.new.areas')}
         options={areas}
@@ -118,7 +118,7 @@
     </div>
     <label>
       <span>{t('plan.new.phases')} <small>({t('field.tags_hint')})</small></span>
-      <input type="text" bind:value={form.phases} placeholder="design, build, ship" />
+      <input type="text" bind:value={form.phases} placeholder={t('plan.new.phases_example')} />
     </label>
     {#if phases.length > 0}
       <p class="phases" role="group" aria-label={t('plan.new.order')}>
