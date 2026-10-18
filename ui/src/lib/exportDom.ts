@@ -4,8 +4,8 @@ const BOM = '\ufeff';
 
 export function saveText(doc: Document, name: string, text: string, type: string): boolean {
   try {
-    // A byte order mark lets a spreadsheet read the umlauts of a CSV as UTF-8.
-    const blob = new Blob([BOM, text], { type });
+    // A byte order mark lets a spreadsheet read the umlauts of a CSV as UTF-8; a Markdown file has none.
+    const blob = new Blob(type.startsWith('text/csv') ? [BOM, text] : [text], { type });
     const url = URL.createObjectURL(blob);
     const link = doc.createElement('a');
     link.href = url;
@@ -13,7 +13,8 @@ export function saveText(doc: Document, name: string, text: string, type: string
     doc.body.append(link);
     link.click();
     link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+    // Not at once: an engine may still be reading the blob when the click returns.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
     return true;
   } catch {
     return false;

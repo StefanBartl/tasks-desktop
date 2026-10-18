@@ -47,9 +47,12 @@ export function csvCell(text: string): string {
   return /[",;\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
-export function toCsv(tasks: readonly TaskEntry[]): string {
-  const rows = [CSV_COLUMNS.join(',')];
-  for (const task of tasks) rows.push(CSV_COLUMNS.map((c) => csvCell(field(task, c))).join(','));
+/** The separator of a column: a spreadsheet in a German or Austrian setup reads `;`, the rest `,`. */
+export type CsvSeparator = ',' | ';';
+
+export function toCsv(tasks: readonly TaskEntry[], separator: CsvSeparator = ','): string {
+  const rows = [CSV_COLUMNS.join(separator)];
+  for (const task of tasks) rows.push(CSV_COLUMNS.map((c) => csvCell(field(task, c))).join(separator));
   return rows.join('\r\n') + '\r\n';
 }
 
@@ -62,12 +65,13 @@ export function toMarkdown(tasks: readonly TaskEntry[]): string {
   const lines = tasks.map((task) => {
     const facts = [task.status, task.prio === undefined ? '' : `prio ${task.prio}`, task.effort, task.actor]
       .filter((x): x is string => typeof x === 'string' && x !== '')
+      .map(mdText)
       .join(', ');
     return `- ${task.status === 'done' ? '[x]' : '[ ]'} \`${task.id}\` ${mdText(task.title)}${facts ? ` (${facts})` : ''}`;
   });
   return lines.length === 0 ? '' : lines.join('\n') + '\n';
 }
 
-export function exportText(tasks: readonly TaskEntry[], format: ExportFormat): string {
-  return format === 'csv' ? toCsv(tasks) : toMarkdown(tasks);
+export function exportText(tasks: readonly TaskEntry[], format: ExportFormat, separator: CsvSeparator = ','): string {
+  return format === 'csv' ? toCsv(tasks, separator) : toMarkdown(tasks);
 }

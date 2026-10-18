@@ -854,7 +854,8 @@ export class App {
   exportTasks(format: ExportFormat): { text: string; count: number } {
     const marked = new Set(this.marks);
     const tasks = marked.size > 0 ? this.shown.filter((t) => marked.has(t.id)) : this.shown;
-    return { text: exportText(tasks, format), count: tasks.length };
+    // A German page is read by a German spreadsheet, which splits columns at `;`.
+    return { text: exportText(tasks, format, this.lang === 'de' ? ';' : ','), count: tasks.length };
   }
 
   /** Tell the person what an export did (`how`: saved, failed, copied or copy_failed). */
