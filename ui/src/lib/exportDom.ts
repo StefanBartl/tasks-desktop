@@ -1,4 +1,4 @@
-// The way out of the page for an export: a file the browser saves (the clipboard is shut by the page's policy).
+// The ways out of the page for an export: a file the browser saves, or the clipboard.
 
 const BOM = '\ufeff';
 
@@ -14,6 +14,17 @@ export function saveText(doc: Document, name: string, text: string, type: string
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The other way out: the text on the clipboard (the policy of the page lets it write, never read). */
+export async function copyText(clipboard: Pick<Clipboard, 'writeText'> | undefined, text: string): Promise<boolean> {
+  if (clipboard === undefined) return false;
+  try {
+    await clipboard.writeText(text);
     return true;
   } catch {
     return false;

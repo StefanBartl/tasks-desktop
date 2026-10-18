@@ -206,7 +206,8 @@ trusted-types svelte-trusted-html
 ```
 
 and `Cross-Origin-Opener-Policy: same-origin` and a `Permissions-Policy` that
-turns off the device and clipboard features. There is no `unsafe-inline` and
+turns off the device features and the reading of the clipboard; the page itself may write it
+(`clipboard-write=(self)`, used by the "copy tasks" entries of the Project menu on a click). There is no `unsafe-inline` and
 no `unsafe-eval`. A sink that takes a string as HTML or script
 (`innerHTML`, `insertAdjacentHTML`, `document.write`, `script.src`) throws
 unless Svelte's one policy made the value; the browser tests assert that.

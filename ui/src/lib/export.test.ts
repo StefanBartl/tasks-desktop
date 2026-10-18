@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { copyText } from './exportDom';
 import { csvCell, exportText, toCsv, toMarkdown } from './export';
 import { task } from './fixtures';
 
@@ -40,5 +41,22 @@ describe('markdown', () => {
     expect(toMarkdown([])).toBe('');
     expect(exportText([task('a/b')], 'csv')).toContain('id,title');
     expect(exportText([task('a/b')], 'markdown')).toContain('`a/b`');
+  });
+});
+
+describe('copyText', () => {
+  it('writes the text and says so', async () => {
+    const written: string[] = [];
+    const ok = await copyText({ writeText: async (t: string) => void written.push(t) }, 'a,b');
+    expect(ok).toBe(true);
+    expect(written).toEqual(['a,b']);
+  });
+
+  it('says no when the browser refuses or there is no clipboard', async () => {
+    const refuse = async () => {
+      throw new DOMException('blocked', 'NotAllowedError');
+    };
+    expect(await copyText({ writeText: refuse }, 'x')).toBe(false);
+    expect(await copyText(undefined, 'x')).toBe(false);
   });
 });

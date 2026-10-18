@@ -12,7 +12,7 @@
   import TaskDialog from './views/TaskDialog.svelte';
   import CheckDialog from './views/CheckDialog.svelte';
   import { triageKey } from './lib/inbox';
-  import { saveText } from './lib/exportDom';
+  import { copyText, saveText } from './lib/exportDom';
   import type { ExportFormat } from './lib/export';
   import MenuBar, { type Menu } from 'appkit-ui/MenuBar.svelte';
   import PlanView from './views/PlanView.svelte';
@@ -213,12 +213,19 @@
 
   const age = $derived(app.cachedAt === null ? '' : ago(app.lang, Date.now() - app.cachedAt));
 
-  /** Hand the tasks shown (or marked) to a file the browser saves. The clipboard is shut by the page's policy. */
+  /** Hand the tasks shown (or marked) to a file the browser saves. */
   function exportFile(format: ExportFormat): void {
     const { text, count } = app.exportTasks(format);
     if (count === 0) return;
     const file = format === 'csv' ? ['tasks.csv', 'text/csv;charset=utf-8'] : ['tasks.md', 'text/markdown;charset=utf-8'];
     app.announceExport(saveText(document, file[0]!, text, file[1]!) ? 'saved' : 'failed', count);
+  }
+
+  /** The same text on the clipboard (the page may write it, on this click, and never read it). */
+  async function copyToClipboard(format: ExportFormat): Promise<void> {
+    const { text, count } = app.exportTasks(format);
+    if (count === 0) return;
+    app.announceExport((await copyText(navigator.clipboard, text)) ? 'copied' : 'copy_failed', count);
   }
 
   // The menu bar of the page (the native shell shows the same entries).
@@ -267,6 +274,18 @@
             label: t('menu.save_csv'),
             disabled: !ready,
             onselect: () => exportFile('csv'),
+          },
+          {
+            kind: 'action',
+            label: t('menu.copy_md'),
+            disabled: !ready,
+            onselect: () => void copyToClipboard('markdown'),
+          },
+          {
+            kind: 'action',
+            label: t('menu.copy_csv'),
+            disabled: !ready,
+            onselect: () => void copyToClipboard('csv'),
           },
           { kind: 'separator' },
           { kind: 'action', label: t('menu.reload'), onselect: () => window.location.reload() },

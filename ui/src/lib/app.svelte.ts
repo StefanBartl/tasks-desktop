@@ -819,9 +819,9 @@ export class App {
     return { text: exportText(tasks, format), count: tasks.length };
   }
 
-  /** Tell the person what an export did (`how`: saved or failed). */
-  announceExport(how: 'saved' | 'failed', count: number): void {
-    this.say(how === 'failed' ? 'error' : 'ok', `export.${how}`, { n: count });
+  /** Tell the person what an export did (`how`: saved, failed, copied or copy_failed). */
+  announceExport(how: 'saved' | 'failed' | 'copied' | 'copy_failed', count: number): void {
+    this.say(how === 'failed' || how === 'copy_failed' ? 'error' : 'ok', `export.${how}`, { n: count });
   }
 
   /** Only the tasks the list shows stay marked: a mark that cannot be seen must not be changed. */

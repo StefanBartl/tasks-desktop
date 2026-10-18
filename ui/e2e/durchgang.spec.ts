@@ -406,3 +406,19 @@ test('the tasks the list shows are saved as a CSV file from the Project menu', a
   expect(lines[0]).toBe('id,title,status,actor,kind,prio,effort,value,severity,plan,phase,tags,updated');
   expect(lines.length - 1, 'one row per task shown').toBe(shown);
 });
+
+test('the page may write the clipboard from the Project menu and may not read it', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await pair(page);
+  await showList(page);
+  const shown = await page.locator('button.row').count();
+  // The policy of the page: write for itself, read for nobody.
+  const policy = await page.evaluate(() => {
+    const p = (document as unknown as { featurePolicy: { allowsFeature(name: string): boolean } }).featurePolicy;
+    return { write: p.allowsFeature('clipboard-write'), read: p.allowsFeature('clipboard-read') };
+  });
+  expect(policy).toEqual({ write: true, read: false });
+  await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Copy tasks as CSV', exact: true }).click();
+  await expect(page.getByText(`${shown} tasks copied.`)).toBeVisible();
+});
