@@ -5,6 +5,7 @@
   import { parseMarkdown } from 'appkit-ui/markdown';
   import { editableBody, hasHidden, markHidden, MAX_BODY_EDIT } from '../lib/text';
   import { REMIND_CHOICES } from '../lib/remind';
+  import { classChange as classChangeOf } from '../lib/bulk';
   import {
     EFFORT_SIZES,
     KINDS,
@@ -95,9 +96,7 @@
   const classChange = $derived.by(() => {
     if (!task || moveTo === '') return null;
     const of = (name: string) => app.hubAreas.find((a) => a.name === name)?.data_class;
-    const from = of(task.area);
-    const to = of(moveTo);
-    return from !== to ? { from: from ?? '?', to: to ?? '?' } : null;
+    return classChangeOf(of(task.area), of(moveTo));
   });
   async function checkMove(): Promise<void> {
     if (!task || moveTo === '') return;

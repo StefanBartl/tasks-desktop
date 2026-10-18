@@ -83,12 +83,36 @@ export function bulkSetOps(
 }
 
 /**
- * The most moves in one batch. A move rewrites several files and asks the vault who names the task; measured
- * 2026-10-18 on StevesPC against the real engine in a vault of 650 open tasks, each moved task named by three others:
- * 50 moves 5 s, 100 moves 10 s, against the 30 s the hub gives one engine call (past them the answer is
- * `outcome_unknown`). Half of `BULK_MAX` keeps a slower machine well inside.
+ * The most moves in one batch. A move rewrites several files and asks the vault who names the task. Measured
+ * 2026-10-18 on StevesPC with `tools/measure-bulk-move.lua` against the real engine, in a new vault of 650 open tasks
+ * (each moved task named by three others), one request: 10 moves 7.9 s, 50 moves 9.5 s, 100 moves 12.0 s. That is
+ * about 7.5 s for reading the vault (cold) and 45 ms for a move. The hub gives one engine call 30 s (past them the
+ * answer is `outcome_unknown`): the moves are not what uses it up, the size of the vault is (a vault ten times as
+ * large would spend the 30 s on reading alone, whatever the number of moves). Half of `BULK_MAX` keeps the moves
+ * themselves well inside. The limit is the page's: the hub lets `OPS_MAX` (100) operations through, so another
+ * client may send more.
  */
 export const MOVE_MAX = 50;
+
+/**
+ * A move across data classes is told. A class that is not known (the areas are not read yet, or the hub does not know
+ * the area) counts as a change and is written `?`: the safeguard must not fall silent because it has nothing to
+ * compare.
+ */
+export function classChange(from: string | undefined, to: string | undefined): { from: string; to: string } | null {
+  if (from !== undefined && to !== undefined && from === to) return null;
+  return { from: from ?? '?', to: to ?? '?' };
+}
+
+/**
+ * What the answer of a dry run belongs to: the marked tasks and the version of each. A marked task that was changed
+ * since is another question; a change of any other task only moves the count of the places that follow, which the
+ * real run reckons again.
+ */
+export function marksKeyOf(marks: readonly string[], tasks: readonly TaskEntry[]): string {
+  const etag = new Map(tasks.map((t) => [t.id, t.etag ?? ''] as const));
+  return marks.map((id) => `${id}@${etag.get(id) ?? ''}`).join('\n');
+}
 
 /** One `move_area` of the bulk bar. */
 export interface MoveOp {

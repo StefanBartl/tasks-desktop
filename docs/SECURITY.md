@@ -269,9 +269,12 @@ holder of the rules. The route:
   state and the open streams hear of it; a write that ended without an answer
   is `502 outcome_unknown` and also starts a scan. The page sends at most 50
   moves to another area in one request (`MOVE_MAX` in `ui/src/lib/bulk.ts`):
-  a move rewrites several files, and 100 of them took 10 s of the 30 s the hub
-  gives one engine call (measured 2026-10-18, 650 open tasks, each moved task
-  named by three others), so a slower machine stays well inside;
+  a move rewrites several files. Measured 2026-10-18 with
+  `tools/measure-bulk-move.lua` (650 open tasks, each moved task named by
+  three others, a cold vault): 10 moves 7.9 s, 50 moves 9.5 s, 100 moves
+  12.0 s of the 30 s the hub gives one engine call, that is about 7.5 s for
+  reading the vault and 45 ms for a move. The limit is the page's own; the
+  hub lets 100 operations through;
 * finishes only with the token of `GET /api/tasks/done_preview` for the version
   of the file that was shown (the engine checks it under the file lock);
 * counts as a use of the interface (`usage`), like a rescan.

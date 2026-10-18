@@ -34,7 +34,7 @@
   import { boundLabel, chipLabel as chipText, valueLabel as valueText } from '../lib/filter-chips';
   import { tick, untrack } from 'svelte';
   import { EFFORT_SIZES, badTag, parseTags } from '../lib/fields';
-  import { isApplyKey, type MoveCheck } from '../lib/bulk';
+  import { classChange, isApplyKey, marksKeyOf, type MoveCheck } from '../lib/bulk';
   import { REMIND_CHOICES } from '../lib/remind';
 
   let { app, searchBox = $bindable(null) }: { app: App; searchBox?: HTMLInputElement | null } =
@@ -170,7 +170,7 @@
   let moveTo = $state('');
   let moveSelect = $state<HTMLSelectElement>();
   let moveResult = $state<{ to: string; marks: string; checks: MoveCheck[] } | null>(null);
-  const marksKey = $derived(app.marks.join('\n'));
+  const marksKey = $derived(marksKeyOf(app.marks, app.tasks));
   const moveShown = $derived(
     moveResult !== null && moveResult.to === moveTo && moveResult.marks === marksKey ? moveResult.checks : null,
   );
@@ -184,25 +184,33 @@
   // The data class of an area decides where its tasks may be kept: a move across classes is told, counted per pair.
   const moveClasses = $derived.by(() => {
     if (!moveShown) return [];
-    const classOf = (name: string) => app.hubAreas.find((a) => a.name === name)?.data_class ?? '?';
+    const classOf = (name: string) => app.hubAreas.find((a) => a.name === name)?.data_class;
     const to = classOf(moveTo);
     const counts = new Map<string, number>();
     for (const c of moveShown) {
       if (c.reasons.length > 0) continue;
       const area = app.tasks.find((task) => task.id === c.id)?.area;
       if (area === undefined) continue;
-      const from = classOf(area);
-      if (from !== to) counts.set(from, (counts.get(from) ?? 0) + 1);
+      const change = classChange(classOf(area), to);
+      if (change) counts.set(change.from, (counts.get(change.from) ?? 0) + 1);
     }
-    return [...counts].map(([from, n]) => ({ from, to, n }));
+    return [...counts].map(([from, n]) => ({ from, to: to ?? '?', n }));
   });
+  // The dry run takes seconds with many tasks: while it runs the button says it is busy and a click does nothing, so
+  // it is asked once (not `disabled`: a disabled button drops the focus the person is working with).
+  let checking = $state(false);
   async function checkMoves(): Promise<void> {
     const to = moveTo;
     const key = marksKey;
-    if (to === '') return;
-    const checks = await app.previewBulkMove(to);
-    // The person may have chosen another area or other tasks meanwhile: a late answer is not shown for them.
-    if (checks !== null && moveTo === to && marksKey === key) moveResult = { to, marks: key, checks };
+    if (to === '' || checking) return;
+    checking = true;
+    try {
+      const checks = await app.previewBulkMove(to);
+      // The person may have chosen another area or other tasks meanwhile: a late answer is not shown for them.
+      if (checks !== null && moveTo === to && marksKey === key) moveResult = { to, marks: key, checks };
+    } finally {
+      checking = false;
+    }
   }
   async function doMoves(): Promise<void> {
     if (!moveShown || movable === 0) return;
@@ -473,12 +481,15 @@
               type="button"
               class:apply={moveShown && movable > 0}
               disabled={app.saving || moveTo === ''}
+              aria-disabled={checking}
+              aria-busy={checking}
               onclick={() => void (moveShown && movable > 0 ? doMoves() : checkMoves())}
               >{moveShown && movable > 0 ? t('bulk.move_go', { n: movable }) : t('bulk.move_check')}</button
             >
           </div>
-          {#if moveShown}
-            <div class="bulk-move-result" role="status" aria-label={t('bulk.move_result')}>
+          <!-- Always there, so that a screen reader has the region before it gets its text. -->
+          <div class="bulk-move-result" role="status" aria-label={t('bulk.move_result')}>
+            {#if moveShown}
               <ul>
                 {#each moveShown as c (c.id)}
                   <li class:bad={c.reasons.length > 0}>
@@ -493,8 +504,8 @@
                 {/each}
               </ul>
               {#each moveClasses as m (m.from)}<p>{t('bulk.move_class', m)}</p>{/each}
-            </div>
-          {/if}
+            {/if}
+          </div>
         {/if}
       </div>
     {/if}

@@ -1023,6 +1023,45 @@ describe('writing', () => {
     expect(app.toast?.text).toContain(translate(app.lang, 'bulk.move_partial', { done: 1, failed: 1, why }));
   });
 
+  it('takes a batch of moves back and the selection returns to the id of ITS task, not to the first one moved back', async () => {
+    // The undo of a batch is the inverses of its moves, in an order they can all be made in; the answer names them by
+    // place. The task that was selected is the middle one: looking for "the first move that came back" selects the
+    // wrong task.
+    const { app, hub } = await ready([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' }), task('pub/c', { etag: 'e3' })]);
+    app.markShown();
+    app.select('pub/b');
+    const moved = (n: number, id: string, to: string, back: string) => ({
+      n,
+      op: 'move_area',
+      id,
+      ok: true,
+      outcome: 'moved',
+      new_id: to,
+      changed_ids: [id, to],
+      inverse: { op: 'move_area', id: to, to_area: back, if_match: `m${n}` },
+    });
+    const answer = (...results: unknown[]) => ({ kind: 'tasks.result', ok: true, dry_run: false, results }) as unknown as Result;
+    const where = { current: ['pub/a', 'pub/b', 'pub/c'] };
+    hub.snapshot = (async () => ({
+      kind: 'fresh' as const,
+      doc: snapshot(where.current.map((id) => task(id, { etag: `${id}-v` })), `rev:${where.current.join()}`),
+      etag: where.current.join(),
+    })) as typeof hub.snapshot;
+
+    hub.next_ops = answer(moved(1, 'pub/a', 'other/a', 'pub'), moved(2, 'pub/b', 'other/b', 'pub'), moved(3, 'pub/c', 'other/c', 'pub'));
+    where.current = ['other/a', 'other/b', 'other/c'];
+    const checks = ['a', 'b', 'c'].map((s) => ({ id: `pub/${s}`, newId: `other/${s}`, reasons: [], references: 0, namedBy: [] }));
+    expect(await app.bulkMove('other', checks)).toBe(3);
+    await vi.waitFor(() => expect(app.selectedId).toBe('other/b'));
+    expect(app.toast?.undo?.map((o) => (o.op === 'move_area' ? o.id : ''))).toEqual(['other/a', 'other/b', 'other/c']);
+
+    // The answers come in the order of the inverses: the selected task is the second of them.
+    hub.next_ops = answer(moved(1, 'other/a', 'pub/a', 'other'), moved(2, 'other/b', 'pub/b', 'other'), moved(3, 'other/c', 'pub/c', 'other'));
+    where.current = ['pub/a', 'pub/b', 'pub/c'];
+    await app.undo();
+    expect(app.selectedId).toBe('pub/b');
+  });
+
   it('moves at most MOVE_MAX marked tasks in one batch: past it nothing is sent and the limit is told', async () => {
     const many = Array.from({ length: MOVE_MAX + 1 }, (_, i) => task(`pub/m${String(i).padStart(3, '0')}`, { etag: `e${i}` }));
     const { app, hub } = await ready(many);

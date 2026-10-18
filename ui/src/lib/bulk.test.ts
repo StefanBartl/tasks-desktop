@@ -4,10 +4,12 @@ import {
   BULK_MAX,
   bulkMoveOps,
   bulkSetOps,
+  classChange,
   editedTags,
   followMoves,
   isApplyKey,
   markAll,
+  marksKeyOf,
   moveChecks,
   moveOrder,
   moveUndo,
@@ -180,5 +182,29 @@ describe('moving the marked tasks', () => {
     expect(followMoves(['a/one'], moved)).not.toContain('a/one');
     // a mark that was on the new id already is not doubled
     expect(followMoves(['a/one', 'c/one'], moved)).toEqual(['c/one']);
+  });
+});
+
+describe('classChange', () => {
+  it('tells a move across data classes, and a class that is not known counts as a change', () => {
+    expect(classChange('private', 'private')).toBeNull();
+    expect(classChange('private', 'public')).toEqual({ from: 'private', to: 'public' });
+    // The areas are not read yet: nothing to compare is not "nothing to tell".
+    expect(classChange(undefined, undefined)).toEqual({ from: '?', to: '?' });
+    expect(classChange('private', undefined)).toEqual({ from: 'private', to: '?' });
+    expect(classChange(undefined, 'public')).toEqual({ from: '?', to: 'public' });
+  });
+});
+
+describe('marksKeyOf', () => {
+  it('belongs to the marked tasks and their versions: a change of a marked task is another key, of another task not', () => {
+    const a = task('pub/a', 'e1');
+    const b = task('pub/b', 'e2');
+    const other = task('pub/z', 'z1');
+    const key = marksKeyOf(['pub/a', 'pub/b'], [a, b, other]);
+    expect(marksKeyOf(['pub/a', 'pub/b'], [a, b, { ...other, etag: 'z2' }])).toBe(key);
+    expect(marksKeyOf(['pub/a', 'pub/b'], [{ ...a, etag: 'e9' }, b, other])).not.toBe(key);
+    expect(marksKeyOf(['pub/b', 'pub/a'], [a, b, other])).not.toBe(key);
+    expect(marksKeyOf([], [a, b])).toBe('');
   });
 });

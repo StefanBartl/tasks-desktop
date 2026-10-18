@@ -2707,17 +2707,37 @@ test('the marked tasks are moved to another area in one batch: a dry run first, 
 
     // The dry run: nothing is written, each task is told.
     await bar.getByRole('combobox').selectOption('cascade.nvim');
+    // The region of the answer is there before the answer (a screen reader says what is put into a region that was
+    // there), and empty.
+    const told = page.getByRole('status', { name: 'What the moves would do' });
+    await expect(told).toHaveCount(1);
+    await expect(told).toBeEmpty();
     // By the keyboard, and the focus stays on the button when it turns from "Check the moves" into "Move 2".
     await bar.getByRole('button', { name: 'Check the moves' }).focus();
     await page.keyboard.press('Enter');
     await expect(bar.getByRole('button', { name: 'Move 2' })).toBeFocused();
-    const told = page.getByRole('status', { name: 'What the moves would do' });
     await expect(told).toContainText('lib.nvim/bulk-move-e2e-1 becomes cascade.nvim/bulk-move-e2e-1');
     await expect(told).toContainText('lib.nvim/bulk-move-e2e-2 becomes cascade.nvim/bulk-move-e2e-2 (1 place(s) follow)');
     await expect(told).toContainText('lib.nvim/bulk-move-e2e-3 stays: cascade.nvim/bulk-move-e2e-3 is an open task already');
     await expectAccessible(page, 'the answer of the dry run of a bulk move');
     for (const n of [1, 2, 3]) expect(existsSync(file('lib.nvim', n))).toBe(true);
     expect(existsSync(file('cascade.nvim', 1))).toBe(false);
+
+    // The answer belongs to the version of each marked task: one that is changed meanwhile voids it.
+    addFrontmatter('bulk-move-e2e-3', 'effort: S');
+    await expect(bar.getByRole('button', { name: 'Check the moves' })).toBeVisible({ timeout: 15_000 });
+    await expect(told).toBeEmpty();
+    // The dry run takes its time with many tasks: while it is on its way the button says so, so it is asked once.
+    let delaying = true;
+    await page.route('**/api/tasks/ops', async (route) => {
+      if (delaying) await new Promise((resolve) => setTimeout(resolve, 1_000));
+      await route.continue().catch(() => undefined);
+    });
+    await bar.getByRole('button', { name: 'Check the moves' }).click();
+    await expect(bar.getByRole('button', { name: 'Check the moves' })).toHaveAttribute('aria-busy', 'true');
+    await expect(bar.getByRole('button', { name: 'Check the moves' })).toHaveAttribute('aria-disabled', 'true');
+    await expect(told).toContainText('lib.nvim/bulk-move-e2e-1 becomes cascade.nvim/bulk-move-e2e-1');
+    delaying = false;
 
     // The move: one request, the two that can go go, the third stays marked.
     let writes = 0;
