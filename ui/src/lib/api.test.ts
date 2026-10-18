@@ -38,3 +38,58 @@ describe('the hub client and a refusal', () => {
     expect(told).toBe(0);
   });
 });
+
+describe('the order of the list', () => {
+  /** A hub that answers `list` pages from the tasks it holds; `change` runs before the page at that index is answered. */
+  function listing(pages: { ids: string[]; total: number }[], urls: string[]): typeof fetch {
+    let n = 0;
+    return (async (url: unknown) => {
+      urls.push(String(url));
+      const page = pages[Math.min(n, pages.length - 1)]!;
+      const last = n >= pages.length - 1;
+      n += 1;
+      const doc = {
+        rev: 'rev:1',
+        total: page.total,
+        items: page.ids.map((id) => ({ id })),
+        ...(last ? {} : { next_offset: n * 100 }),
+      };
+      return new Response(JSON.stringify(doc), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+  }
+
+  it('puts the pages together in the order the engine gave them', async () => {
+    const urls: string[] = [];
+    const hub = new Hub(
+      listing(
+        [
+          { ids: ['a/1', 'a/2'], total: 3 },
+          { ids: ['a/3'], total: 3 },
+        ],
+        urls,
+      ),
+    );
+    expect((await hub.order('roi')).ids).toEqual(['a/1', 'a/2', 'a/3']);
+    expect(urls).toEqual([
+      '/api/tasks/list?sort=roi&limit=100&offset=0',
+      '/api/tasks/list?sort=roi&limit=100&offset=100',
+    ]);
+  });
+
+  it('reads the pages again when the number of tasks changed between two of them', async () => {
+    const urls: string[] = [];
+    const hub = new Hub(
+      listing(
+        [
+          { ids: ['a/1'], total: 2 },
+          { ids: ['a/2'], total: 3 },
+          { ids: ['a/1', 'a/2'], total: 3 },
+          { ids: ['a/3'], total: 3 },
+        ],
+        urls,
+      ),
+    );
+    expect((await hub.order('severity')).ids).toEqual(['a/1', 'a/2', 'a/3']);
+    expect(urls.length).toBe(4);
+  });
+});
