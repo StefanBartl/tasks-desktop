@@ -5,6 +5,7 @@ import { Hub } from './lib/api';
 import { App as AppState, type Env } from './lib/app.svelte';
 import { indexedDbStore } from './lib/cache';
 import { translate } from './lib/i18n';
+import { trackHistory } from './lib/trackHistory.svelte';
 import { takePairingCode } from 'appkit-ui/pair';
 import { installTooltips } from 'appkit-ui/tooltip';
 
@@ -34,6 +35,9 @@ const state = new AppState(env);
 // The popup is the kit's; the name of its region is this page's word, in the page's language.
 installTooltips(document, window, { regionLabel: () => translate(state.lang, 'hint.region') });
 mount(App, { target: document.getElementById('app') as HTMLElement, props: { app: state, code } });
+
+// Back and Forward of the browser walk through the views and the open tasks.
+trackHistory(state, window);
 
 // A link from `tasks-hub open` pasted into a tab that is already open changes only the fragment: no reload.
 window.addEventListener('hashchange', () => {

@@ -345,3 +345,20 @@ for (const lang of ['en', 'de'] as const) {
     });
   }
 }
+
+test('Back and Forward of the browser walk through the views and the open task', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  await page.locator('button.row').first().click();
+  await expect(page.locator('aside.detail .edit input').first()).toBeVisible();
+  // Back closes the task, Back again leaves the list, Forward returns.
+  await page.goBack();
+  await expect(page.locator('aside.detail .edit input')).toHaveCount(0);
+  await expect(page.locator('button.row').first()).toBeVisible();
+  await page.goBack();
+  await expect(page.locator('button.row')).toHaveCount(0);
+  await page.goForward();
+  await expect(page.locator('button.row').first()).toBeVisible();
+  await page.goForward();
+  await expect(page.locator('aside.detail .edit input').first()).toBeVisible();
+});
