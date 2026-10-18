@@ -25,6 +25,12 @@
     if (buttons && buttons.length > 0) buttons[Math.min(index, buttons.length - 1)]?.focus();
     else document.querySelector<HTMLElement>('main')?.focus();
   }
+  /** The strip goes with the view it is in: the focus goes to the main area of the list, not to the page. */
+  async function toList(): Promise<void> {
+    app.setView('list');
+    await tick();
+    document.querySelector<HTMLElement>('main')?.focus();
+  }
 </script>
 
 {#if narrows(app.filter)}
@@ -44,7 +50,7 @@
         </li>
       {/each}
       <li><button type="button" class="linkish" onclick={() => void keepFocus(() => app.resetFilter(), 0)}>{t('filter.clear')}</button></li>
-      <li><button type="button" class="linkish" onclick={() => app.setView('list')}>{t('filter.note.change')}</button></li>
+      <li><button type="button" class="linkish" onclick={() => void toList()}>{t('filter.note.change')}</button></li>
     </ul>
   </div>
 {/if}

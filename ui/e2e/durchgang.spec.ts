@@ -279,9 +279,9 @@ test('"Show more" in the finished view loads the next page and adds it below the
 
 test('the marks of rows, cards and stage lines are explained with one tab stop each view, by the keyboard', async ({ page }) => {
   await pair(page);
-  const legend = (scope: string) => page.locator(scope).getByRole('button', { name: 'Explanation: the marks of a task' });
-  const check = async (scope: string) => {
-    const button = legend(scope);
+  const legend = (scope: string, what: string) => page.locator(scope).getByRole('button', { name: `Explanation: ${what}` });
+  const check = async (scope: string, what = 'the marks of a task') => {
+    const button = legend(scope, what);
     await expect(button).toHaveCount(1);
     await button.focus();
     const tip = page.getByRole('tooltip');
@@ -299,7 +299,8 @@ test('the marks of rows, cards and stage lines are explained with one tab stop e
   await check('.wrap > p.count');
   await page.getByRole('menuitem', { name: 'View', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'Plan', exact: true }).click();
-  await check('section.stages');
+  // The plan explains its stages first, and says so in the name of the button.
+  await check('section.stages', 'the stages and the marks of a task');
 });
 
 // The walk through every view in both languages and both themes (the part of the explanations task that asks for

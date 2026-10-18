@@ -101,6 +101,15 @@ export function groupTasks(view: CountView, tasks: readonly TaskEntry[]): Group[
 /** How many tasks a view shows before the person asks for more. */
 export const PAGE = 50;
 
+/**
+ * The sentence above the tasks of a number: all of them are shown, or the filter hides some, or the filter hides some
+ * and the rest lies in areas that are not released (`unfiltered` is what the engine counts for the released areas).
+ */
+export function countKey(hidden: number, unfiltered: number, total: number): 'count.of' | 'count.of_filtered' | 'count.of_both' {
+  if (hidden <= 0) return 'count.of';
+  return unfiltered < total ? 'count.of_both' : 'count.of_filtered';
+}
+
 /** The stored choices read back: only a number and a view that exist. */
 export function parseViews(text: string | null): Partial<Record<CountKey, CountView>> {
   if (!text) return {};

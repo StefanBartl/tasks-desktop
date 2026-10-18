@@ -3,6 +3,7 @@ import type { TaskEntry } from './contract';
 import { task } from './fixtures';
 import {
   COUNT_KEYS,
+  countKey,
   defaultView,
   groupTasks,
   nextView,
@@ -104,5 +105,15 @@ describe('the stored choices', () => {
       ready: 'area',
       blocked: 'blocker',
     });
+  });
+});
+
+describe('countKey', () => {
+  it('says what hides the rest: the filter, or the filter and areas that are not released', () => {
+    expect(countKey(0, 12, 12)).toBe('count.of');
+    expect(countKey(3, 12, 12)).toBe('count.of_filtered');
+    expect(countKey(3, 9, 12)).toBe('count.of_both');
+    // Nothing is hidden by the filter, though areas are not released: the plain sentence.
+    expect(countKey(0, 9, 12)).toBe('count.of');
   });
 });

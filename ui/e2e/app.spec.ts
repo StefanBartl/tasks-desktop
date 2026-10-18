@@ -945,7 +945,8 @@ test('the inbox sorts tasks with single keys and nothing else', async ({ page })
 });
 
 test('ten tasks are sorted in the inbox with the keyboard alone, from the search to the last key', async ({ page }) => {
-  // Acceptance of P5: ten tasks triaged with the keyboard only (no click, no pointer after the page is open).
+  // Acceptance of P5: ten tasks triaged with the keyboard only (the list is opened with the menu; from the search on
+  // there is no click and no pointer).
   const slugs = Array.from({ length: 10 }, (_, i) => `kbd-triage-e2e-${String(i).padStart(2, '0')}`);
   const file = (slug: string) => join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
   for (const slug of slugs) {
@@ -2158,6 +2159,10 @@ test('the plan view shows the stages and the critical path, and opens a task', a
   await expect(page.getByRole('region', { name: 'Stages' })).toBeVisible();
   await expect(page.getByRole('heading', { name: /^Stage 0/ })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Critical path' })).toBeVisible();
+  // The explanation of this view starts with the stages, and its button says so (it is not the one of the list).
+  await page.getByRole('button', { name: 'Explanation: the stages and the marks of a task' }).focus();
+  await expect(page.locator('#hint-tip')).toContainText('every task stands in the earliest stage it can be in');
+  await page.keyboard.press('Escape');
   expect(await violations(page)).toEqual([]);
 
   // A task of a stage opens in the list, selected.
@@ -3237,6 +3242,36 @@ test('help: the about dialog names the build and the engine, and the report carr
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('the strip of the filter: switching off a chip puts the focus on the next chip, also behind the search chip, and "Change it in the list" keeps it on the page', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  await page.getByRole('searchbox').fill('zzqq-no-task-has-this');
+  await page.getByText('More filters', { exact: false }).first().click();
+  const prioMin = page.locator('select[data-range="prio-min"]');
+  const options = await prioMin.locator('option').evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value).filter((v) => v !== ''));
+  expect(options.length).toBeGreaterThan(0);
+  await prioMin.selectOption(options[options.length - 1]!);
+  await page.locator('input[data-date="updated-from"]').fill('2999-01-01');
+
+  await chooseView(page, 'View', 'Inbox');
+  const note = page.getByTestId('filter-note');
+  // The chip of the search comes first; the buttons of the other two are the ones counted here.
+  const chips = note.getByRole('button', { name: /^Switch off: (?!Search)/ });
+  await expect(chips).toHaveCount(2);
+  await chips.first().click();
+  await expect(chips).toHaveCount(1);
+  // The focus is on the chip that took the place, not on the search chip in front of it and not on the page.
+  await expect(chips.first()).toBeFocused();
+
+  await note.getByRole('button', { name: 'Change it in the list' }).click();
+  await expect(page.locator('main')).toBeFocused();
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
 test('the filter has at least / at most and spans of days, outlives a reload, and narrows every view', async ({ page }) => {
   await watchViolations(page);
   await pair(page);
@@ -3276,6 +3311,7 @@ test('the filter has at least / at most and spans of days, outlives a reload, an
       break;
     }
   }
+  expect(phasesBefore, 'the fixture vault has a plan with phases').not.toBeNull();
   await planSelect.selectOption('');
   await showList(page);
   await page.getByText('More filters', { exact: false }).first().click();
@@ -3308,7 +3344,7 @@ test('the filter has at least / at most and spans of days, outlives a reload, an
   for (const view of ['Plan', 'Board', 'Inbox', 'Today']) {
     await chooseView(page, 'View', view);
     await expect(note).toContainText('Filter on: 0 of');
-    if (view === 'Plan' && phasesBefore !== null) {
+    if (view === 'Plan') {
       // The plan with phases: its counts do not follow the filter (the strip says so).
       for (const pid of planIds) {
         await planSelect.selectOption(pid);
@@ -3333,12 +3369,18 @@ test('the filter has at least / at most and spans of days, outlives a reload, an
   }
   await expect(page.locator('section[data-tile="waiting"] li')).toHaveCount(0);
   // A number of the overview opened: the engine counts more than are shown, and the filter is named as the cause.
-  const tile = page.locator('button.tile').filter({ hasNotText: /^\s*0\s/ }).first();
-  if ((await tile.count()) > 0) {
-    await tile.click();
-    await expect(page.locator('#count-panel p[role="status"]')).toContainText('the filter hides');
-    await tile.click();
+  const tiles = page.locator('button.tile');
+  let opened = 0;
+  for (let i = 0; i < (await tiles.count()); i += 1) {
+    const m = /^\s*(\d+)/.exec(await tiles.nth(i).innerText());
+    if (!m || Number(m[1]) === 0) continue;
+    await tiles.nth(i).click();
+    await expect(page.locator('#count-panel p[role="status"]')).toContainText(/^0 shown of \d+: the filter hides /);
+    await tiles.nth(i).click();
+    opened += 1;
+    break;
   }
+  expect(opened, 'a number of the overview is above zero').toBe(1);
   await expect(page.locator('section[data-tile="cdx"]')).toHaveCount(0);
 
   // Switched off in the strip of the overview, the filter is gone everywhere.

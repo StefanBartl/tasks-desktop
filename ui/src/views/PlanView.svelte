@@ -5,7 +5,7 @@
   import { formatNumber, hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import Info from 'appkit-ui/Info.svelte';
   import { stagesLegend } from '../lib/legend';
-  import { chosenPlan, criticalIds, firstTasks, phaseCounts, stagesOf, warningsOf } from '../lib/plan';
+  import { chosenPlan, criticalIds, firstTasks, phaseCounts, planEmptyKey, stagesOf, warningsOf } from '../lib/plan';
   import { markHidden } from '../lib/text';
   import { narrows } from '../lib/filter';
   import FilterNote from './FilterNote.svelte';
@@ -177,7 +177,7 @@
     <PlanFinished {app} {planId} />
 
     <section class="stages" tabindex="-1" aria-label={t('plan.stages')}>
-      <p class="legend"><Info hint={stagesLegend(app.lang)} label={t('hint.about', { what: t('mark.legend.what') })} /></p>
+      <p class="legend"><Info hint={stagesLegend(app.lang)} label={t('hint.about', { what: t('plan.legend.what') })} /></p>
       {#each drawn as stage (stage.stage ?? 'cycle')}
         <div class="stage card">
           <h2 class="eyebrow">
@@ -211,7 +211,7 @@
           </ul>
         </div>
       {:else}
-        <p class="muted">{t(narrows(app.filter) && stagesOf(app.tasks, planId === '' ? null : planId).length > 0 ? 'plan.empty_filtered' : 'plan.empty')}</p>
+        <p class="muted">{t(planEmptyKey(narrows(app.filter), stagesOf(app.tasks, planId === '' ? null : planId).length))}</p>
       {/each}
     </section>
   {/if}

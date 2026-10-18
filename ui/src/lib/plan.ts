@@ -5,6 +5,11 @@
 
 import type { Snapshot, TaskEntry } from './contract';
 
+/** What an empty plan view says: that the filter keeps every task out, only when the plan has tasks at all. */
+export function planEmptyKey(narrowed: boolean, stageCount: number): 'plan.empty_filtered' | 'plan.empty' {
+  return narrowed && stageCount > 0 ? 'plan.empty_filtered' : 'plan.empty';
+}
+
 export interface Stage {
   /** The stage number as the engine counts it (0 is first); `null` for the tasks without one (in or behind a cycle, or not in a plan). */
   stage: number | null;

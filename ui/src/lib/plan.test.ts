@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chosenPlan, criticalIds, firstTasks, phaseCounts, stagesOf, warningsOf } from './plan';
+import { chosenPlan, criticalIds, firstTasks, phaseCounts, planEmptyKey, stagesOf, warningsOf } from './plan';
 import { task } from './fixtures';
 import type { Snapshot } from './contract';
 
@@ -112,5 +112,15 @@ describe('plan', () => {
     expect(mine.conflict_groups.map((g) => g.file)).toEqual(['x.lua']);
     expect(mine.warnings.map((w) => w.code)).toEqual(['c1', 'c3']);
     expect(warningsOf(undefined, tasks, 'a/p').warnings).toEqual([]);
+  });
+});
+
+describe('planEmptyKey', () => {
+  it('blames the filter only for a plan that has tasks the filter keeps out', () => {
+    expect(planEmptyKey(true, 4)).toBe('plan.empty_filtered');
+    // A plan without any task is empty by itself, whatever the filter says.
+    expect(planEmptyKey(true, 0)).toBe('plan.empty');
+    expect(planEmptyKey(false, 4)).toBe('plan.empty');
+    expect(planEmptyKey(false, 0)).toBe('plan.empty');
   });
 });

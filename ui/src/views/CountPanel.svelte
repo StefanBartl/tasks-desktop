@@ -4,7 +4,7 @@
   // Keys: `v` walks the views, Escape closes and gives the focus back to the number.
   import { tick } from 'svelte';
   import type { App } from '../lib/app.svelte';
-  import { PAGE, groupTasks, viewsOf, type CountKey } from '../lib/counts';
+  import { PAGE, countKey, groupTasks, viewsOf, type CountKey } from '../lib/counts';
   import type { TaskEntry } from '../lib/contract';
   import { areaLabel } from '../lib/filter';
   import { translate, type Key } from '../lib/i18n';
@@ -20,7 +20,7 @@
   }: { app: App; key: CountKey; label: string; tasks: TaskEntry[]; total: number; unfiltered: number } = $props();
   // Why fewer are shown than the engine counts: the filter hides `hidden`, the areas that are not released the rest.
   const hidden = $derived(unfiltered - tasks.length);
-  const ofKey = $derived(hidden > 0 ? (unfiltered < total ? 'count.of_both' : 'count.of_filtered') : 'count.of');
+  const ofKey = $derived(countKey(hidden, unfiltered, total));
 
   const t = (k: Key, params: Record<string, string | number> = {}) =>
     translate(app.lang, k, params);
