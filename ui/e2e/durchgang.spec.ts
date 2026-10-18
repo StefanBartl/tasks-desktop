@@ -387,3 +387,22 @@ test('Back closes the popup of a task and Forward opens it again; closing it by 
   await page.goBack();
   await expect(popup.locator('aside.detail .task-title')).toHaveText(title);
 });
+
+test('the tasks the list shows are saved as a CSV file from the Project menu', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  const shown = await page.locator('button.row').count();
+  await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('menuitem', { name: 'Save tasks as CSV file ...', exact: true }).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe('tasks.csv');
+  await expect(page.getByText(`${shown} tasks saved.`)).toBeVisible();
+  const csv = readFileSync((await download.path()) as string, 'utf8');
+  // The file starts with a byte order mark (a spreadsheet reads the umlauts as UTF-8) and ends rows with CR LF.
+  expect(csv.startsWith('\ufeff')).toBe(true);
+  const lines = csv.slice(1).trimEnd().split('\r\n');
+  expect(lines[0]).toBe('id,title,status,actor,kind,prio,effort,value,severity,plan,phase,tags,updated');
+  expect(lines.length - 1, 'one row per task shown').toBe(shown);
+});

@@ -33,6 +33,7 @@ import { defaultView, nextView, parseViews, type CountKey, type CountView } from
 import { conflictsOf, conflictsOfRequest, mergeConflicts, retryOp, type Conflict } from './conflicts';
 import { backoffSeconds, readStream, StreamRefused, type SseMessage } from 'appkit-ui/sse';
 import { detectLang, isLang, translate, type Key, type Lang } from './i18n';
+import { exportText, type ExportFormat } from './export';
 import { localToday } from './remind';
 import type { About } from './about';
 
@@ -809,6 +810,18 @@ export class App {
     const next = markAll(this.marks, ids);
     if (ids.some((id) => !next.includes(id))) this.say('error', 'bulk.limit');
     this.marks = next;
+  }
+
+  /** The text of the marked tasks, or of those the list shows when none is marked, in the order of the list. */
+  exportTasks(format: ExportFormat): { text: string; count: number } {
+    const marked = new Set(this.marks);
+    const tasks = marked.size > 0 ? this.shown.filter((t) => marked.has(t.id)) : this.shown;
+    return { text: exportText(tasks, format), count: tasks.length };
+  }
+
+  /** Tell the person what an export did (`how`: saved or failed). */
+  announceExport(how: 'saved' | 'failed', count: number): void {
+    this.say(how === 'failed' ? 'error' : 'ok', `export.${how}`, { n: count });
   }
 
   /** Only the tasks the list shows stay marked: a mark that cannot be seen must not be changed. */
