@@ -1,6 +1,6 @@
 // The hub's routes, as typed calls. Only the shapes the UI needs.
 
-import type { Areas, Check, DonePreview, Estimate, Finished, Links, List, Next, PlanFor, Result, Snapshot, TaskDocument } from './contract';
+import type { Areas, Check, DonePreview, Estimate, Finished, Links, Next, Order, PlanFor, Result, Snapshot, TaskDocument } from './contract';
 import type { About } from './about';
 
 export class ApiError extends Error {
@@ -222,38 +222,10 @@ export class Hub {
     return this.json<TaskDocument>(path, signal ? { signal } : undefined);
   }
 
-  /**
-   * The ids of the open tasks in the order of `sort` (the engine's): the pages of 100 put together. A page is read
-   * apart from the others, so a write between two of them can move a task across the cut: when the `total` changes
-   * the pages are read again (three times at most; the order is asked for again at the next change of the list anyway).
-   */
-  async order(sort: string, signal?: AbortSignal): Promise<{ rev: string; ids: string[] }> {
-    let ids: string[] = [];
-    let rev = '';
-    for (let attempt = 0; attempt < 3; attempt++) {
-      ids = [];
-      let offset = 0;
-      let total: number | null = null;
-      let moved = false;
-      // A page of 100 is the engine's limit; the cap keeps a misbehaving answer from looping for ever.
-      for (let page = 0; page < 200; page++) {
-        const doc = await this.json<List>(
-          `/api/tasks/list?sort=${encodeURIComponent(sort)}&limit=100&offset=${offset}`,
-          signal ? { signal } : undefined,
-        );
-        if (total !== null && doc.total !== total) {
-          moved = true;
-          break;
-        }
-        total = doc.total;
-        rev = doc.rev;
-        for (const item of doc.items) ids.push(item.id);
-        if (doc.next_offset === undefined) break;
-        offset = doc.next_offset;
-      }
-      if (!moved) break;
-    }
-    return { rev, ids };
+  /** The ids of the open tasks in the order of `sort` (the engine's), in one answer. */
+  async order(sort: string, signal?: AbortSignal): Promise<{ ids: string[] }> {
+    const doc = await this.json<Order>(`/api/tasks/order?sort=${encodeURIComponent(sort)}`, signal ? { signal } : undefined);
+    return { ids: doc.ids };
   }
 
   next(): Promise<Next> {

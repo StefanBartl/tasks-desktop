@@ -548,10 +548,10 @@ pub(super) async fn finished(State(st): State<Arc<Shared>>, RawQuery(query): Raw
 /// outside this list never reaches the engine.
 const SORTS: [&str; 5] = ["default", "prio-effort", "severity", "frecency", "roi"];
 
-/// `GET /api/tasks/list?sort=&area=&limit=&offset=`: a page of the open tasks in the order of `sort` (the plan's order
-/// without it). A read; the order is the engine's, the page only carries the ids and the figures it already has.
-pub(super) async fn list(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
-    let params = match parse_query(query.as_deref(), &["sort", "area", "limit", "offset"]) {
+/// `GET /api/tasks/order?sort=&area=`: the ids of the open tasks in the order of `sort` (the plan's order without it), all
+/// in one answer. A read; the order is the engine's, the page only lays the tasks it holds along the ids.
+pub(super) async fn order(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
+    let params = match parse_query(query.as_deref(), &["sort", "area"]) {
         Ok(p) => p,
         Err(why) => return error_body(StatusCode::BAD_REQUEST, "bad_query", why),
     };
@@ -572,20 +572,8 @@ pub(super) async fn list(State(st): State<Arc<Shared>>, RawQuery(query): RawQuer
         }
         request.insert("area".to_owned(), json!(area));
     }
-    for key in ["limit", "offset"] {
-        if let Some(value) = params.get(key) {
-            let Ok(n) = value.parse::<u32>() else {
-                return error_body(
-                    StatusCode::BAD_REQUEST,
-                    "bad_query",
-                    "limit and offset are whole numbers",
-                );
-            };
-            request.insert(key.to_owned(), json!(n));
-        }
-    }
     let request = serde_json::Value::Object(request);
-    match ask(&st, Calls::List, Some(&request)).await {
+    match ask(&st, Calls::Order, Some(&request)).await {
         Ok(reply) => json_response(StatusCode::OK, reply.text, None),
         Err(response) => response,
     }

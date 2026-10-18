@@ -24,6 +24,7 @@ pub const TASKS: FakeDialect = FakeDialect {
         "list",
         "next",
         "ops",
+        "order",
         "snapshot",
         "task",
     ],

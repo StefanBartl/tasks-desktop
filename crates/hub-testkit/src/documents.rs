@@ -173,7 +173,7 @@ fn tasks_fill(call: &Call<'_>, doc: &mut Value) {
                 }
             }
         }
-        "next" | "list" => {
+        "next" | "order" => {
             doc["echoed"] = params.clone();
         }
         "done_preview" => {
