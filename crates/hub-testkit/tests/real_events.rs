@@ -352,12 +352,16 @@ async fn a_folder_task_moved_through_the_write_route_is_in_the_event_and_the_sna
         "the folder moved as a whole"
     );
 
-    // The route refreshes the snapshot itself before it answers: the event is there already, and it says so.
+    // The route refreshes the snapshot itself before it answers: the event is there already. Which of the two scans
+    // gets to say its cause first is a race (the watcher of Linux is quick): "ops" from the route, or "fs".
     let (change, _) = r
         .change_naming(&new, Duration::from_secs(10))
         .await
         .expect("an event that names the new id");
-    assert_eq!(change["cause"], "ops", "{change}");
+    assert!(
+        matches!(change["cause"].as_str(), Some("ops" | "fs")),
+        "{change}"
+    );
     assert!(
         started.elapsed() < Duration::from_secs(2),
         "took {:?}",
