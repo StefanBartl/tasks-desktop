@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "appkit-core"
 version = "0.0.0"
-source = "git+https://github.com/StefanBartl/appkit?tag=v0.7.0#444308165101db140e699c2d731728f556cbbecd"
+source = "git+https://github.com/StefanBartl/appkit?tag=v0.8.0#8cdf4e208fab6f45002b615a734a01e989263abf"
 dependencies = [
  "getrandom",
  "serde",
@@ -16,7 +16,7 @@ dependencies = [
 [[package]]
 name = "appkit-hub"
 version = "0.0.0"
-source = "git+https://github.com/StefanBartl/appkit?tag=v0.7.0#444308165101db140e699c2d731728f556cbbecd"
+source = "git+https://github.com/StefanBartl/appkit?tag=v0.8.0#8cdf4e208fab6f45002b615a734a01e989263abf"
 dependencies = [
  "appkit-core",
  "axum",
@@ -31,7 +31,7 @@ dependencies = [
 [[package]]
 name = "appkit-testkit"
 version = "0.0.0"
-source = "git+https://github.com/StefanBartl/appkit?tag=v0.7.0#444308165101db140e699c2d731728f556cbbecd"
+source = "git+https://github.com/StefanBartl/appkit?tag=v0.8.0#8cdf4e208fab6f45002b615a734a01e989263abf"
 dependencies = [
  "appkit-core",
  "appkit-hub",

@@ -43,6 +43,7 @@ struct Fake {
     b: PathBuf,
     active: Mutex<String>,
     added: Mutex<Vec<String>>,
+    moved: Mutex<Vec<String>>,
 }
 
 impl VaultAdmin<VaultTarget> for Fake {
@@ -89,6 +90,33 @@ impl VaultAdmin<VaultTarget> for Fake {
             }
             self.added.lock().unwrap().retain(|n| n != name);
             Ok(())
+        })
+    }
+
+    // The vault that is read "moves" to the folder of b (so the page reads other tasks afterwards); another
+    // vault only has its folder noted.
+    fn update<'a>(
+        &'a self,
+        name: &'a str,
+        path: &'a str,
+    ) -> BoxFuture<'a, Result<Option<VaultTarget>, String>> {
+        Box::pin(async move {
+            if path.ends_with("nowhere") {
+                return Err("this vault cannot be read there (vault_empty)".to_owned());
+            }
+            self.moved.lock().unwrap().push(name.to_owned());
+            if *self.active.lock().unwrap() != name {
+                return Ok(None);
+            }
+            Ok(Some(VaultTarget {
+                engine: Some(engine_for(&self.b)),
+                status: HubStatus {
+                    engine_ready: true,
+                    problem: None,
+                    capabilities: Vec::new(),
+                },
+                vault: Some(self.b.clone()),
+            }))
         })
     }
 
@@ -143,6 +171,7 @@ async fn rig(name: &str, with_admin: bool) -> Rig {
         b,
         active: Mutex::new("main".to_owned()),
         added: Mutex::new(Vec::new()),
+        moved: Mutex::new(Vec::new()),
     });
     let control = Secret::generate(TOKEN_BYTES).unwrap();
     let cfg = ServerConfig {
@@ -384,6 +413,61 @@ async fn adding_must_be_confirmed_and_the_form_is_checked() {
     assert_eq!(status, 200);
     let (_, list) = get(&r, "/api/vaults").await;
     assert!(!list.contains("\"n1\""), "{list}");
+}
+
+#[tokio::test]
+async fn moving_the_vault_that_is_read_reads_the_new_folder_and_ends_the_old_streams() {
+    let r = rig("move", true).await;
+    let folder = r.folder.replace('\\', "/");
+    let body = |name: &str, path: &str, extra: &str| {
+        format!(r#"{{"name":"{name}","path":"{path}"{extra}}}"#)
+    };
+    // Not confirmed, or with a field the route does not know: nothing moves.
+    for bad in [
+        body("main", &folder, ""),
+        body("main", &folder, r#","confirm":false"#),
+        body("main", &folder, r#","confirm":true,"surprise":1"#),
+    ] {
+        let (status, _) = post(&r, "/api/vaults/update", &bad, true).await;
+        assert_eq!(status, 400, "{bad}");
+    }
+    // No session: the credential comes first.
+    let ok = body("main", &folder, r#","confirm":true"#);
+    assert_eq!(post(&r, "/api/vaults/update", &ok, false).await.0, 401);
+    assert!(r.fake.moved.lock().unwrap().is_empty(), "something moved");
+    // A folder that does not work is refused, the old one is still read.
+    let refused = body("main", "/nowhere", r#","confirm":true"#);
+    let (status, doc) = post(&r, "/api/vaults/update", &refused, true).await;
+    assert_eq!(
+        (status, doc["error"]["code"].as_str()),
+        (400, Some("vault_refused"))
+    );
+    assert_eq!(listed(&r).await, 2);
+
+    // Another vault moves: nothing is read again.
+    let mut stream = Sse::open(r.server.addr(), Some(&r.token)).await.unwrap();
+    assert!(stream.next(Duration::from_secs(5)).await.is_some());
+    let other = body("b", &folder, r#","confirm":true"#);
+    let (status, doc) = post(&r, "/api/vaults/update", &other, true).await;
+    assert_eq!(
+        (status, doc["reread"].as_bool()),
+        (200, Some(false)),
+        "{doc}"
+    );
+    assert_eq!(listed(&r).await, 2);
+
+    // The vault that is read moves: the hub reads the new folder, the old streams end.
+    let (status, doc) = post(&r, "/api/vaults/update", &ok, true).await;
+    assert_eq!(
+        (status, doc["reread"].as_bool()),
+        (200, Some(true)),
+        "{doc}"
+    );
+    assert_eq!(listed(&r).await, 5, "the new folder has the tasks 0 to 4");
+    assert!(
+        stream.ended(Duration::from_secs(5)).await,
+        "the stream of the old folder is still open"
+    );
 }
 
 #[tokio::test]

@@ -218,6 +218,23 @@ fn label_of(path: &Path, fallback: &str) -> String {
         .map_or_else(|| fallback.to_owned(), |n| n.to_string_lossy().into_owned())
 }
 
+/// The folder a person gave for a vault: whole path, not a network share, and there.
+fn checked_folder(path: &str) -> Result<PathBuf, String> {
+    // A network share is not looked at: opening `\\host\share` makes Windows sign in to that host, and a
+    // page that asks for it could point the machine at one it does not own. A drive or a mount is fine.
+    if is_remote_path(path) {
+        return Err("a network folder is not accepted: use a drive or a mounted folder".to_owned());
+    }
+    let folder = PathBuf::from(path);
+    if !folder.is_absolute() {
+        return Err("the folder must be given with its whole path".to_owned());
+    }
+    if !folder.is_dir() {
+        return Err("there is no such folder".to_owned());
+    }
+    Ok(folder)
+}
+
 impl VaultAdmin<VaultTarget> for ConfigVaults {
     fn list(&self) -> VaultList {
         let file = self.current();
@@ -245,20 +262,7 @@ impl VaultAdmin<VaultTarget> for ConfigVaults {
         Box::pin(async move {
             let _one = self.gate.lock().await;
             config::valid_vault_name(name).map_err(|why| format!("the name {why}"))?;
-            // A network share is not looked at: opening `\\host\share` makes Windows sign in to that host, and a
-            // page that asks for it could point the machine at one it does not own. A drive or a mount is fine.
-            if is_remote_path(path) {
-                return Err(
-                    "a network folder is not accepted: use a drive or a mounted folder".to_owned(),
-                );
-            }
-            let folder = PathBuf::from(path);
-            if !folder.is_absolute() {
-                return Err("the folder must be given with its whole path".to_owned());
-            }
-            if !folder.is_dir() {
-                return Err("there is no such folder".to_owned());
-            }
+            let folder = checked_folder(path)?;
             let mut next = self.fresh()?;
             // The vault the hub reads keeps its entry in memory whatever the file says: its name is taken too, and it
             // counts against the limit.
@@ -299,6 +303,61 @@ impl VaultAdmin<VaultTarget> for ConfigVaults {
                 return Err("there is no vault of this name".to_owned());
             }
             self.keep(next, false)
+        })
+    }
+
+    fn update<'a>(
+        &'a self,
+        name: &'a str,
+        path: &'a str,
+    ) -> BoxFuture<'a, Result<Option<VaultTarget>, String>> {
+        Box::pin(async move {
+            let _one = self.gate.lock().await;
+            let folder = checked_folder(path)?;
+            let mut next = self.fresh()?;
+            let reading = self.current();
+            let is_read = reading.active_name() == name;
+            if name == config::MAIN_VAULT {
+                next.vault = Some(folder);
+            } else {
+                match next.vaults.iter_mut().find(|v| v.name == name) {
+                    Some(entry) => entry.path = folder,
+                    // The vault that is read keeps its entry in memory whatever the file says of it now.
+                    None if is_read => {
+                        let Some(held) = reading.vaults.iter().find(|v| v.name == name) else {
+                            return Err("there is no vault of this name".to_owned());
+                        };
+                        next.vaults.push(config::VaultEntry {
+                            name: held.name.clone(),
+                            path: folder,
+                        });
+                    }
+                    None => return Err("there is no vault of this name".to_owned()),
+                }
+            }
+            if !is_read {
+                self.keep(next, false)?;
+                return Ok(None);
+            }
+            // The vault the hub reads moved: the engine is set up for the new folder first, and nothing changes
+            // when that does not work.
+            next.active = reading.active.clone();
+            let state = engine_state(&next.effective(), &self.env).await;
+            let Some(engine) = state.engine else {
+                if let Some(note) = &state.note {
+                    eprintln!("note: vault {name:?} cannot be read from its new folder: {note}");
+                }
+                return Err(format!(
+                    "this vault cannot be read there ({})",
+                    state.status.problem.unwrap_or("engine_unavailable")
+                ));
+            };
+            self.keep(next, true)?;
+            Ok(Some(VaultTarget {
+                engine: Some(engine),
+                status: state.status,
+                vault: state.vault,
+            }))
         })
     }
 
