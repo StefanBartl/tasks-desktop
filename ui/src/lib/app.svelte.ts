@@ -936,7 +936,12 @@ export class App {
       // Not `inverseOf`: a later move of the batch may have rewritten a file whose inverse carries the version before.
       const undo = moveUndo(result.results);
       if (failed === 0) this.say('ok', 'bulk.moved', { n: moved.size }, undo);
-      else this.say('error', 'bulk.partial', { done: moved.size, failed }, undo);
+      else {
+        // The text of the engine says why, and a "rollback incomplete" names the files that could not be put back.
+        const first = result.results.find((r) => !r.ok);
+        const why = first?.error?.message ?? first?.error?.code ?? '';
+        this.say('error', 'bulk.move_partial', { done: moved.size, failed, why }, undo);
+      }
       return true;
     };
     await this.write(ops, { onAnswer });

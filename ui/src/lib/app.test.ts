@@ -984,6 +984,45 @@ describe('writing', () => {
     expect(app.marks).toEqual(['other/a']);
   });
 
+  it('tells the text of the engine when a move of the batch fails, also a rollback that is not complete', async () => {
+    // Red before the fix: the toast said only "N not (changed meanwhile or refused)"; the paths the engine names in
+    // "rollback incomplete" and the reason never reached the person.
+    const { app, hub } = await ready([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' })]);
+    app.markShown();
+    const why = 'the move failed (rollback incomplete: other/b.md)';
+    hub.next_ops = {
+      kind: 'tasks.result',
+      ok: false,
+      dry_run: false,
+      results: [
+        {
+          n: 1,
+          op: 'move_area',
+          id: 'pub/a',
+          ok: true,
+          outcome: 'moved',
+          new_id: 'other/a',
+          changed_ids: ['pub/a', 'other/a'],
+          inverse: { op: 'move_area', id: 'other/a', to_area: 'pub' },
+        },
+        {
+          n: 2,
+          op: 'move_area',
+          id: 'pub/b',
+          ok: false,
+          outcome: 'failed',
+          changed_ids: [],
+          error: { code: 'lock_stuck', message: why, retryable: false },
+        },
+      ],
+    } as unknown as Result;
+    const checks = ['a', 'b'].map((s) => ({ id: `pub/${s}`, newId: `other/${s}`, reasons: [], references: 0, namedBy: [] }));
+    expect(await app.bulkMove('other', checks)).toBe(1);
+    expect(app.toast).toMatchObject({ kind: 'error' });
+    expect(app.toast?.text).toContain('rollback incomplete: other/b.md');
+    expect(app.toast?.text).toContain(translate(app.lang, 'bulk.move_partial', { done: 1, failed: 1, why }));
+  });
+
   it('moves at most MOVE_MAX marked tasks in one batch: past it nothing is sent and the limit is told', async () => {
     const many = Array.from({ length: MOVE_MAX + 1 }, (_, i) => task(`pub/m${String(i).padStart(3, '0')}`, { etag: `e${i}` }));
     const { app, hub } = await ready(many);

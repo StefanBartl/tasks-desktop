@@ -168,6 +168,7 @@
   // Moving the marked tasks: an area is chosen, ONE dry run says per task what would happen, and only then the button
   // moves those that can go. The answer belongs to the area and the marks it was asked for: another choice hides it.
   let moveTo = $state('');
+  let moveSelect = $state<HTMLSelectElement>();
   let moveResult = $state<{ to: string; marks: string; checks: MoveCheck[] } | null>(null);
   const marksKey = $derived(app.marks.join('\n'));
   const moveShown = $derived(
@@ -208,6 +209,9 @@
     if ((await app.bulkMove(moveTo, moveShown)) > 0) {
       moveTo = '';
       moveResult = null;
+      // The button is off now (no area chosen): the focus goes to the choice of the area, not to the page.
+      await tick();
+      moveSelect?.focus();
     }
   }
 
@@ -459,20 +463,19 @@
           <div class="bulk-move" role="group" aria-label={t('bulk.move_label')}>
             <label>
               <span class="sr-only">{t('bulk.move_label')}</span>
-              <select bind:value={moveTo} disabled={app.saving}>
+              <select bind:this={moveSelect} bind:value={moveTo} disabled={app.saving}>
                 <option value="">{t('bulk.move_label')}: {t('bulk.keep')}</option>
                 {#each app.allAreaNames as area (area)}<option value={area}>{area}</option>{/each}
               </select>
             </label>
-            {#if moveShown && movable > 0}
-              <button type="button" class="apply" disabled={app.saving} onclick={() => void doMoves()}
-                >{t('bulk.move_go', { n: movable })}</button
-              >
-            {:else}
-              <button type="button" disabled={app.saving || moveTo === ''} onclick={() => void checkMoves()}
-                >{t('bulk.move_check')}</button
-              >
-            {/if}
+            <!-- One button for both steps: the same element keeps the focus when "Check the moves" becomes "Move n". -->
+            <button
+              type="button"
+              class:apply={moveShown && movable > 0}
+              disabled={app.saving || moveTo === ''}
+              onclick={() => void (moveShown && movable > 0 ? doMoves() : checkMoves())}
+              >{moveShown && movable > 0 ? t('bulk.move_go', { n: movable }) : t('bulk.move_check')}</button
+            >
           </div>
           {#if moveShown}
             <div class="bulk-move-result" role="status" aria-label={t('bulk.move_result')}>

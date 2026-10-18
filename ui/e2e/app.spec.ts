@@ -2702,7 +2702,10 @@ test('the marked tasks are moved to another area in one batch: a dry run first, 
 
     // The dry run: nothing is written, each task is told.
     await bar.getByRole('combobox').selectOption('cascade.nvim');
-    await bar.getByRole('button', { name: 'Check the moves' }).click();
+    // By the keyboard, and the focus stays on the button when it turns from "Check the moves" into "Move 2".
+    await bar.getByRole('button', { name: 'Check the moves' }).focus();
+    await page.keyboard.press('Enter');
+    await expect(bar.getByRole('button', { name: 'Move 2' })).toBeFocused();
     const told = page.getByRole('status', { name: 'What the moves would do' });
     await expect(told).toContainText('lib.nvim/bulk-move-e2e-1 becomes cascade.nvim/bulk-move-e2e-1');
     await expect(told).toContainText('lib.nvim/bulk-move-e2e-2 becomes cascade.nvim/bulk-move-e2e-2 (1 place(s) follow)');
