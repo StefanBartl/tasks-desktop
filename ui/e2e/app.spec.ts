@@ -2865,8 +2865,16 @@ test('the vaults menu lists the vault that is read, and the dialog adds, shows a
   await expect(page.getByRole('alert').getByText(/there is no such folder/)).toBeVisible();
   await expect(dialog.getByText('elsewhere')).toHaveCount(0);
 
-  // A real folder is added (the same one under another name: the dialog only lists it).
+  // The folder that is read already is refused under another name: two names never read one folder.
   await dialog.getByLabel(/^Folder/).fill(state().vault);
+  await dialog.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.getByRole('alert').getByText(/reads this folder already/)).toBeVisible();
+  await expect(dialog.getByText('elsewhere')).toHaveCount(0);
+
+  // A real folder of its own is added.
+  const own = join(state().vault, '..', 'own-vault-e2e');
+  mkdirSync(own, { recursive: true });
+  await dialog.getByLabel(/^Folder/).fill(own);
   await dialog.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(page.getByRole('status').getByText('Vault added.')).toBeVisible();
   await expect(dialog.getByText('elsewhere')).toBeVisible();
@@ -2879,7 +2887,7 @@ test('the vaults menu lists the vault that is read, and the dialog adds, shows a
   await dialog.getByRole('button', { name: 'Close' }).click();
   await expect(dialog).toHaveCount(0);
   expect(await violations(page)).toEqual([]);
-  // The refused folder is a 400 the browser logs by itself; nothing else may be there.
+  // The refused folders are 400s the browser logs by itself; nothing else may be there.
   expect((consoleProblems.get(page) ?? []).filter((m) => !m.includes('status of 400'))).toEqual([]);
 });
 
