@@ -28,7 +28,14 @@
     }
     event.dataTransfer?.setData('text/plain', id);
     if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-    ondragtask(id);
+    // Not in the event: a change of the page while `dragstart` runs makes Chrome end the drag at once (the areas
+    // would be drawn above the row that is dragged). One turn later the drag is going.
+    pending = setTimeout(() => ondragtask(id), 0);
+  }
+  let pending: ReturnType<typeof setTimeout> | undefined;
+  function dragEnd(): void {
+    clearTimeout(pending);
+    ondragtask?.(null);
   }
 
   const t = (key: Key, params: Record<string, string | number> = {}) =>
@@ -45,12 +52,31 @@
       <li
         draggable={ondragtask ? 'true' : undefined}
         ondragstart={(e) => dragStart(e, task.id)}
-        ondragend={() => ondragtask?.(null)}
+        ondragend={dragEnd}
       >
-        <button type="button" class="link" onclick={() => app.peek(task.id)}>{markHidden(task.title)}</button>
+        <button
+          type="button"
+          class="link"
+          onclick={() => app.peek(task.id)}
+          onkeydown={(e) => {
+            if (e.key === 'm' && !e.ctrlKey && !e.metaKey && !e.altKey && ondragtask) {
+              e.preventDefault();
+              app.chooseDropMove(task.id);
+            }
+          }}>{markHidden(task.title)}</button
+        >
         <span class="muted"
           ><code>{task.id}</code>{task.prio !== undefined ? ` · P${task.prio}` : ''}</span
         >
+        {#if ondragtask}
+          <button
+            type="button"
+            class="move"
+            aria-label={t('drop.row_button', { id: task.id })}
+            title={t('drop.choose')}
+            onclick={() => app.chooseDropMove(task.id)}>⇄</button
+          >
+        {/if}
       </li>
     {/each}
   </ul>
@@ -73,6 +99,15 @@
     list-style: none;
     padding: 0;
     margin: 0.25rem 0;
+  }
+  .move {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    cursor: pointer;
+    padding: 0 0.35rem;
+    margin-left: 0.4rem;
   }
   .plain li {
     padding: 0.1rem 0;

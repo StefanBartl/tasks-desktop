@@ -954,6 +954,82 @@ describe('writing', () => {
       expect(hub.sent.filter((r) => r.dry_run !== true)).toEqual([]);
     });
 
+    it('takes the marked tasks along when one of them is dropped, asks once for all and moves them in one request', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' }), task('pub/c', { etag: 'e3' })], {
+        capabilities: withMove,
+      });
+      app.toggleMark('pub/a');
+      app.toggleMark('pub/b');
+      const would = (n: number, id: string) => ({
+        n,
+        op: 'move_area',
+        id,
+        ok: true,
+        outcome: 'would_move',
+        move: { from: id, new_id: id.replace('pub/', 'other/'), references: [], conflicts: [] },
+      });
+      hub.next_ops = { kind: 'tasks.result', ok: true, dry_run: true, results: [would(1, 'pub/a'), would(2, 'pub/b')] } as unknown as Result;
+      // The third task is not marked, but the one dropped is: the two marked go, the unmarked stays.
+      await app.askDropMove('pub/a', 'other');
+      expect(app.dropMove?.count).toBe(2);
+      expect(hub.sent).toHaveLength(1);
+      expect(hub.sent[0]?.dry_run).toBe(true);
+      expect(hub.sent[0]?.ops.map((o) => (o.op === 'move_area' ? o.id : ''))).toEqual(['pub/a', 'pub/b']);
+      expect(app.dropMove?.checks?.map((c) => c.newId)).toEqual(['other/a', 'other/b']);
+      const moved = (n: number, id: string) => ({
+        n,
+        op: 'move_area',
+        id,
+        ok: true,
+        outcome: 'moved',
+        new_id: id.replace('pub/', 'other/'),
+        changed_ids: [id],
+        inverse: { op: 'move_area', id: id.replace('pub/', 'other/'), to_area: 'pub' },
+      });
+      hub.next_ops = { kind: 'tasks.result', ok: true, dry_run: false, results: [moved(1, 'pub/a'), moved(2, 'pub/b')] } as unknown as Result;
+      await app.confirmDropMove();
+      expect(hub.sent).toHaveLength(2);
+      expect(hub.sent[1]?.dry_run).not.toBe(true);
+      expect(hub.sent[1]?.ops).toHaveLength(2);
+      expect(app.dropMove).toBeNull();
+    });
+
+    it('moves only the dropped task when it is not one of the marked ones', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' }), task('pub/c', { etag: 'e3' })], {
+        capabilities: withMove,
+      });
+      app.toggleMark('pub/a');
+      app.toggleMark('pub/b');
+      hub.next_ops = dry();
+      await app.askDropMove('pub/c', 'other');
+      expect(app.dropMove?.count).toBe(1);
+      expect(hub.sent[0]?.ops).toHaveLength(1);
+    });
+
+    it('lets the person choose the area without a drag, and asks the same question after it', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })], { capabilities: withMove });
+      app.chooseDropMove('pub/a');
+      expect(app.dropChoose).toBe('pub/a');
+      expect(hub.sent).toEqual([]);
+      hub.next_ops = dry();
+      await app.askDropMove('pub/a', 'other');
+      expect(app.dropChoose).toBeNull();
+      expect(app.dropMove?.answer?.kind).toBe('ok');
+      app.cancelDropMove();
+      app.chooseDropMove('pub/a');
+      app.cancelDropChoose();
+      expect(app.dropChoose).toBeNull();
+    });
+
+    it('offers no choice of an area without the move in the engine, nor for a task that is not there', async () => {
+      const { app } = await ready([task('pub/a', { etag: 'e1' })], { capabilities: ['ops'] });
+      app.chooseDropMove('pub/a');
+      expect(app.dropChoose).toBeNull();
+      const other = await ready([task('pub/a', { etag: 'e1' })], { capabilities: withMove });
+      other.app.chooseDropMove('pub/ghost');
+      expect(other.app.dropChoose).toBeNull();
+    });
+
     it('does not ask at all without the move in the engine', async () => {
       const { app, hub } = await ready([task('pub/a', { etag: 'e1' })], { capabilities: ['ops'] });
       await app.askDropMove('pub/a', 'other');

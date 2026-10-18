@@ -2990,7 +2990,7 @@ test('a number of the overview opens its tasks, in views that can be switched, w
   // A task of the list opens in a popup over the overview, selected: the overview stays where it is.
   const first = doing.locator('li').first();
   const id = (await first.locator('code').innerText()).trim();
-  await first.getByRole('button').click();
+  await first.locator('button.link').click();
   const popup = page.getByRole('dialog', { name: 'Task' });
   await expect(popup.locator('aside.detail .id')).toHaveText(id);
   await expectAccessible(page, 'the overview with a task in a popup');
@@ -3459,17 +3459,7 @@ test('a task of the overview is dropped on an area: the engine is asked first, a
   const row = panel.locator('li', { hasText: 'Dropped task e2e' });
   await expect(row).toBeVisible();
 
-  // The drag as the browser reports it (dragstart, dragover, drop, dragend with one DataTransfer): a drag by the
-  // operating system cannot be driven reliably. The areas show as places to drop only once the drag has begun.
-  const drag = async (): Promise<void> => {
-    const transfer = await page.evaluateHandle(() => new DataTransfer());
-    await row.dispatchEvent('dragstart', { dataTransfer: transfer });
-    const target = panel.locator('.target[data-area="cascade.nvim"]');
-    await expect(target, 'the areas show once the drag began').toBeVisible();
-    await target.dispatchEvent('dragover', { dataTransfer: transfer });
-    await target.dispatchEvent('drop', { dataTransfer: transfer });
-    await row.dispatchEvent('dragend', { dataTransfer: transfer });
-  };
+  const drag = (): Promise<void> => dropRowOnArea(page, row, panel, 'cascade.nvim');
   await drag();
 
   // The engine's dry run is shown; nothing is written yet, and giving up leaves the file.
@@ -3493,4 +3483,94 @@ test('a task of the overview is dropped on an area: the engine is asked first, a
   await expect(page.getByRole('status').getByRole('button', { name: 'Undo' })).toBeVisible();
   expect(await violations(page)).toEqual([]);
   rmSync(to, { force: true });
+});
+
+/**
+ * Drag `row` onto the area `area` of the panel with the real mouse. The areas show as places to drop only once the drag
+ * has begun (one turn after `dragstart`), so the target is looked for after the first moves.
+ */
+async function dropRowOnArea(page: Page, row: Locator, panel: Locator, area: string): Promise<void> {
+  const from = (await row.locator('code').boundingBox())!;
+  await page.mouse.move(from.x + 5, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 30, from.y + from.height / 2 + 8, { steps: 3 });
+  const target = panel.locator(`.target[data-area="${area}"]`);
+  await expect(target, 'the areas show once the drag began').toBeVisible();
+  const to = (await target.boundingBox())!;
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 8 });
+  await page.mouse.up();
+}
+
+test('marked tasks dropped together on an area are moved in one batch, after the engine said what each one would do', async ({ page }) => {
+  const slugs = ['drop-batch-e2e-1', 'drop-batch-e2e-2'];
+  const where = (area: string, slug: string): string => join(state().vault, area, 'ROADMAP', 'tasks', `${slug}.md`);
+  for (const slug of slugs) {
+    rmSync(where('cascade.nvim', slug), { force: true });
+    writeFileSync(where('lib.nvim', slug), `---\ntitle: Drop batch ${slug}\nstatus: doing\nkind: task\n---\n\nTo be moved with its twin.\n`);
+  }
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  for (const slug of slugs) await page.getByRole('checkbox', { name: `Mark lib.nvim/${slug}` }).check();
+  await chooseView(page, 'View', 'Today');
+  await page.locator('button.tile[data-count="doing"]').click();
+  const panel = page.getByRole('region', { name: 'doing' });
+  await dropRowOnArea(page, panel.locator('li', { hasText: `Drop batch ${slugs[0]}` }), panel, 'cascade.nvim');
+
+  // One question for both, a line for each, nothing written yet.
+  const dialog = page.getByRole('dialog', { name: 'Move 2 marked tasks to cascade.nvim?' });
+  await expect(dialog).toBeVisible();
+  for (const slug of slugs) await expect(dialog.getByText(`lib.nvim/${slug} becomes cascade.nvim/${slug}`)).toBeVisible();
+  for (const slug of slugs) expect(existsSync(where('lib.nvim', slug))).toBe(true);
+  await dialog.getByRole('button', { name: 'Move 2' }).click();
+  await expect.poll(() => slugs.every((slug) => existsSync(where('cascade.nvim', slug)))).toBe(true);
+  for (const slug of slugs) expect(existsSync(where('lib.nvim', slug))).toBe(false);
+  expect(await violations(page)).toEqual([]);
+  for (const slug of slugs) rmSync(where('cascade.nvim', slug), { force: true });
+});
+
+test('a task of the overview is given another area with the key m and a dialog, without a mouse', async ({ page }) => {
+  const slug = 'drop-key-e2e';
+  const from = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
+  const to = join(state().vault, 'cascade.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
+  rmSync(to, { force: true });
+  writeFileSync(from, `---\ntitle: Dropped by key e2e\nstatus: doing\nkind: task\n---\n\nTo be moved by the keys.\n`);
+  await watchViolations(page);
+  await pair(page);
+  await chooseView(page, 'View', 'Today');
+  await page.locator('button.tile[data-count="doing"]').click();
+  const panel = page.getByRole('region', { name: 'doing' });
+  await panel.getByRole('button', { name: 'Dropped by key e2e', exact: true }).focus();
+  await page.keyboard.press('m');
+  const dialog = page.getByRole('dialog', { name: 'Move to another area' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel('Area').selectOption('cascade.nvim');
+  await dialog.getByRole('button', { name: 'Check the move' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Move to cascade.nvim?' }).getByRole('button', { name: /^Move \(becomes cascade\.nvim\/drop-key-e2e\)/ });
+  await expect(confirm).toBeEnabled();
+  expect(existsSync(from)).toBe(true);
+  await confirm.click();
+  await expect.poll(() => existsSync(to)).toBe(true);
+  expect(existsSync(from)).toBe(false);
+  expect(await violations(page)).toEqual([]);
+  rmSync(to, { force: true });
+});
+
+test('the button of a row opens the same choice of an area', async ({ page }) => {
+  const slug = 'drop-button-e2e';
+  const from = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
+  writeFileSync(from, `---\ntitle: Dropped by button e2e\nstatus: doing\nkind: task\n---\n\nx\n`);
+  await pair(page);
+  await chooseView(page, 'View', 'Today');
+  await page.locator('button.tile[data-count="doing"]').click();
+  const panel = page.getByRole('region', { name: 'doing' });
+  await panel.getByRole('button', { name: `Move lib.nvim/${slug} to another area` }).click();
+  const dialog = page.getByRole('dialog', { name: 'Move to another area' });
+  await expect(dialog).toBeVisible();
+  // The area it is in is not offered; giving up changes nothing.
+  await expect(dialog.getByRole('option', { name: 'lib.nvim' })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(existsSync(from)).toBe(true);
+  rmSync(from, { force: true });
 });

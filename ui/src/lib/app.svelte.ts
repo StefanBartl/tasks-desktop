@@ -215,8 +215,15 @@ export class App {
   dropMove = $state.raw<{
     id: string;
     toArea: string;
+    /** How many tasks go: more than one when the dropped task is one of several marked ones (they go together). */
+    count: number;
+    /** The dry run of one task. */
     answer: Awaited<ReturnType<App['previewMove']>> | null;
+    /** The dry run of the marked tasks (`count` > 1), per task. */
+    checks: MoveCheck[] | null;
   } | null>(null);
+  /** A task whose area the person wants to choose (no drag: the key or the button of the row), until it is chosen. */
+  dropChoose = $state<string | null>(null);
   #dropAsks = 0;
   /** The estimate matrix: the ids it holds (null: closed), what was chosen in it, and what the engine says it adds up to. */
   matrix = $state.raw<{ ids: string[] } | null>(null);
@@ -823,12 +830,21 @@ export class App {
   async askDropMove(id: string, toArea: string): Promise<void> {
     const task = this.tasks.find((x) => x.id === id);
     if (!task || task.area === toArea || !this.can('move_area') || this.saving) return;
+    this.dropChoose = null;
     const seq = ++this.#dropAsks;
-    this.dropMove = { id, toArea, answer: null };
-    const answer = await this.previewMove(id, toArea);
-    if (seq === this.#dropAsks && this.dropMove?.id === id && this.dropMove.toArea === toArea) {
-      this.dropMove = { id, toArea, answer };
+    // A marked task dropped with other marked ones takes them along: they are moved together, as in the list.
+    const count = this.marks.length > 1 && this.marks.includes(id) ? this.marks.length : 1;
+    this.dropMove = { id, toArea, count, answer: null, checks: null };
+    const still = (): boolean => seq === this.#dropAsks && this.dropMove?.id === id && this.dropMove.toArea === toArea;
+    if (count > 1) {
+      const checks = await this.previewBulkMove(toArea);
+      if (!still()) return;
+      // The engine could not be asked (the reason was told): nothing is left to confirm.
+      this.dropMove = checks === null ? null : { id, toArea, count, answer: null, checks };
+      return;
     }
+    const answer = await this.previewMove(id, toArea);
+    if (still()) this.dropMove = { id, toArea, count, answer, checks: null };
   }
 
   cancelDropMove(): void {
@@ -836,9 +852,27 @@ export class App {
     this.dropMove = null;
   }
 
+  /** Let the person choose the area of `id` (the key `m` or the button of a row): the way without a drag. */
+  chooseDropMove(id: string): void {
+    if (!this.can('move_area') || this.saving || !this.tasks.some((x) => x.id === id)) return;
+    this.dropChoose = id;
+  }
+
+  cancelDropChoose(): void {
+    this.dropChoose = null;
+  }
+
   /** The person confirmed the move the engine described. The version is the one that was shown. */
   async confirmDropMove(): Promise<void> {
     const asking = this.dropMove;
+    if (asking && asking.count > 1) {
+      const checks = asking.checks ?? [];
+      if (!checks.some((c) => c.reasons.length === 0 && c.newId !== '')) return;
+      this.#dropAsks++;
+      this.dropMove = null;
+      await this.bulkMove(asking.toArea, checks);
+      return;
+    }
     if (!asking || asking.answer?.kind !== 'ok' || asking.answer.move.conflicts.length > 0) return;
     const etag = this.tasks.find((x) => x.id === asking.id)?.etag;
     this.#dropAsks++;
