@@ -4,9 +4,11 @@
 //!
 //! A folder task is moved as a whole (`move_area`, `done`): the system reports
 //! the folder, not the files in it, and on Linux inotify tells a rename in two
-//! halves. Both ways a folder task changes its area are pinned here: through
-//! the hub's write route, and from outside (the engine run from Neovim renames
-//! the folder while the hub only watches).
+//! halves. What pins the WATCHER is a change the hub did not make itself: the
+//! engine called beside the hub (as Neovim does) for `move_area` and `done`, and
+//! a plain rename of the folder. The hub's own write route refreshes the
+//! snapshot before it answers, so a test through it proves the route, not the
+//! watcher; it is here for that (the event and the snapshot follow a write).
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -19,7 +21,7 @@ use tasks_hub::classes::AreaPolicy;
 use tasks_hub::client;
 use tasks_hub::config::{Env, FileConfig, TasksSettings};
 use tasks_hub::discovery::{discover, SetupProblem};
-use tasks_hub::engine::{probe, CliEngine, Engine};
+use tasks_hub::engine::{probe, Calls, CliEngine, Engine};
 use tasks_hub::server::{start, HubStatus, Limits, RunningServer, ServerConfig, WatchConfig};
 use tasks_hub::store::RefreshOptions;
 
@@ -86,6 +88,9 @@ async fn session(addr: SocketAddr, control: &str) -> String {
 /// A hub over a copy of the fixture vault with the real engine, paired, with
 /// an open event stream that said hello.
 struct Rig {
+    /// The engine the hub reads with. Called directly it is a writer beside the hub: the hub learns of the change
+    /// only from the files, as it does when Neovim runs the engine.
+    engine: Arc<dyn Engine>,
     server: RunningServer,
     vault: PathBuf,
     token: String,
@@ -160,7 +165,7 @@ async fn rig(name: &str, prepare: impl FnOnce(&Path)) -> Option<Rig> {
             problem: None,
             capabilities: Vec::new(),
         },
-        engine: Some(engine),
+        engine: Some(Arc::clone(&engine)),
         policy: Arc::new(AreaPolicy::default()),
         usage: None,
         ui: tasks_hub::ui::UiFiles::none(),
@@ -178,6 +183,7 @@ async fn rig(name: &str, prepare: impl FnOnce(&Path)) -> Option<Rig> {
     let hello = sse.next(Duration::from_secs(20)).await.expect("a hello");
     assert!(hello.starts_with("event: hello"), "{hello:?}");
     Some(Rig {
+        engine,
         server,
         vault,
         token,
@@ -213,6 +219,16 @@ impl Rig {
         .unwrap();
         assert_eq!(reply.status, 200, "{}", reply.body);
         serde_json::from_str(&reply.body).unwrap()
+    }
+
+    /// A request to the engine beside the hub (not through its write route): the document of the answer.
+    async fn outside(&self, method: tasks_hub::engine::Method, params: &Value) -> Value {
+        let reply = self
+            .engine
+            .call(method, Some(params))
+            .await
+            .expect("the engine answers");
+        serde_json::from_str(&reply.text).unwrap()
     }
 
     /// The ids of the open tasks the hub's snapshot holds now.
@@ -306,7 +322,8 @@ async fn an_edit_of_a_task_file_reaches_the_stream_within_two_seconds() {
 }
 
 #[tokio::test]
-async fn a_folder_task_moved_through_the_write_route_reaches_the_stream_and_the_snapshot() {
+async fn a_folder_task_moved_through_the_write_route_is_in_the_event_and_the_snapshot_when_it_is_answered(
+) {
     let slug = "folio-route";
     let Some(mut r) = rig("move-route", |v| folder_task(v, slug)).await else {
         return;
@@ -315,6 +332,7 @@ async fn a_folder_task_moved_through_the_write_route_reaches_the_stream_and_the_
     let new = format!("cascade.nvim/{slug}");
     assert!(r.ids().await.contains(&old), "the hub sees the folder task");
 
+    let started = Instant::now();
     let doc = r
         .post_ops(&format!(
             r#"{{"ops":[{{"op":"move_area","id":"{old}","to_area":"cascade.nvim"}}]}}"#
@@ -334,14 +352,95 @@ async fn a_folder_task_moved_through_the_write_route_reaches_the_stream_and_the_
         "the folder moved as a whole"
     );
 
-    let (_, took) = r
+    // The route refreshes the snapshot itself before it answers: the event is there already, and it says so.
+    let (change, _) = r
         .change_naming(&new, Duration::from_secs(10))
         .await
         .expect("an event that names the new id");
-    assert!(took < Duration::from_secs(2), "took {took:?}");
+    assert_eq!(change["cause"], "ops", "{change}");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "took {:?}",
+        started.elapsed()
+    );
     let ids = r.ids().await;
     assert!(ids.contains(&new), "{ids:?}");
     assert!(!ids.contains(&old), "{ids:?}");
+}
+
+#[tokio::test]
+async fn a_folder_task_moved_by_the_engine_beside_the_hub_reaches_the_stream_through_the_watcher() {
+    // The engine is called beside the hub, as Neovim does: the hub's own write route is not involved, so the only way
+    // the hub can learn of the move is the watcher. Without it the event never comes (the periodic scan is slower).
+    let slug = "folio-engine-move";
+    let Some(mut r) = rig("engine-move", |v| folder_task(v, slug)).await else {
+        return;
+    };
+    let old = format!("lib.nvim/{slug}");
+    let new = format!("cascade.nvim/{slug}");
+    assert!(r.ids().await.contains(&old), "the hub sees the folder task");
+
+    let doc = r
+        .outside(
+            Calls::Ops,
+            &serde_json::json!({ "ops": [{ "op": "move_area", "id": old, "to_area": "cascade.nvim" }] }),
+        )
+        .await;
+    assert_eq!(doc["results"][0]["outcome"], "moved", "{doc}");
+    let started = Instant::now();
+    let (change, _) = r
+        .change_naming(&new, Duration::from_secs(10))
+        .await
+        .expect("an event that names the new id");
+    assert_eq!(change["cause"], "fs", "{change}");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "took {:?}",
+        started.elapsed()
+    );
+    let ids = r.ids().await;
+    assert!(ids.contains(&new), "{ids:?}");
+    assert!(!ids.contains(&old), "the old id is gone: {ids:?}");
+}
+
+#[tokio::test]
+async fn a_folder_task_finished_by_the_engine_beside_the_hub_reaches_the_stream_through_the_watcher(
+) {
+    // `done` moves the folder task into the Backlog as a whole; the open id goes.
+    let slug = "folio-engine-done";
+    let Some(mut r) = rig("engine-done", |v| folder_task(v, slug)).await else {
+        return;
+    };
+    let id = format!("lib.nvim/{slug}");
+    assert!(r.ids().await.contains(&id), "the hub sees the folder task");
+
+    let preview = r
+        .outside(Calls::DonePreview, &serde_json::json!({ "id": id }))
+        .await;
+    let confirm = preview["confirm"]
+        .as_str()
+        .expect("a confirm token")
+        .to_owned();
+    let doc = r
+        .outside(
+            Calls::Ops,
+            &serde_json::json!({ "ops": [{ "op": "done", "id": id, "confirm": confirm }] }),
+        )
+        .await;
+    assert_eq!(doc["results"][0]["outcome"], "done", "{doc}");
+    let started = Instant::now();
+    let (change, _) = r
+        .change_naming(&id, Duration::from_secs(10))
+        .await
+        .expect("an event that names the finished id");
+    assert_eq!(change["cause"], "fs", "{change}");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "took {:?}",
+        started.elapsed()
+    );
+    let ids = r.ids().await;
+    assert!(!ids.contains(&id), "the open id is gone: {ids:?}");
 }
 
 #[tokio::test]
