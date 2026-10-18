@@ -9,6 +9,7 @@
   import CrossView from './views/CrossView.svelte';
   import FinishedView from './views/FinishedView.svelte';
   import Matrix from './views/Matrix.svelte';
+  import TaskDialog from './views/TaskDialog.svelte';
   import CheckDialog from './views/CheckDialog.svelte';
   import { triageKey } from './lib/inbox';
   import MenuBar, { type Menu } from 'appkit-ui/MenuBar.svelte';
@@ -320,6 +321,16 @@
         ],
       },
       {
+        id: 'appearance',
+        label: t('theme.label'),
+        items: (['auto', 'light', 'dark'] as const).map((value) => ({
+          kind: 'radio' as const,
+          label: t(`theme.${value}` as Key),
+          checked: app.theme === value,
+          onselect: () => app.setTheme(value),
+        })),
+      },
+      {
         id: 'vaults',
         label: t('menu.vaults'),
         items: [
@@ -340,8 +351,8 @@
         ],
       },
       {
-        id: 'options',
-        label: t('menu.options'),
+        id: 'settings',
+        label: t('menu.settings'),
         items: [
           { kind: 'info', label: t('lang.label') },
           {
@@ -357,15 +368,6 @@
             onselect: () => app.setLang('en'),
           },
           { kind: 'separator' },
-          { kind: 'info', label: t('theme.label') },
-          ...(['auto', 'light', 'dark'] as const).map((value) => ({
-            kind: 'radio' as const,
-            label: t(`theme.${value}` as Key),
-            checked: app.theme === value,
-            onselect: () => app.setTheme(value),
-          })),
-          { kind: 'separator' },
-          { kind: 'info', label: t('menu.settings') },
           {
             kind: 'check',
             label: t('shortcuts.label'),
@@ -508,6 +510,7 @@
     <DoneDialog {app} />
     <PrioDialog {app} />
     <Matrix {app} />
+    <TaskDialog {app} />
     <CheckDialog {app} />
     <BlockDialog {app} />
     <Palette {app} />

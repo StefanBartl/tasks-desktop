@@ -103,7 +103,7 @@
   }
 
   function open(id: string): void {
-    app.reveal(id);
+    app.peek(id);
   }
 
   function why(brief: TaskBrief): string {

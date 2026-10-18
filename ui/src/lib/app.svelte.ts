@@ -1516,11 +1516,25 @@ export class App {
    * away first, or the detail would stand without its row.
    */
   reveal(id: string): void {
+    this.peeking = false;
     if (this.tasks.some((t) => t.id === id) && !this.shown.some((t) => t.id === id)) {
       this.resetFilter();
     }
     this.select(id);
     this.setView('list');
+  }
+
+  /** A task is looked at in a popup over the view the person is in (the overview, the plan), not in the list. */
+  peeking = $state(false);
+
+  /** Look at a task without leaving the view: it is selected (its detail is read) and the popup opens over the view. */
+  peek(id: string): void {
+    this.select(id);
+    this.peeking = true;
+  }
+
+  closePeek(): void {
+    this.peeking = false;
   }
 
   hideTile(tile: Tile): void {

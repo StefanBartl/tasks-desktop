@@ -534,6 +534,27 @@ describe('App', () => {
     app.stop();
   });
 
+  it('looks at a task in a popup without leaving the view; showing it in the list closes the popup', async () => {
+    const { app, hub } = make({ token: 't' });
+    hub.doc = snapshot([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' })], 'rev:1');
+    await app.start(null);
+    app.setView('plan');
+    app.peek('pub/b');
+    // The view stays, the task is selected (its detail is read) and the popup is asked for.
+    expect(app.view).toBe('plan');
+    expect(app.selectedId).toBe('pub/b');
+    expect(app.peeking).toBe(true);
+    app.closePeek();
+    expect(app.peeking).toBe(false);
+    expect(app.selectedId).toBe('pub/b');
+    // "Show in the list" is the old way: the list is shown, the popup is gone.
+    app.peek('pub/a');
+    app.reveal('pub/a');
+    expect(app.peeking).toBe(false);
+    expect(app.view).toBe('list');
+    app.stop();
+  });
+
   it('does not search the text of words that a reveal took away', async () => {
     const { app, hub } = make({ token: 't' });
     hub.doc = snapshot([task('pub/a'), task('pub/b')], 'rev:1');

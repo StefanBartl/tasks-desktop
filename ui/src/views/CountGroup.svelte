@@ -25,7 +25,7 @@
   <ul class="plain">
     {#each rows as task (task.id)}
       <li>
-        <button type="button" class="link" onclick={() => app.reveal(task.id)}>{markHidden(task.title)}</button>
+        <button type="button" class="link" onclick={() => app.peek(task.id)}>{markHidden(task.title)}</button>
         <span class="muted"
           ><code>{task.id}</code>{task.prio !== undefined ? ` · P${task.prio}` : ''}</span
         >

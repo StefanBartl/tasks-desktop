@@ -58,7 +58,7 @@
   });
 
   function open(id: string): void {
-    app.reveal(id);
+    app.peek(id);
   }
 
   // What the six counters mean, in one text for the button that can be reached with the keyboard.
@@ -160,8 +160,9 @@
           {/each}
           {#each sameFile as group, i (i)}
             <li>
-              {t('plan.same_file', { stage: group.stage })}: <code>{markHidden(group.file)}</code>
-              ({markHidden(group.ids.join(', '))})
+              <code>{markHidden(group.file)}</code>
+              {t('plan.same_file_named', { stage: group.stage })}
+              {markHidden(group.ids.join(', '))}
               <Info hint={t('hint.same_file')} label={t('hint.about', { what: t('plan.same_file_what') })} />
             </li>
           {/each}

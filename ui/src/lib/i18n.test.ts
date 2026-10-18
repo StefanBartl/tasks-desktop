@@ -55,3 +55,17 @@ describe('the German explanations', () => {
     }
   });
 });
+
+describe('the name of the app', () => {
+  it('is the same in every language: it is a name, not a word', () => {
+    expect(dictionaries.de['app.title']).toBe(dictionaries.en['app.title']);
+    expect(dictionaries.en['app.title']).toBe('Tasks');
+  });
+});
+
+describe('the name of the app', () => {
+  it('is the same in every language: it is a name, not a word', () => {
+    expect(dictionaries.de['app.title']).toBe(dictionaries.en['app.title']);
+    expect(dictionaries.en['app.title']).toBe('Tasks');
+  });
+});

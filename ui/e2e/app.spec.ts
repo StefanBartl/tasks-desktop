@@ -491,9 +491,14 @@ for (const scheme of ['light', 'dark'] as const) {
 
 test('the German page has no violations either', async ({ page }) => {
   await pair(page);
-  await page.getByRole('menuitem', { name: 'Options' }).click();
+  await page.getByRole('menuitem', { name: 'Settings' }).click();
   await page.getByRole('menuitemradio', { name: 'Deutsch' }).click();
   await expect(page.getByRole('menuitem', { name: 'Ansicht' })).toBeVisible();
+  // The name of the app is a name: it stays "Tasks" in German. The menus: the appearance comes right after the view,
+  // and the language is in the settings.
+  await expect(page.locator('.brand')).toHaveText('Tasks');
+  const bar = page.getByRole('menubar').getByRole('menuitem');
+  await expect(bar).toHaveText(['Projekt', 'Ansicht', 'Darstellung', 'Vaults', 'Einstellungen', 'Hilfe']);
   await showListDe(page);
   const result = await new AxeBuilder({ page }).analyze();
   expect(result.violations, JSON.stringify(result.violations, null, 1)).toEqual([]);
@@ -638,17 +643,19 @@ test('the menu bar opens with the keyboard, switches views, language and theme',
 
   // Left and Right walk the menus.
   await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('menuitem', { name: 'Theme' })).toBeFocused();
+  await page.keyboard.press('ArrowRight');
   await expect(page.getByRole('menuitem', { name: 'Vaults' })).toBeFocused();
 
   expect(await violations(page)).toEqual([]);
-  await page.getByRole('menuitem', { name: 'Options' }).click();
+  await page.getByRole('menuitem', { name: 'Theme' }).click();
   await page.getByRole('menuitemradio', { name: 'Dark' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
   // Keys can be switched off from the settings menu.
-  await page.getByRole('menuitem', { name: 'Options' }).click();
+  await page.getByRole('menuitem', { name: 'Settings' }).click();
   await page.getByRole('menuitemcheckbox', { name: 'Keys' }).click();
-  await page.getByRole('menuitem', { name: 'Options' }).click();
+  await page.getByRole('menuitem', { name: 'Settings' }).click();
   await expect(page.getByRole('menuitemcheckbox', { name: 'Keys' })).toHaveAttribute('aria-checked', 'false');
   expect(await violations(page)).toEqual([]);
 });
@@ -2165,11 +2172,23 @@ test('the plan view shows the stages and the critical path, and opens a task', a
   await page.keyboard.press('Escape');
   expect(await violations(page)).toEqual([]);
 
-  // A task of a stage opens in the list, selected.
+  // A task of a stage opens in a popup over the plan, not in the list: the plan stays where it is.
   const first = page.getByRole('region', { name: 'Stages' }).locator('.stage').getByRole('button').first();
   const title = (await first.innerText()).trim();
   await first.click();
-  await expect(page.locator('aside.detail .task-title')).toHaveText(title);
+  const popup = page.getByRole('dialog', { name: 'Task' });
+  await expect(popup).toBeVisible();
+  await expect(popup.locator('aside.detail .task-title')).toHaveText(title);
+  await expectAccessible(page, 'the plan with a task in a popup');
+  await expect(page.getByRole('region', { name: 'Stages' })).toBeAttached();
+  // Escape closes it and the plan is still there; "Show in the list" is the way to the list.
+  await page.keyboard.press('Escape');
+  await expect(popup).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Stages' })).toBeVisible();
+  await first.click();
+  await popup.getByRole('button', { name: 'Show in the list' }).click();
+  await expect(popup).toHaveCount(0);
+  await expect(page.locator('.split aside.detail .task-title')).toHaveText(title);
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
@@ -2960,11 +2979,16 @@ test('a number of the overview opens its tasks, in views that can be switched, w
   const doing = page.getByRole('region', { name: 'doing' });
   await expect(doing.getByRole('radio', { name: 'List' })).toBeChecked();
 
-  // A task of the list is opened in the list, selected.
+  // A task of the list opens in a popup over the overview, selected: the overview stays where it is.
   const first = doing.locator('li').first();
   const id = (await first.locator('code').innerText()).trim();
   await first.getByRole('button').click();
-  await expect(page.locator('aside.detail .id')).toHaveText(id);
+  const popup = page.getByRole('dialog', { name: 'Task' });
+  await expect(popup.locator('aside.detail .id')).toHaveText(id);
+  await expectAccessible(page, 'the overview with a task in a popup');
+  await page.keyboard.press('Escape');
+  await expect(popup).toHaveCount(0);
+  await expect(doing).toBeVisible();
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });

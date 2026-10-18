@@ -122,7 +122,7 @@
     <ol class="nodes" onkeydown={onKey}>
       {#each drawn as node (node.id)}
         <li style:padding-left={`${Math.min(node.distance, 8) * 1.25}rem`} aria-level={node.distance + 1}>
-          <button type="button" class="node" class:target={node.distance === 0} onclick={() => app.reveal(node.id)}>
+          <button type="button" class="node" class:target={node.distance === 0} onclick={() => app.peek(node.id)}>
             <span class="title">{markHidden(node.title)}</span>
             <span class="id">{node.id}</span>
           </button>
