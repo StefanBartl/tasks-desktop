@@ -1,6 +1,6 @@
 // The hub's routes, as typed calls. Only the shapes the UI needs.
 
-import type { Areas, Check, DonePreview, Estimate, Finished, Links, Next, PlanFor, Result, Snapshot, TaskDocument } from './contract';
+import type { Areas, Check, DonePreview, Estimate, Finished, Links, List, Next, PlanFor, Result, Snapshot, TaskDocument } from './contract';
 import type { About } from './about';
 
 export class ApiError extends Error {
@@ -220,6 +220,25 @@ export class Hub {
   task(id: string, signal?: AbortSignal): Promise<TaskDocument> {
     const path = `/api/tasks/task?id=${encodeURIComponent(id).replace(/%2F/gi, '/')}`;
     return this.json<TaskDocument>(path, signal ? { signal } : undefined);
+  }
+
+  /** The ids of the open tasks in the order of `sort` (the engine's): the pages of 100 put together. */
+  async order(sort: string, signal?: AbortSignal): Promise<{ rev: string; ids: string[] }> {
+    const ids: string[] = [];
+    let rev = '';
+    let offset = 0;
+    // A page of 100 is the engine's limit; the cap keeps a misbehaving answer from looping for ever.
+    for (let page = 0; page < 200; page++) {
+      const doc = await this.json<List>(
+        `/api/tasks/list?sort=${encodeURIComponent(sort)}&limit=100&offset=${offset}`,
+        signal ? { signal } : undefined,
+      );
+      rev = doc.rev;
+      for (const item of doc.items) ids.push(item.id);
+      if (doc.next_offset === undefined) break;
+      offset = doc.next_offset;
+    }
+    return { rev, ids };
   }
 
   next(): Promise<Next> {

@@ -422,3 +422,19 @@ test('the page may write the clipboard from the Project menu and may not read it
   await page.getByRole('menuitem', { name: 'Copy tasks as CSV', exact: true }).click();
   await expect(page.getByText(`${shown} tasks copied.`)).toBeVisible();
 });
+
+test('the list can be shown in an order of the engine, and the choice survives a reload', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  const answered = page.waitForResponse((r) => r.url().includes('/api/tasks/list?sort=prio-effort'));
+  await page.locator('select[data-sort]').selectOption('prio-effort');
+  const doc = (await (await answered).json()) as { items: { title: string }[] };
+  expect(doc.items.length).toBeGreaterThan(1);
+  // The rows follow the answer of the engine (the same open tasks, the page lays them along its ids).
+  const want = doc.items.slice(0, 5).map((i) => i.title);
+  await expect
+    .poll(async () => (await page.locator('button.row .title').allTextContents()).slice(0, 5).map((t) => t.trim()))
+    .toEqual(want);
+  await page.reload();
+  await expect(page.locator('select[data-sort]')).toHaveValue('prio-effort');
+});

@@ -34,6 +34,7 @@ import { conflictsOf, conflictsOfRequest, mergeConflicts, retryOp, type Conflict
 import { backoffSeconds, readStream, StreamRefused, type SseMessage } from 'appkit-ui/sse';
 import { detectLang, isLang, translate, type Key, type Lang } from './i18n';
 import { exportText, type ExportFormat } from './export';
+import { applyOrder, orderOf, parseSort, type SortWord } from './sort';
 import { localToday } from './remind';
 import type { About } from './about';
 
@@ -276,6 +277,11 @@ export class App {
 
   tasks = $state.raw<TaskEntry[]>([]);
   snapshot = $state.raw<Snapshot | null>(null);
+  /** The order the list is shown in: a word of the engine's `--sort`, or its plan order. */
+  sort = $state<SortWord>('default');
+  /** The places the engine gave the ids for `sort`; a task it does not name yet comes after the named ones. */
+  #order = $state.raw<Map<string, number> | null>(null);
+  #orders = 0;
   next = $state.raw<Next | null>(null);
   hubAreas = $state.raw<HubArea[]>([]);
   detail = $state.raw<Detail>({ state: 'none' });
@@ -298,6 +304,7 @@ export class App {
     this.theme = theme === 'light' || theme === 'dark' ? theme : 'auto';
     this.shortcuts = safe(() => env.prefs.getItem('tasks-desktop.shortcuts')) !== 'off';
     this.shortAreas = safe(() => env.prefs.getItem('tasks-desktop.short-areas')) !== 'off';
+    this.sort = parseSort(safe(() => env.prefs.getItem('tasks-desktop.sort')));
     const hidden = safe(() => env.prefs.getItem('tasks-desktop.tiles-hidden'));
     this.hiddenTiles = parseTiles(hidden);
     const remembered = safe(() => env.prefs.getItem('tasks-desktop.filter'));
@@ -342,7 +349,38 @@ export class App {
   }
 
   get shown(): TaskEntry[] {
-    return applyFilter(this.tasks, this.filter, this.today, this.crossIndex);
+    const filtered = applyFilter(this.tasks, this.filter, this.today, this.crossIndex);
+    return this.sort === 'default' ? filtered : applyOrder(filtered, this.#order);
+  }
+
+  /** Show the list in another order of the engine. The order is asked for at once; until it is there the plan's order stands. */
+  setSort(word: SortWord): void {
+    if (word === this.sort) return;
+    this.sort = word;
+    this.#order = null;
+    safe(() => this.env.prefs.setItem('tasks-desktop.sort', word));
+    void this.readOrder();
+  }
+
+  /** Ask the engine for the ids in the order of `sort`. A failure puts the list back in the plan's order and says so. */
+  private async readOrder(): Promise<void> {
+    const word = this.sort;
+    if (word === 'default') {
+      this.#order = null;
+      return;
+    }
+    const seq = ++this.#orders;
+    try {
+      const { ids } = await this.env.hub.order(word);
+      if (seq === this.#orders && word === this.sort) this.#order = orderOf(ids);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) return;
+      if (seq !== this.#orders) return;
+      this.sort = 'default';
+      this.#order = null;
+      safe(() => this.env.prefs.setItem('tasks-desktop.sort', 'default'));
+      this.tell('error', 'sort.failed');
+    }
   }
 
   get areaNames(): string[] {
@@ -1785,6 +1823,7 @@ export class App {
     this.connection = 'offline';
     this.tasks = [];
     this.snapshot = null;
+    this.#order = null;
     this.checkJob = null;
     this.checkGround = null;
     this.heldGrounds.clear();
@@ -1841,6 +1880,7 @@ export class App {
         this.snapshot = result.doc;
         this.tasks = result.doc.tasks;
         this.etag = result.etag;
+        if (this.sort !== 'default') void this.readOrder();
         this.groundCheck();
         this.checkWaits = 0;
         this.watchCheck();

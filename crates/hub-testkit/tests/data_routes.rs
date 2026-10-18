@@ -272,6 +272,32 @@ async fn next_passes_only_what_was_asked_and_with_the_right_types() {
 }
 
 #[tokio::test]
+async fn list_passes_the_sort_the_area_and_the_page_and_nothing_else() {
+    let h = hub(Some(fake_engine()), ready()).await;
+    let r = get(
+        &h,
+        "/api/tasks/list?sort=prio-effort&area=alpha.nvim&limit=5&offset=10",
+        &[],
+    )
+    .await;
+    assert_eq!(r.status, 200, "{r:?}");
+    let doc: Value = serde_json::from_str(&r.body).unwrap();
+    assert_eq!(
+        doc["echoed"],
+        serde_json::json!({ "sort": "prio-effort", "area": "alpha.nvim", "limit": 5, "offset": 10 })
+    );
+    for word in ["default", "severity", "frecency", "roi"] {
+        let r = get(&h, &format!("/api/tasks/list?sort={word}"), &[]).await;
+        assert_eq!(r.status, 200, "{word}: {r:?}");
+    }
+    let r = get(&h, "/api/tasks/list", &[]).await;
+    assert_eq!(
+        serde_json::from_str::<Value>(&r.body).unwrap()["echoed"],
+        serde_json::json!({})
+    );
+}
+
+#[tokio::test]
 async fn queries_that_are_not_plain_are_refused_before_the_engine() {
     let h = hub(Some(fake_engine()), ready()).await;
     for path in [
@@ -297,6 +323,11 @@ async fn queries_that_are_not_plain_are_refused_before_the_engine() {
         "/api/tasks/finished?limit=abc",
         "/api/tasks/finished?offset=-1",
         "/api/tasks/finished?area=a&area=b",
+        "/api/tasks/list?sort=sideways",
+        "/api/tasks/list?sort=roi&sort=roi",
+        "/api/tasks/list?limit=abc",
+        "/api/tasks/list?area=..",
+        "/api/tasks/list?x=1",
         "/api/tasks/snapshot?x=1",
     ] {
         let r = get(&h, path, &[]).await;

@@ -544,6 +544,53 @@ pub(super) async fn finished(State(st): State<Arc<Shared>>, RawQuery(query): Raw
     }
 }
 
+/// The orders of `tasks list --sort` that the engine takes in the contract (`default` is the plan's order). A word
+/// outside this list never reaches the engine.
+const SORTS: [&str; 5] = ["default", "prio-effort", "severity", "frecency", "roi"];
+
+/// `GET /api/tasks/list?sort=&area=&limit=&offset=`: a page of the open tasks in the order of `sort` (the plan's order
+/// without it). A read; the order is the engine's, the page only carries the ids and the figures it already has.
+pub(super) async fn list(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
+    let params = match parse_query(query.as_deref(), &["sort", "area", "limit", "offset"]) {
+        Ok(p) => p,
+        Err(why) => return error_body(StatusCode::BAD_REQUEST, "bad_query", why),
+    };
+    let mut request = serde_json::Map::new();
+    if let Some(sort) = params.get("sort") {
+        if !SORTS.contains(&sort.as_str()) {
+            return error_body(
+                StatusCode::BAD_REQUEST,
+                "bad_sort",
+                "sort must be default, prio-effort, severity, frecency or roi",
+            );
+        }
+        request.insert("sort".to_owned(), json!(sort));
+    }
+    if let Some(area) = params.get("area") {
+        if crate::config::valid_area_name(area).is_err() {
+            return error_body(StatusCode::BAD_REQUEST, "bad_query", "area is not a name");
+        }
+        request.insert("area".to_owned(), json!(area));
+    }
+    for key in ["limit", "offset"] {
+        if let Some(value) = params.get(key) {
+            let Ok(n) = value.parse::<u32>() else {
+                return error_body(
+                    StatusCode::BAD_REQUEST,
+                    "bad_query",
+                    "limit and offset are whole numbers",
+                );
+            };
+            request.insert(key.to_owned(), json!(n));
+        }
+    }
+    let request = serde_json::Value::Object(request);
+    match ask(&st, Calls::List, Some(&request)).await {
+        Ok(reply) => json_response(StatusCode::OK, reply.text, None),
+        Err(response) => response,
+    }
+}
+
 /// `GET /api/tasks/plan_for?id=&direction=`: the tasks a task needs before it can start (`direction=needs`, the
 /// default) or the tasks that wait for it (`direction=unlocks`), with the edges between them. A read; the walk of the
 /// graph is the engine's.

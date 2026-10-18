@@ -36,6 +36,7 @@
   import { EFFORT_SIZES, badTag, parseTags } from '../lib/fields';
   import { classChange, isApplyKey, marksKeyOf, type MoveCheck } from '../lib/bulk';
   import { REMIND_CHOICES } from '../lib/remind';
+  import { parseSort, SORTS } from '../lib/sort';
 
   let { app, searchBox = $bindable(null) }: { app: App; searchBox?: HTMLInputElement | null } =
     $props();
@@ -300,6 +301,12 @@
         resetLabel={t('multi.reset')}
         searchLabel={t('multi.search')}
       />
+      <label class="pick sort">
+        <span>{t('sort.label')}</span>
+        <select data-sort value={app.sort} onchange={(e) => app.setSort(parseSort(e.currentTarget.value))}>
+          {#each SORTS as word (word)}<option value={word}>{t(`sort.${word}` as Key)}</option>{/each}
+        </select>
+      </label>
     </div>
     <details class="more" open={moreOpen} ontoggle={(e) => (moreOpen = e.currentTarget.open)}>
       <summary bind:this={moreSummary}>{t('filter.more')}{extraOn > 0 ? ` (${extraOn})` : ''}</summary>

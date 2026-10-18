@@ -39,6 +39,9 @@ class FakeHub {
   rescans = 0;
   areasCalls = 0;
   nextCalls = 0;
+  /** The answers of `order` by word (a word without one is refused as the engine would). */
+  orders = new Map<string, string[]>();
+  orderCalls: string[] = [];
 
   setToken(t: string | null) {
     this.token = t;
@@ -180,6 +183,12 @@ class FakeHub {
   async areas() {
     this.areasCalls += 1;
     return { areas: this.areaList, unclassified: [], private: [] };
+  }
+  async order(sort: string) {
+    this.orderCalls.push(sort);
+    const ids = this.orders.get(sort);
+    if (ids === undefined) throw new ApiError(400, 'invalid_argument', 'no such order');
+    return { rev: this.doc.rev, ids };
   }
   async next() {
     this.nextCalls += 1;
@@ -3271,5 +3280,44 @@ describe('the filter outlives a reload and holds in every view', () => {
     expect(m.app.inbox.map((t) => t.id)).toEqual(['pub/b', 'pub/c']);
     m.app.filter = { ...m.app.filter, ranges: { prio: { min: { label: '3', n: 3 } } } };
     expect(m.app.inbox.map((t) => t.id)).toEqual(['pub/b']);
+  });
+
+  describe('the order of the list', () => {
+    const three = [task('pub/a'), task('pub/b'), task('pub/c')];
+
+    it('shows the plan order until another is chosen, then the order of the engine, and remembers the choice', async () => {
+      const m = make({ token: 't' });
+      m.hub.doc = snapshot(three);
+      m.hub.orders.set('roi', ['pub/c', 'pub/a', 'pub/b']);
+      await m.app.start(null);
+      expect(m.app.shown.map((t) => t.id)).toEqual(['pub/a', 'pub/b', 'pub/c']);
+      m.app.setSort('roi');
+      await vi.waitFor(() => expect(m.app.shown.map((t) => t.id)).toEqual(['pub/c', 'pub/a', 'pub/b']));
+      expect(m.prefs.get('tasks-desktop.sort')).toBe('roi');
+      m.app.setSort('default');
+      expect(m.app.shown.map((t) => t.id)).toEqual(['pub/a', 'pub/b', 'pub/c']);
+      m.app.stop();
+    });
+
+    it('takes the remembered order when the list arrives', async () => {
+      const prefs = new Map([['tasks-desktop.sort', 'severity']]);
+      const m = make({ token: 't', prefs });
+      m.hub.doc = snapshot(three);
+      m.hub.orders.set('severity', ['pub/b', 'pub/c', 'pub/a']);
+      await m.app.start(null);
+      await vi.waitFor(() => expect(m.app.shown.map((t) => t.id)).toEqual(['pub/b', 'pub/c', 'pub/a']));
+      m.app.stop();
+    });
+
+    it('goes back to the plan order, and says so, when the engine refuses the word', async () => {
+      const m = make({ token: 't' });
+      m.hub.doc = snapshot(three);
+      await m.app.start(null);
+      m.app.setSort('frecency');
+      await vi.waitFor(() => expect(m.app.sort).toBe('default'));
+      expect(m.app.shown.map((t) => t.id)).toEqual(['pub/a', 'pub/b', 'pub/c']);
+      expect(m.prefs.get('tasks-desktop.sort')).toBe('default');
+      m.app.stop();
+    });
   });
 });

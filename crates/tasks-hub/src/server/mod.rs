@@ -226,6 +226,7 @@ fn app_routes(core: &Arc<Shared>) -> Router<Arc<Shared>> {
         .route(&r("done_preview"), get(done_preview))
         .route(&r("finished"), get(finished))
         .route(&r("links"), get(links))
+        .route(&r("list"), get(list))
         .route(&r("plan_for"), get(plan_for))
         .route(&r("check"), get(check_state))
         .route(
