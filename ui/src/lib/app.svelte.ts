@@ -35,6 +35,18 @@ import { backoffSeconds, readStream, StreamRefused, type SseMessage } from 'appk
 import { detectLang, isLang, translate, type Key, type Lang } from './i18n';
 import { exportText, type ExportFormat } from './export';
 import { applyOrder, orderOf, parseSort, type SortWord } from './sort';
+import {
+  activeList as activeListOf,
+  cleanName,
+  makeList,
+  parseListMemory,
+  serializeListMemory,
+  vaultKey,
+  withList,
+  withoutList,
+  type ListMemory,
+  type NamedList,
+} from './lists';
 import { localToday } from './remind';
 import type { About } from './about';
 
@@ -294,6 +306,8 @@ export class App {
 
   tasks = $state.raw<TaskEntry[]>([]);
   snapshot = $state.raw<Snapshot | null>(null);
+  /** The named lists of every vault this browser knows (a filter and an order under a name). */
+  listMemory = $state.raw<ListMemory>({});
   /** The order the list is shown in: a word of the engine's `--sort`, or its plan order. */
   sort = $state<SortWord>('default');
   /** The places the engine gave the ids for `sort`; a task it does not name yet comes after the named ones. */
@@ -322,6 +336,7 @@ export class App {
     this.shortcuts = safe(() => env.prefs.getItem('tasks-desktop.shortcuts')) !== 'off';
     this.shortAreas = safe(() => env.prefs.getItem('tasks-desktop.short-areas')) !== 'off';
     this.sort = parseSort(safe(() => env.prefs.getItem('tasks-desktop.sort')));
+    this.listMemory = parseListMemory(safe(() => env.prefs.getItem('tasks-desktop.lists')));
     const hidden = safe(() => env.prefs.getItem('tasks-desktop.tiles-hidden'));
     this.hiddenTiles = parseTiles(hidden);
     const remembered = safe(() => env.prefs.getItem('tasks-desktop.filter'));
@@ -368,6 +383,58 @@ export class App {
   get shown(): TaskEntry[] {
     const filtered = applyFilter(this.tasks, this.filter, this.today, this.crossIndex);
     return this.sort === 'default' ? filtered : applyOrder(filtered, this.#order);
+  }
+
+  /** The named lists of the vault the hub reads. */
+  get lists(): NamedList[] {
+    return this.listMemory[vaultKey(this.vaultList?.active)] ?? [];
+  }
+
+  /** The named list that is exactly the filter and the order shown now, if any. */
+  get shownList(): NamedList | undefined {
+    return activeListOf(this.lists, this.filter, this.sort);
+  }
+
+  #keepLists(next: ListMemory): void {
+    this.listMemory = next;
+    safe(() => this.env.prefs.setItem('tasks-desktop.lists', serializeListMemory(next)));
+  }
+
+  /** Keep the filter and the order shown now under `name` (a list of that name is replaced). Says what came of it. */
+  saveList(name: string): 'saved' | 'bad_name' | 'full' {
+    const clean = cleanName(name);
+    if (clean === null) {
+      this.say('error', 'lists.bad_name');
+      return 'bad_name';
+    }
+    const key = vaultKey(this.vaultList?.active);
+    const lists = withList(this.lists, makeList(clean, this.filter, this.sort));
+    if (lists === null) {
+      this.say('error', 'lists.full');
+      return 'full';
+    }
+    this.#keepLists({ ...this.listMemory, [key]: lists });
+    this.say('ok', 'lists.saved', { name: clean });
+    return 'saved';
+  }
+
+  /** Show what the list `name` names: its filter (the search words stay) and its order. */
+  applyList(name: string): void {
+    const list = this.lists.find((l) => l.name === name);
+    if (!list) return;
+    this.filter = { ...parseFilter(list.filter), query: this.filter.query };
+    this.setSort(list.sort);
+  }
+
+  deleteList(name: string): void {
+    const key = vaultKey(this.vaultList?.active);
+    const lists = withoutList(this.lists, name);
+    if (lists.length === this.lists.length) return;
+    const next = { ...this.listMemory };
+    if (lists.length === 0) delete next[key];
+    else next[key] = lists;
+    this.#keepLists(next);
+    this.say('ok', 'lists.deleted', { name });
   }
 
   /** Show the list in another order of the engine. The order is asked for at once; until it is there the plan's order stands. */

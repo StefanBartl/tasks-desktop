@@ -47,6 +47,17 @@
   const statuses = ['doing', 'decision', 'blocked', 'open', 'parked'] as const;
   const actors = ['me', 'cdx', 'pair', 'none'] as const;
 
+  // A name for the filter and the order shown now: kept in this browser, for the vault that is read.
+  let saveListOpen = $state(false);
+  let listName = $state('');
+  function keepList(): void {
+    if (listName.trim() === '') return;
+    if (app.saveList(listName) === 'saved') {
+      listName = '';
+      saveListOpen = false;
+    }
+  }
+
   // The filters beyond area, status and actor: one choice per field, the values the tasks have, with how many.
   let moreOpen = $state(false);
   const fieldLabel = (key: FieldKey): string => t(`filter.field.${key}` as Key);
@@ -307,6 +318,50 @@
           {#each SORTS as word (word)}<option value={word}>{t(`sort.${word}` as Key)}</option>{/each}
         </select>
       </label>
+      <label class="pick lists">
+        <span>{t('lists.label')}</span>
+        <select
+          data-lists
+          value={app.shownList?.name ?? ''}
+          onchange={(e) => {
+            const name = e.currentTarget.value;
+            if (name !== '') app.applyList(name);
+          }}
+        >
+          <option value="">{t('lists.none')}</option>
+          {#each app.lists as list (list.name)}<option value={list.name}>{list.name}</option>{/each}
+        </select>
+      </label>
+      {#if app.shownList}
+        {@const shown = app.shownList}
+        <button
+          type="button"
+          class="list-delete"
+          aria-label={t('lists.delete', { name: shown.name })}
+          title={t('lists.delete', { name: shown.name })}
+          onclick={() => app.deleteList(shown.name)}>×</button
+        >
+      {/if}
+      <details class="save-list" bind:open={saveListOpen}>
+        <summary>{t('lists.save')}</summary>
+        <!-- Not a form: a page of tasks has none (the tests of markup count them), and Enter does the same. -->
+        <div class="save-row" role="group" aria-label={t('lists.save')}>
+          <input
+            type="text"
+            aria-label={t('lists.name')}
+            placeholder={t('lists.name')}
+            maxlength="40"
+            bind:value={listName}
+            onkeydown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                keepList();
+              }
+            }}
+          />
+          <button type="button" disabled={listName.trim() === ''} onclick={keepList}>{t('lists.save_go')}</button>
+        </div>
+      </details>
     </div>
     <details class="more" open={moreOpen} ontoggle={(e) => (moreOpen = e.currentTarget.open)}>
       <summary bind:this={moreSummary}>{t('filter.more')}{extraOn > 0 ? ` (${extraOn})` : ''}</summary>
@@ -605,6 +660,42 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 0.25rem 0.4rem;
+  }
+  .list-delete {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.15rem 0.5rem;
+    cursor: pointer;
+  }
+  .save-list {
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .save-list summary {
+    cursor: pointer;
+  }
+  .save-row {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    margin-top: 0.3rem;
+  }
+  .save-list input {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.25rem 0.4rem;
+  }
+  .save-list button {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.25rem 0.6rem;
+    cursor: pointer;
   }
   .active {
     display: flex;

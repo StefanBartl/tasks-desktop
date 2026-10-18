@@ -3574,3 +3574,44 @@ test('the button of a row opens the same choice of an area', async ({ page }) =>
   expect(existsSync(from)).toBe(true);
   rmSync(from, { force: true });
 });
+
+test('a filter and an order are kept under a name, brought back from the list of names, and the name outlives a reload', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  const rows = page.locator('button.row');
+  const all = await rows.count();
+
+  // A filter (status doing) and an order are made, then kept under a name.
+  await page.getByRole('button', { name: /^Status(: [0-9]+)?$/ }).click();
+  await page.getByRole('checkbox', { name: 'doing', exact: true }).check();
+  await page.keyboard.press('Escape');
+  await page.locator('select[data-sort]').selectOption('prio-effort');
+  await expect.poll(() => rows.count()).toBeLessThan(all);
+  const kept = await rows.count();
+  await page.getByText('Save as list ...').click();
+  await page.getByLabel('Name of the list').fill('E2E doing by prio');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('status').getByText('List E2E doing by prio saved.')).toBeVisible();
+  await expect(page.locator('select[data-lists]')).toHaveValue('E2E doing by prio');
+
+  // Everything is shown again, in the plan order; the list brings the filter and the order back.
+  await page.locator('select[data-sort]').selectOption('default');
+  await page.getByRole('button', { name: 'Status: doing', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'doing', exact: true }).uncheck();
+  await page.keyboard.press('Escape');
+  await expect.poll(() => rows.count()).toBe(all);
+  await expect(page.locator('select[data-lists]')).toHaveValue('');
+  await page.locator('select[data-lists]').selectOption('E2E doing by prio');
+  await expect.poll(() => rows.count()).toBe(kept);
+  await expect(page.locator('select[data-sort]')).toHaveValue('prio-effort');
+
+  // The name is still there after a reload; deleting it takes it away.
+  await page.reload();
+  await expect(page.getByRole('menubar')).toBeVisible();
+  await expect(page.locator('select[data-lists] option', { hasText: 'E2E doing by prio' })).toHaveCount(1);
+  await page.locator('select[data-lists]').selectOption('E2E doing by prio');
+  await page.getByRole('button', { name: 'Delete the list E2E doing by prio' }).click();
+  await expect(page.locator('select[data-lists] option', { hasText: 'E2E doing by prio' })).toHaveCount(0);
+  expect(await violations(page)).toEqual([]);
+});

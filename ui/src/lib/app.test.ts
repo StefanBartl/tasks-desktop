@@ -3452,4 +3452,80 @@ describe('the order of the list', () => {
     expect(m.prefs.get('tasks-desktop.sort')).toBe('default');
     m.app.stop();
   });
+
+  describe('named lists', () => {
+    const three = [task('pub/a', { status: 'open' }), task('pub/b', { status: 'doing' }), task('pub/c', { status: 'doing' })];
+
+    it('keeps the filter and the order under a name, shows them again later, and remembers them across a reload', async () => {
+      const prefs = new Map<string, string>();
+      const m = make({ token: 't', prefs });
+      m.hub.doc = snapshot(three);
+      m.hub.orders.set('roi', ['pub/c', 'pub/b', 'pub/a']);
+      await m.app.start(null);
+      m.app.filter = { ...m.app.filter, statuses: ['doing'], query: 'not kept' };
+      m.app.setSort('roi');
+      expect(m.app.saveList('  Doing   by return ')).toBe('saved');
+      expect(m.app.lists.map((l) => l.name)).toEqual(['Doing by return']);
+      expect(m.app.shownList?.name).toBe('Doing by return');
+      // Another filter and the plan order, then the list brings both back (the words in the search box stay).
+      m.app.filter = { ...m.app.filter, statuses: [], query: 'typed' };
+      m.app.setSort('default');
+      expect(m.app.shownList).toBeUndefined();
+      m.app.applyList('Doing by return');
+      expect(m.app.filter.statuses).toEqual(['doing']);
+      expect(m.app.filter.query).toBe('typed');
+      expect(m.app.sort).toBe('roi');
+      m.app.stop();
+      // A new page reads the memory.
+      const again = make({ token: 't', prefs });
+      again.hub.doc = snapshot(three);
+      await again.app.start(null);
+      expect(again.app.lists.map((l) => l.name)).toEqual(['Doing by return']);
+      again.app.stop();
+    });
+
+    it('refuses a name it cannot keep, and says so', async () => {
+      const m = make({ token: 't' });
+      m.hub.doc = snapshot(three);
+      await m.app.start(null);
+      expect(m.app.saveList('   ')).toBe('bad_name');
+      expect(m.app.toast).toMatchObject({ kind: 'error' });
+      expect(m.app.lists).toEqual([]);
+      m.app.stop();
+    });
+
+    it('forgets a list when it is deleted, and leaves the others', async () => {
+      const prefs = new Map<string, string>();
+      const m = make({ token: 't', prefs });
+      m.hub.doc = snapshot(three);
+      await m.app.start(null);
+      m.app.saveList('One');
+      m.app.filter = { ...m.app.filter, statuses: ['open'] };
+      m.app.saveList('Two');
+      m.app.deleteList('One');
+      expect(m.app.lists.map((l) => l.name)).toEqual(['Two']);
+      m.app.deleteList('Two');
+      expect(prefs.get('tasks-desktop.lists')).toBe('{}');
+      m.app.deleteList('nothing');
+      m.app.stop();
+    });
+
+    it('keeps the lists of one vault out of another', async () => {
+      const prefs = new Map<string, string>([
+        ['tasks-desktop.lists', JSON.stringify({ work: [{ name: 'Work only', filter: '{}', sort: 'default' }] })],
+      ]);
+      const m = make({ token: 't', prefs });
+      m.hub.doc = snapshot(three);
+      m.hub.vaultDoc = { active: 'home', vaults: [{ name: 'home', label: 'home', main: true }] };
+      await m.app.start(null);
+      expect(m.app.lists).toEqual([]);
+      m.app.stop();
+      const work = make({ token: 't', prefs });
+      work.hub.doc = snapshot(three);
+      work.hub.vaultDoc = { active: 'work', vaults: [{ name: 'work', label: 'work', main: true }] };
+      await work.app.start(null);
+      expect(work.app.lists.map((l) => l.name)).toEqual(['Work only']);
+      work.app.stop();
+    });
+  });
 });
