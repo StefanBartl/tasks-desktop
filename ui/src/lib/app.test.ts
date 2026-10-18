@@ -906,6 +906,62 @@ describe('writing', () => {
     return m;
   }
 
+  describe('a task dropped on an area', () => {
+    const dry = (conflicts: { message: string }[] = []) =>
+      ({
+        kind: 'tasks.result',
+        ok: true,
+        dry_run: true,
+        results: [
+          {
+            n: 1,
+            op: 'move_area',
+            id: 'pub/a',
+            ok: true,
+            outcome: 'would_move',
+            move: { from: 'pub/a', new_id: 'other/a', references: [{}, {}], conflicts },
+          },
+        ],
+      }) as unknown as Result;
+    const withMove = ['move_area', 'ops'];
+
+    it('asks the engine first, writes nothing, and moves only when the person confirms', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })], { capabilities: withMove });
+      hub.next_ops = dry();
+      await app.askDropMove('pub/a', 'other');
+      expect(hub.sent).toHaveLength(1);
+      expect(hub.sent[0]?.dry_run).toBe(true);
+      expect(app.dropMove?.answer?.kind).toBe('ok');
+      await app.confirmDropMove();
+      expect(hub.sent).toHaveLength(2);
+      expect(hub.sent[1]?.dry_run).not.toBe(true);
+      expect(hub.sent[1]?.ops).toEqual([{ op: 'move_area', id: 'pub/a', to_area: 'other', if_match: 'e1' }]);
+      expect(app.dropMove).toBeNull();
+    });
+
+    it('writes nothing when the person gives up, when the area is the one the task is in, or when the engine names a conflict', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })], { capabilities: withMove });
+      hub.next_ops = dry();
+      await app.askDropMove('pub/a', 'other');
+      app.cancelDropMove();
+      expect(app.dropMove).toBeNull();
+      await app.askDropMove('pub/a', 'pub');
+      expect(app.dropMove).toBeNull();
+      hub.next_ops = dry([{ message: 'other/a is taken' }]);
+      await app.askDropMove('pub/a', 'other');
+      await app.confirmDropMove();
+      expect(app.dropMove?.answer?.kind).toBe('ok');
+      expect(hub.sent.filter((r) => r.dry_run !== true)).toEqual([]);
+    });
+
+    it('does not ask at all without the move in the engine', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })], { capabilities: ['ops'] });
+      await app.askDropMove('pub/a', 'other');
+      expect(app.dropMove).toBeNull();
+      expect(hub.sent).toEqual([]);
+    });
+  });
+
   it('sets a key with the version of the file that was shown, and offers the way back', async () => {
     const { app, hub } = await ready();
     const reads = hub.snapshotCalls.length;

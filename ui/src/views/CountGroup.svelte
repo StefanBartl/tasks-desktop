@@ -11,7 +11,25 @@
     heading,
     tasks,
     open = true,
-  }: { app: App; heading: string | null; tasks: TaskEntry[]; open?: boolean } = $props();
+    ondragtask,
+  }: {
+    app: App;
+    heading: string | null;
+    tasks: TaskEntry[];
+    open?: boolean;
+    /** A task of this group is dragged (its id), or the drag ended (null): the panel then shows the areas as targets. */
+    ondragtask?: (id: string | null) => void;
+  } = $props();
+
+  function dragStart(event: DragEvent, id: string): void {
+    if (!ondragtask || app.saving) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer?.setData('text/plain', id);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    ondragtask(id);
+  }
 
   const t = (key: Key, params: Record<string, string | number> = {}) =>
     translate(app.lang, key, params);
@@ -24,7 +42,11 @@
 {#snippet list()}
   <ul class="plain">
     {#each rows as task (task.id)}
-      <li>
+      <li
+        draggable={ondragtask ? 'true' : undefined}
+        ondragstart={(e) => dragStart(e, task.id)}
+        ondragend={() => ondragtask?.(null)}
+      >
         <button type="button" class="link" onclick={() => app.peek(task.id)}>{markHidden(task.title)}</button>
         <span class="muted"
           ><code>{task.id}</code>{task.prio !== undefined ? ` · P${task.prio}` : ''}</span

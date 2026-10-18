@@ -208,6 +208,16 @@ export class App {
   capturing = $state(false);
   /** A card dropped among cards of another priority, waiting for the person's answer. */
   repriority = $state.raw<{ id: string; from: string; prio: number; ops: Op[] } | null>(null);
+  /**
+   * A task dropped on an area: what the engine says moving it there would do (a dry run), until the person confirms
+   * or gives up. Nothing is written before that.
+   */
+  dropMove = $state.raw<{
+    id: string;
+    toArea: string;
+    answer: Awaited<ReturnType<App['previewMove']>> | null;
+  } | null>(null);
+  #dropAsks = 0;
   /** The estimate matrix: the ids it holds (null: closed), what was chosen in it, and what the engine says it adds up to. */
   matrix = $state.raw<{ ids: string[] } | null>(null);
   matrixDraft = $state.raw<Draft>({});
@@ -804,6 +814,36 @@ export class App {
       }
       return { kind: 'unknown' };
     }
+  }
+
+  /**
+   * A task was dropped on an area: ask the engine what the move would do and show it. The same area is no move.
+   * A later drop replaces an earlier one, and the answer of the earlier is not shown for it.
+   */
+  async askDropMove(id: string, toArea: string): Promise<void> {
+    const task = this.tasks.find((x) => x.id === id);
+    if (!task || task.area === toArea || !this.can('move_area') || this.saving) return;
+    const seq = ++this.#dropAsks;
+    this.dropMove = { id, toArea, answer: null };
+    const answer = await this.previewMove(id, toArea);
+    if (seq === this.#dropAsks && this.dropMove?.id === id && this.dropMove.toArea === toArea) {
+      this.dropMove = { id, toArea, answer };
+    }
+  }
+
+  cancelDropMove(): void {
+    this.#dropAsks++;
+    this.dropMove = null;
+  }
+
+  /** The person confirmed the move the engine described. The version is the one that was shown. */
+  async confirmDropMove(): Promise<void> {
+    const asking = this.dropMove;
+    if (!asking || asking.answer?.kind !== 'ok' || asking.answer.move.conflicts.length > 0) return;
+    const etag = this.tasks.find((x) => x.id === asking.id)?.etag;
+    this.#dropAsks++;
+    this.dropMove = null;
+    await this.moveArea(asking.id, asking.toArea, etag);
   }
 
   /**

@@ -3444,3 +3444,53 @@ test('the filter has at least / at most and spans of days, outlives a reload, an
   expect(await shown()).toBe(all);
   expect(await violations(page)).toEqual([]);
 });
+
+test('a task of the overview is dropped on an area: the engine is asked first, and the file moves only on the confirmation', async ({ page }) => {
+  const slug = 'drop-move-e2e';
+  const from = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
+  const to = join(state().vault, 'cascade.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
+  rmSync(to, { force: true });
+  writeFileSync(from, `---\ntitle: Dropped task e2e\nstatus: doing\nkind: task\n---\n\nTo be moved by a drop.\n`);
+  await watchViolations(page);
+  await pair(page);
+  await chooseView(page, 'View', 'Today');
+  await page.locator('button.tile[data-count="doing"]').click();
+  const panel = page.getByRole('region', { name: 'doing' });
+  const row = panel.locator('li', { hasText: 'Dropped task e2e' });
+  await expect(row).toBeVisible();
+
+  // The drag as the browser reports it (dragstart, dragover, drop, dragend with one DataTransfer): a drag by the
+  // operating system cannot be driven reliably. The areas show as places to drop only once the drag has begun.
+  const drag = async (): Promise<void> => {
+    const transfer = await page.evaluateHandle(() => new DataTransfer());
+    await row.dispatchEvent('dragstart', { dataTransfer: transfer });
+    const target = panel.locator('.target[data-area="cascade.nvim"]');
+    await expect(target, 'the areas show once the drag began').toBeVisible();
+    await target.dispatchEvent('dragover', { dataTransfer: transfer });
+    await target.dispatchEvent('drop', { dataTransfer: transfer });
+    await row.dispatchEvent('dragend', { dataTransfer: transfer });
+  };
+  await drag();
+
+  // The engine's dry run is shown; nothing is written yet, and giving up leaves the file.
+  const dialog = page.getByRole('dialog', { name: 'Move to cascade.nvim?' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('Dropped task e2e')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /^Move \(becomes cascade\.nvim\/drop-move-e2e\)/ })).toBeEnabled();
+  expect(existsSync(from)).toBe(true);
+  expect(existsSync(to)).toBe(false);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(existsSync(from)).toBe(true);
+
+  // Dropped again and confirmed: the file is in the other area, the old one is gone.
+  await drag();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: /^Move \(becomes cascade\.nvim\/drop-move-e2e\)/ }).click();
+  await expect.poll(() => existsSync(to)).toBe(true);
+  expect(existsSync(from)).toBe(false);
+  // The way back is offered, as for every write.
+  await expect(page.getByRole('status').getByRole('button', { name: 'Undo' })).toBeVisible();
+  expect(await violations(page)).toEqual([]);
+  rmSync(to, { force: true });
+});

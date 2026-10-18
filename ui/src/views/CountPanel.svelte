@@ -18,6 +18,10 @@
     total,
     unfiltered,
   }: { app: App; key: CountKey; label: string; tasks: TaskEntry[]; total: number; unfiltered: number } = $props();
+  // The task that is dragged, while one is: the areas then show as places to drop it.
+  let dragging = $state<string | null>(null);
+  const movable = $derived(app.can('move_area'));
+  const dragged = $derived(dragging === null ? undefined : app.tasks.find((x) => x.id === dragging));
   // Why fewer are shown than the engine counts: the filter hides `hidden`, the areas that are not released the rest.
   const hidden = $derived(unfiltered - tasks.length);
   const ofKey = $derived(countKey(hidden, unfiltered, total));
@@ -94,6 +98,28 @@
       >×</button
     >
   </header>
+  {#if movable && tasks.length > 0}
+    <p class="muted hint">{t('drop.drag_hint')}</p>
+  {/if}
+  {#if dragged}
+    <div class="targets" role="group" aria-label={t('drop.targets')}>
+      {#each names.filter((a) => a !== dragged.area) as area (area)}
+        <!-- A place to drop on, for the pointer only: the keys have the move in the details of the task. -->
+        <span
+          class="target"
+          role="presentation"
+          data-area={area}
+          ondragover={(e) => e.preventDefault()}
+          ondrop={(e) => {
+            e.preventDefault();
+            const id = dragging;
+            dragging = null;
+            if (id !== null) void app.askDropMove(id, area);
+          }}>{app.shortAreas ? areaLabel(area, names) : area}</span
+        >
+      {/each}
+    </div>
+  {/if}
   {#if tasks.length !== total}
     <p class="muted" role="status">{t(ofKey, { f: hidden,  n: tasks.length, m: total })}</p>
   {/if}
@@ -106,6 +132,7 @@
         heading={view === 'list' ? null : heading(group)}
         tasks={group.tasks}
         open={openAll || i === 0}
+        ondragtask={movable ? (id) => (dragging = id) : undefined}
       />
     {/each}
   {/if}
@@ -151,5 +178,30 @@
   }
   .muted {
     color: var(--muted);
+  }
+  .hint {
+    margin: 0 0 0.4rem;
+    font-size: 0.9em;
+  }
+  .targets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    max-height: 9rem;
+    overflow-y: auto;
+    margin: 0 0 0.6rem;
+    padding: 0.4rem;
+    border: 1px dashed var(--accent);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+  }
+  .target {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.2rem 0.6rem;
+    background: var(--surface);
+  }
+  .target:hover {
+    border-color: var(--accent);
   }
 </style>

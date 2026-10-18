@@ -21,6 +21,7 @@
   import DoneDialog from './views/DoneDialog.svelte';
   import PrioDialog from './views/PrioDialog.svelte';
   import BlockDialog from './views/BlockDialog.svelte';
+  import DropMoveDialog from './views/DropMoveDialog.svelte';
   import Palette from './views/Palette.svelte';
   import ConflictCenter from './views/ConflictCenter.svelte';
   import VaultsDialog from './views/VaultsDialog.svelte';
@@ -556,6 +557,7 @@
     <TaskDialog {app} />
     <CheckDialog {app} />
     <BlockDialog {app} />
+    <DropMoveDialog {app} />
     <Palette {app} />
     <ConflictCenter {app} />
     <VaultsDialog {app} />
