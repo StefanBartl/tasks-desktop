@@ -6,14 +6,13 @@ import { App as AppState, type Env } from './lib/app.svelte';
 import { indexedDbStore } from './lib/cache';
 import { translate } from './lib/i18n';
 import { trackHistory } from './lib/trackHistory.svelte';
+import { takeInjected } from './lib/inject';
 import { takePairingCode } from 'appkit-ui/pair';
 import { installTooltips } from 'appkit-ui/tooltip';
 
 // The native window has no address bar: its shell hands the code over as `window.__TASKS_PAIR`
 // (an initialization script). The page takes it once and removes it.
-const shell = window as unknown as { __TASKS_PAIR?: unknown };
-const injected = shell.__TASKS_PAIR;
-delete shell.__TASKS_PAIR;
+const injected = takeInjected(window, '__TASKS_PAIR');
 
 // The code leaves the address bar before anything else happens.
 const code = takePairingCode(window.location, window.history, injected);

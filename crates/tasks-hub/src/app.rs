@@ -235,6 +235,32 @@ fn checked_folder(path: &str) -> Result<PathBuf, String> {
     Ok(folder)
 }
 
+/// Whether two paths are one folder (the same place after symlinks and case, where the system can say; the
+/// words themselves where it cannot).
+fn same_folder(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => a == b,
+    }
+}
+
+impl ConfigVaults {
+    /// The name of another vault that reads `folder`, if there is one: two names for one folder would count its
+    /// tasks twice and let a move or a write of one be seen by the other. `except` is the vault that is changed.
+    fn vault_at(&self, next: &FileConfig, folder: &Path, except: &str) -> Option<String> {
+        let main = next.vault.clone().or_else(|| self.env.path("TASKS_VAULT"));
+        if except != config::MAIN_VAULT && main.as_deref().is_some_and(|m| same_folder(m, folder)) {
+            return Some(config::MAIN_VAULT.to_owned());
+        }
+        next.vaults
+            .iter()
+            .find(|v| v.name != except && same_folder(&v.path, folder))
+            .map(|v| v.name.clone())
+    }
+}
+
+const FOLDER_TAKEN: &str = "another vault reads this folder already";
+
 impl VaultAdmin<VaultTarget> for ConfigVaults {
     fn list(&self) -> VaultList {
         let file = self.current();
@@ -281,6 +307,9 @@ impl VaultAdmin<VaultTarget> for ConfigVaults {
             if next.vaults.len() >= config::MAX_VAULTS {
                 return Err(format!("at most {} vaults", config::MAX_VAULTS));
             }
+            if self.vault_at(&next, &folder, name).is_some() {
+                return Err(FOLDER_TAKEN.to_owned());
+            }
             next.vaults.push(config::VaultEntry {
                 name: name.to_owned(),
                 path: folder,
@@ -317,6 +346,9 @@ impl VaultAdmin<VaultTarget> for ConfigVaults {
             let mut next = self.fresh()?;
             let reading = self.current();
             let is_read = reading.active_name() == name;
+            if self.vault_at(&next, &folder, name).is_some() {
+                return Err(FOLDER_TAKEN.to_owned());
+            }
             if name == config::MAIN_VAULT {
                 next.vault = Some(folder);
             } else {
@@ -868,6 +900,13 @@ mod vault_tests {
         )
     }
 
+    /// A folder of its own beside `vault`: two names never read one folder.
+    fn spare(vault: &Path, name: &str) -> String {
+        let dir = vault.parent().unwrap().join(format!("spare-{name}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.to_string_lossy().into_owned()
+    }
+
     #[tokio::test]
     async fn adding_checks_the_name_the_folder_and_writes_the_file_once() {
         let (admin, cfg, vault) = admin("add");
@@ -913,6 +952,39 @@ mod vault_tests {
         let names: Vec<_> = list.vaults.iter().map(|v| v.name.as_str()).collect();
         assert_eq!(names, ["main", "two"]);
         assert_eq!(list.vaults[1].label, "vault-two", "the last part only");
+    }
+
+    #[tokio::test]
+    async fn two_names_never_read_one_folder() {
+        let (admin, cfg, vault) = admin("same");
+        let main = config::load_file(&cfg).unwrap().vault.unwrap();
+        let path = vault.to_string_lossy().into_owned();
+        // The folder of the main vault, spelled as it is and spelled round the corner.
+        let main_text = main.to_string_lossy().into_owned();
+        let round = main
+            .join("..")
+            .join("main-vault")
+            .to_string_lossy()
+            .into_owned();
+        for folder in [main_text.as_str(), round.as_str()] {
+            let why = admin.add("three", folder).await.unwrap_err();
+            assert!(why.contains("reads this folder already"), "{folder}: {why}");
+        }
+        admin.add("two", &path).await.unwrap();
+        let why = admin.add("three", &path).await.unwrap_err();
+        assert!(why.contains("reads this folder already"), "{why}");
+        // Moving a vault onto the folder of another is refused too; onto its own folder, or a free one, it is not.
+        let before = std::fs::read(cfg.join("config.json")).unwrap();
+        assert!(admin.update("two", &main_text).await.is_err());
+        assert_eq!(std::fs::read(cfg.join("config.json")).unwrap(), before);
+        assert!(admin.update("two", &path).await.unwrap().is_none());
+        let free = vault.parent().unwrap().join("free");
+        std::fs::create_dir_all(&free).unwrap();
+        assert!(admin
+            .update("two", &free.to_string_lossy())
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]
@@ -969,7 +1041,9 @@ mod vault_tests {
         let (admin, cfg, vault) = admin("remove-twice");
         let path = vault.to_string_lossy().into_owned();
         admin.add("two", &path).await.unwrap();
-        admin.add("three", &path).await.unwrap();
+        let third = vault.parent().unwrap().join("vault-three");
+        std::fs::create_dir_all(&third).unwrap();
+        admin.add("three", &third.to_string_lossy()).await.unwrap();
         // The hub reads "two" ...
         let mut reading = admin.current();
         reading.active = Some("two".to_owned());
@@ -987,7 +1061,7 @@ mod vault_tests {
         );
         let why = admin.remove("two").await.unwrap_err();
         assert!(why.contains("is read"), "{why}");
-        admin.add("four", &path).await.unwrap();
+        admin.add("four", &spare(&vault, "four")).await.unwrap();
         assert_eq!(admin.list().active, "two");
         assert!(admin.remove("two").await.is_err());
         // The file keeps what the person wrote.
@@ -1006,7 +1080,7 @@ mod vault_tests {
         let mut edited = config::load_file(&cfg).unwrap();
         edited.vaults.clear();
         config::save_file(&cfg, &edited).unwrap();
-        admin.add("three", &path).await.unwrap();
+        admin.add("three", &spare(&vault, "three")).await.unwrap();
         let names: Vec<_> = admin.list().vaults.iter().map(|v| v.name.clone()).collect();
         assert_eq!(names, ["main", "three", "two"].map(String::from));
         assert_eq!(admin.list().active, "two");
@@ -1017,7 +1091,7 @@ mod vault_tests {
             path: std::env::temp_dir().join("tasks-desktop-elsewhere"),
         }];
         config::save_file(&cfg, &edited).unwrap();
-        admin.add("five", &path).await.unwrap();
+        admin.add("five", &spare(&vault, "five")).await.unwrap();
         let held = admin.current();
         let two = held.vaults.iter().find(|v| v.name == "two").unwrap();
         assert_eq!(two.path, vault);
@@ -1079,10 +1153,9 @@ mod vault_tests {
         let mut edited = config::load_file(&cfg).unwrap();
         edited.active = None;
         config::save_file(&cfg, &edited).unwrap();
-        admin
-            .add("three", &fixture.to_string_lossy())
-            .await
-            .unwrap();
+        let third = base.join("third-vault");
+        std::fs::create_dir_all(&third).unwrap();
+        admin.add("three", &third.to_string_lossy()).await.unwrap();
         assert_eq!(admin.list().active, "two");
         assert!(admin.remove("two").await.is_err());
         let _ = std::fs::remove_dir_all(&base);
