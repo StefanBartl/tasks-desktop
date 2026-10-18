@@ -704,3 +704,67 @@ pub(super) fn guard_rules() -> GuardRules {
         ],
     )
 }
+
+#[cfg(test)]
+mod sort_words {
+    use super::SORTS;
+    use std::path::PathBuf;
+
+    /// The quoted words between `open` and `close` that follow `marker` in `text`.
+    fn words_after(text: &str, marker: &str, open: char, close: char) -> Vec<String> {
+        let from = text
+            .find(marker)
+            .unwrap_or_else(|| panic!("{marker:?} not found"))
+            + marker.len();
+        let rest = &text[from..];
+        let start = rest.find(open).expect("opening bracket") + 1;
+        let end = rest[start..].find(close).expect("closing bracket");
+        rest[start..start + end]
+            .split(',')
+            .map(|w| w.trim().trim_matches(|c| c == '"' || c == '\'').to_owned())
+            .filter(|w| !w.is_empty())
+            .collect()
+    }
+
+    fn repo_file(parts: &[&str]) -> String {
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..");
+        path.extend(parts);
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    }
+
+    #[test]
+    fn the_words_of_the_hub_are_those_of_the_page() {
+        let page = words_after(
+            &repo_file(&["ui", "src", "lib", "sort.ts"]),
+            "export const SORTS =",
+            '[',
+            ']',
+        );
+        assert_eq!(
+            page, SORTS,
+            "ui/src/lib/sort.ts and SORTS of the hub differ"
+        );
+    }
+
+    /// The engine of the checkout the CI pins (`TASKS_ENGINE_DIR`); a machine without one skips this part.
+    #[test]
+    fn the_words_of_the_hub_are_those_of_the_engine() {
+        let Some(dir) = std::env::var_os("TASKS_ENGINE_DIR") else {
+            eprintln!("skipped: TASKS_ENGINE_DIR is not set");
+            return;
+        };
+        let model = PathBuf::from(dir)
+            .join("lua")
+            .join("tasks_nvim")
+            .join("model.lua");
+        let text =
+            std::fs::read_to_string(&model).unwrap_or_else(|e| panic!("{}: {e}", model.display()));
+        let engine = words_after(&text, "M.SORTS =", '{', '}');
+        assert_eq!(
+            engine, SORTS,
+            "model.SORTS of the engine and SORTS of the hub differ"
+        );
+    }
+}
