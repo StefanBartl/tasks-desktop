@@ -26,11 +26,14 @@ on:
     types: [completed]
     branches: [main]
 
-# A newer commit replaces a build that is still running: the pre-release must end on the newest one. The
-# runs that do nothing (a failed CI, a pull request) have a group of their own: they must not cancel a build.
+# One build at a time, and a running build is never cancelled: the pre-release must end on the newest commit. A
+# build that is cancelled by a later run left the page on an old commit when that later run was the CI of an OLDER
+# commit that finished late (it builds nothing, `prepare` finds it is not the tip of main, but it had cancelled the
+# build of the tip). A run that finds its commit is no longer the tip of main stops in `prepare`, so a waiting run
+# costs seconds. The runs that do nothing (a failed CI, a pull request) have a group of their own.
 concurrency:
   group: rolling-${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
