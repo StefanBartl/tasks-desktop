@@ -38,6 +38,7 @@ function fakeApp(ids: string[]) {
     ids,
     view: 'today',
     selectedId: null,
+    peeking: false,
     get tasks() {
       return this.ids.map((id) => ({ id }));
     },
@@ -46,6 +47,13 @@ function fakeApp(ids: string[]) {
     },
     select(id) {
       this.selectedId = id;
+    },
+    peek(id) {
+      this.selectedId = id;
+      this.peeking = true;
+    },
+    closePeek() {
+      this.peeking = false;
     },
   };
   return app;
@@ -57,6 +65,10 @@ describe('isPlace', () => {
     expect(isPlace({ view: 'nope', selectedId: null })).toBe(false);
     expect(isPlace({ view: 'list', selectedId: 3 })).toBe(false);
     expect(isPlace(null)).toBe(false);
+    // The popup is a flag that is there only when it is on; a place from before it has none.
+    expect(isPlace({ view: 'plan', selectedId: 'a/1', peek: true })).toBe(true);
+    expect(isPlace({ view: 'plan', selectedId: 'a/1', peek: false })).toBe(false);
+    expect(isPlace({ view: 'plan', selectedId: 'a/1', peek: 'yes' })).toBe(false);
   });
 });
 
@@ -120,5 +132,48 @@ describe('installAppHistory', () => {
     h.sync();
     expect(t.entries.length).toBe(2);
     expect(places(t)[1]).toEqual({ view: 'today', selectedId: null });
+  });
+
+  it('makes the popup a place: Back closes it, Forward opens it again, closing it by hand is a place of its own', () => {
+    const tb = tab();
+    const app = fakeApp(['a/1', 'a/2']);
+    const h = installAppHistory(app, tb);
+    h.sync();
+    app.view = 'plan';
+    h.sync();
+    app.peek('a/2');
+    h.sync();
+    expect(places(tb).at(-1)).toEqual({ view: 'plan', selectedId: 'a/2', peek: true });
+    // Closed by hand: the same task, no popup.
+    app.closePeek();
+    h.sync();
+    expect(places(tb).at(-1)).toEqual({ view: 'plan', selectedId: 'a/2' });
+    // Back: the place with the popup, so the popup is open again; once more: the plan without a task.
+    tb.go(-1);
+    expect([app.view, app.selectedId, app.peeking]).toEqual(['plan', 'a/2', true]);
+    tb.go(-1);
+    expect([app.view, app.selectedId, app.peeking]).toEqual(['plan', null, false]);
+    tb.go(1);
+    expect([app.view, app.selectedId, app.peeking]).toEqual(['plan', 'a/2', true]);
+    // Nothing the restore did is a new place.
+    h.sync();
+    expect(tb.entries.length).toBe(4);
+  });
+
+  it('opens no popup for a task that is gone, and the place becomes the view alone', () => {
+    const tb = tab();
+    const app = fakeApp(['a/1']);
+    const h = installAppHistory(app, tb);
+    h.sync();
+    app.view = 'plan';
+    h.sync();
+    app.peek('a/1');
+    h.sync();
+    app.ids = [];
+    app.selectedId = null;
+    app.peeking = false;
+    h.sync();
+    tb.go(-1);
+    expect([app.view, app.selectedId, app.peeking]).toEqual(['plan', null, false]);
   });
 });

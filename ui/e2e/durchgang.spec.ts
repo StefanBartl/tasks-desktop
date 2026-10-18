@@ -362,3 +362,28 @@ test('Back and Forward of the browser walk through the views and the open task',
   await page.goForward();
   await expect(page.locator('aside.detail .edit input').first()).toBeVisible();
 });
+
+test('Back closes the popup of a task and Forward opens it again; closing it by hand leaves the place', async ({ page }) => {
+  await pair(page);
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Plan', exact: true }).click();
+  const first = page.getByRole('region', { name: 'Stages' }).locator('.stage').getByRole('button').first();
+  const title = (await first.innerText()).trim();
+  await first.click();
+  const popup = page.getByRole('dialog', { name: 'Task' });
+  await expect(popup.locator('aside.detail .task-title')).toHaveText(title);
+  // Back: the plan without the popup (not the view before it).
+  await page.goBack();
+  await expect(popup).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Stages' })).toBeVisible();
+  // Forward: the popup is open on the same task.
+  await page.goForward();
+  await expect(popup.locator('aside.detail .task-title')).toHaveText(title);
+  // Closed by hand it is a place of its own: Back opens it again (the entry is made a moment after the popup went).
+  const entries = await page.evaluate(() => history.length);
+  await page.keyboard.press('Escape');
+  await expect(popup).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => history.length)).toBe(entries + 1);
+  await page.goBack();
+  await expect(popup.locator('aside.detail .task-title')).toHaveText(title);
+});

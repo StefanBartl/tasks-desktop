@@ -10,6 +10,7 @@ export function trackHistory(app: App, win: NavWindow & { history: NavHistory })
       // Only the place is watched; reading the list for it (a vanished task) happens untracked.
       void app.view;
       void app.selectedId;
+      void app.peeking;
       history.sync();
     });
   });
