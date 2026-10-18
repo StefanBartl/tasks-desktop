@@ -155,13 +155,15 @@ export class App {
     this.#filter = value;
     // The filter belongs to the vault it was made in (its areas, tags and plans); while the hub has not named its
     // vault yet, the one the memory names is kept.
-    if (this.vaultList) this.#filterVault = this.vaultList.active;
+    if (typeof this.#hubVault === 'string') this.#filterVault = this.#hubVault;
     // The search words are not remembered: typing in the box writes nothing.
     const text = serializeFilter(value, this.#filterVault);
     if (text !== before) safe(() => this.env.prefs.setItem('tasks-desktop.filter', text));
   }
   /** The vault the remembered filter was made in (see `filterVaultOf`). */
   #filterVault: string | null | undefined = undefined;
+  /** The vault the hub named last: `undefined` not asked yet (or not answered), `null` a hub that has no list of vaults. */
+  #hubVault: string | null | undefined = undefined;
   /** Blocks of the Today view the person put away. */
   hiddenTiles = $state<Tile[]>([]);
   tileOrder = $state<OrderedTile[]>([...ORDERED_TILES]);
@@ -1799,10 +1801,15 @@ export class App {
     const hub = this.env.hub;
     const seq = ++this.#reads;
     try {
+      // The vault the hub reads tells whether the remembered filter is of it: asked beside the list (it needs no
+      // engine) and awaited before the list is put on the page, so that the filter of another vault is never drawn
+      // on the tasks of this one.
+      const named = this.#hubVault === undefined ? this.loadVaults() : null;
       // A conditional request only when the whole document is held: the
       // cache holds a part of it, and a "not modified" must not leave that
       // part standing in for the list.
       const result = await hub.snapshot(this.snapshot ? this.etag : null);
+      if (named) await within(named, 1500);
       if (result.kind === 'fresh') {
         this.snapshot = result.doc;
         this.tasks = result.doc.tasks;
@@ -1835,6 +1842,8 @@ export class App {
   private async readBeside(): Promise<void> {
     const doc = this.snapshot;
     if (!doc) return;
+    // The vaults first: the answer does not depend on the classes, and a failure of those must not skip it.
+    await this.loadVaults();
     try {
       // The classes come from `areas.json`, read when the hub started: they
       // are read once, and again when an area appears that was not there.
@@ -1847,7 +1856,6 @@ export class App {
       }
       const list = cacheableList(doc, this.etag, this.hubAreas, this.env.now());
       // The list is kept with the vault the hub reads, so that a start can tell a list of another vault.
-      await this.loadVaults();
       if (list) void this.env.cache.save({ ...list, hubVault: this.vaultList?.active ?? null });
       else void this.env.cache.clear();
     } catch {
@@ -1900,7 +1908,6 @@ export class App {
     }
     if (cached.hubVault === undefined || now.name === cached.hubVault) return;
     void this.env.cache.clear();
-    if (this.#filterVault !== undefined && this.#filterVault !== now.name) this.filter = freshFilter();
     // Only while the cached list is what is shown: a list the hub sent meanwhile stays.
     if (this.cachedAt !== cached.savedAt) return;
     this.tasks = [];
@@ -1923,15 +1930,29 @@ export class App {
   async loadVaults(): Promise<void> {
     try {
       this.vaultList = await this.env.hub.vaults();
-    } catch {
+    } catch (error) {
       this.vaultList = null;
+      // A hub with one vault and no list names none: the remembered filter stays as it is.
+      if (error instanceof ApiError && error.status === 404) this.#hubVault = null;
       return;
     }
     // A filter made in another vault (chosen in another tab, or in the settings of the hub) is not taken over: its
     // areas, tags and plans are not those of this one. A filter that does not say its vault is now of this one.
     const active = this.vaultList.active;
-    if (this.#filterVault !== undefined && this.#filterVault !== active) this.filter = freshFilter();
+    this.#hubVault = active;
+    if (this.#filterVault !== undefined && this.#filterVault !== active) this.forgetFilterOfAnotherVault(active);
     else if (this.#filterVault === undefined) this.filter = { ...this.#filter };
+  }
+
+  /**
+   * The filter in memory was made in another vault: it goes. What is saved is left alone: it may be the one that
+   * another tab made for that vault a moment ago, and this page has nothing better to put there.
+   */
+  private forgetFilterOfAnotherVault(active: string): void {
+    this.#filter = freshFilter();
+    this.#filterVault = active;
+    // The text search belongs to the words that are gone.
+    this.scheduleTextSearch('', 0);
   }
 
   /** Open the Info dialog (APP-09); `focus` says what the person came for, so that the keyboard lands there. */
@@ -1999,7 +2020,8 @@ export class App {
       await this.env.hub.selectVault(name);
       // The list that is cached belongs to the vault that was left.
       await this.env.cache.clear();
-      // The areas, tags and plans of a filter are those of the vault that was left.
+      // The areas, tags and plans of a filter are those of the vault that was left; the empty one is the new vault's.
+      this.#hubVault = name;
       this.filter = freshFilter();
     });
     if (done) (this.env.reload ?? (() => undefined))();

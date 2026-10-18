@@ -214,8 +214,11 @@ class FakeHub {
   vaultCalls: string[] = [];
   vaultError: ApiError | null = null;
   vaultsCalls = 0;
+  /** While set, the hub does not name its vault yet. */
+  holdVaults: Promise<void> | null = null;
   async vaults(): Promise<VaultList> {
     this.vaultsCalls += 1;
+    if (this.holdVaults) await this.holdVaults;
     if (!this.vaultDoc) throw new ApiError(404, 'vaults_unavailable', 'no list');
     return this.vaultDoc;
   }
@@ -2348,8 +2351,10 @@ describe('writing', () => {
       app.filter = { ...app.filter, areas: ['only-in-main'] };
       await app.selectVault('native');
       expect(app.filter.areas).toEqual([]);
-      // What is read after the reload is the empty filter, not the one of the vault that was left.
+      // What is read after the reload is the empty filter, not the one of the vault that was left, and it names the
+      // vault it was chosen for.
       expect(make({ token: 't', prefs }).app.filter.areas).toEqual([]);
+      expect(JSON.parse(prefs.get('tasks-desktop.filter') ?? '{}')).toMatchObject({ vault: 'native' });
       expect(hub.vaultCalls).toEqual(['select native']);
       expect(cleared()).toBe(before + 1);
       expect(reloads()).toBe(1);
@@ -3149,7 +3154,8 @@ describe('the filter outlives a reload and holds in every view', () => {
     a.app.stop();
     await vi.waitFor(() => expect(a.app.vaultList).not.toBeNull());
     expect(a.app.filter.areas).toEqual([]);
-    expect(JSON.parse(other.get('tasks-desktop.filter') ?? '{}')).toMatchObject({ areas: [], vault: 'main' });
+    // What is saved is left alone: it may be the filter another tab made for "native" a moment ago.
+    expect(JSON.parse(other.get('tasks-desktop.filter') ?? '{}')).toMatchObject({ areas: ['only-in-native'], vault: 'native' });
 
     // An older memory names no vault: it is kept, and is now the filter of "main".
     const older = new Map([['tasks-desktop.filter', JSON.stringify({ areas: ['kept'] })]]);
@@ -3167,6 +3173,52 @@ describe('the filter outlives a reload and holds in every view', () => {
     c.app.stop();
     await vi.waitFor(() => expect(c.app.vaultList).not.toBeNull());
     expect(c.app.filter.areas).toEqual(['mine']);
+  });
+
+  it('puts no list on the page before the hub has named its vault when the memory names another one', async () => {
+    // Red before the fix: the list was drawn at once and the filter of the other vault was put on its tasks ("0 of N")
+    // until the vault was named a moment later.
+    const prefs = new Map([['tasks-desktop.filter', JSON.stringify({ areas: ['only-in-native'], vault: 'native' })]]);
+    const m = make({ token: 't', prefs });
+    let release!: () => void;
+    m.hub.holdVaults = new Promise<void>((resolve) => (release = resolve));
+    const starting = m.app.start(null);
+    await vi.waitFor(() => expect(m.hub.snapshotCalls.length).toBeGreaterThan(0));
+    await vi.waitFor(() => expect(m.hub.vaultsCalls).toBeGreaterThan(0));
+    expect(m.app.tasks).toEqual([]);
+    release();
+    await starting;
+    m.app.stop();
+    expect(m.app.filter.areas).toEqual([]);
+    expect(m.app.shown.map((t) => t.id)).toEqual(['pub/a']);
+  });
+
+  it('keeps the remembered filter when the hub has no list of vaults to name one', async () => {
+    const prefs = new Map([['tasks-desktop.filter', JSON.stringify({ areas: ['mine'], vault: 'main' })]]);
+    const m = make({ token: 't', prefs });
+    m.hub.vaultDoc = null;
+    await m.app.start(null);
+    m.app.stop();
+    await vi.waitFor(() => expect(m.hub.vaultsCalls).toBeGreaterThan(0));
+    expect(m.app.filter.areas).toEqual(['mine']);
+  });
+
+  it('does not take the filter over from a stale tab either: a page that learns of another vault empties its own filter and the words', async () => {
+    const m = make({ token: 't' });
+    await m.app.start(null);
+    m.app.stop();
+    await vi.waitFor(() => expect(m.app.vaultList?.active).toBe('main'));
+    m.app.filter = { ...m.app.filter, areas: ['of-main'] };
+    m.app.setQuery('words');
+    // The hub reads "native" now (chosen in another tab); the other tab saved a filter for it.
+    const saved = JSON.stringify({ areas: ['of-native'], vault: 'native' });
+    m.prefs.set('tasks-desktop.filter', saved);
+    m.hub.vaultDoc = { ...(m.hub.vaultDoc as VaultList), active: 'native' };
+    await m.app.loadVaults();
+    expect(m.app.filter.areas).toEqual([]);
+    expect(m.app.filter.query).toBe('');
+    // Nothing of the other tab's filter was overwritten.
+    expect(m.prefs.get('tasks-desktop.filter')).toBe(saved);
   });
 
   it('is remembered without the search words, and read back from the prefs', async () => {
