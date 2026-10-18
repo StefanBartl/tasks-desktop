@@ -78,5 +78,25 @@ mod tests {
         assert_eq!(IDENTITY.route("hello"), "/api/tasks/hello");
         assert_eq!(IDENTITY.agent_label(), "dev.tasks-desktop.hub");
         assert_eq!(IDENTITY.desktop_file(), "tasks-desktop.desktop");
+        // The rest of what is derived from it and lives on the machine: the link on the desktop, the agent file,
+        // the program file, and the variables the tests and the setup read.
+        assert_eq!(IDENTITY.title, "Tasks");
+        assert_eq!(IDENTITY.agent_file(), "dev.tasks-desktop.hub.plist");
+        let program = if cfg!(windows) {
+            "tasks-hub.exe"
+        } else {
+            "tasks-hub"
+        };
+        assert_eq!(IDENTITY.program_file(), program);
+        for (suffix, name) in [
+            ("PORT", "TASKS_DESKTOP_PORT"),
+            ("INSTALL_DIR", "TASKS_DESKTOP_INSTALL_DIR"),
+            ("EDITOR_LOG", "TASKS_DESKTOP_EDITOR_LOG"),
+            ("NO_LAUNCH", "TASKS_DESKTOP_NO_LAUNCH"),
+            ("NO_SETUP", "TASKS_DESKTOP_NO_SETUP"),
+            ("ASSUME_TERMINAL", "TASKS_DESKTOP_ASSUME_TERMINAL"),
+        ] {
+            assert_eq!(IDENTITY.var(suffix), name);
+        }
     }
 }

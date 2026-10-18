@@ -22,8 +22,6 @@ path = "src/main.rs"
 appkit-core.workspace = true
 appkit-hub.workspace = true
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
-hyper = { version = "1", default-features = false, features = ["http1", "server"] }
-hyper-util = { version = "0.1", default-features = false, features = ["server", "tokio", "service", "http1"] }
 futures-core = "0.3"
 # The stable line of notify; 9.0 is a release candidate (concept 7.1, 13.14).
 notify = { version = "8.2", default-features = false }

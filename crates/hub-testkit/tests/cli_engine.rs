@@ -151,7 +151,14 @@ async fn a_question_that_takes_too_long_is_killed() {
         .await
         .expect_err("timeout");
     assert!(matches!(err, EngineError::Timeout), "{err}");
-    assert!(started.elapsed() < Duration::from_secs(1));
+    // The watchdog is 400 ms; starting a process is slow under load (parallel test binaries, a busy runner), so the bound
+    // only tells it was the watchdog and not the default of 30 s that ended the call. That the process was killed is
+    // the marker: it would be written 1.5 s after the start.
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "took {:?}",
+        started.elapsed()
+    );
     tokio::time::sleep(Duration::from_millis(2_000)).await;
     assert!(!ran_on.exists(), "the killed process ran on");
     // The engine is usable afterwards: the gate was given back.

@@ -4,7 +4,12 @@
 //! A [`Method`] is a closed list, never a string from outside (concept 5.5 Nr. 8): the only way
 //! from a name to a call is [`Calls::parse`].
 
-pub use appkit_hub::engine::*;
+// Named, not a glob: the kit's own `probe` takes the dialect, this module's `probe` is the one of the tasks engine.
+pub use appkit_hub::engine::{
+    ascii_json, child_env, is_unprintable, CallFuture, CliEngine, CliEngineConfig, Engine,
+    EngineBuild, EngineDialect, EngineError, EngineInfo, EngineRefusal, EngineVars, HostFailure,
+    Method, MethodSpec, ProbeProblem, Reply,
+};
 
 use crate::config::Env;
 use crate::discovery::{engine_script, Setup};

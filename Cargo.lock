@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "appkit-core"
 version = "0.0.0"
-source = "git+https://github.com/StefanBartl/appkit?tag=v0.4.4#d6536f798c6168454feaec0be3a658b1285733aa"
+source = "git+https://github.com/StefanBartl/appkit?tag=v0.7.0#444308165101db140e699c2d731728f556cbbecd"
 dependencies = [
  "getrandom",
  "serde",
@@ -16,7 +16,7 @@ dependencies = [
 [[package]]
 name = "appkit-hub"
 version = "0.0.0"
-source = "git+https://github.com/StefanBartl/appkit?tag=v0.4.4#d6536f798c6168454feaec0be3a658b1285733aa"
+source = "git+https://github.com/StefanBartl/appkit?tag=v0.7.0#444308165101db140e699c2d731728f556cbbecd"
 dependencies = [
  "appkit-core",
  "axum",
@@ -31,7 +31,7 @@ dependencies = [
 [[package]]
 name = "appkit-testkit"
 version = "0.0.0"
-source = "git+https://github.com/StefanBartl/appkit?tag=v0.4.4#d6536f798c6168454feaec0be3a658b1285733aa"
+source = "git+https://github.com/StefanBartl/appkit?tag=v0.7.0#444308165101db140e699c2d731728f556cbbecd"
 dependencies = [
  "appkit-core",
  "appkit-hub",
@@ -528,8 +528,6 @@ dependencies = [
  "appkit-hub",
  "axum",
  "futures-core",
- "hyper",
- "hyper-util",
  "notify",
  "serde",
  "serde_json",
