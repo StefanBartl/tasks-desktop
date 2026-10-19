@@ -392,6 +392,16 @@
             searchLabel={t('multi.search')}
           />
         {/each}
+        {#if app.quickWinSet !== undefined || app.filter.quickWin}
+          <label class="pick" data-hint={t('hint.quick_win')}>
+            <input
+              type="checkbox"
+              checked={app.filter.quickWin}
+              onchange={(e) => (app.filter = { ...app.filter, quickWin: e.currentTarget.checked })}
+            />
+            <span>{t('filter.quick_win')}</span>
+          </label>
+        {/if}
         <label class="pick" data-hint={t('hint.cross')}>
           <input
             type="checkbox"

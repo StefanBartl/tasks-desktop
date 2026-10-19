@@ -389,8 +389,14 @@ export class App {
     return this.capabilities !== null && this.can('links') && !this.linksFailed && this.linksNow === null;
   }
 
+  /** The ids the engine counts as quick wins (its figure of the estimate), or undefined when the engine gave none. */
+  get quickWinSet(): ReadonlySet<string> | undefined {
+    const ids = this.snapshot?.estimate?.quick_wins;
+    return ids === undefined ? undefined : new Set(ids);
+  }
+
   get shown(): TaskEntry[] {
-    const filtered = applyFilter(this.tasks, this.filter, this.today, this.crossIndex);
+    const filtered = applyFilter(this.tasks, this.filter, this.today, this.crossIndex, this.quickWinSet);
     return this.sort === 'default' ? filtered : applyOrder(filtered, this.#order);
   }
 
@@ -448,7 +454,7 @@ export class App {
   applyEngineList(name: string): void {
     const list = this.engineLists.find((l) => l.name === name);
     if (!list) return;
-    const applied = fromEngineList(list, this.tasks);
+    const applied = fromEngineList(list, this.tasks, { quickWins: this.quickWinSet !== undefined });
     this.filter = { ...applied.filter, query: this.filter.query };
     this.setSort(applied.sort);
     if (applied.unsupported.length > 0) {

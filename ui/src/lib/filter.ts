@@ -57,6 +57,8 @@ export interface Filter {
   dates: Partial<Record<DateKey, { from?: string; to?: string }>>;
   /** Only tasks that connect areas (see `cross.ts`): the chosen areas, or any. */
   cross: boolean;
+  /** Only the quick wins of the engine (a value at the threshold or above, an effort at the threshold or below). */
+  quickWin: boolean;
 }
 
 export const emptyFilter: Filter = {
@@ -70,6 +72,7 @@ export const emptyFilter: Filter = {
   ranges: {},
   dates: {},
   cross: false,
+  quickWin: false,
 };
 
 /** A filter with nothing on, sharing no list or record with another (a state that is changed by copying, never in place). */
@@ -214,6 +217,7 @@ export function matches(
   filter: Filter,
   today: string = localToday(),
   touched?: ReadonlyMap<string, ReadonlySet<string>>,
+  quickWins?: ReadonlySet<string>,
 ): boolean {
   if (filter.areas.length > 0 && !filter.areas.includes(task.area)) return false;
   if (filter.statuses.length > 0 && !filter.statuses.includes(task.status ?? '')) return false;
@@ -240,6 +244,7 @@ export function matches(
   if (filter.reminder === 'set' && task.remind === undefined) return false;
   if (filter.reminder === 'due' && !isDue(task.remind, today)) return false;
   if (filter.cross && !connectsAreas(touched?.get(task.id), filter.areas)) return false;
+  if (filter.quickWin && !(quickWins?.has(task.id) ?? false)) return false;
   const query = filter.query.trim().toLowerCase();
   if (query !== '') {
     const hay = `${task.id} ${task.title}`.toLowerCase();
@@ -273,8 +278,9 @@ export function applyFilter(
   filter: Filter,
   today: string = localToday(),
   touched?: ReadonlyMap<string, ReadonlySet<string>>,
+  quickWins?: ReadonlySet<string>,
 ): TaskEntry[] {
-  return tasks.filter((t) => matches(t, filter, today, touched));
+  return tasks.filter((t) => matches(t, filter, today, touched, quickWins));
 }
 
 /** One thing a filter holds, for the row of chips that names what is switched on and takes it off again. */
@@ -286,6 +292,7 @@ export type ActiveKind =
   | 'updated'
   | 'reminder'
   | 'cross'
+  | 'quickWin'
   | 'range'
   | 'date';
 export interface ActiveFilter {
@@ -311,6 +318,7 @@ export function activeFilters(filter: Filter): ActiveFilter[] {
   if (filter.updated !== '') out.push({ kind: 'updated', value: filter.updated });
   if (filter.reminder !== '') out.push({ kind: 'reminder', value: filter.reminder });
   if (filter.cross) out.push({ kind: 'cross', value: 'on' });
+  if (filter.quickWin) out.push({ kind: 'quickWin', value: 'on' });
   return out;
 }
 
@@ -341,6 +349,8 @@ export function without(filter: Filter, item: ActiveFilter): Filter {
       return { ...filter, reminder: '' };
     case 'cross':
       return { ...filter, cross: false };
+    case 'quickWin':
+      return { ...filter, quickWin: false };
     case 'range':
       return { ...filter, ranges: { ...filter.ranges, [item.value]: undefined } };
     case 'date':
@@ -411,6 +421,7 @@ export function parseFilter(text: string | null): Filter {
   out.statuses = strings(o.statuses);
   out.actors = strings(o.actors);
   out.cross = o.cross === true;
+  out.quickWin = o.quickWin === true;
   if (typeof o.updated === 'string' && (o.updated === '' || (UPDATED_WINDOWS as readonly string[]).includes(o.updated)))
     out.updated = o.updated as UpdatedWindow;
   if (typeof o.reminder === 'string' && (o.reminder === '' || (REMINDER_CHOICES as readonly string[]).includes(o.reminder)))

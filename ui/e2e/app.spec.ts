@@ -3626,11 +3626,22 @@ test('the lists of the engine are offered next to the own ones and apply what th
   await expect(group.locator('option', { hasText: 'small-and-important' })).toHaveCount(1);
   await expect(group.locator('option', { hasText: 'quick-wins' })).toHaveCount(1);
 
-  // One is chosen: its status and order are on the page, and what the page cannot say is told.
+  // One is chosen: its status, its readiness and its order are on the page; only what the page cannot say is told
+  // (readiness is no longer among it: the page has the states the engine means by it).
   await lists.selectOption({ label: 'small-and-important' });
   await expect(page.locator('select[data-sort]')).toHaveValue('prio-effort');
   await expect(page.getByRole('button', { name: 'Status: 2', exact: true })).toBeVisible();
-  await expect(page.getByRole('alert').getByText(/not applied: .*readiness: ready/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Switch off: State: ready' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Switch off: State: decision' })).toBeVisible();
+  await expect(page.getByRole('alert').getByText(/readiness/)).toHaveCount(0);
+
+  // The quick wins are the engine's own figure of the snapshot: a chip, the order, and nothing told.
+  const all = await page.locator('button.row').count();
+  await lists.selectOption({ label: 'quick-wins' });
+  await expect(page.locator('select[data-sort]')).toHaveValue('roi');
+  await expect(page.getByRole('button', { name: 'Switch off: Quick wins' })).toBeVisible();
+  await expect(page.getByRole('alert').getByText(/not applied/)).toHaveCount(0);
+  expect(await page.locator('button.row').count()).toBeLessThanOrEqual(all);
   // It is the engine's list, not one of the page: nothing is chosen as a list of the page, and there is nothing to delete.
   await expect(lists).toHaveValue('');
   await expect(page.getByRole('button', { name: /^Delete the list/ })).toHaveCount(0);

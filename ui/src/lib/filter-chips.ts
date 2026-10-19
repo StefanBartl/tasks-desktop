@@ -39,6 +39,8 @@ export function chipLabel(
       return `${t('filter.reminder')}: ${t(`filter.reminder.${item.value}` as Key)}`;
     case 'cross':
       return t('filter.cross.on');
+    case 'quickWin':
+      return t('filter.quick_win.on');
     case 'range': {
       const key = item.value as RangeKey;
       const r = filter.ranges[key];

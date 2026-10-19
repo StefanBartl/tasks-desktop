@@ -329,3 +329,23 @@ describe('the filter that is remembered', () => {
     expect(got.updated).toBe('');
   });
 });
+
+describe('the quick wins of the engine', () => {
+  const tasks = [task('a/one'), task('a/two'), task('a/three')];
+  const quick = new Set(['a/one', 'a/three']);
+  const on = { ...freshFilter(), quickWin: true };
+
+  it('keeps the tasks the engine counted, and nothing when it counted none', () => {
+    expect(applyFilter(tasks, on, TODAY, undefined, quick).map((t) => t.id)).toEqual(['a/one', 'a/three']);
+    expect(applyFilter(tasks, on, TODAY, undefined, new Set()).map((t) => t.id)).toEqual([]);
+    expect(applyFilter(tasks, on, TODAY).map((t) => t.id)).toEqual([]);
+    expect(applyFilter(tasks, freshFilter(), TODAY, undefined, quick)).toHaveLength(3);
+  });
+
+  it('is a chip that can be switched off, and is remembered', () => {
+    expect(activeFilters(on)).toEqual([{ kind: 'quickWin', value: 'on' }]);
+    expect(without(on, { kind: 'quickWin', value: 'on' }).quickWin).toBe(false);
+    expect(parseFilter(serializeFilter(on)).quickWin).toBe(true);
+    expect(parseFilter(serializeFilter(freshFilter())).quickWin).toBe(false);
+  });
+});

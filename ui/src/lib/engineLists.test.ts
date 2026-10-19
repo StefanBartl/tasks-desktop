@@ -35,12 +35,26 @@ describe('a list of the engine on the page', () => {
   });
 
   it('names what the page cannot say, and does not drop it without a word', () => {
-    const a = fromEngineList(
-      list({ readiness: 'ready', stale: '30', blocked: true, quick_win: true, unestimated: true, status: 'open' }),
-      tasks,
-    );
+    const a = fromEngineList(list({ stale: '30', blocked: true, unestimated: true, status: 'open' }), tasks);
     expect(a.filter.statuses).toEqual(['open']);
-    expect(a.unsupported.sort()).toEqual(['blocked', 'quick_win', 'readiness: ready', 'stale: 30', 'unestimated']);
+    expect(a.unsupported.sort()).toEqual(['blocked', 'stale: 30', 'unestimated']);
+  });
+
+  it('says readiness as the states the engine means by it, so that the words are the same', () => {
+    expect(fromEngineList(list({ readiness: 'ready' }), tasks).filter.fields.state).toEqual(['ready', 'decision']);
+    expect(fromEngineList(list({ readiness: 'waiting' }), tasks).filter.fields.state).toEqual(['waiting', 'stuck']);
+    const odd = fromEngineList(list({ readiness: 'soon' }), tasks);
+    expect(odd.filter.fields.state).toBeUndefined();
+    expect(odd.unsupported).toEqual(['readiness: soon']);
+  });
+
+  it('says a quick win by the figure of the engine when it gave one, and names it when it did not', () => {
+    const with_ = fromEngineList(list({ quick_win: true, sort: 'roi' }), tasks, { quickWins: true });
+    expect(with_.filter.quickWin).toBe(true);
+    expect(with_.unsupported).toEqual([]);
+    const without = fromEngineList(list({ quick_win: true }), tasks, { quickWins: false });
+    expect(without.filter.quickWin).toBe(false);
+    expect(without.unsupported).toEqual(['quick_win']);
   });
 
   it('names an effort bound that no task of the vault can place, and a sort word that is not ours', () => {

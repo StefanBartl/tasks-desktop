@@ -3575,6 +3575,41 @@ describe('the order of the list', () => {
       m.app.stop();
     });
 
+    it('applies readiness and a quick win as the engine means them, with the quick wins of the snapshot', async () => {
+      const m = make({ token: 't' });
+      m.hub.capabilities = ['lists'];
+      const withEstimate = snapshot(three);
+      (withEstimate as unknown as { estimate: { quick_wins: string[] } }).estimate = { quick_wins: ['pub/b'] };
+      m.hub.doc = withEstimate;
+      m.hub.engineListDoc = doc([
+        entry('QW', { quick_win: true, readiness: 'ready' }),
+      ]);
+      await m.app.start(null);
+      await vi.waitFor(() => expect(m.app.engineLists).toHaveLength(1));
+      m.app.applyEngineList('QW');
+      expect(m.app.toast).toBeNull();
+      expect(m.app.filter.quickWin).toBe(true);
+      expect(m.app.filter.fields.state).toEqual(['ready', 'decision']);
+      // Only what the engine counted as a quick win is shown (and is in one of the states).
+      expect(m.app.shown.map((t) => t.id)).toEqual([]);
+      m.app.filter = { ...m.app.filter, fields: {} };
+      expect(m.app.shown.map((t) => t.id)).toEqual(['pub/b']);
+      m.app.stop();
+    });
+
+    it('names a quick win when the snapshot has no figure of the engine for it', async () => {
+      const m = make({ token: 't' });
+      m.hub.capabilities = ['lists'];
+      m.hub.doc = snapshot(three);
+      m.hub.engineListDoc = doc([entry('QW', { quick_win: true })]);
+      await m.app.start(null);
+      await vi.waitFor(() => expect(m.app.engineLists).toHaveLength(1));
+      m.app.applyEngineList('QW');
+      expect(m.app.filter.quickWin).toBe(false);
+      expect(m.app.toast?.text).toContain('quick_win');
+      m.app.stop();
+    });
+
     it('shows none, quietly, when the hub or the engine has no lists', async () => {
       const m = make({ token: 't' });
       m.hub.capabilities = ['lists'];
