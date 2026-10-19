@@ -3,6 +3,6 @@
 # (read) and `tasks-ops/1` (write), see docs/CONTRACT.md in tasks.nvim.
 # Both checkouts are pinned by commit; CI reads `commit` and `lib_commit`.
 repo       = https://github.com/StefanBartl/tasks.nvim
-commit     = 865c0c669f14773912182e16c52872915fd780f0
+commit     = e913a76d7d36e8abcdf9d3261ad59f56dfda17f1
 lib_repo   = https://github.com/StefanBartl/lib.nvim
-lib_commit = a83821f63a91850cd8dc148ecc8fab516abae4b0
+lib_commit = a561474965d7ab0cdfd457d4ce131262c9c67d78
