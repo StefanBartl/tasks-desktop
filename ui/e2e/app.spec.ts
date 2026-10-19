@@ -3686,3 +3686,64 @@ test('the palette offers the lists, the page\'s own and the engine\'s, and a pic
   await page.locator('select[data-lists]').selectOption({ label: 'E2E palette list' });
   await page.getByRole('button', { name: 'Delete the list E2E palette list' }).click();
 });
+
+test.describe('a finger', () => {
+  test.use({ hasTouch: true });
+
+  test('drags a row by its grip onto an area: the engine is asked first, and giving up leaves the file', async ({ page }) => {
+    const slug = 'drop-touch-e2e';
+    const from = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
+    const to = join(state().vault, 'cascade.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
+    rmSync(to, { force: true });
+    writeFileSync(from, `---\ntitle: Dropped by finger e2e\nstatus: doing\nkind: task\n---\n\nTo be moved by a finger.\n`);
+    await watchViolations(page);
+    await pair(page);
+    await chooseView(page, 'View', 'Today');
+    await page.locator('button.tile[data-count="doing"]').click();
+    const panel = page.getByRole('region', { name: 'doing' });
+    const row = panel.locator('li', { hasText: 'Dropped by finger e2e' });
+    await expect(row).toBeVisible();
+
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd' | 'touchCancel', at?: { x: number; y: number }) =>
+      cdp.send('Input.dispatchTouchEvent', { type, touchPoints: at ? [{ x: at.x, y: at.y }] : [] });
+    const centre = async (target: ReturnType<typeof page.locator>) => {
+      const box = (await target.boundingBox())!;
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    };
+
+    // The finger goes down on the grip, moves a little (the areas show), then over the area and up.
+    const grip = await centre(row.locator('.grip'));
+    await touch('touchStart', grip);
+    await touch('touchMove', { x: grip.x + 8, y: grip.y + 8 });
+    const target = panel.locator('.target[data-area="cascade.nvim"]');
+    await expect(target, 'the areas show once the finger drags').toBeVisible();
+    const over = await centre(target);
+    await touch('touchMove', over);
+    await expect(target).toHaveClass(/over/);
+    await touch('touchEnd');
+
+    const dialog = page.getByRole('dialog', { name: 'Move to cascade.nvim?' });
+    await expect(dialog).toBeVisible();
+    expect(existsSync(from)).toBe(true);
+    expect(existsSync(to)).toBe(false);
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(existsSync(from)).toBe(true);
+
+    // A finger that lets go anywhere else drops nothing; the areas go away.
+    const again = await centre(row.locator('.grip'));
+    await touch('touchStart', again);
+    await touch('touchMove', { x: again.x + 8, y: again.y + 8 });
+    await expect(target).toBeVisible();
+    await touch('touchEnd');
+    await expect(target).toHaveCount(0);
+    await expect(dialog).toHaveCount(0);
+
+    // A tap on the title still opens the task (a drag did not begin).
+    await row.locator('button.link').tap();
+    await expect(page.getByRole('dialog', { name: 'Task' })).toBeVisible();
+    expect(await violations(page)).toEqual([]);
+    rmSync(from, { force: true });
+  });
+});

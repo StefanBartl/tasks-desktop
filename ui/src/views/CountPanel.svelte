@@ -9,6 +9,7 @@
   import { areaLabel } from '../lib/filter';
   import { translate, type Key } from '../lib/i18n';
   import CountGroup from './CountGroup.svelte';
+  import { areaAt, type PointerDragEvent } from '../lib/pointerDrag';
 
   let {
     app,
@@ -20,6 +21,34 @@
   }: { app: App; key: CountKey; label: string; tasks: TaskEntry[]; total: number; unfiltered: number } = $props();
   // The task that is dragged, while one is: the areas then show as places to drop it.
   let dragging = $state<string | null>(null);
+  // The area a finger is over while it drags, to light its place.
+  let overArea = $state<string | null>(null);
+  let from = { x: 0, y: 0 };
+  /** How far a finger must go (px) before the places to drop on take it. */
+  const GRAB = 24;
+  function pointerDrag(e: PointerDragEvent): void {
+    if (e.phase === 'start') {
+      dragging = e.id;
+      overArea = null;
+      from = { x: e.x, y: e.y };
+      return;
+    }
+    if (dragging !== e.id) return;
+    if (e.phase === 'move') {
+      // The places count only once the finger has gone a stretch from where it went down: the areas push the rows
+      // down when the drag begins, and a place may then lie under a finger that has not moved at all.
+      const far = Math.hypot(e.x - from.x, e.y - from.y) >= GRAB;
+      overArea = far ? areaAt(document, e.x, e.y) : null;
+      return;
+    }
+    // The finger goes up (or the system takes the touch away). It drops on the place it MOVED onto: the areas appear
+    // when the drag begins and push the rows down, so a finger that has not moved may be over a place only because the
+    // page moved under it, and that is no drop.
+    const area = e.phase === 'end' ? overArea : null;
+    dragging = null;
+    overArea = null;
+    if (area !== null) void app.askDropMove(e.id, area);
+  }
   const movable = $derived(app.can('move_area'));
   const dragged = $derived(dragging === null ? undefined : app.tasks.find((x) => x.id === dragging));
   // Why fewer are shown than the engine counts: the filter hides `hidden`, the areas that are not released the rest.
@@ -107,6 +136,7 @@
         <!-- A place to drop on, for the pointer only: the keys have the move in the details of the task. -->
         <span
           class="target"
+          class:over={overArea === area}
           role="presentation"
           data-area={area}
           ondragover={(e) => e.preventDefault()}
@@ -133,6 +163,7 @@
         tasks={group.tasks}
         open={openAll || i === 0}
         ondragtask={movable ? (id) => (dragging = id) : undefined}
+        onpointerdrag={movable ? pointerDrag : undefined}
       />
     {/each}
   {/if}
@@ -201,7 +232,11 @@
     padding: 0.2rem 0.6rem;
     background: var(--surface);
   }
-  .target:hover {
+  .target:hover,
+  .target.over {
     border-color: var(--accent);
+  }
+  .target.over {
+    background: var(--surface-2);
   }
 </style>

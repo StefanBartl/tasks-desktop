@@ -4,6 +4,7 @@
   import { PAGE } from '../lib/counts';
   import type { TaskEntry } from '../lib/contract';
   import { translate, type Key } from '../lib/i18n';
+  import { startsOnGrip, type PointerDragEvent } from '../lib/pointerDrag';
   import { markHidden } from '../lib/text';
 
   let {
@@ -12,6 +13,7 @@
     tasks,
     open = true,
     ondragtask,
+    onpointerdrag,
   }: {
     app: App;
     heading: string | null;
@@ -19,7 +21,29 @@
     open?: boolean;
     /** A task of this group is dragged (its id), or the drag ended (null): the panel then shows the areas as targets. */
     ondragtask?: (id: string | null) => void;
+    /** The grip of a row is dragged with a finger or a pen (see `lib/pointerDrag.ts`). */
+    onpointerdrag?: (event: PointerDragEvent) => void;
   } = $props();
+
+  // The row whose grip a finger holds: the pointer is followed on the grip (captured), wherever it goes.
+  let gripped: string | null = null;
+  function grip(e: PointerEvent, id: string, phase: PointerDragEvent['phase']): void {
+    if (!onpointerdrag) return;
+    if (phase === 'start') {
+      if (!startsOnGrip(e.pointerType) || app.saving) return;
+      e.preventDefault();
+      try {
+        (e.currentTarget as Element).setPointerCapture(e.pointerId);
+      } catch {
+        // A pointer that is gone cannot be captured; the events then stay on whatever is under the finger.
+      }
+      gripped = id;
+    } else if (gripped !== id) {
+      return;
+    }
+    if (phase === 'end' || phase === 'cancel') gripped = null;
+    onpointerdrag({ phase, id, x: e.clientX, y: e.clientY });
+  }
 
   function dragStart(event: DragEvent, id: string): void {
     if (!ondragtask || app.saving) {
@@ -68,6 +92,18 @@
         <span class="muted"
           ><code>{task.id}</code>{task.prio !== undefined ? ` · P${task.prio}` : ''}</span
         >
+        {#if onpointerdrag}
+          <!-- A finger drags by this grip (a screen reader and the keys have the button beside it). -->
+          <span
+            class="grip"
+            role="presentation"
+            aria-hidden="true"
+            onpointerdown={(e) => grip(e, task.id, 'start')}
+            onpointermove={(e) => grip(e, task.id, 'move')}
+            onpointerup={(e) => grip(e, task.id, 'end')}
+            onpointercancel={(e) => grip(e, task.id, 'cancel')}>⠿</span
+          >
+        {/if}
         {#if ondragtask}
           <button
             type="button"
@@ -99,6 +135,15 @@
     list-style: none;
     padding: 0;
     margin: 0.25rem 0;
+  }
+  .grip {
+    display: inline-block;
+    min-width: 1.6rem;
+    text-align: center;
+    cursor: grab;
+    color: var(--muted);
+    touch-action: none;
+    user-select: none;
   }
   .move {
     background: none;
