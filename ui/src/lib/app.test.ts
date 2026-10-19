@@ -864,6 +864,14 @@ describe('App, the view', () => {
   });
 });
 
+describe('App, the export', () => {
+  it('separates the columns by the locale of the system, not by the language shown', () => {
+    const { app } = make(); // the browser prefers German
+    app.setLang('en');
+    expect(app.exportTasks('csv').text.split('\r\n')[0]).toContain('id;title;');
+  });
+});
+
 describe('App, the text of the tasks', () => {
   it('filters at once and searches the text a moment later, once', async () => {
     const { app, hub } = make({ token: 't' });

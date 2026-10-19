@@ -50,6 +50,20 @@ export function csvCell(text: string): string {
 /** The separator of a column: a spreadsheet in a German or Austrian setup reads `;`, the rest `,`. */
 export type CsvSeparator = ',' | ';';
 
+/**
+ * The separator a spreadsheet of this locale reads: where the decimal mark is a comma (German, French, most of Europe)
+ * the list separator is `;`, elsewhere `,`. It follows the locale of the browser, which is the one of the system and so
+ * of the spreadsheet, not the language the page happens to be shown in.
+ */
+export function csvSeparatorFor(locale: string | undefined): CsvSeparator {
+  try {
+    const decimal = new Intl.NumberFormat(locale || 'en').formatToParts(1.1).find((p) => p.type === 'decimal')?.value;
+    return decimal === ',' ? ';' : ',';
+  } catch {
+    return ',';
+  }
+}
+
 export function toCsv(tasks: readonly TaskEntry[], separator: CsvSeparator = ','): string {
   const rows = [CSV_COLUMNS.join(separator)];
   for (const task of tasks) rows.push(CSV_COLUMNS.map((c) => csvCell(field(task, c))).join(separator));

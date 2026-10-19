@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { copyText, saveText } from './exportDom';
-import { csvCell, exportText, toCsv, toMarkdown } from './export';
+import { csvCell, csvSeparatorFor, exportText, toCsv, toMarkdown } from './export';
 import { task } from './fixtures';
 
 describe('csv', () => {
@@ -28,6 +28,18 @@ describe('csv', () => {
     expect(lines[0]).toBe('id,title,status,actor,kind,prio,effort,value,severity,plan,phase,tags,updated');
     expect(lines[1]).toBe('a/one,"One, first",open,,,1,,,,,,x y,2026-10-18');
     expect(lines[2]).toBe('a/two,Two,,,,,,,,,,,');
+  });
+});
+
+describe('the separator of a locale', () => {
+  it('is ; where the decimal mark is a comma, and , elsewhere', () => {
+    for (const locale of ['de', 'de-AT', 'fr', 'it-IT']) expect(csvSeparatorFor(locale), locale).toBe(';');
+    for (const locale of ['en', 'en-US', 'ja']) expect(csvSeparatorFor(locale), locale).toBe(',');
+  });
+
+  it('falls back to a comma for a locale that is none, or for no locale', () => {
+    expect(csvSeparatorFor(undefined)).toBe(',');
+    expect(csvSeparatorFor('not a locale!')).toBe(',');
   });
 });
 

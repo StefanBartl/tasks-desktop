@@ -235,31 +235,62 @@ fn checked_folder(path: &str) -> Result<PathBuf, String> {
     Ok(folder)
 }
 
-/// Whether two paths are one folder (the same place after symlinks and case, where the system can say; the
-/// words themselves where it cannot).
-fn same_folder(a: &Path, b: &Path) -> bool {
-    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
-        (Ok(x), Ok(y)) => x == y,
-        _ => a == b,
+/// How two folders lie to each other.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Overlap {
+    /// One folder (the same place after symlinks and case, where the system can say; the words themselves where it
+    /// cannot).
+    Same,
+    /// One of them lies inside the other: the engine reads the inner one as an area of the outer one.
+    Nested,
+}
+
+fn overlap(a: &Path, b: &Path) -> Option<Overlap> {
+    let (x, y) = match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(x), Ok(y)) => (x, y),
+        _ => (a.to_path_buf(), b.to_path_buf()),
+    };
+    if x == y {
+        Some(Overlap::Same)
+    } else if x.starts_with(&y) || y.starts_with(&x) {
+        Some(Overlap::Nested)
+    } else {
+        None
     }
 }
 
 impl ConfigVaults {
-    /// The name of another vault that reads `folder`, if there is one: two names for one folder would count its
-    /// tasks twice and let a move or a write of one be seen by the other. `except` is the vault that is changed.
-    fn vault_at(&self, next: &FileConfig, folder: &Path, except: &str) -> Option<String> {
+    /// The name of another vault whose folder is `folder` or lies inside or around it, if there is one: two names
+    /// for one folder would count its tasks twice and let a move or a write of one be seen by the other, and a vault
+    /// inside another is read by it as an area, so its tasks are counted twice as well. `except` is the vault that is
+    /// changed.
+    fn vault_at(&self, next: &FileConfig, folder: &Path, except: &str) -> Option<Overlap> {
         let main = next.vault.clone().or_else(|| self.env.path("TASKS_VAULT"));
-        if except != config::MAIN_VAULT && main.as_deref().is_some_and(|m| same_folder(m, folder)) {
-            return Some(config::MAIN_VAULT.to_owned());
+        let mut found = None;
+        if except != config::MAIN_VAULT {
+            found = main.as_deref().and_then(|m| overlap(m, folder));
         }
-        next.vaults
-            .iter()
-            .find(|v| v.name != except && same_folder(&v.path, folder))
-            .map(|v| v.name.clone())
+        for v in next.vaults.iter().filter(|v| v.name != except) {
+            match overlap(&v.path, folder) {
+                Some(Overlap::Same) => return Some(Overlap::Same),
+                Some(o) => found = Some(o),
+                None => {}
+            }
+        }
+        found
     }
 }
 
 const FOLDER_TAKEN: &str = "another vault reads this folder already";
+const FOLDER_NESTED: &str = "another vault reads a folder inside or around this one";
+
+fn refusal(o: Overlap) -> String {
+    match o {
+        Overlap::Same => FOLDER_TAKEN,
+        Overlap::Nested => FOLDER_NESTED,
+    }
+    .to_owned()
+}
 
 impl VaultAdmin<VaultTarget> for ConfigVaults {
     fn list(&self) -> VaultList {
@@ -307,8 +338,8 @@ impl VaultAdmin<VaultTarget> for ConfigVaults {
             if next.vaults.len() >= config::MAX_VAULTS {
                 return Err(format!("at most {} vaults", config::MAX_VAULTS));
             }
-            if self.vault_at(&next, &folder, name).is_some() {
-                return Err(FOLDER_TAKEN.to_owned());
+            if let Some(o) = self.vault_at(&next, &folder, name) {
+                return Err(refusal(o));
             }
             next.vaults.push(config::VaultEntry {
                 name: name.to_owned(),
@@ -346,8 +377,8 @@ impl VaultAdmin<VaultTarget> for ConfigVaults {
             let mut next = self.fresh()?;
             let reading = self.current();
             let is_read = reading.active_name() == name;
-            if self.vault_at(&next, &folder, name).is_some() {
-                return Err(FOLDER_TAKEN.to_owned());
+            if let Some(o) = self.vault_at(&next, &folder, name) {
+                return Err(refusal(o));
             }
             if name == config::MAIN_VAULT {
                 next.vault = Some(folder);
@@ -978,6 +1009,18 @@ mod vault_tests {
         assert!(admin.update("two", &main_text).await.is_err());
         assert_eq!(std::fs::read(cfg.join("config.json")).unwrap(), before);
         assert!(admin.update("two", &path).await.unwrap().is_none());
+        // A folder inside the folder of another vault, or one that holds it, is read twice: refused as well.
+        let inside = main.join("sub-area");
+        std::fs::create_dir_all(&inside).unwrap();
+        let why = admin
+            .add("three", &inside.to_string_lossy())
+            .await
+            .unwrap_err();
+        assert!(why.contains("inside or around"), "{why}");
+        let around = main.parent().unwrap().to_string_lossy().into_owned();
+        let why = admin.add("three", &around).await.unwrap_err();
+        assert!(why.contains("inside or around"), "{why}");
+        assert_eq!(std::fs::read(cfg.join("config.json")).unwrap(), before);
         let free = vault.parent().unwrap().join("free");
         std::fs::create_dir_all(&free).unwrap();
         assert!(admin

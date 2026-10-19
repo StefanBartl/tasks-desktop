@@ -33,7 +33,7 @@ import { defaultView, nextView, parseViews, type CountKey, type CountView } from
 import { conflictsOf, conflictsOfRequest, mergeConflicts, retryOp, type Conflict } from './conflicts';
 import { backoffSeconds, readStream, StreamRefused, type SseMessage } from 'appkit-ui/sse';
 import { detectLang, isLang, translate, type Key, type Lang } from './i18n';
-import { exportText, type ExportFormat } from './export';
+import { csvSeparatorFor, exportText, type ExportFormat } from './export';
 import { applyOrder, orderOf, parseSort, type SortWord } from './sort';
 import { fromEngineList, type EngineList } from './engineLists';
 import {
@@ -1060,8 +1060,9 @@ export class App {
   exportTasks(format: ExportFormat): { text: string; count: number } {
     const marked = new Set(this.marks);
     const tasks = marked.size > 0 ? this.shown.filter((t) => marked.has(t.id)) : this.shown;
-    // A German page is read by a German spreadsheet, which splits columns at `;`.
-    return { text: exportText(tasks, format, this.lang === 'de' ? ';' : ','), count: tasks.length };
+    // The spreadsheet that opens the file is the one of the system: its locale decides the column separator.
+    const separator = csvSeparatorFor(this.env.preferredLanguages[0]);
+    return { text: exportText(tasks, format, separator), count: tasks.length };
   }
 
   /** Tell the person what an export did (`how`: saved, failed, copied or copy_failed). */
