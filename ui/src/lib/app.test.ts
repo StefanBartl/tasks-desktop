@@ -947,6 +947,18 @@ describe('writing', () => {
       expect(app.dropMove).toBeNull();
     });
 
+    it('writes the move under the version that was shown, not under one the list has by now', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })], { capabilities: withMove });
+      hub.next_ops = dry();
+      await app.askDropMove('pub/a', 'other');
+      // The file changes while the dialog is open and the list is read again.
+      hub.doc = snapshot([task('pub/a', { etag: 'e2' })], 'rev:2');
+      await app.refresh();
+      expect(app.tasks[0]?.etag).toBe('e2');
+      await app.confirmDropMove();
+      expect(hub.sent[1]?.ops).toEqual([{ op: 'move_area', id: 'pub/a', to_area: 'other', if_match: 'e1' }]);
+    });
+
     it('writes nothing when the person gives up, when the area is the one the task is in, or when the engine names a conflict', async () => {
       const { app, hub } = await ready([task('pub/a', { etag: 'e1' })], { capabilities: withMove });
       hub.next_ops = dry();

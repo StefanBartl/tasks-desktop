@@ -62,6 +62,17 @@ describe('lists', () => {
   });
 });
 
+describe('the same filter in another order of choices', () => {
+  it('is the list that was kept, however the fields were chosen', () => {
+    const made = { ...freshFilter(), fields: { tag: ['x'], kind: ['bug'] } };
+    const list = makeList('Bugs', made, 'default');
+    // Read back, the fields stand in the order of the fields of the page, not of the person's clicks.
+    const back = { ...freshFilter(), fields: { kind: ['bug'], tag: ['x'] } };
+    expect(activeList([list], back, 'default')?.name).toBe('Bugs');
+    expect(activeList([list], made, 'default')?.name).toBe('Bugs');
+  });
+});
+
 describe('the memory', () => {
   it('survives a round trip, by vault', () => {
     const memory = { '': [makeList('A', doing(), 'severity')], work: [makeList('B', freshFilter(), 'default')] };

@@ -65,9 +65,18 @@ export function serializeListMemory(memory: ListMemory): string {
   return JSON.stringify(memory);
 }
 
+/**
+ * The filter in the one form it is kept in: written, read back and written again. The choices of a field come in the
+ * order the person made them, and reading puts them in the order of the fields, so the same filter has two spellings
+ * until it has been through here.
+ */
+function canonical(filter: Filter): string {
+  return serializeFilter(parseFilter(serializeFilter(filter)));
+}
+
 /** A list for the filter and the order shown now. */
 export function makeList(name: string, filter: Filter, sort: SortWord): NamedList {
-  return { name, filter: serializeFilter(filter), sort };
+  return { name, filter: canonical(filter), sort };
 }
 
 /** The lists with `list` in them: one of the same name (whatever the case) is replaced, else it is added. Null when full. */
@@ -83,6 +92,6 @@ export function withoutList(lists: readonly NamedList[], name: string): NamedLis
 
 /** The list that is exactly the filter and the order shown now, if there is one. */
 export function activeList(lists: readonly NamedList[], filter: Filter, sort: SortWord): NamedList | undefined {
-  const now = serializeFilter(filter);
+  const now = canonical(filter);
   return lists.find((l) => l.sort === sort && l.filter === now);
 }

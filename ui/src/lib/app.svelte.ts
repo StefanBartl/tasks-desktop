@@ -230,6 +230,8 @@ export class App {
     toArea: string;
     /** How many tasks go: more than one when the dropped task is one of several marked ones (they go together). */
     count: number;
+    /** The version of the file the dry run was made for (one task): the move is written under it, not under a newer one. */
+    etag?: string;
     /** The dry run of one task. */
     answer: Awaited<ReturnType<App['previewMove']>> | null;
     /** The dry run of the marked tasks (`count` > 1), per task. */
@@ -940,7 +942,8 @@ export class App {
     const seq = ++this.#dropAsks;
     // A marked task dropped with other marked ones takes them along: they are moved together, as in the list.
     const count = this.marks.length > 1 && this.marks.includes(id) ? this.marks.length : 1;
-    this.dropMove = { id, toArea, count, answer: null, checks: null };
+    const etag = task.etag;
+    this.dropMove = { id, toArea, count, ...(etag ? { etag } : {}), answer: null, checks: null };
     const still = (): boolean => seq === this.#dropAsks && this.dropMove?.id === id && this.dropMove.toArea === toArea;
     if (count > 1) {
       const checks = await this.previewBulkMove(toArea);
@@ -950,7 +953,7 @@ export class App {
       return;
     }
     const answer = await this.previewMove(id, toArea);
-    if (still()) this.dropMove = { id, toArea, count, answer, checks: null };
+    if (still()) this.dropMove = { id, toArea, count, ...(etag ? { etag } : {}), answer, checks: null };
   }
 
   cancelDropMove(): void {
@@ -980,10 +983,10 @@ export class App {
       return;
     }
     if (!asking || asking.answer?.kind !== 'ok' || asking.answer.move.conflicts.length > 0) return;
-    const etag = this.tasks.find((x) => x.id === asking.id)?.etag;
+    // The version the person was shown, not the one the list has by now: a file that changed meanwhile is refused.
     this.#dropAsks++;
     this.dropMove = null;
-    await this.moveArea(asking.id, asking.toArea, etag);
+    await this.moveArea(asking.id, asking.toArea, asking.etag);
   }
 
   /**

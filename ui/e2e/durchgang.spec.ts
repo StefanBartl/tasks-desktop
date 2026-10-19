@@ -418,9 +418,26 @@ test('the page may write the clipboard from the Project menu and may not read it
     return { write: p.allowsFeature('clipboard-write'), read: p.allowsFeature('clipboard-read') };
   });
   expect(policy).toEqual({ write: true, read: false });
+  // What went to the clipboard is recorded on the way (the page cannot read it back): the CSV, without the byte order
+  // mark of a file, one row for each task shown.
+  await page.evaluate(() => {
+    const w = window as unknown as { __copied: string[] };
+    w.__copied = [];
+    const write = navigator.clipboard.writeText.bind(navigator.clipboard);
+    navigator.clipboard.writeText = async (text: string) => {
+      w.__copied.push(text);
+      return write(text);
+    };
+  });
   await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Copy tasks as CSV', exact: true }).click();
   await expect(page.getByText(`${shown} tasks copied.`)).toBeVisible();
+  const copied = await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied);
+  expect(copied).toHaveLength(1);
+  expect(copied[0]!.startsWith('﻿')).toBe(false);
+  const lines = copied[0]!.trimEnd().split('\r\n');
+  expect(lines[0]).toBe('id,title,status,actor,kind,prio,effort,value,severity,plan,phase,tags,updated');
+  expect(lines.length - 1).toBe(shown);
 });
 
 test('the list can be shown in an order of the engine, and the choice survives a reload', async ({ page }) => {
