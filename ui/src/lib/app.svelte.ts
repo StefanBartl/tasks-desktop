@@ -1063,7 +1063,9 @@ export class App {
 
   /** Only the tasks the list shows stay marked: a mark that cannot be seen must not be changed. */
   keepMarksShown(): void {
-    if (this.marks.length === 0) return;
+    // Not while a write is on its way: a list read in the middle of it may lack tasks the write has moved already, and
+    // their marks would go before the answer can tell where the tasks went. The read after the write sets this right.
+    if (this.marks.length === 0 || this.saving) return;
     const shown = new Set(this.shown.map((t) => t.id));
     const arriving = this.#arriving?.ids;
     const kept = this.marks.filter((id) => shown.has(id) || arriving?.has(id));
@@ -2095,7 +2097,8 @@ export class App {
         this.#arriving.late += 1;
         if ([...this.#arriving.ids].every((id) => have.has(id)) || this.#arriving.late >= LATE_READS) this.#arriving = null;
       }
-      this.marks = pruneMarks(this.marks, this.tasks, this.#arriving?.ids);
+      // The same: a write under way has not said where its tasks went, so a mark is not judged by a list read meanwhile.
+      if (!this.saving) this.marks = pruneMarks(this.marks, this.tasks, this.#arriving?.ids);
       // What is needed beside the list is read after it is shown: each of
       // these is one more Neovim process of the hub.
       void this.readBeside();

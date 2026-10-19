@@ -1209,6 +1209,50 @@ describe('writing', () => {
     expect(app.toast?.text).toContain(translate(app.lang, 'bulk.move_partial', { done: 1, failed: 1, why }));
   });
 
+  it('keeps the marks of tasks a write is moving when a list read in the middle of the write already lacks them', async () => {
+    // The bulk move test failed on the Windows runner with one mark left of three: a read that ran while the engine was
+    // moving the files returned the list without the old ids, and their marks went before the answer could name the
+    // new ones.
+    const { app, hub } = await ready([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' })]);
+    app.markShown();
+    const after = snapshot([task('other/a', { etag: 'e3' }), task('other/b', { etag: 'e4' })], 'rev:2');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let asked = false;
+    hub.ops = (async () => {
+      asked = true;
+      await gate;
+      const moved = (n: number, id: string, to: string) => ({
+        n,
+        op: 'move_area',
+        id,
+        ok: true,
+        outcome: 'moved',
+        new_id: to,
+        changed_ids: [id, to],
+        inverse: { op: 'move_area', id: to, to_area: 'pub' },
+      });
+      return {
+        kind: 'tasks.result',
+        ok: true,
+        dry_run: false,
+        results: [moved(1, 'pub/a', 'other/a'), moved(2, 'pub/b', 'other/b')],
+      } as unknown as Result;
+    }) as typeof hub.ops;
+    const checks = ['a', 'b'].map((x) => ({ id: `pub/${x}`, newId: `other/${x}`, reasons: [], references: 0, namedBy: [] }));
+    const moving = app.bulkMove('other', checks);
+    await vi.waitFor(() => expect(asked).toBe(true));
+    // In the middle of the write a read already sees the files in their new places.
+    hub.snapshot = (async () => ({ kind: 'fresh' as const, doc: after, etag: 'mid' })) as typeof hub.snapshot;
+    await app.refresh();
+    expect(app.tasks.map((t) => t.id)).toEqual(['other/a', 'other/b']);
+    expect(app.marks).toEqual(['pub/a', 'pub/b']);
+    release();
+    expect(await moving).toBe(2);
+    await app.refresh();
+    expect(app.marks).toEqual(['other/a', 'other/b']);
+  });
+
   it('keeps the marks of moved tasks when a read that began AFTER the move still answers with the list of before', async () => {
     // The hub may answer from the state before the move for a moment (CI, the bulk move test, twice): the marks that
     // followed the new ids must not go because of one stale list.
