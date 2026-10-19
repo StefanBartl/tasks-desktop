@@ -3593,7 +3593,7 @@ test('a filter and an order are kept under a name, brought back from the list of
   await page.getByLabel('Name of the list').fill('E2E doing by prio');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('status').getByText('List E2E doing by prio saved.')).toBeVisible();
-  await expect(page.locator('select[data-lists]')).toHaveValue('E2E doing by prio');
+  await expect(page.locator('select[data-lists]')).toHaveValue('mine:E2E doing by prio');
 
   // Everything is shown again, in the plan order; the list brings the filter and the order back.
   await page.locator('select[data-sort]').selectOption('default');
@@ -3602,7 +3602,7 @@ test('a filter and an order are kept under a name, brought back from the list of
   await page.keyboard.press('Escape');
   await expect.poll(() => rows.count()).toBe(all);
   await expect(page.locator('select[data-lists]')).toHaveValue('');
-  await page.locator('select[data-lists]').selectOption('E2E doing by prio');
+  await page.locator('select[data-lists]').selectOption({ label: 'E2E doing by prio' });
   await expect.poll(() => rows.count()).toBe(kept);
   await expect(page.locator('select[data-sort]')).toHaveValue('prio-effort');
 
@@ -3610,8 +3610,29 @@ test('a filter and an order are kept under a name, brought back from the list of
   await page.reload();
   await expect(page.getByRole('menubar')).toBeVisible();
   await expect(page.locator('select[data-lists] option', { hasText: 'E2E doing by prio' })).toHaveCount(1);
-  await page.locator('select[data-lists]').selectOption('E2E doing by prio');
+  await page.locator('select[data-lists]').selectOption({ label: 'E2E doing by prio' });
   await page.getByRole('button', { name: 'Delete the list E2E doing by prio' }).click();
   await expect(page.locator('select[data-lists] option', { hasText: 'E2E doing by prio' })).toHaveCount(0);
+  expect(await violations(page)).toEqual([]);
+});
+
+test('the lists of the engine are offered next to the own ones and apply what the page can say, naming the rest', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  const lists = page.locator('select[data-lists]');
+  // The built-in lists of the engine are there, in a group of their own.
+  const group = lists.locator('optgroup[label="From the engine"]');
+  await expect(group.locator('option', { hasText: 'small-and-important' })).toHaveCount(1);
+  await expect(group.locator('option', { hasText: 'quick-wins' })).toHaveCount(1);
+
+  // One is chosen: its status and order are on the page, and what the page cannot say is told.
+  await lists.selectOption({ label: 'small-and-important' });
+  await expect(page.locator('select[data-sort]')).toHaveValue('prio-effort');
+  await expect(page.getByRole('button', { name: 'Status: 2', exact: true })).toBeVisible();
+  await expect(page.getByRole('alert').getByText(/not applied: .*readiness: ready/)).toBeVisible();
+  // It is the engine's list, not one of the page: nothing is chosen as a list of the page, and there is nothing to delete.
+  await expect(lists).toHaveValue('');
+  await expect(page.getByRole('button', { name: /^Delete the list/ })).toHaveCount(0);
   expect(await violations(page)).toEqual([]);
 });

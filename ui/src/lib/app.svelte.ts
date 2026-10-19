@@ -35,6 +35,7 @@ import { backoffSeconds, readStream, StreamRefused, type SseMessage } from 'appk
 import { detectLang, isLang, translate, type Key, type Lang } from './i18n';
 import { exportText, type ExportFormat } from './export';
 import { applyOrder, orderOf, parseSort, type SortWord } from './sort';
+import { fromEngineList, type EngineList } from './engineLists';
 import {
   activeList as activeListOf,
   cleanName,
@@ -306,6 +307,9 @@ export class App {
 
   tasks = $state.raw<TaskEntry[]>([]);
   snapshot = $state.raw<Snapshot | null>(null);
+  /** The named lists of the engine (read only; the ones of the editor, built in, or from its configuration). */
+  engineLists = $state.raw<EngineList[]>([]);
+  #engineListsAsked = false;
   /** The named lists of every vault this browser knows (a filter and an order under a name). */
   listMemory = $state.raw<ListMemory>({});
   /** The order the list is shown in: a word of the engine's `--sort`, or its plan order. */
@@ -424,6 +428,41 @@ export class App {
     if (!list) return;
     this.filter = { ...parseFilter(list.filter), query: this.filter.query };
     this.setSort(list.sort);
+  }
+
+  /**
+   * Show what a list of the engine names: its filter (the search words stay) and its order. What the page cannot say
+   * of it is told, so nobody takes the list for more than it shows.
+   */
+  applyEngineList(name: string): void {
+    const list = this.engineLists.find((l) => l.name === name);
+    if (!list) return;
+    const applied = fromEngineList(list, this.tasks);
+    this.filter = { ...applied.filter, query: this.filter.query };
+    this.setSort(applied.sort);
+    if (applied.unsupported.length > 0) {
+      this.say('error', 'lists.engine_partial', { name, words: applied.unsupported.join(', ') });
+    }
+  }
+
+  /** Ask the engine for its lists. A hub or an engine without them shows none; that is no failure to tell. */
+  async loadEngineLists(): Promise<void> {
+    // Once for this page: the lists of the editor change when somebody saves one there, not with every write.
+    if (this.#engineListsAsked) return;
+    if (!this.can('lists')) {
+      this.engineLists = [];
+      return;
+    }
+    this.#engineListsAsked = true;
+    try {
+      this.engineLists = (await this.env.hub.lists()).lists;
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        this.#engineListsAsked = false;
+        return;
+      }
+      this.engineLists = [];
+    }
   }
 
   deleteList(name: string): void {
@@ -2049,6 +2088,7 @@ export class App {
 
   /** The classes of the areas, the cache, and the next task. */
   private async readBeside(): Promise<void> {
+    void this.loadEngineLists();
     const doc = this.snapshot;
     if (!doc) return;
     // The vaults first: the answer does not depend on the classes, and a failure of those must not skip it.

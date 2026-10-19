@@ -322,14 +322,30 @@
         <span>{t('lists.label')}</span>
         <select
           data-lists
-          value={app.shownList?.name ?? ''}
+          value={app.shownList ? `mine:${app.shownList.name}` : ''}
           onchange={(e) => {
-            const name = e.currentTarget.value;
-            if (name !== '') app.applyList(name);
+            const value = e.currentTarget.value;
+            if (value.startsWith('mine:')) app.applyList(value.slice(5));
+            else if (value.startsWith('engine:')) {
+              app.applyEngineList(value.slice(7));
+              // The list of the engine is not kept as the chosen one: the choice goes back to what is shown.
+              e.currentTarget.value = app.shownList ? `mine:${app.shownList.name}` : '';
+            }
           }}
         >
           <option value="">{t('lists.none')}</option>
-          {#each app.lists as list (list.name)}<option value={list.name}>{list.name}</option>{/each}
+          {#if app.lists.length > 0}
+            <optgroup label={t('lists.mine')}>
+              {#each app.lists as list (list.name)}<option value={`mine:${list.name}`}>{list.name}</option>{/each}
+            </optgroup>
+          {/if}
+          {#if app.engineLists.length > 0}
+            <optgroup label={t('lists.engine')}>
+              {#each app.engineLists as list (list.name)}
+                <option value={`engine:${list.name}`} title={list.summary}>{list.name}</option>
+              {/each}
+            </optgroup>
+          {/if}
         </select>
       </label>
       {#if app.shownList}

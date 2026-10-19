@@ -39,6 +39,9 @@ class FakeHub {
   rescans = 0;
   areasCalls = 0;
   nextCalls = 0;
+  /** The lists of the engine, as `lists` answers them (null: the hub has none). */
+  engineListDoc: unknown = null;
+  listsCalls = 0;
   /** The answers of `order` by word (a word without one is refused as the engine would). */
   orders = new Map<string, string[]>();
   orderCalls: string[] = [];
@@ -183,6 +186,11 @@ class FakeHub {
   async areas() {
     this.areasCalls += 1;
     return { areas: this.areaList, unclassified: [], private: [] };
+  }
+  async lists() {
+    this.listsCalls += 1;
+    if (this.engineListDoc === null) throw new ApiError(404, 'not_found', 'no lists');
+    return this.engineListDoc as never;
   }
   async order(sort: string) {
     this.orderCalls.push(sort);
@@ -3453,6 +3461,64 @@ describe('the order of the list', () => {
     m.app.stop();
   });
 
+  describe('the lists of the engine', () => {
+    const three = [task('pub/a', { status: 'open' }), task('pub/b', { status: 'doing' }), task('pub/c', { status: 'doing' })];
+    const doc = (lists: unknown[]) => ({ kind: 'tasks.lists', lists, notes: [] });
+    const entry = (name: string, options: Record<string, unknown>) => ({ name, source: 'saved', summary: name, options });
+
+    it('asks once and shows what the engine has, next to the lists of the page', async () => {
+      const m = make({ token: 't' });
+      m.hub.capabilities = ['lists'];
+      m.hub.doc = snapshot(three);
+      m.hub.engineListDoc = doc([entry('E1', { status: 'doing' })]);
+      await m.app.start(null);
+      await vi.waitFor(() => expect(m.app.engineLists.map((l) => l.name)).toEqual(['E1']));
+      await m.app.refresh();
+      await m.app.refresh();
+      expect(m.hub.listsCalls).toBe(1);
+      m.app.stop();
+    });
+
+    it('applies the filter and the order, keeps the search words, and tells what it could not say', async () => {
+      const m = make({ token: 't' });
+      m.hub.capabilities = ['lists'];
+      m.hub.doc = snapshot(three);
+      m.hub.orders.set('roi', ['pub/c', 'pub/b', 'pub/a']);
+      m.hub.engineListDoc = doc([entry('E1', { status: 'doing', sort: 'roi', stale: '30' })]);
+      await m.app.start(null);
+      await vi.waitFor(() => expect(m.app.engineLists).toHaveLength(1));
+      m.app.filter = { ...m.app.filter, query: 'typed' };
+      m.app.applyEngineList('E1');
+      expect(m.app.filter.statuses).toEqual(['doing']);
+      expect(m.app.filter.query).toBe('typed');
+      expect(m.app.sort).toBe('roi');
+      expect(m.app.toast).toMatchObject({ kind: 'error' });
+      expect(m.app.toast?.text).toContain('stale: 30');
+      // It is not one of the page's lists: nothing is saved by it.
+      expect(m.app.lists).toEqual([]);
+      m.app.stop();
+    });
+
+    it('shows none, quietly, when the hub or the engine has no lists', async () => {
+      const m = make({ token: 't' });
+      m.hub.capabilities = ['lists'];
+      m.hub.doc = snapshot(three);
+      await m.app.start(null);
+      await vi.waitFor(() => expect(m.hub.listsCalls).toBe(1));
+      expect(m.app.engineLists).toEqual([]);
+      m.app.applyEngineList('nothing');
+      expect(m.app.toast).toBeNull();
+      m.app.stop();
+      const without = make({ token: 't' });
+      without.hub.capabilities = ['reorder'];
+      without.hub.doc = snapshot(three);
+      without.hub.engineListDoc = doc([entry('E1', {})]);
+      await without.app.start(null);
+      expect(without.hub.listsCalls).toBe(0);
+      without.app.stop();
+    });
+  });
+
   describe('named lists', () => {
     const three = [task('pub/a', { status: 'open' }), task('pub/b', { status: 'doing' }), task('pub/c', { status: 'doing' })];
 
@@ -3486,6 +3552,7 @@ describe('the order of the list', () => {
 
     it('refuses a name it cannot keep, and says so', async () => {
       const m = make({ token: 't' });
+      m.hub.capabilities = ['lists'];
       m.hub.doc = snapshot(three);
       await m.app.start(null);
       expect(m.app.saveList('   ')).toBe('bad_name');

@@ -293,6 +293,17 @@ async fn order_passes_the_sort_and_the_area_and_nothing_else() {
 }
 
 #[tokio::test]
+async fn lists_passes_the_lists_of_the_engine_as_they_are() {
+    let h = hub(Some(fake_engine()), ready()).await;
+    let r = get(&h, "/api/tasks/lists", &[]).await;
+    assert_eq!(r.status, 200, "{r:?}");
+    let doc: Value = serde_json::from_str(&r.body).unwrap();
+    assert_eq!(doc["kind"], "tasks.lists");
+    assert_eq!(doc["lists"][1]["name"], "mine");
+    assert_eq!(doc["lists"][1]["options"]["effort"], "<=S");
+}
+
+#[tokio::test]
 async fn queries_that_are_not_plain_are_refused_before_the_engine() {
     let h = hub(Some(fake_engine()), ready()).await;
     for path in [
@@ -323,6 +334,7 @@ async fn queries_that_are_not_plain_are_refused_before_the_engine() {
         "/api/tasks/order?limit=5",
         "/api/tasks/order?area=..",
         "/api/tasks/order?x=1",
+        "/api/tasks/lists?x=1",
         "/api/tasks/snapshot?x=1",
     ] {
         let r = get(&h, path, &[]).await;

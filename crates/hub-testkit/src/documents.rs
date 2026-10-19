@@ -146,6 +146,24 @@ fn tasks_fill(call: &Call<'_>, doc: &mut Value) {
             doc["items"] = json!(items);
             doc["incomplete"] = json!([]);
         }
+        "lists" => {
+            doc["lists"] = json!([
+                {
+                    "name": "quick-wins",
+                    "source": "builtin",
+                    "summary": "Quick wins",
+                    "options": { "quick_win": true, "sort": "roi", "status": "open,doing" },
+                },
+                {
+                    "name": "mine",
+                    "source": "saved",
+                    "desc": "small and worth it",
+                    "summary": "small and worth it",
+                    "options": { "effort": "<=S", "value": ">=4", "sort": "roi" },
+                },
+            ]);
+            doc["notes"] = json!([]);
+        }
         "areas" => {
             doc["areas"] = json!([
                 { "name": "alpha.nvim", "open": 1 },

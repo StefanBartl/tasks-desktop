@@ -548,6 +548,18 @@ pub(super) async fn finished(State(st): State<Arc<Shared>>, RawQuery(query): Raw
 /// outside this list never reaches the engine.
 const SORTS: [&str; 5] = ["default", "prio-effort", "severity", "frecency", "roi"];
 
+/// `GET /api/tasks/lists`: the named lists of the engine (built-in, saved with the editor, from its configuration), read
+/// only. The page shows them next to its own and lays their option words onto its filter; nothing is written.
+pub(super) async fn lists(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
+    if let Some(response) = no_query(query.as_deref()) {
+        return response;
+    }
+    match ask(&st, Calls::Lists, None).await {
+        Ok(reply) => json_response(StatusCode::OK, reply.text, None),
+        Err(response) => response,
+    }
+}
+
 /// `GET /api/tasks/order?sort=&area=`: the ids of the open tasks in the order of `sort` (the plan's order without it), all
 /// in one answer. A read; the order is the engine's, the page only lays the tasks it holds along the ids.
 pub(super) async fn order(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {

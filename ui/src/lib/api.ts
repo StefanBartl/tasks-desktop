@@ -1,6 +1,6 @@
 // The hub's routes, as typed calls. Only the shapes the UI needs.
 
-import type { Areas, Check, DonePreview, Estimate, Finished, Links, Next, Order, PlanFor, Result, Snapshot, TaskDocument } from './contract';
+import type { Areas, Check, DonePreview, Estimate, Finished, Links, NamedLists, Next, Order, PlanFor, Result, Snapshot, TaskDocument } from './contract';
 import type { About } from './about';
 
 export class ApiError extends Error {
@@ -226,6 +226,11 @@ export class Hub {
   async order(sort: string, signal?: AbortSignal): Promise<{ ids: string[] }> {
     const doc = await this.json<Order>(`/api/tasks/order?sort=${encodeURIComponent(sort)}`, signal ? { signal } : undefined);
     return { ids: doc.ids };
+  }
+
+  /** The named lists of the engine (read only). */
+  lists(): Promise<NamedLists> {
+    return this.json<NamedLists>('/api/tasks/lists');
   }
 
   next(): Promise<Next> {
