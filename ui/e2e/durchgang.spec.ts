@@ -434,7 +434,7 @@ test('the page may write the clipboard from the Project menu and may not read it
   await expect(page.getByText(`${shown} tasks copied.`)).toBeVisible();
   const copied = await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied);
   expect(copied).toHaveLength(1);
-  expect(copied[0]!.startsWith('﻿')).toBe(false);
+  expect(copied[0]!.startsWith('\ufeff')).toBe(false);
   const lines = copied[0]!.trimEnd().split('\r\n');
   expect(lines[0]).toBe('id,title,status,actor,kind,prio,effort,value,severity,plan,phase,tags,updated');
   expect(lines.length - 1).toBe(shown);
