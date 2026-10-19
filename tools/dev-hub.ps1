@@ -71,6 +71,12 @@ try {
   }
 
   if (-not $NoBuild) {
+    # A node_modules without its .bin shims (an interrupted or foreign install, or a fresh clone) makes
+    # `vite` an unknown command: the build then dies with "Der Befehl vite ... nicht gefunden". The
+    # lockfile is the truth, so link (and fetch what is missing) from it before building.
+    if (-not (Get-ChildItem -LiteralPath 'ui/node_modules/.bin' -Filter 'vite*' -ErrorAction SilentlyContinue)) {
+      Invoke-Step 'ui: pnpm install (vite is not linked)' { pnpm --dir ui install --frozen-lockfile }
+    }
     Invoke-Step 'ui: pnpm build' { pnpm --dir ui build }
     # Without this the binary keeps the interface it embedded last time.
     (Get-Item -LiteralPath 'crates/tasks-hub/src/ui.rs').LastWriteTime = Get-Date
