@@ -1209,6 +1209,69 @@ describe('writing', () => {
     expect(app.toast?.text).toContain(translate(app.lang, 'bulk.move_partial', { done: 1, failed: 1, why }));
   });
 
+  it('keeps the marks of moved tasks when a read that began AFTER the move still answers with the list of before', async () => {
+    // The hub may answer from the state before the move for a moment (CI, the bulk move test, twice): the marks that
+    // followed the new ids must not go because of one stale list.
+    const { app, hub } = await ready([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' })]);
+    app.markShown();
+    const before = hub.doc;
+    const after = snapshot([task('other/a', { etag: 'e3' }), task('other/b', { etag: 'e4' })], 'rev:2');
+    let stale = 0;
+    hub.snapshot = (async () => {
+      // The first read after the write is stale (the one the write makes itself), the next one knows the move.
+      if (hub.sent.length > 0 && stale === 0) {
+        stale += 1;
+        return { kind: 'fresh' as const, doc: before, etag: 'old' };
+      }
+      return hub.sent.length > 0
+        ? { kind: 'fresh' as const, doc: after, etag: 'new' }
+        : { kind: 'fresh' as const, doc: before, etag: 'old' };
+    }) as typeof hub.snapshot;
+    const moved = (n: number, id: string, to: string) => ({
+      n,
+      op: 'move_area',
+      id,
+      ok: true,
+      outcome: 'moved',
+      new_id: to,
+      changed_ids: [id, to],
+      inverse: { op: 'move_area', id: to, to_area: 'pub' },
+    });
+    hub.next_ops = {
+      kind: 'tasks.result',
+      ok: true,
+      dry_run: false,
+      results: [moved(1, 'pub/a', 'other/a'), moved(2, 'pub/b', 'other/b')],
+    } as unknown as Result;
+    const checks = ['a', 'b'].map((s) => ({ id: `pub/${s}`, newId: `other/${s}`, reasons: [], references: 0, namedBy: [] }));
+    expect(await app.bulkMove('other', checks)).toBe(2);
+    // The read that began after the answer brought the list of before: the marks stay on the new ids.
+    await vi.waitFor(() => expect(stale).toBe(1));
+    expect(app.tasks.map((t) => t.id)).toEqual(['pub/a', 'pub/b']);
+    expect(app.marks).toEqual(['other/a', 'other/b']);
+    // The next one knows the new ids: the marks stand, and a mark of a task that is gone goes from now on.
+    await app.refresh();
+    expect(app.tasks.map((t) => t.id)).toEqual(['other/a', 'other/b']);
+    expect(app.marks).toEqual(['other/a', 'other/b']);
+  });
+
+  it('does not keep the marks of moved tasks for ever when the list never knows them', async () => {
+    const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
+    app.markShown();
+    hub.snapshot = (async () => ({ kind: 'fresh' as const, doc: snapshot([task('pub/a', { etag: 'e1' })]), etag: 'same' })) as typeof hub.snapshot;
+    hub.next_ops = {
+      kind: 'tasks.result',
+      ok: true,
+      dry_run: false,
+      results: [
+        { n: 1, op: 'move_area', id: 'pub/a', ok: true, outcome: 'moved', new_id: 'other/a', changed_ids: ['pub/a'], inverse: { op: 'move_area', id: 'other/a', to_area: 'pub' } },
+      ],
+    } as unknown as Result;
+    await app.bulkMove('other', [{ id: 'pub/a', newId: 'other/a', reasons: [], references: 0, namedBy: [] }]);
+    for (let i = 0; i < 4; i++) await app.refresh();
+    expect(app.marks).toEqual([]);
+  });
+
   it('takes a batch of moves back and the selection returns to the id of ITS task, not to the first one moved back', async () => {
     // The undo of a batch is the inverses of its moves, in an order they can all be made in; the answer names them by
     // place. The task that was selected is the middle one: looking for "the first move that came back" selects the

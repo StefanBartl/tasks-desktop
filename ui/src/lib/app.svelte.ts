@@ -147,6 +147,9 @@ function parseTiles(text: string | null): Tile[] {
   }
 }
 
+/** How many reads that began after a batch of moves may still bring the list of before the move (see `#arriving`). */
+const LATE_READS = 3;
+
 export class App {
   phase = $state<Phase>('starting');
   /** The last pairing code was refused (spent or older than its minute): the page says so and what to do. */
@@ -1064,9 +1067,11 @@ export class App {
   /**
    * The new ids a batch of moves gave its marks, and how many reads of the list had begun when it was answered. A
    * read that began before the answer may bring the list of before (an event of the hub had started it), which does
-   * not know the new ids yet: they are not taken off the marks for it. The first read that began after clears this.
+   * not know the new ids yet: they are not taken off the marks for it. A read that began after the answer clears this
+   * once its list knows the new ids; a list that still lacks them (the hub answered from the state before the move) is
+   * not believed at once, but only for `LATE_READS` reads, so a mark of a task that is really gone does not stay.
    */
-  #arriving: { ids: ReadonlySet<string>; before: number } | null = null;
+  #arriving: { ids: ReadonlySet<string>; before: number; late: number } | null = null;
   /** The reads of the list begun so far (see `#arriving`). */
   #reads = 0;
 
@@ -1175,7 +1180,7 @@ export class App {
       }
       this.marks = followMoves(this.marks, moved);
       // A read under way now may still bring the list of before: the new ids are kept from it.
-      this.#arriving = { ids: new Set(moved.values()), before: this.#reads };
+      this.#arriving = { ids: new Set(moved.values()), before: this.#reads, late: 0 };
       // Not `inverseOf`: a later move of the batch may have rewritten a file whose inverse carries the version before.
       const undo = moveUndo(result.results);
       if (failed === 0) this.say('ok', 'bulk.moved', { n: moved.size }, undo);
@@ -2079,7 +2084,11 @@ export class App {
       this.phase = 'ready';
       if (this.connection === 'offline') this.connection = 'reconnecting';
       this.keepSelection();
-      if (this.#arriving && seq > this.#arriving.before) this.#arriving = null;
+      if (this.#arriving && seq > this.#arriving.before) {
+        const have = new Set(this.tasks.map((t) => t.id));
+        this.#arriving.late += 1;
+        if ([...this.#arriving.ids].every((id) => have.has(id)) || this.#arriving.late >= LATE_READS) this.#arriving = null;
+      }
       this.marks = pruneMarks(this.marks, this.tasks, this.#arriving?.ids);
       // What is needed beside the list is read after it is shown: each of
       // these is one more Neovim process of the hub.
