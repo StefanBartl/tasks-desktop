@@ -1209,6 +1209,27 @@ describe('writing', () => {
     expect(app.toast?.text).toContain(translate(app.lang, 'bulk.move_partial', { done: 1, failed: 1, why }));
   });
 
+  it('takes the mark of a task a write made vanish once the write is over', async () => {
+    const { app, hub } = await ready([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' })]);
+    app.markShown();
+    expect(app.marks).toEqual(['pub/a', 'pub/b']);
+    // The write finishes pub/a: the list read after it no longer has it.
+    hub.snapshot = (async () => ({ kind: 'fresh' as const, doc: snapshot([task('pub/b', { etag: 'e2' })], 'rev:2'), etag: 'n' })) as typeof hub.snapshot;
+    await app.setField('pub/a', 'status', 'doing');
+    expect(app.tasks.map((t) => t.id)).toEqual(['pub/b']);
+    expect(app.marks).toEqual(['pub/b']);
+  });
+
+  it('knows the quick wins of the engine from the snapshot', async () => {
+    const m = make({ token: 't' });
+    const withFigure = snapshot([task('pub/a')]);
+    (withFigure as unknown as { estimate: { quick_wins: string[] } }).estimate = { quick_wins: ['pub/a'] };
+    m.hub.doc = withFigure;
+    await m.app.start(null);
+    expect(m.app.quickWinSet?.has('pub/a')).toBe(true);
+    m.app.stop();
+  });
+
   it('keeps the marks of tasks a write is moving when a list read in the middle of the write already lacks them', async () => {
     // The bulk move test failed on the Windows runner with one mark left of three: a read that ran while the engine was
     // moving the files returned the list without the old ids, and their marks went before the answer could name the

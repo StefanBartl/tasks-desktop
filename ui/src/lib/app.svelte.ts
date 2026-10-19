@@ -390,10 +390,10 @@ export class App {
   }
 
   /** The ids the engine counts as quick wins (its figure of the estimate), or undefined when the engine gave none. */
-  get quickWinSet(): ReadonlySet<string> | undefined {
+  quickWinSet = $derived.by((): ReadonlySet<string> | undefined => {
     const ids = this.snapshot?.estimate?.quick_wins;
     return ids === undefined ? undefined : new Set(ids);
-  }
+  });
 
   get shown(): TaskEntry[] {
     const filtered = applyFilter(this.tasks, this.filter, this.today, this.crossIndex, this.quickWinSet);
@@ -762,6 +762,12 @@ export class App {
       this.answering = false;
       this.settling = null;
       this.writes += 1;
+      // The marks were not judged while the write was on its way (see `keepMarksShown`): now they are, by the list the
+      // write read after it.
+      if (this.marks.length > 0) {
+        this.marks = pruneMarks(this.marks, this.tasks, this.#arriving?.ids);
+        this.keepMarksShown();
+      }
       settle();
     }
   }
