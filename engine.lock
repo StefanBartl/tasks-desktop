@@ -5,4 +5,4 @@
 repo       = https://github.com/StefanBartl/tasks.nvim
 commit     = 865c0c669f14773912182e16c52872915fd780f0
 lib_repo   = https://github.com/StefanBartl/lib.nvim
-lib_commit = 6f302183bd289417de806aaed11a5a6a4b4724ab
+lib_commit = 0e3c3998afb06ad0d8307214cffd041048effcd3
