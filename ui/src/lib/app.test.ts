@@ -7,6 +7,7 @@ import { task } from './fixtures';
 import { MOVE_MAX } from './bulk';
 import { translate } from './i18n';
 import { emptyForm } from './planwizard';
+import { paletteActions } from './paletteActions';
 
 function snapshot(tasks: TaskEntry[], rev = 'rev:1'): Snapshot {
   return {
@@ -3562,6 +3563,22 @@ describe('the order of the list', () => {
       again.app.stop();
     });
 
+    it('keeps nothing before the hub has named its vault, and keeps it under the name after', async () => {
+      const prefs = new Map<string, string>();
+      const m = make({ token: 't', prefs });
+      m.hub.doc = snapshot(three);
+      m.hub.vaultDoc = { active: 'work', vaults: [{ name: 'work', label: 'work', main: true }] };
+      // The page has not started: the vault is not known.
+      expect(m.app.saveList('Early')).toBe('wait');
+      expect(m.app.toast).toMatchObject({ kind: 'error' });
+      expect(prefs.get('tasks-desktop.lists')).toBeUndefined();
+      await m.app.start(null);
+      expect(m.app.saveList('Later')).toBe('saved');
+      expect(JSON.parse(prefs.get('tasks-desktop.lists') ?? '{}')).toHaveProperty('work');
+      expect(JSON.parse(prefs.get('tasks-desktop.lists') ?? '{}')['']).toBeUndefined();
+      m.app.stop();
+    });
+
     it('refuses a name it cannot keep, and says so', async () => {
       const m = make({ token: 't' });
       m.hub.capabilities = ['lists'];
@@ -3605,6 +3622,46 @@ describe('the order of the list', () => {
       await work.app.start(null);
       expect(work.app.lists.map((l) => l.name)).toEqual(['Work only']);
       work.app.stop();
+    });
+  });
+
+  describe('the lists in the palette', () => {
+    it('offers one entry for each list, the own ones and the ones of the engine, and applies them', async () => {
+      const m = make({ token: 't' });
+      m.hub.capabilities = ['lists'];
+      m.hub.doc = snapshot([task('pub/a', { status: 'open' }), task('pub/b', { status: 'doing' })]);
+      m.hub.engineListDoc = {
+        kind: 'tasks.lists',
+        notes: [],
+        lists: [{ name: 'E1', source: 'builtin', summary: 'E1 summary', options: { status: 'doing' } }],
+      };
+      await m.app.start(null);
+      await vi.waitFor(() => expect(m.app.engineLists).toHaveLength(1));
+      m.app.filter = { ...m.app.filter, statuses: ['open'] };
+      m.app.saveList('Mine');
+      m.app.resetFilter();
+      const actions = paletteActions(m.app);
+      const own = actions.find((a) => a.key === 'list.mine.Mine');
+      const engine = actions.find((a) => a.key === 'list.engine.E1');
+      expect(own?.label).toBe(translate(m.app.lang, 'palette.list', { name: 'Mine' }));
+      expect(engine?.label).toBe(translate(m.app.lang, 'palette.list_engine', { name: 'E1' }));
+      expect(engine?.hint).toBe('E1 summary');
+      await own?.run();
+      expect(m.app.filter.statuses).toEqual(['open']);
+      expect(m.app.view).toBe('list');
+      m.app.setView('today');
+      await engine?.run();
+      expect(m.app.filter.statuses).toEqual(['doing']);
+      expect(m.app.view).toBe('list');
+      m.app.stop();
+    });
+
+    it('offers none when there are no lists', async () => {
+      const m = make({ token: 't' });
+      m.hub.doc = snapshot([task('pub/a')]);
+      await m.app.start(null);
+      expect(paletteActions(m.app).some((a) => a.key.startsWith('list.'))).toBe(false);
+      m.app.stop();
     });
   });
 });

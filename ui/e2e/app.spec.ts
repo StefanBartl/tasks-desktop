@@ -3636,3 +3636,42 @@ test('the lists of the engine are offered next to the own ones and apply what th
   await expect(page.getByRole('button', { name: /^Delete the list/ })).toHaveCount(0);
   expect(await violations(page)).toEqual([]);
 });
+
+test('the palette offers the lists, the page\'s own and the engine\'s, and a pick shows the list', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await chooseView(page, 'View', 'Today');
+  // The engine's built-in list is there at once; a list of the page is made in the list view.
+  await showList(page);
+  await page.getByRole('button', { name: /^Status(: [0-9]+)?$/ }).click();
+  await page.getByRole('checkbox', { name: 'doing', exact: true }).check();
+  await page.keyboard.press('Escape');
+  await page.getByText('Save as list ...').click();
+  await page.getByLabel('Name of the list').fill('E2E palette list');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('status').getByText('List E2E palette list saved.')).toBeVisible();
+  await chooseView(page, 'View', 'Today');
+
+  await page.keyboard.press('Control+k');
+  const palette = page.getByRole('dialog', { name: 'Command palette' });
+  await expect(palette).toBeVisible();
+  await page.keyboard.type('E2E palette');
+  await expect(palette.getByText('List: E2E palette list')).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(palette).toHaveCount(0);
+  await expect(page.locator('button.row').first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Status: doing', exact: true })).toBeVisible();
+
+  // The engine's list by its name.
+  await chooseView(page, 'View', 'Today');
+  await page.keyboard.press('Control+k');
+  await page.keyboard.type('quick-wins');
+  await expect(palette.getByText('List of the engine: quick-wins')).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('select[data-sort]')).toHaveValue('roi');
+  expect(await violations(page)).toEqual([]);
+
+  // Taken away again.
+  await page.locator('select[data-lists]').selectOption({ label: 'E2E palette list' });
+  await page.getByRole('button', { name: 'Delete the list E2E palette list' }).click();
+});

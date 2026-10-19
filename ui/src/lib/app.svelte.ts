@@ -407,7 +407,13 @@ export class App {
   }
 
   /** Keep the filter and the order shown now under `name` (a list of that name is replaced). Says what came of it. */
-  saveList(name: string): 'saved' | 'bad_name' | 'full' {
+  saveList(name: string): 'saved' | 'bad_name' | 'full' | 'wait' {
+    // The lists belong to the vault the hub reads: until it has named it (or said it has none) they would be
+    // kept under no name and not be found again.
+    if (this.#hubVault === undefined) {
+      this.say('error', 'lists.wait');
+      return 'wait';
+    }
     const clean = cleanName(name);
     if (clean === null) {
       this.say('error', 'lists.bad_name');

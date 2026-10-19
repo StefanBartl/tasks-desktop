@@ -54,6 +54,19 @@ export function paletteActions(app: App): PaletteAction[] {
   });
   if (app.marks.length > 0) add('marks.clear', t('bulk.clear'), () => app.clearMarks());
   add('filter.reset', t('palette.filter_reset'), () => app.resetFilter());
+  // The named lists: the ones kept in this browser, then the ones of the engine. Each shows the list with its filter and order.
+  for (const list of app.lists) {
+    add(`list.mine.${list.name}`, t('palette.list', { name: list.name }), () => {
+      app.setView('list');
+      app.applyList(list.name);
+    });
+  }
+  for (const list of app.engineLists) {
+    add(`list.engine.${list.name}`, t('palette.list_engine', { name: list.name }), () => {
+      app.setView('list');
+      app.applyEngineList(list.name);
+    }, list.summary);
+  }
 
   add('lang.de', t('palette.lang', { name: 'Deutsch' }), () => app.setLang('de'));
   add('lang.en', t('palette.lang', { name: 'English' }), () => app.setLang('en'));
