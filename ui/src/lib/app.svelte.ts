@@ -312,6 +312,8 @@ export class App {
 
   tasks = $state.raw<TaskEntry[]>([]);
   snapshot = $state.raw<Snapshot | null>(null);
+  /** The last ask for the list of vaults failed with something other than "there is none". */
+  vaultsFailed = $state(false);
   /** The named lists of the engine (read only; the ones of the editor, built in, or from its configuration). */
   engineLists = $state.raw<EngineList[]>([]);
   #engineListsAsked = false;
@@ -420,7 +422,7 @@ export class App {
     // The lists belong to the vault the hub reads: until it has named it (or said it has none) they would be
     // kept under no name and not be found again.
     if (this.#hubVault === undefined) {
-      this.say('error', 'lists.wait');
+      this.say('error', this.vaultsFailed ? 'lists.wait_failed' : 'lists.wait');
       return 'wait';
     }
     const clean = cleanName(name);
@@ -2212,10 +2214,15 @@ export class App {
   async loadVaults(): Promise<void> {
     try {
       this.vaultList = await this.env.hub.vaults();
+      this.vaultsFailed = false;
     } catch (error) {
       this.vaultList = null;
       // A hub with one vault and no list names none: the remembered filter stays as it is.
-      if (error instanceof ApiError && error.status === 404) this.#hubVault = null;
+      const none = error instanceof ApiError && error.status === 404;
+      if (none) this.#hubVault = null;
+      // Any other answer (a hub that errs, a network that fails) leaves the vault unknown; the next read of the list asks
+      // again, and the page says so where it needs the name (the lists).
+      this.vaultsFailed = !none;
       return;
     }
     // A filter made in another vault (chosen in another tab, or in the settings of the hub) is not taken over: its

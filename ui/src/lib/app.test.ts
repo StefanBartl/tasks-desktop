@@ -232,11 +232,14 @@ class FakeHub {
   vaultCalls: string[] = [];
   vaultError: ApiError | null = null;
   vaultsCalls = 0;
+  /** The next asks for the list of vaults fail with this status (an error of the hub, not "there is none"). */
+  vaultsFailWith: number | null = null;
   /** While set, the hub does not name its vault yet. */
   holdVaults: Promise<void> | null = null;
   async vaults(): Promise<VaultList> {
     this.vaultsCalls += 1;
     if (this.holdVaults) await this.holdVaults;
+    if (this.vaultsFailWith !== null) throw new ApiError(this.vaultsFailWith, 'broken', 'the hub errs');
     if (!this.vaultDoc) throw new ApiError(404, 'vaults_unavailable', 'no list');
     return this.vaultDoc;
   }
@@ -3739,6 +3742,27 @@ describe('the order of the list', () => {
       expect(m.app.saveList('Later')).toBe('saved');
       expect(JSON.parse(prefs.get('tasks-desktop.lists') ?? '{}')).toHaveProperty('work');
       expect(JSON.parse(prefs.get('tasks-desktop.lists') ?? '{}')['']).toBeUndefined();
+      m.app.stop();
+    });
+
+    it('says that the hub does not answer for the vaults, keeps nothing, and keeps the list once it does', async () => {
+      const prefs = new Map<string, string>();
+      const m = make({ token: 't', prefs });
+      m.hub.doc = snapshot(three);
+      m.hub.vaultsFailWith = 500;
+      m.hub.vaultDoc = { active: 'work', vaults: [{ name: 'work', label: 'work', main: true }] };
+      await m.app.start(null);
+      expect(m.app.vaultsFailed).toBe(true);
+      expect(m.app.saveList('Early')).toBe('wait');
+      expect(m.app.toast?.text).toBe(translate(m.app.lang, 'lists.wait_failed'));
+      expect(prefs.get('tasks-desktop.lists')).toBeUndefined();
+      // The hub recovers: the next read asks again and the vault is known.
+      m.hub.vaultsFailWith = null;
+      m.hub.doc = snapshot(three, 'rev:2');
+      await m.app.refresh();
+      expect(m.app.vaultsFailed).toBe(false);
+      expect(m.app.saveList('Later')).toBe('saved');
+      expect(JSON.parse(prefs.get('tasks-desktop.lists') ?? '{}')).toHaveProperty('work');
       m.app.stop();
     });
 
