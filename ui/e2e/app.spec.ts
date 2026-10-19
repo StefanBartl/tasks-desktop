@@ -3746,4 +3746,53 @@ test.describe('a finger', () => {
     expect(await violations(page)).toEqual([]);
     rmSync(from, { force: true });
   });
+
+  test('drags a card of the board by its grip into another column: the status changes, a short drag drops nothing', async ({ page }) => {
+    const slug = 'board-touch-e2e';
+    const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
+    writeFileSync(file, `---\ntitle: Board finger e2e\nstatus: open\nkind: task\n---\n\nTo be moved by a finger.\n`);
+    await watchViolations(page);
+    await pair(page);
+    await showList(page);
+    await page.getByRole('searchbox', { name: /search/i }).first().fill('Board finger e2e');
+    await chooseView(page, 'View', 'Board');
+    const column = (name: string) => page.getByRole('region', { name, exact: true });
+    const card = column('open').locator('.card', { hasText: 'Board finger e2e' });
+    await expect(card).toBeVisible();
+
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd' | 'touchCancel', at?: { x: number; y: number }) =>
+      cdp.send('Input.dispatchTouchEvent', { type, touchPoints: at ? [{ x: at.x, y: at.y }] : [] });
+    const centre = async (target: ReturnType<typeof page.locator>) => {
+      const box = (await target.boundingBox())!;
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    };
+
+    // A short drag (the finger hardly moves) drops nothing: the column it is over is only where the page put it.
+    const grip = await centre(card.locator('.grip'));
+    await touch('touchStart', grip);
+    await touch('touchMove', { x: grip.x + 6, y: grip.y + 6 });
+    await touch('touchEnd');
+    await expect(card).toBeVisible();
+    expect(readFileSync(file, 'utf8')).toContain('status: open');
+
+    // Down on the grip, a little aside, then over the column of "doing" and up.
+    const again = await centre(card.locator('.grip'));
+    await touch('touchStart', again);
+    await touch('touchMove', { x: again.x + 8, y: again.y + 8 });
+    const doing = column('doing');
+    await expect(doing).toBeVisible();
+    const over = await centre(doing.locator('h2'));
+    await touch('touchMove', over);
+    await expect(doing).toHaveClass(/target/);
+    await touch('touchEnd');
+    await expect(column('doing').locator('.card', { hasText: 'Board finger e2e' })).toBeVisible({ timeout: 15_000 });
+    expect(readFileSync(file, 'utf8')).toContain('status: doing');
+
+    // A tap on the card still selects it (a drag did not begin).
+    await column('doing').locator('.card', { hasText: 'Board finger e2e' }).locator('.title').tap();
+    await expect(page.locator('aside.detail')).toBeVisible();
+    expect(await violations(page)).toEqual([]);
+    rmSync(file, { force: true });
+  });
 });

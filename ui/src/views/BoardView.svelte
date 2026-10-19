@@ -4,6 +4,7 @@
   // never sorts: the order is the engine's, and a move asks the engine for the new one.
   import type { App } from '../lib/app.svelte';
   import { COLUMNS, COLUMN_FIRST, groupLabel, placeOf, runKey, stageOf, type Column } from '../lib/board';
+  import { boardTargetAt, createGrip, type BoardTarget, type PointerDragEvent } from '../lib/pointerDrag';
   import { hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import Info from 'appkit-ui/Info.svelte';
   import { marksLegend } from '../lib/legend';
@@ -105,6 +106,48 @@
     if (from !== null) await app.dropOnColumn(from, column);
   }
 
+  // A finger or a pen drags a card by its grip (HTML5 drag does not start on a touch screen). The places count only
+  // once the finger has gone a stretch from where it went down, and the drop goes to the place it moved onto.
+  const GRAB = 24;
+  let from = { x: 0, y: 0 };
+  let fingerAt: BoardTarget | null = null;
+  const grip = createGrip(
+    () => onPointerDrag,
+    () => app.saving,
+  );
+  function onPointerDrag(e: PointerDragEvent): void {
+    if (e.phase === 'start') {
+      dragging = e.id;
+      from = { x: e.x, y: e.y };
+      fingerAt = null;
+      return;
+    }
+    if (dragging !== e.id) return;
+    if (e.phase === 'move') {
+      const far = Math.hypot(e.x - from.x, e.y - from.y) >= GRAB;
+      fingerAt = far ? boardTargetAt(document, e.x, e.y) : null;
+      overDone = fingerAt?.kind === 'done';
+      overColumn = fingerAt && fingerAt.kind !== 'done' ? (fingerAt.column as Column) : null;
+      const sameColumn = app.tasks.find((x) => x.id === dragging)?.status === overColumn;
+      over =
+        fingerAt?.kind === 'card' && fingerAt.id !== dragging && sameColumn
+          ? { id: fingerAt.id, place: placeOf(e.y, fingerAt.top, fingerAt.height) }
+          : null;
+      return;
+    }
+    const target = e.phase === 'end' ? fingerAt : null;
+    const place = over?.place ?? 'after';
+    const id = e.id;
+    onDragEnd();
+    fingerAt = null;
+    if (target === null) return;
+    if (target.kind === 'done') void app.dropOnDone(id);
+    else if (target.kind === 'column') void app.dropOnColumn(id, target.column as Column);
+    else if (target.id === id) return;
+    else if (app.tasks.find((x) => x.id === id)?.status !== target.column) void app.dropOnColumn(id, target.column as Column);
+    else void app.dropNear(id, { id: target.id, place });
+  }
+
   // The selected card stays in view when the keys move it.
   $effect(() => {
     if (app.selectedId === null) return;
@@ -145,6 +188,7 @@
     <div class="main" ondragleave={onBoardLeave} role="presentation">
       <div
         class="donezone"
+        data-donezone
         class:target={overDone && dragging !== null}
         role="group"
         aria-label={t('board.done')}
@@ -160,6 +204,7 @@
       {#each COLUMNS as column (column)}
         <section
           class="column"
+          data-column={column}
           class:target={overColumn === column && dragging !== null}
           aria-label={labelOf(app.lang, 'status', column)}
           ondragover={(e) => onColumnOver(e, column)}
@@ -179,6 +224,8 @@
               <button
                 type="button"
                 class="card"
+                data-card={card.id}
+                data-card-column={column}
                 class:selected={card.id === app.selectedId}
                 class:dragging={dragging === card.id}
                 class:before={over?.id === card.id && over.place === 'before'}
@@ -193,6 +240,16 @@
               >
                 <span class="title">{markHidden(card.title)}</span>
                 <span class="meta">
+                  <!-- A finger drags by this grip (a screen reader and the keys have the keys of the board). -->
+                  <span
+                    class="grip"
+                    role="presentation"
+                    aria-hidden="true"
+                    onpointerdown={(e) => grip(e, card.id, 'start')}
+                    onpointermove={(e) => grip(e, card.id, 'move')}
+                    onpointerup={(e) => grip(e, card.id, 'end')}
+                    onpointercancel={(e) => grip(e, card.id, 'cancel')}>⠿</span
+                  >
                   <span class="id">{card.id}</span>
                   {#if !card.valid}<span class="tag bad" data-hint={t('hint.invalid')}><span aria-hidden="true">!</span><span class="sr-only">{t('mark.invalid')}</span></span>{/if}
                   {#if app.crossAreas(card.id).length >= 2}
@@ -331,6 +388,15 @@
   }
   .card.selected {
     box-shadow: inset 3px 0 0 var(--accent);
+  }
+  .grip {
+    display: inline-block;
+    min-width: 1.6rem;
+    text-align: center;
+    cursor: grab;
+    color: var(--muted);
+    touch-action: none;
+    user-select: none;
   }
   .card.dragging {
     opacity: 0.45;

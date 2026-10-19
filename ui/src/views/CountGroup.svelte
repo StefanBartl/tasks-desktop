@@ -4,7 +4,7 @@
   import { PAGE } from '../lib/counts';
   import type { TaskEntry } from '../lib/contract';
   import { translate, type Key } from '../lib/i18n';
-  import { startsOnGrip, type PointerDragEvent } from '../lib/pointerDrag';
+  import { createGrip, type PointerDragEvent } from '../lib/pointerDrag';
   import { markHidden } from '../lib/text';
 
   let {
@@ -25,25 +25,10 @@
     onpointerdrag?: (event: PointerDragEvent) => void;
   } = $props();
 
-  // The row whose grip a finger holds: the pointer is followed on the grip (captured), wherever it goes.
-  let gripped: string | null = null;
-  function grip(e: PointerEvent, id: string, phase: PointerDragEvent['phase']): void {
-    if (!onpointerdrag) return;
-    if (phase === 'start') {
-      if (!startsOnGrip(e.pointerType) || app.saving) return;
-      e.preventDefault();
-      try {
-        (e.currentTarget as Element).setPointerCapture(e.pointerId);
-      } catch {
-        // A pointer that is gone cannot be captured; the events then stay on whatever is under the finger.
-      }
-      gripped = id;
-    } else if (gripped !== id) {
-      return;
-    }
-    if (phase === 'end' || phase === 'cancel') gripped = null;
-    onpointerdrag({ phase, id, x: e.clientX, y: e.clientY });
-  }
+  const grip = createGrip(
+    () => onpointerdrag,
+    () => app.saving,
+  );
 
   function dragStart(event: DragEvent, id: string): void {
     if (!ondragtask || app.saving) {

@@ -26,3 +26,52 @@ export function areaAt(doc: PointSource, x: number, y: number): string | null {
 export function startsOnGrip(pointerType: string): boolean {
   return pointerType === 'touch' || pointerType === 'pen';
 }
+
+/** The grip of a row: follows its own pointer from `start` to `end` and tells `sink` about it. */
+export function createGrip(
+  sink: () => ((event: PointerDragEvent) => void) | undefined,
+  blocked: () => boolean,
+): (e: PointerEvent, id: string, phase: PointerDragEvent['phase']) => void {
+  // The row whose grip a finger holds: the pointer is followed on the grip (captured), wherever it goes.
+  let gripped: string | null = null;
+  return (e, id, phase) => {
+    const on = sink();
+    if (!on) return;
+    if (phase === 'start') {
+      if (!startsOnGrip(e.pointerType) || blocked()) return;
+      e.preventDefault();
+      try {
+        (e.currentTarget as Element).setPointerCapture(e.pointerId);
+      } catch {
+        // A pointer that is gone cannot be captured; the events then stay on whatever is under the finger.
+      }
+      gripped = id;
+    } else if (gripped !== id) {
+      return;
+    }
+    if (phase === 'end' || phase === 'cancel') gripped = null;
+    on({ phase, id, x: e.clientX, y: e.clientY });
+  };
+}
+
+/** What a point of the board is over. */
+export type BoardTarget =
+  | { kind: 'card'; id: string; column: string; top: number; height: number }
+  | { kind: 'column'; column: string }
+  | { kind: 'done' };
+
+/** The card, the column or the strip for finishing that the point is on (a card carries `data-card` and `data-card-column`). */
+export function boardTargetAt(doc: PointSource, x: number, y: number): BoardTarget | null {
+  const el = doc.elementFromPoint(x, y);
+  if (!el) return null;
+  const card = el.closest('[data-card]');
+  const id = card?.getAttribute('data-card');
+  const cardColumn = card?.getAttribute('data-card-column');
+  if (card && id && cardColumn) {
+    const rect = card.getBoundingClientRect();
+    return { kind: 'card', id, column: cardColumn, top: rect.top, height: rect.height };
+  }
+  if (el.closest('[data-donezone]')) return { kind: 'done' };
+  const column = el.closest('[data-column]')?.getAttribute('data-column');
+  return column ? { kind: 'column', column } : null;
+}
