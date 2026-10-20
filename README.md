@@ -113,7 +113,12 @@ hub reads only `areas.json`.
 To not decide area by area, `areas.json` may carry `"default": "internal"`
 (or `public`, `private`): the class of every area the file does not name.
 An entry still wins, so `"secret": {"class": "private"}` stays private. Without
-`default` an area with no entry is unclassified. See [docs/SECURITY.md](docs/SECURITY.md).
+`default` an area with no entry is unclassified. That file (schema 1) is the classes of the vault `main`. When you
+read more than one vault, use schema 2, whose keys are `<vault>:<area>` (`"work:lib.nvim": {"class": "private"}`, and
+`"vaults": {"work": {"default": "internal"}}`): two vaults may have an area of the same name, and each keeps its own
+class; a vault the file does not name has everything unclassified. `tasks-hub areas propose` writes schema 2 as soon as
+the vault is not `main` or the file is already schema 2, and keeps what the other vaults decided. See
+[docs/SECURITY.md](docs/SECURITY.md).
 
 ## The rolling build (the newest `main`, one click)
 

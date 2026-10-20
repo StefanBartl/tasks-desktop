@@ -36,6 +36,23 @@ fn engine_for(vault: &Path) -> Arc<dyn Engine> {
     }))
 }
 
+/// The classes of `alpha.nvim` in a vault: the same name in both vaults, `internal` in one and `private` in the other.
+fn classes_of(vault: &str) -> Arc<AreaPolicy> {
+    let class = if vault == "b" {
+        tasks_hub::classes::Class::Private
+    } else {
+        tasks_hub::classes::Class::Internal
+    };
+    let entry = tasks_hub::classes::Entry { class, repo: None };
+    Arc::new(
+        AreaPolicy::new(std::collections::BTreeMap::from([(
+            "alpha.nvim".to_owned(),
+            entry,
+        )]))
+        .unwrap(),
+    )
+}
+
 /// A list of vaults kept in memory: `a` is read first, `b` is a second vault
 /// with more tasks, `broken` cannot be read.
 struct Fake {
@@ -116,6 +133,7 @@ impl VaultAdmin<VaultTarget> for Fake {
                     capabilities: Vec::new(),
                 },
                 vault: Some(self.b.clone()),
+                policy: None,
             }))
         })
     }
@@ -140,6 +158,7 @@ impl VaultAdmin<VaultTarget> for Fake {
                     capabilities: Vec::new(),
                 },
                 vault: Some(vault.clone()),
+                policy: Some(classes_of(name)),
             })
         })
     }
@@ -190,7 +209,7 @@ async fn rig(name: &str, with_admin: bool) -> Rig {
             capabilities: Vec::new(),
         },
         engine: Some(engine_for(&a)),
-        policy: Arc::new(AreaPolicy::default()),
+        policy: classes_of("main"),
         usage: None,
         ui: tasks_hub::ui::UiFiles::none(),
         watch: Some(WatchConfig {
@@ -511,4 +530,31 @@ async fn the_check_job_belongs_to_the_vault_that_is_read() {
     let (_, body) = get(&r, "/api/tasks/check").await;
     let state: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(state["job"]["state"], "idle", "{body}");
+}
+
+#[tokio::test]
+async fn the_classes_follow_the_vault_that_is_read() {
+    let r = rig("classes", true).await;
+    let class_of_alpha = |body: &str| {
+        let doc: Value = serde_json::from_str(body).unwrap();
+        doc["areas"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["name"] == "alpha.nvim")
+            .unwrap()["data_class"]
+            .clone()
+    };
+    let (status, body) = get(&r, "/api/tasks/areas").await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(class_of_alpha(&body), "internal");
+    // The vault b has an area of the same name that its owner made private: it is not released as the first one was.
+    let (status, _) = post(&r, "/api/vaults/select", r#"{"name":"b"}"#, true).await;
+    assert_eq!(status, 200);
+    let (_, body) = get(&r, "/api/tasks/areas").await;
+    assert_eq!(class_of_alpha(&body), "private");
+    let (status, _) = post(&r, "/api/vaults/select", r#"{"name":"main"}"#, true).await;
+    assert_eq!(status, 200);
+    let (_, body) = get(&r, "/api/tasks/areas").await;
+    assert_eq!(class_of_alpha(&body), "internal");
 }

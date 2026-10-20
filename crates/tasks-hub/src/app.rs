@@ -11,7 +11,7 @@ use appkit_core::authn::{Secret, SystemClock, CODE_BYTES, TOKEN_BYTES};
 use appkit_core::registry::{self, HubRecord};
 use serde_json::Value;
 
-use crate::classes::{self, AreaPolicy};
+use crate::classes::{self, AreaPolicy, Classes};
 use crate::client;
 use crate::config::{self, Env, FileConfig};
 use crate::discovery::discover;
@@ -158,6 +158,18 @@ struct ConfigVaults {
 }
 
 impl ConfigVaults {
+    /// The data classes of the vault `name`, from `areas.json` as it is now. A file that cannot be used stops the
+    /// change (nothing is changed), and the reason is for the terminal: it names a path.
+    fn policy_for(&self, name: &str) -> Result<Arc<AreaPolicy>, String> {
+        match Classes::load(&self.dir) {
+            Ok(classes) => Ok(Arc::new(classes.for_vault(name))),
+            Err(e) => {
+                eprintln!("note: vault {name:?} cannot be read: {e}");
+                Err("this vault cannot be read (areas_unreadable)".to_owned())
+            }
+        }
+    }
+
     fn new(dir: PathBuf, env: Env, file: FileConfig) -> Self {
         Self {
             dir,
@@ -415,11 +427,13 @@ impl VaultAdmin<VaultTarget> for ConfigVaults {
                     state.status.problem.unwrap_or("engine_unavailable")
                 ));
             };
+            let policy = self.policy_for(name)?;
             self.keep(next, true)?;
             Ok(Some(VaultTarget {
                 engine: Some(engine),
                 status: state.status,
                 vault: state.vault,
+                policy: Some(policy),
             }))
         })
     }
@@ -446,11 +460,13 @@ impl VaultAdmin<VaultTarget> for ConfigVaults {
                     state.status.problem.unwrap_or("engine_unavailable")
                 ));
             };
+            let policy = self.policy_for(name)?;
             self.keep(next, true)?;
             Ok(VaultTarget {
                 engine: Some(engine),
                 status: state.status,
                 vault: state.vault,
+                policy: Some(policy),
             })
         })
     }
@@ -491,7 +507,11 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
 
     // A file that cannot be read stops the start: a typo must not turn
     // into "everything unclassified" without anyone seeing it.
-    let policy = Arc::new(AreaPolicy::load(&dir).map_err(|e| e.to_string())?);
+    let policy = Arc::new(
+        Classes::load(&dir)
+            .map_err(|e| e.to_string())?
+            .for_vault(file.active_name()),
+    );
 
     let state = engine_state(&file.effective(), &env).await;
     if let Some(note) = &state.note {
@@ -801,7 +821,9 @@ pub async fn areas(command: AreasCommand) -> Result<String, String> {
             let exists =
                 |candidate: &str| repos.as_ref().is_some_and(|r| r.join(candidate).is_dir());
             // What is decided in the active file stays decided.
-            let existing = AreaPolicy::load(&dir).map_err(|e| e.to_string())?;
+            let classes = Classes::load(&dir).map_err(|e| e.to_string())?;
+            let vault = file.active_name().to_owned();
+            let existing = classes.for_vault(&vault);
             let fresh = existing
                 .unclassified(names.iter().map(String::as_str))
                 .len();
@@ -809,10 +831,11 @@ pub async fn areas(command: AreasCommand) -> Result<String, String> {
                 "{} areas keep their entry from areas.json, {fresh} are new",
                 names.len() - fresh
             );
-            let text = classes::propose(
+            let text = classes::propose_in(
+                &vault,
                 names.iter().map(String::as_str),
                 &private,
-                &existing,
+                &classes,
                 &exists,
             )?;
             if write {
@@ -827,7 +850,9 @@ pub async fn areas(command: AreasCommand) -> Result<String, String> {
             Ok(text)
         }
         AreasCommand::Check => {
-            let policy = AreaPolicy::load(&dir).map_err(|e| e.to_string())?;
+            let policy = Classes::load(&dir)
+                .map_err(|e| e.to_string())?
+                .for_vault(file.active_name());
             let open = policy.unclassified(names.iter().map(String::as_str));
             if open.is_empty() {
                 Ok(format!("all {} areas have a data class", names.len()))
@@ -936,6 +961,29 @@ mod vault_tests {
         let dir = vault.parent().unwrap().join(format!("spare-{name}"));
         std::fs::create_dir_all(&dir).unwrap();
         dir.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn the_classes_of_a_vault_come_from_the_file_as_it_is_when_the_vault_is_chosen() {
+        let (admin, cfg, _) = admin("policy");
+        let write = |text: &str| std::fs::write(classes::path(&cfg), text).unwrap();
+        write(
+            r#"{"schema":2,"areas":{
+                "main:shared":{"class":"public"},
+                "work:shared":{"class":"private"}}}"#,
+        );
+        let shown = |vault: &str| admin.policy_for(vault).unwrap().shown("shared");
+        assert_eq!(shown("main"), classes::Shown::Public);
+        assert_eq!(shown("work"), classes::Shown::Private);
+        assert_eq!(shown("third"), classes::Shown::Unclassified);
+        // The file is read again at each choice: a change in it is taken without a restart.
+        write(r#"{"schema":2,"areas":{"work:shared":{"class":"public"}}}"#);
+        assert_eq!(shown("work"), classes::Shown::Public);
+        // A file that cannot be used stops the choice, and what the page is told holds no path.
+        write("{");
+        let err = admin.policy_for("work").unwrap_err();
+        assert!(err.contains("areas_unreadable"), "{err}");
+        assert!(!err.contains(&*cfg.to_string_lossy()), "{err}");
     }
 
     #[tokio::test]

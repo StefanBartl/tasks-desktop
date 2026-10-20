@@ -179,13 +179,18 @@ pub async fn start_with(cfg: ServerConfig, extras: Extras) -> std::io::Result<Ru
         &parts,
     );
     let build: BuildRuntime<VaultRuntime> = Arc::new(move |target: VaultTarget| {
+        // The classes belong to the vault: the one that is chosen brings its own.
+        let mut app = parts.clone();
+        if let Some(policy) = target.policy {
+            app.classes = policy;
+        }
         build_runtime(
             target.engine,
             target.status,
             target.vault,
             max_age,
             refresh.clone(),
-            &parts,
+            &app,
         )
     });
     appkit_hub::serve(

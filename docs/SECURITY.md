@@ -172,16 +172,24 @@ The user always sees every area on this machine; `GET /api/tasks/areas`
 adds `data_class` to each and lists `unclassified` and `private`, so a new
 area shows up as a decision to make instead of a quiet default.
 
+Schema 1 (`"schema": 1`, keys are area names) is the classes of the vault `main`. Schema 2 keys an entry by
+`<vault>:<area>` and may give a vault its own `default` (`"vaults": {"work": {"default": "internal"}}`): two vaults
+may have an area of the same name, and one class table by name would release the private one because the other is
+public. A vault the file does not name has every area unclassified; it never takes over `main`.
+
 A file that exists and is not valid stops the hub from starting: a typo must
 not become "everything unclassified" without anyone seeing it. The file is
-read at start; a change takes effect when the hub is restarted.
+read at start and again each time a vault is chosen (or the folder of the vault that is read is changed), and
+the classes of that vault replace the old ones with the engine and the snapshot. A file that has become invalid
+stops that choice (nothing changes; the page is told `areas_unreadable`, the terminal gets the reason).
 
 `tasks-hub areas propose` writes a *proposal* (`areas.proposed.json`, never
 the active file). What the active file already decides is kept in the
 proposal (a private area is not proposed as internal again); a new area is
 proposed as `internal` unless `--private` names it, so read the proposal
 before it becomes `areas.json`. `tasks-hub areas check` fails while an area
-has no class.
+has no class. Both work for the vault the settings name as active; a proposal for a vault other than `main`
+(or on a file of schema 2) is written as schema 2 and keeps the entries of the other vaults.
 
 The consumers of these rules (another panel, a cloud runner, the client
 cache) do not exist yet; the rules are in place and tested for them.
@@ -307,8 +315,9 @@ routes and count against the same limit of mutations:
   One change at a time, from the choice to the swap: two that overlap do not leave the hub reading one vault while the
   settings name the other.
 
-The data classes are per area name (`areas.json`) and apply to every vault: an area that has no entry is closed (or
-`default`) in the new vault as it was in the old one. What a page may do here is what a person at the keyboard of this machine
+The data classes (`areas.json`) are per vault and area name (schema 2, `<vault>:<area>`; schema 1 is the vault `main`): the
+new vault brings its own, an area with no entry there is closed (or has the `default` of that vault), whatever the
+old vault said of an area of the same name. What a page may do here is what a person at the keyboard of this machine
 may do: a page that is paired could point the hub at any folder, so adding is a deliberate step with a confirmation, and an
 error never holds a path (the terminal of whoever runs the hub gets the reason).
 

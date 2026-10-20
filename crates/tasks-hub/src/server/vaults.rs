@@ -9,4 +9,6 @@ pub struct VaultTarget {
     pub status: HubStatus,
     /// The folder to watch, once the engine is known to be there.
     pub vault: Option<PathBuf>,
+    /// The data classes of the areas of this vault; none keeps the ones the hub has.
+    pub policy: Option<Arc<AreaPolicy>>,
 }
