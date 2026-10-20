@@ -1,5 +1,31 @@
 import { describe, expect, it } from 'vitest';
-import { badTag, listEditable, parseTags, tagsChanged, tagsText } from './fields';
+import { DEFAULT_RANGES, badTag, listEditable, parseTags, rangesOf, tagsChanged, tagsText } from './fields';
+
+describe('the ranges of the engine', () => {
+  it('are taken from hello.enums, and the placeholder of the effort is not a size', () => {
+    const ranges = rangesOf({
+      kind: ['feature', 'bug', 'novelty'],
+      effort: ['XS', 'M', '<n>d'],
+      value: [1, 2, 3],
+      status: ['open'],
+    });
+    expect(ranges.kinds).toEqual(['feature', 'bug', 'novelty']);
+    expect(ranges.efforts).toEqual(['XS', 'M']);
+    expect(ranges.values).toEqual([1, 2, 3]);
+  });
+
+  it('keep the default for what is missing or not what it should be (an answer is data)', () => {
+    for (const bad of [undefined, null, 'x', 5, [], {}, { kind: 'bug', effort: [1], value: ['1'] }, { kind: [], effort: ['<n>d'], value: [1.5] }]) {
+      expect(rangesOf(bad), JSON.stringify(bad)).toEqual(DEFAULT_RANGES);
+    }
+    // One good field does not make the others good.
+    expect(rangesOf({ kind: ['bug'], value: [-1] })).toEqual({ ...DEFAULT_RANGES, kinds: ['bug'] });
+    // Not a long list, not a long word, not a huge number.
+    expect(rangesOf({ kind: Array.from({ length: 51 }, (_, i) => `k${i}`) }).kinds).toEqual(DEFAULT_RANGES.kinds);
+    expect(rangesOf({ kind: ['x'.repeat(41)] }).kinds).toEqual(DEFAULT_RANGES.kinds);
+    expect(rangesOf({ value: [100000] }).values).toEqual(DEFAULT_RANGES.values);
+  });
+});
 
 describe('a list as one line', () => {
   it('is editable unless an entry holds a comma, which would be cut in two', () => {

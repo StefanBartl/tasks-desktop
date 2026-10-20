@@ -45,6 +45,7 @@ impl Subject for Tasks {
             "areas",
             "about",
             "links",
+            "enums",
             "groupings",
             "views",
             "finished",

@@ -265,6 +265,21 @@ test('the browser enforces Trusted Types and no inline or eval script', async ({
   ).toBeUndefined();
 });
 
+test('the ranges of the fields are asked of the hub once, and the property form offers the ones the engine names', async ({ page }) => {
+  const asked: string[] = [];
+  page.on('request', (r) => {
+    if (new URL(r.url()).pathname === '/api/tasks/enums') asked.push(r.url());
+  });
+  await pair(page);
+  await showList(page);
+  await open(page, 'lib.nvim/alpha');
+  const kind = page.locator('aside.detail').getByLabel('Kind');
+  await expect(kind).toBeVisible();
+  // The engine names these five (its hello.enums); the page has no list of its own to disagree with.
+  await expect(kind.locator('option')).toHaveText(['(none)', 'feature', 'task', 'bug', 'idea', 'research']);
+  expect(asked).toHaveLength(1);
+});
+
 test('hostile titles and bodies run nothing and become text', async ({ page }) => {
   const requested: string[] = [];
   page.on('request', (r) => requested.push(r.url()));

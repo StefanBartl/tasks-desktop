@@ -2,8 +2,7 @@
   // The estimate matrix: effort and value of many tasks side by side. The figures under the table are the engine's
   // answer to what is chosen (`lib/estimate.ts`); this view only shows them.
   import type { App } from '../lib/app.svelte';
-  import { EFFORT_SIZES, VALUES } from '../lib/fields';
-  import { formatNumber, hintOf, translate, type Key } from '../lib/i18n';
+    import { formatNumber, hintOf, translate, type Key } from '../lib/i18n';
   import Info from 'appkit-ui/Info.svelte';
   import { markHidden } from '../lib/text';
 
@@ -28,7 +27,7 @@
 
   // What the effort cell offers: the sizes, and the effort the file has when it is none of them (`3d`).
   function efforts(current: string | undefined): string[] {
-    return current && !(EFFORT_SIZES as readonly string[]).includes(current) ? [current, ...EFFORT_SIZES] : [...EFFORT_SIZES];
+    return current && !app.ranges.efforts.includes(current) ? [current, ...app.ranges.efforts] : [...app.ranges.efforts];
   }
 </script>
 
@@ -80,7 +79,7 @@
                   onchange={(e) => app.setCell(task.id, 'value', e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value))}
                 >
                   <option value="">{task.value !== undefined ? `${task.value} (${t('matrix.as_file')})` : `- (${t('matrix.as_file')})`}</option>
-                  {#each VALUES as v (v)}
+                  {#each app.ranges.values as v (v)}
                     <option value={String(v)}>{v}</option>
                   {/each}
                 </select>

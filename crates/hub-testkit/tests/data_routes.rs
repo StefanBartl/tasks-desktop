@@ -356,6 +356,24 @@ async fn the_links_of_the_engine_come_through_unchanged() {
 }
 
 #[tokio::test]
+async fn the_ranges_of_the_fields_come_from_the_hello_of_the_engine() {
+    let h = hub(Some(fake_engine()), ready()).await;
+    let r = get(&h, "/api/tasks/enums", &[]).await;
+    assert_eq!(r.status, 200, "{r:?}");
+    let doc: Value = serde_json::from_str(&r.body).unwrap();
+    assert_eq!(doc["kind"], "hub.enums");
+    assert_eq!(doc["enums"]["kind"][0], "feature");
+    assert_eq!(doc["enums"]["prio"], serde_json::json!([1, 2, 3]));
+    // Only the ranges: nothing else of the hello (versions, vault, limits) is passed on.
+    assert_eq!(doc.as_object().unwrap().len(), 2, "{doc}");
+    let none = hub(None, ready()).await;
+    let r = get(&none, "/api/tasks/enums", &[]).await;
+    assert_eq!(r.status, 503, "{r:?}");
+    let r = get(&h, "/api/tasks/enums?x=1", &[]).await;
+    assert_eq!(r.status, 400, "{r:?}");
+}
+
+#[tokio::test]
 async fn queries_that_are_not_plain_are_refused_before_the_engine() {
     let h = hub(Some(fake_engine()), ready()).await;
     for path in [

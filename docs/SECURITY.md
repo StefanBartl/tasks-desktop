@@ -394,6 +394,14 @@ folder (never a file, never a folder with something in it: nothing is merged or 
 name. It makes `<path>/<area>/ROADMAP/tasks`, the folders the engine looks for, and does not register the vault: the page
 then calls `vaults/add` as for any folder. Both routes need a session and count as mutations.
 
+## The ranges of the fields (`GET /api/tasks/enums`)
+
+A read without parameters (a query is `400`), a session needed. The hub asks the engine `hello` and passes on only its
+`enums` (status, kind, prio, value, effort, actor, category, severity) as `{ "kind": "hub.enums", "enums": ... }`: no
+version, vault or limit of the rest of the hello. An engine whose hello has no `enums` is a `502 engine_failed`, no engine
+a `503`. The page reads the answer as data: a field that is not a short list of short words (or small whole numbers) keeps
+the default of `ui/src/lib/fields.ts`, and the placeholder `<n>d` of the effort is not offered as a size.
+
 ## Search in the text of the tasks
 
 The engine alone reads task files, so the texts come from it: the verb

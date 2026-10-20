@@ -512,6 +512,31 @@ pub(super) async fn links(State(st): State<Arc<Shared>>, RawQuery(query): RawQue
     }
 }
 
+/// `GET /api/tasks/enums`: the ranges of the fields (status, kind, prio, value, effort, ...) as the engine names them in
+/// its `hello`, so that the page offers what the engine accepts and keeps no list of its own. A read without
+/// parameters; the engine alone says what the ranges are.
+pub(super) async fn enums(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
+    if let Some(response) = no_query(query.as_deref()) {
+        return response;
+    }
+    let reply = match ask(&st, Calls::Hello, None).await {
+        Ok(reply) => reply,
+        Err(response) => return response,
+    };
+    let ranges = serde_json::from_str::<serde_json::Value>(&reply.text)
+        .ok()
+        .and_then(|doc| doc.get("enums").filter(|e| e.is_object()).cloned());
+    match ranges {
+        Some(enums) => axum::Json(json!({ "kind": "hub.enums", "enums": enums })).into_response(),
+        // An engine older than the ranges in its hello.
+        None => error_body(
+            StatusCode::BAD_GATEWAY,
+            "engine_failed",
+            "the engine named no ranges of fields",
+        ),
+    }
+}
+
 /// `GET /api/tasks/finished?area=&plan=&since=&until=&limit=&offset=`: the finished tasks of the Backlogs, newest first, and
 /// what all that match add up to. A read; the counting is the engine's. The days are checked by the engine.
 pub(super) async fn finished(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {

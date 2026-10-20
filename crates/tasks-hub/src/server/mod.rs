@@ -231,6 +231,7 @@ fn app_routes(core: &Arc<Shared>) -> Router<Arc<Shared>> {
         .route(&r("done_preview"), get(done_preview))
         .route(&r("finished"), get(finished))
         .route(&r("links"), get(links))
+        .route(&r("enums"), get(enums))
         .route(&r("order"), get(order))
         .route(&r("lists"), get(lists))
         .route(&r("groupings"), get(groupings))

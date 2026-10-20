@@ -187,6 +187,18 @@ fn tasks_fill(call: &Call<'_>, doc: &mut Value) {
             ]);
             doc["notes"] = json!([]);
         }
+        "hello" => {
+            doc["enums"] = json!({
+                "status": ["doing", "decision", "blocked", "open", "parked"],
+                "kind": ["feature", "task", "bug", "idea", "research"],
+                "prio": [1, 2, 3],
+                "value": [1, 2, 3, 4, 5],
+                "effort": ["XS", "S", "M", "L", "XL", "<n>d"],
+                "actor": ["cdx", "me", "pair"],
+                "category": ["bug", "docs"],
+                "severity": ["low", "medium", "high", "critical"],
+            });
+        }
         "links" => {
             doc["rev"] = json!("rev:aaaaaa");
             doc["digest"] = json!("sha256:00000000000000aa");

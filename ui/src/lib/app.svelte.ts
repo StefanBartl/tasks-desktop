@@ -45,6 +45,7 @@ import { LANGS, translate, type Key, type Lang } from './i18n';
 import { csvSeparatorFor, exportText, type ExportFormat } from './export';
 import { applyOrder, orderOf, parseSort, type SortWord } from './sort';
 import { fromEngineList, type EngineList } from './engineLists';
+import { DEFAULT_RANGES, rangesOf, type Ranges } from './fields';
 import {
   activeList as activeListOf,
   cleanName,
@@ -387,6 +388,9 @@ export class App {
   /** The named lists of the engine (read only; the ones of the editor, built in, or from its configuration). */
   engineLists = $state.raw<EngineList[]>([]);
   #engineListsAsked = false;
+  /** The ranges the property form offers: the engine's (`hello.enums`) once the hub has passed them on. */
+  ranges = $state.raw<Ranges>(DEFAULT_RANGES);
+  #enumsAsked = false;
   /** The named lists of every vault this browser knows (a filter and an order under a name). */
   listMemory = $state.raw<ListMemory>({});
   /** The order the list is shown in: a word of the engine's `--sort`, or its plan order. */
@@ -538,6 +542,18 @@ export class App {
     this.setSort(applied.sort);
     if (applied.unsupported.length > 0) {
       this.say('error', 'lists.engine_partial', { name, words: applied.unsupported.join(', ') });
+    }
+  }
+
+  /** Ask for the ranges of the fields, once. A hub or an engine that cannot say keeps the defaults of `fields.ts`. */
+  async loadEnums(): Promise<void> {
+    if (this.#enumsAsked) return;
+    this.#enumsAsked = true;
+    try {
+      this.ranges = rangesOf((await this.env.hub.enums()).enums);
+    } catch (error) {
+      // A session that is gone asks again after the next pairing; any other failure keeps the defaults.
+      if (error instanceof ApiError && error.status === 401) this.#enumsAsked = false;
     }
   }
 
@@ -1984,6 +2000,7 @@ export class App {
   /** The classes of the areas, the cache, and the next task. */
   private async readBeside(): Promise<void> {
     void this.loadEngineLists();
+    void this.loadEnums();
     const doc = this.snapshot;
     if (!doc) return;
     // The vaults first: the answer does not depend on the classes, and a failure of those must not skip it.

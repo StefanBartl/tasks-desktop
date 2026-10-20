@@ -33,7 +33,7 @@
   } from '../lib/filter';
   import { boundLabel, chipLabel as chipText, valueLabel as valueText } from '../lib/filter-chips';
   import { tick, untrack } from 'svelte';
-  import { EFFORT_SIZES, badTag, parseTags } from '../lib/fields';
+  import { badTag, parseTags } from '../lib/fields';
   import { classChange, isApplyKey, marksKeyOf, type MoveCheck } from '../lib/bulk';
   import { REMIND_CHOICES } from '../lib/remind';
   import { parseSort, SORTS } from '../lib/sort';
@@ -529,7 +529,7 @@
           <select bind:value={draft.effort} disabled={app.saving}>
             <option value="">{t('field.effort')}: {t('bulk.keep')}</option>
             <option value="-">{t('field.effort')}: {t('bulk.unset')}</option>
-            {#each EFFORT_SIZES as size (size)}<option value={size}>{size}</option>{/each}
+            {#each app.ranges.efforts as size (size)}<option value={size}>{size}</option>{/each}
           </select>
         </label>
         <label>

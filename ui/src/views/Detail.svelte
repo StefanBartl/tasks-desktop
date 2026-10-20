@@ -7,9 +7,6 @@
   import { REMIND_CHOICES } from '../lib/remind';
   import { classChange as classChangeOf } from '../lib/bulk';
   import {
-    EFFORT_SIZES,
-    KINDS,
-    VALUES,
     badTag,
     listEditable,
     parseList,
@@ -227,7 +224,7 @@
             void app.setField(task.id, 'kind', e.currentTarget.value === '' ? null : e.currentTarget.value)}
         >
           <option value="">{t('field.none')}</option>
-          {#each KINDS as k (k)}
+          {#each app.ranges.kinds as k (k)}
             <option value={k}>{k}</option>
           {/each}
         </select>
@@ -241,10 +238,10 @@
             void app.setField(task.id, 'effort', e.currentTarget.value === '' ? null : e.currentTarget.value)}
         >
           <option value="">{t('field.none')}</option>
-          {#if task.effort && !(EFFORT_SIZES as readonly string[]).includes(task.effort)}
+          {#if task.effort && !app.ranges.efforts.includes(task.effort)}
             <option value={task.effort}>{task.effort}</option>
           {/if}
-          {#each EFFORT_SIZES as size (size)}
+          {#each app.ranges.efforts as size (size)}
             <option value={size}>{size}</option>
           {/each}
         </select>
@@ -262,7 +259,7 @@
             )}
         >
           <option value="">{t('field.none')}</option>
-          {#each VALUES as v (v)}
+          {#each app.ranges.values as v (v)}
             <option value={String(v)}>{v}</option>
           {/each}
         </select>

@@ -188,6 +188,13 @@ class FakeHub {
     this.areasCalls += 1;
     return { areas: this.areaList, unclassified: [], private: [] };
   }
+  enumsDoc: unknown = null;
+  enumsCalls = 0;
+  async enums() {
+    this.enumsCalls += 1;
+    if (this.enumsDoc === null) throw new ApiError(502, 'engine_failed', 'no ranges');
+    return { enums: this.enumsDoc };
+  }
   async lists() {
     this.listsCalls += 1;
     if (this.engineListDoc === null) throw new ApiError(404, 'not_found', 'no lists');
@@ -3623,6 +3630,33 @@ describe('the order of the list', () => {
     expect(m.app.shown.map((t) => t.id)).toEqual(['pub/a', 'pub/b', 'pub/c']);
     expect(m.prefs.get('tasks-desktop.sort')).toBe('default');
     m.app.stop();
+  });
+
+  describe('the ranges of the fields', () => {
+    it('are asked once and replace the defaults the form starts with', async () => {
+      const m = make({ token: 't' });
+      m.hub.doc = snapshot([task('pub/a')]);
+      m.hub.enumsDoc = { kind: ['feature', 'novelty'], effort: ['S', 'M', '<n>d'], value: [1, 2] };
+      expect(m.app.ranges.kinds).toContain('research');
+      await m.app.start(null);
+      await vi.waitFor(() => expect(m.app.ranges.kinds).toEqual(['feature', 'novelty']));
+      expect(m.app.ranges.efforts).toEqual(['S', 'M']);
+      expect(m.app.ranges.values).toEqual([1, 2]);
+      await m.app.refresh();
+      await m.app.refresh();
+      expect(m.hub.enumsCalls).toBe(1);
+      m.app.stop();
+    });
+
+    it('stay the defaults when the hub or the engine cannot say', async () => {
+      const m = make({ token: 't' });
+      m.hub.doc = snapshot([task('pub/a')]);
+      await m.app.start(null);
+      await vi.waitFor(() => expect(m.hub.enumsCalls).toBe(1));
+      expect(m.app.ranges.kinds).toContain('research');
+      expect(m.app.ranges.values).toEqual([1, 2, 3, 4, 5]);
+      m.app.stop();
+    });
   });
 
   describe('the lists of the engine', () => {

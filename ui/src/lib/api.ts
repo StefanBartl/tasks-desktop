@@ -152,6 +152,11 @@ export class Hub extends HubClient<Snapshot> {
     return this.post(path, body);
   }
 
+  /** The ranges of the fields as the engine names them (its `hello.enums`, passed on by the hub). */
+  enums(): Promise<{ enums: unknown }> {
+    return this.json<{ enums: unknown }>('/api/tasks/enums');
+  }
+
   /** Remember a folder as a vault; the page has asked the person first. */
   addVault(name: string, path: string): Promise<void> {
     return this.vaultPost('/api/vaults/add', { name, path, confirm: true });
