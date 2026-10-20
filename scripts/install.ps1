@@ -28,6 +28,10 @@ A SHA256SUMS file ("<hash>  <file>" per line).
 .PARAMETER Sha256
 The expected SHA-256 of the archive.
 
+.PARAMETER Rolling
+Install the rolling build of main (the pre-release `latest`, a bare tasks-hub.exe) instead of a
+tagged release. It is also taken when the repository has no published release yet.
+
 .PARAMETER Autostart
 Start the hub with your login (the Run key of the current user).
 
@@ -48,6 +52,7 @@ param(
     [string] $Archive = '',
     [string] $Sums = '',
     [string] $Sha256 = '',
+    [switch] $Rolling,
     [switch] $Autostart,
     [switch] $Shortcut,
     [switch] $AllowElevated
@@ -79,21 +84,42 @@ try {
         }
         $triple = 'x86_64-pc-windows-msvc'
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        if ($Version -eq '') {
+        if ($Version -eq '' -and -not $Rolling) {
             Write-Output "looking for the latest release of $Repo"
-            $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -UseBasicParsing
-            $Version = [string] $latest.tag_name
-            if ($Version -eq '') { Exit-Install 'no published release found (pass -Version TAG)' }
+            try {
+                $latest = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -UseBasicParsing
+                $Version = [string] $latest.tag_name
+            }
+            catch {
+                if ($_.Exception.Response -and [int] $_.Exception.Response.StatusCode -eq 404) {
+                    Write-Output 'no published release yet: taking the rolling build of main'
+                    $Rolling = [switch] $true
+                }
+                else { throw }
+            }
+            if (-not $Rolling -and $Version -eq '') { Exit-Install 'no published release found (pass -Version TAG or -Rolling)' }
         }
-        # A tag is a plain word: it goes into a URL and a file name.
-        if ($Version -notmatch '^[A-Za-z0-9._-]+$') {
-            Exit-Install "the version has a character that is not allowed: $Version"
+        if ($Rolling) {
+            $name = 'tasks-hub-windows-x86_64.exe'
+            $base = "https://github.com/$Repo/releases/download/latest"
         }
-        $name = 'tasks-hub-{0}-{1}.zip' -f $Version.TrimStart('v'), $triple
-        $base = "https://github.com/$Repo/releases/download/$Version"
+        else {
+            # A tag is a plain word: it goes into a URL and a file name.
+            if ($Version -notmatch '^[A-Za-z0-9._-]+$') {
+                Exit-Install "the version has a character that is not allowed: $Version"
+            }
+            $name = 'tasks-hub-{0}-{1}.zip' -f $Version.TrimStart('v'), $triple
+            $base = "https://github.com/$Repo/releases/download/$Version"
+        }
         Write-Output "downloading $name"
         Invoke-WebRequest -Uri "$base/$name" -OutFile (Join-Path $work $name) -UseBasicParsing
-        Invoke-WebRequest -Uri "$base/SHA256SUMS" -OutFile (Join-Path $work 'SHA256SUMS') -UseBasicParsing
+        try {
+            Invoke-WebRequest -Uri "$base/SHA256SUMS" -OutFile (Join-Path $work 'SHA256SUMS') -UseBasicParsing
+        }
+        catch {
+            if ($Rolling) { Exit-Install 'SHA256SUMS of the rolling build is missing (a build is running: try again in a few minutes)' }
+            throw
+        }
         $Archive = Join-Path $work $name
         $Sums = Join-Path $work 'SHA256SUMS'
     }
@@ -126,26 +152,31 @@ try {
     }
     Write-Output 'checksum ok'
 
-    # A path that leaves the folder it is unpacked into is refused before anything is written (the
-    # Expand-Archive of Windows PowerShell 5.1 does not look).
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $Archive).Path)
-    try {
-        foreach ($entry in $zip.Entries) {
-            if ($entry.FullName -match '(^|[\\/])\.\.([\\/]|$)' -or [IO.Path]::IsPathRooted($entry.FullName)) {
-                Exit-Install "the archive holds a path that leaves its folder ($($entry.FullName)): nothing was installed"
+    if ($Archive -like '*.exe') {
+        $program = $Archive
+    }
+    else {
+        # A path that leaves the folder it is unpacked into is refused before anything is written (the
+        # Expand-Archive of Windows PowerShell 5.1 does not look).
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $Archive).Path)
+        try {
+            foreach ($entry in $zip.Entries) {
+                if ($entry.FullName -match '(^|[\\/])\.\.([\\/]|$)' -or [IO.Path]::IsPathRooted($entry.FullName)) {
+                    Exit-Install "the archive holds a path that leaves its folder ($($entry.FullName)): nothing was installed"
+                }
             }
         }
-    }
-    finally {
-        $zip.Dispose()
-    }
+        finally {
+            $zip.Dispose()
+        }
 
-    $unpacked = Join-Path $work 'unpacked'
-    Expand-Archive -LiteralPath $Archive -DestinationPath $unpacked
-    $program = Join-Path $unpacked 'tasks-hub.exe'
-    if (-not (Test-Path -LiteralPath $program -PathType Leaf)) {
-        Exit-Install 'the archive holds no tasks-hub.exe'
+        $unpacked = Join-Path $work 'unpacked'
+        Expand-Archive -LiteralPath $Archive -DestinationPath $unpacked
+        $program = Join-Path $unpacked 'tasks-hub.exe'
+        if (-not (Test-Path -LiteralPath $program -PathType Leaf)) {
+            Exit-Install 'the archive holds no tasks-hub.exe'
+        }
     }
     $newVersion = (& $program --version)
     if ($LASTEXITCODE -ne 0) { Exit-Install 'the program in the archive does not run' }
