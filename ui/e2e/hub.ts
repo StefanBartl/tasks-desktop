@@ -290,3 +290,11 @@ export function pairingLink(config: string): string {
   if (!link.startsWith(`${ORIGIN}/#pair=`)) throw new Error(`unexpected link: ${link}`);
   return link;
 }
+
+/**
+ * Remove a file the hub may still hold for a moment (its watcher or the engine reading it). On Windows that fails with
+ * EBUSY; Node retries only when `recursive` is set, so it is set here (for a file it changes nothing else).
+ */
+export function removeFile(file: string): void {
+  rmSync(file, { force: true, recursive: true, maxRetries: 10, retryDelay: 100 });
+}

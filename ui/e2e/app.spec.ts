@@ -6,7 +6,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { expectAccessible, violations, watchViolations } from './a11y';
 import { STATE } from './global';
-import { pairingLink } from './hub';
+import { pairingLink, removeFile } from './hub';
 
 test.use({ locale: 'en-US' });
 
@@ -2664,7 +2664,7 @@ test('marking stops at 100: "Mark all" says so, and the box of the 101st row jum
     await expect(last).toBeChecked();
     await expect(page.getByText('100 marked')).toBeVisible();
   } finally {
-    for (const file of files) rmSync(file, { force: true });
+    for (const file of files) removeFile(file);
   }
   expect(consoleProblems.get(page)).toEqual([]);
 });
@@ -3087,7 +3087,7 @@ test('the marked tasks are moved to another area in one batch: a dry run first, 
     expect(await violations(page)).toEqual([]);
     expect(consoleProblems.get(page)).toEqual([]);
   } finally {
-    rmSync(occupant, { force: true });
+    removeFile(occupant);
   }
 });
 
@@ -3425,7 +3425,7 @@ test('a task is opened in Neovim by the hub: the page names the task, the hub th
   await showList(page);
   await open(page, 'lib.nvim/alpha');
   const log = join(state().config, '..', 'editor.log');
-  rmSync(log, { force: true });
+  removeFile(log);
 
   await page.locator('aside.detail').getByRole('button', { name: 'Open in Neovim' }).click();
   await expect(page.getByRole('status').getByText('Opened in Neovim.')).toBeVisible();
@@ -3495,7 +3495,7 @@ test('the inbox draws a page of rows, shows more on request and keeps the select
     expect(await inbox.locator('.row').count()).toBeGreaterThan(105);
     await expect(inbox.locator('.row[aria-current="true"]')).toHaveCount(1);
   } finally {
-    for (const file of files) rmSync(file, { force: true });
+    for (const file of files) removeFile(file);
   }
   expect(consoleProblems.get(page)).toEqual([]);
 });
@@ -3513,7 +3513,7 @@ test('the findings of the check stay for the tasks that did not change and go on
   try {
     await checkFindingsStay(page);
   } finally {
-    if (indexText === null) rmSync(indexFile, { force: true });
+    if (indexText === null) removeFile(indexFile);
     else writeFileSync(indexFile, indexText);
   }
 });
@@ -3746,7 +3746,7 @@ test('a task of the overview is dropped on an area: the engine is asked first, a
   const slug = 'drop-move-e2e';
   const from = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
   const to = join(state().vault, 'cascade.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
-  rmSync(to, { force: true });
+  removeFile(to);
   writeFileSync(from, `---\ntitle: Dropped task e2e\nstatus: doing\nkind: task\n---\n\nTo be moved by a drop.\n`);
   await watchViolations(page);
   await pair(page);
@@ -3779,7 +3779,7 @@ test('a task of the overview is dropped on an area: the engine is asked first, a
   // The way back is offered, as for every write.
   await expect(page.getByRole('status').getByRole('button', { name: 'Undo' })).toBeVisible();
   expect(await violations(page)).toEqual([]);
-  rmSync(to, { force: true });
+  removeFile(to);
 });
 
 /**
@@ -3802,7 +3802,7 @@ test('marked tasks dropped together on an area are moved in one batch, after the
   const slugs = ['drop-batch-e2e-1', 'drop-batch-e2e-2'];
   const where = (area: string, slug: string): string => join(state().vault, area, 'ROADMAP', 'tasks', `${slug}.md`);
   for (const slug of slugs) {
-    rmSync(where('cascade.nvim', slug), { force: true });
+    removeFile(where('cascade.nvim', slug));
     writeFileSync(where('lib.nvim', slug), `---\ntitle: Drop batch ${slug}\nstatus: doing\nkind: task\n---\n\nTo be moved with its twin.\n`);
   }
   await watchViolations(page);
@@ -3823,14 +3823,14 @@ test('marked tasks dropped together on an area are moved in one batch, after the
   await expect.poll(() => slugs.every((slug) => existsSync(where('cascade.nvim', slug)))).toBe(true);
   for (const slug of slugs) expect(existsSync(where('lib.nvim', slug))).toBe(false);
   expect(await violations(page)).toEqual([]);
-  for (const slug of slugs) rmSync(where('cascade.nvim', slug), { force: true });
+  for (const slug of slugs) removeFile(where('cascade.nvim', slug));
 });
 
 test('a task of the overview is given another area with the key m and a dialog, without a mouse', async ({ page }) => {
   const slug = 'drop-key-e2e';
   const from = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
   const to = join(state().vault, 'cascade.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
-  rmSync(to, { force: true });
+  removeFile(to);
   writeFileSync(from, `---\ntitle: Dropped by key e2e\nstatus: doing\nkind: task\n---\n\nTo be moved by the keys.\n`);
   await watchViolations(page);
   await pair(page);
@@ -3850,7 +3850,7 @@ test('a task of the overview is given another area with the key m and a dialog, 
   await expect.poll(() => existsSync(to)).toBe(true);
   expect(existsSync(from)).toBe(false);
   expect(await violations(page)).toEqual([]);
-  rmSync(to, { force: true });
+  removeFile(to);
 });
 
 test('the button of a row opens the same choice of an area', async ({ page }) => {
@@ -3869,7 +3869,7 @@ test('the button of a row opens the same choice of an area', async ({ page }) =>
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toHaveCount(0);
   expect(existsSync(from)).toBe(true);
-  rmSync(from, { force: true });
+  removeFile(from);
 });
 
 test('a filter and an order are kept under a name, brought back from the list of names, and the name outlives a reload', async ({ page }) => {
@@ -3991,7 +3991,7 @@ test.describe('a finger', () => {
     const slug = 'drop-touch-e2e';
     const from = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
     const to = join(state().vault, 'cascade.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
-    rmSync(to, { force: true });
+    removeFile(to);
     writeFileSync(from, `---\ntitle: Dropped by finger e2e\nstatus: doing\nkind: task\n---\n\nTo be moved by a finger.\n`);
     await watchViolations(page);
     await pair(page);
@@ -4041,7 +4041,7 @@ test.describe('a finger', () => {
     await row.locator('button.link').tap();
     await expect(page.getByRole('dialog', { name: 'Task' })).toBeVisible();
     expect(await violations(page)).toEqual([]);
-    rmSync(from, { force: true });
+    removeFile(from);
   });
 
   test('drags a card of the board by its grip into another column: the status changes, a short drag drops nothing', async ({ page }) => {
@@ -4090,6 +4090,6 @@ test.describe('a finger', () => {
     await column('doing').locator('.card', { hasText: 'Board finger e2e' }).locator('.title').tap();
     await expect(page.locator('aside.detail')).toBeVisible();
     expect(await violations(page)).toEqual([]);
-    rmSync(file, { force: true });
+    removeFile(file);
   });
 });
