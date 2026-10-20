@@ -3,6 +3,7 @@
 // screen reader hears the text with the button. The words are the hints of the single marks, so they say the same.
 
 import { hintOf, translate, type Key, type Lang } from './i18n';
+import { markHidden } from './text';
 
 export function marksLegend(lang: Lang): string {
   const t = (key: Parameters<typeof translate>[1]) => translate(lang, key);
@@ -27,7 +28,8 @@ export function stagesLegend(lang: Lang): string {
 /** What the codes of the findings of a check mean, one line each (the code, then the engine's rule), for the info button. */
 export function checkLegend(lang: Lang, codes: readonly string[]): string {
   const seen = [...new Set(codes)];
-  return seen.map((code) => `${code}: ${hintOf(lang, 'hint.check', code) || translate(lang, 'hint.check.code')}`).join('\n');
+  // A code is the engine's text: a character that hides or reverses text is made visible, as in the list.
+  return seen.map((code) => `${markHidden(code)}: ${hintOf(lang, 'hint.check', code) || translate(lang, 'hint.check.code')}`).join('\n');
 }
 
 /** What the parts of the graph of a task mean: the two directions, the count, a circle, the wait line, the critical path. */

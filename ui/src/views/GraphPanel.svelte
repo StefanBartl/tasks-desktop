@@ -97,8 +97,10 @@
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <section class="graph card" onkeydown={onPanelKey} aria-label={t(graph.direction === 'needs' ? 'graph.title.needs' : 'graph.title.unlocks', { id: graph.id })}>
     <header>
-      <h2 bind:this={heading} tabindex="-1">{t(graph.direction === 'needs' ? 'graph.title.needs' : 'graph.title.unlocks', { id: graph.id })}</h2>
-      <Info hint={graphLegend(app.lang)} label={t('hint.about', { what: t('graph.legend_what') })} />
+      <div class="title-row">
+        <h2 bind:this={heading} tabindex="-1">{t(graph.direction === 'needs' ? 'graph.title.needs' : 'graph.title.unlocks', { id: graph.id })}</h2>
+        <Info hint={graphLegend(app.lang)} label={t('hint.about', { what: t('graph.legend_what') })} />
+      </div>
       <div class="dir" role="group" aria-label={t('graph.direction')}>
         <button type="button" data-hint={t('hint.graph.needs')} aria-pressed={graph.direction === 'needs'} onclick={() => app.openGraph(graph.id, 'needs')}>{t('graph.dir.needs')}</button>
         <button type="button" data-hint={t('hint.graph.unlocks')} aria-pressed={graph.direction === 'unlocks'} onclick={() => app.openGraph(graph.id, 'unlocks')}>{t('graph.dir.unlocks')}</button>
@@ -156,6 +158,11 @@
     gap: 0.5rem;
     align-items: baseline;
     justify-content: space-between;
+  }
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
   }
   h2 {
     margin: 0;

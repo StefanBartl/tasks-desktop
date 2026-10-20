@@ -36,6 +36,8 @@ describe('the legend of the check codes', () => {
     expect(lines[2]).not.toMatch(/hint\./);
     expect(checkLegend('de', ['bad-prio'])).toMatch(/^bad-prio: .*Priorität/);
     expect(checkLegend('en', [])).toBe('');
+    // The engine's text never reaches the popup with a character that reverses it.
+    expect(checkLegend('en', ['a'+String.fromCharCode(0x202e)+'b'])).toMatch(/^a⟦U\+202E⟧b: /);
   });
 });
 

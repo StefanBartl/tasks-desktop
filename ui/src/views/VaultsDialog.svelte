@@ -37,8 +37,10 @@
     if (app.managingVaults) app.closeVaults();
   }}
 >
-  <h2 id="vaults-title">{t('vaults.title')}</h2>
-  <Info hint={t('hint.vaults.active')} label={t('hint.about', { what: t('vaults.active') })} />
+  <div class="title-row">
+    <h2 id="vaults-title">{t('vaults.title')}</h2>
+    <Info hint={t('hint.vaults.active')} label={t('hint.about', { what: t('vaults.active') })} />
+  </div>
   <p class="muted">{t('vaults.intro')}</p>
   {#if list}
     <ul class="vaults">
@@ -102,6 +104,11 @@
   }
   dialog::backdrop {
     background: var(--backdrop);
+  }
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
   }
   h2 {
     margin: 0 0 0.5rem;

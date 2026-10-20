@@ -34,11 +34,13 @@
 
 <dialog bind:this={dialog} aria-labelledby="check-title" onclose={() => app.closeChecks()}>
   {#if app.checking}
-    <h2 id="check-title">{t('check.title')}</h2>
-    <!-- The codes of the findings are explained on hover; this is the way for the keyboard and a screen reader: one stop. -->
-    {#if findings.length > 0 || stale.length > 0}
-      <Info hint={checkLegend(app.lang, [...findings, ...stale].map((f) => f.code))} label={t('hint.about', { what: t('check.codes_what') })} />
-    {/if}
+    <div class="title-row">
+      <h2 id="check-title">{t('check.title')}</h2>
+      <!-- The codes of the findings are explained on hover; this is the way for the keyboard and a screen reader: one stop. -->
+      {#if findings.length > 0 || stale.length > 0}
+        <Info hint={checkLegend(app.lang, [...findings, ...stale].map((f) => f.code))} label={t('hint.about', { what: t('check.codes_what') })} />
+      {/if}
+    </div>
     <p class="help">{t('check.help')}</p>
     <div class="run">
       <label><input type="checkbox" bind:checked={refs} disabled={running} /> {t('check.refs')}</label>
@@ -100,6 +102,11 @@
   }
   dialog::backdrop {
     background: var(--backdrop);
+  }
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
   }
   h2 {
     margin: 0 0 0.4rem;
