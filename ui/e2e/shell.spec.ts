@@ -24,7 +24,7 @@ for (const scheme of ['light', 'dark'] as const) {
       for (const [name, style] of Object.entries(now)) if (!(name in seen)) seen[name] = style;
     };
     await read();
-    await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
     await expect(page.getByRole('menu')).toBeVisible();
     await read();
     await page.keyboard.press('Escape');
