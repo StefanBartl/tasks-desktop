@@ -680,7 +680,12 @@ test('the controls of the list and the headings of the tiles explain themselves 
   await expect(tip).toHaveText(/the engine would take next/);
   await showList(page);
   // A control that sits in the kit (the area filter) is explained by the span around it.
-  await page.getByRole('button', { name: /^Areas/ }).hover();
+  const areas = page.getByRole('button', { name: /^Areas/ });
+  await areas.hover();
+  await expect(tip).toHaveText(/folders of the vault/);
+  // A screen reader hears it with the button itself, and the keyboard gets the same popup.
+  await expect(areas).toHaveAccessibleDescription(/folders of the vault/);
+  await areas.focus();
   await expect(tip).toHaveText(/folders of the vault/);
   const pairs = [
     [page.locator('input[type="search"]').first(), /words of their title or id/],

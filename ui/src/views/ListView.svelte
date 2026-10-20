@@ -285,29 +285,27 @@
         value={app.filter.query}
         oninput={(e) => app.setQuery(e.currentTarget.value)}
       />
-      <span class="hintwrap" data-hint={t('hint.ui.list.areas')}>
       <MultiSelect
         label={t('nav.areas')}
+        hint={t('hint.ui.list.areas')}
         options={areaOptions}
         selected={app.filter.areas}
         onchange={(areas) => (app.filter = { ...app.filter, areas })}
         resetLabel={t('multi.reset')}
         searchLabel={t('multi.search')}
       />
-      </span>
-      <span class="hintwrap" data-hint={t('hint.ui.list.status')}>
       <MultiSelect
         label={t('list.filter.status')}
+        hint={t('hint.ui.list.status')}
         options={statuses.map((s) => ({ value: s, label: t(`status.${s}` as Key) }))}
         selected={app.filter.statuses}
         onchange={(statuses) => (app.filter = { ...app.filter, statuses })}
         resetLabel={t('multi.reset')}
         searchLabel={t('multi.search')}
       />
-      </span>
-      <span class="hintwrap" data-hint={t('hint.ui.list.actor')}>
       <MultiSelect
         label={t('list.filter.actor')}
+        hint={t('hint.ui.list.actor')}
         options={actors.map((a) => ({
           value: a,
           label: t(`actor.${a}` as Key),
@@ -318,7 +316,6 @@
         resetLabel={t('multi.reset')}
         searchLabel={t('multi.search')}
       />
-      </span>
       <label class="pick sort" data-hint={t('hint.ui.list.sort')}>
         <span>{t('sort.label')}</span>
         <select data-sort value={app.sort} onchange={(e) => app.setSort(parseSort(e.currentTarget.value))}>
@@ -633,9 +630,6 @@
 </div>
 
 <style>
-  .hintwrap {
-    display: contents;
-  }
   .split {
     display: grid;
     grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
