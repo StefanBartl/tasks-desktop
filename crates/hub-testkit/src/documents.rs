@@ -146,6 +146,16 @@ fn tasks_fill(call: &Call<'_>, doc: &mut Value) {
             doc["items"] = json!(items);
             doc["incomplete"] = json!([]);
         }
+        "groupings" => {
+            doc["rev"] = json!("rev:aaaaaa");
+            doc["digest"] = json!("sha256:00000000000000aa");
+            doc["fields"] = json!([
+                { "field": "status", "values": ["doing", "open"], "value_type": "string", "truncated": false, "writable": true, "mode": "set" },
+                { "field": "prio", "values": ["1", "2", "3"], "value_type": "number", "truncated": false, "writable": true, "mode": "set" },
+                { "field": "tags", "values": ["ui"], "value_type": "string", "truncated": false, "writable": true, "mode": "tags", "multi": true },
+                { "field": "state", "values": ["ready", "waiting"], "value_type": "string", "truncated": false, "writable": false },
+            ]);
+        }
         "lists" => {
             doc["lists"] = json!([
                 {

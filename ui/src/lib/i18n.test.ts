@@ -38,6 +38,33 @@ describe('labelOf', () => {
   });
 });
 
+describe('the setup page', () => {
+  // Every code the hub can name in `hello.engine.problem`: the setup problems (appkit `SetupProblem::code`), the
+  // probe problems (`ProbeProblem::code`) and the empty vault. A code without words gets the general page.
+  const CODES = [
+    'invalid_setting',
+    'no_vault',
+    'vault_not_a_directory',
+    'nvim_not_found',
+    'nvim_probe_failed',
+    'nvim_too_old',
+    'engine_not_found',
+    'lib_not_found',
+    'engine_unreachable',
+    'contract_unsupported',
+    'engine_too_old',
+    'vault_empty',
+  ];
+  it('has a title and an explanation, in both languages, for every code of the hub', () => {
+    for (const lang of ['en', 'de'] as const) {
+      for (const code of CODES) {
+        expect(Object.hasOwn(dictionaries[lang], `setup.${code}.title`), `${lang} ${code} title`).toBe(true);
+        expect(Object.hasOwn(dictionaries[lang], `setup.${code}.body`), `${lang} ${code} body`).toBe(true);
+      }
+    }
+  });
+});
+
 describe('the German explanations', () => {
   // A status or a state is named by the word the page shows; the word of the file follows in brackets, so that whoever
   // edits the file finds it ("blockiert (blocked)"). Outside brackets no raw word stands in a German hint.

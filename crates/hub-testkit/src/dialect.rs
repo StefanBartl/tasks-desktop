@@ -20,6 +20,7 @@ pub const TASKS: FakeDialect = FakeDialect {
     capabilities: &[
         "areas",
         "done_preview",
+        "groupings",
         "hello",
         "list",
         "lists",

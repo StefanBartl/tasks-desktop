@@ -304,6 +304,24 @@ async fn lists_passes_the_lists_of_the_engine_as_they_are() {
 }
 
 #[tokio::test]
+async fn the_groupings_of_the_engine_come_through_unchanged() {
+    let h = hub(Some(fake_engine()), ready()).await;
+    let r = get(&h, "/api/tasks/groupings", &[]).await;
+    assert_eq!(r.status, 200, "{r:?}");
+    let doc: Value = serde_json::from_str(&r.body).unwrap();
+    assert_eq!(doc["kind"], "tasks.groupings");
+    assert_eq!(doc["fields"][0]["field"], "status");
+    assert_eq!(doc["fields"][1]["value_type"], "number");
+    assert_eq!(doc["fields"][2]["mode"], "tags");
+    assert_eq!(doc["fields"][2]["multi"], true);
+    assert_eq!(doc["fields"][3]["writable"], false);
+    // No engine: the route says so and does not invent a list of fields.
+    let none = hub(None, ready()).await;
+    let r = get(&none, "/api/tasks/groupings", &[]).await;
+    assert_eq!(r.status, 503, "{r:?}");
+}
+
+#[tokio::test]
 async fn the_links_of_the_engine_come_through_unchanged() {
     let h = hub(Some(fake_engine()), ready()).await;
     let r = get(&h, "/api/tasks/links", &[]).await;
@@ -340,6 +358,8 @@ async fn queries_that_are_not_plain_are_refused_before_the_engine() {
         "/api/tasks/task?id=/b",
         "/api/tasks/task?id=a/",
         "/api/tasks/areas?x=1",
+        "/api/tasks/groupings?x=1",
+        "/api/tasks/groupings?field=status",
         "/api/tasks/links?x=1",
         "/api/tasks/links?area=a",
         "/api/tasks/finished?x=1",

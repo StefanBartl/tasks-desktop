@@ -548,6 +548,22 @@ pub(super) async fn finished(State(st): State<Arc<Shared>>, RawQuery(query): Raw
 /// outside this list never reaches the engine.
 const SORTS: [&str; 5] = ["default", "prio-effort", "severity", "frecency", "roi"];
 
+/// `GET /api/tasks/groupings`: the fields the open tasks can be grouped by, with the values of each and how it is written
+/// (`set`, `tags`, `move_area`, or not at all). A read without parameters; which fields there are and what they allow is the
+/// engine's: the page names no field and no value itself.
+pub(super) async fn groupings(
+    State(st): State<Arc<Shared>>,
+    RawQuery(query): RawQuery,
+) -> Response {
+    if let Some(response) = no_query(query.as_deref()) {
+        return response;
+    }
+    match ask(&st, Calls::Groupings, None).await {
+        Ok(reply) => json_response(StatusCode::OK, reply.text, None),
+        Err(response) => response,
+    }
+}
+
 /// `GET /api/tasks/lists`: the named lists of the engine (built-in, saved with the editor, from its configuration), read
 /// only. The page shows them next to its own and lays their option words onto its filter; nothing is written.
 pub(super) async fn lists(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {

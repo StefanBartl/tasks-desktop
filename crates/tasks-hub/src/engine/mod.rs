@@ -62,7 +62,7 @@ pub fn cli_config_from_setup(setup: &Setup, env: Env) -> CliEngineConfig {
 
 /// The calls of the contract `tasks-export/1` and `tasks-ops/1`: the table of this app. The seam
 /// reads the flags of each entry; it knows no call by name.
-static SPECS: [MethodSpec; 16] = [
+static SPECS: [MethodSpec; 17] = [
     MethodSpec::bare("hello", "tasks.hello"),
     MethodSpec::bare("snapshot", "tasks.snapshot"),
     MethodSpec::read("list", "tasks.list"),
@@ -79,6 +79,7 @@ static SPECS: [MethodSpec; 16] = [
     MethodSpec::write("ops", "tasks.result"),
     MethodSpec::read("order", "tasks.order"),
     MethodSpec::bare("lists", "tasks.lists"),
+    MethodSpec::bare("groupings", "tasks.groupings"),
 ];
 
 /// The calls of the tasks engine, by name.
@@ -102,9 +103,10 @@ impl Calls {
     pub const Ops: Method = Method::new(&SPECS[13]);
     pub const Order: Method = Method::new(&SPECS[14]);
     pub const Lists: Method = Method::new(&SPECS[15]);
+    pub const Groupings: Method = Method::new(&SPECS[16]);
 
     /// Every call of the table.
-    pub const ALL: [Method; 16] = [
+    pub const ALL: [Method; 17] = [
         Self::Hello,
         Self::Snapshot,
         Self::List,
@@ -121,6 +123,7 @@ impl Calls {
         Self::Ops,
         Self::Order,
         Self::Lists,
+        Self::Groupings,
     ];
 
     /// Parse the name of a route or a request. Nothing else is accepted.
@@ -146,13 +149,16 @@ mod table_tests {
     }
 
     #[test]
-    fn the_calls_without_parameters_are_the_five_bare_reads() {
+    fn the_calls_without_parameters_are_the_six_bare_reads() {
         let bare: Vec<_> = Calls::ALL
             .iter()
             .filter(|m| !m.takes_params())
             .map(|m| m.as_str())
             .collect();
-        assert_eq!(bare, ["hello", "snapshot", "areas", "links", "lists"]);
+        assert_eq!(
+            bare,
+            ["hello", "snapshot", "areas", "links", "lists", "groupings"]
+        );
     }
 
     #[test]
