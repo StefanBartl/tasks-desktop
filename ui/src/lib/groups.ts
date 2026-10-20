@@ -1,0 +1,141 @@
+// Groups: the tasks of a view laid in groups by a field, and the operation that a drag from one group to another is.
+// Nothing here knows a field: which fields there are, what values each can have and how each is written is the engine's
+// (`tasks.groupings`, WEB-13). This only reads the value a task has for a field and turns a drop into the operation the
+// engine names for it (`set`, the list of tags, a move of the area).
+
+import type { Op } from './api';
+import type { Groupings, TaskEntry } from './contract';
+
+/** A field a view can group by, as the engine describes it. */
+export type Grouping = Groupings['fields'][number];
+
+/** The value that stands for "this task has none" (a group of its own: a target too). */
+export const NONE = '';
+
+/** One group: its value (`NONE` for the tasks that have none) and the tasks that are in it. */
+export interface Group<T> {
+  value: string;
+  items: T[];
+}
+
+/**
+ * The values a task has for a grouping, as the words of `grouping.values`: one, several for a list (tags), or none.
+ * The field names the engine gives are the names of the entry, except `state` (the readiness) - this reads, it does
+ * not judge.
+ */
+export function valuesOf(task: TaskEntry, grouping: Grouping): string[] {
+  const entry = task as unknown as Record<string, unknown>;
+  const raw = grouping.field === 'state' ? task.readiness?.state : entry[grouping.field];
+  if (Array.isArray(raw)) return raw.filter((v): v is string => typeof v === 'string' && v !== '').map(String);
+  if (raw === undefined || raw === null || raw === '') return [];
+  return [String(raw)];
+}
+
+/**
+ * The tasks in groups: one group for every value the engine names, in its order (an empty group stays: it is a place to
+ * drop), a value the engine did not name after them in the order it is met, and the tasks that have none last. A task
+ * with several values (tags) stands in each of their groups; the group of none shows only when some task has none.
+ */
+export function groupsOf<T extends TaskEntry>(items: readonly T[], grouping: Grouping): Group<T>[] {
+  const groups = new Map<string, T[]>();
+  for (const value of grouping.values) groups.set(value, []);
+  const unnamed: string[] = [];
+  const none: T[] = [];
+  for (const item of items) {
+    const values = valuesOf(item, grouping);
+    if (values.length === 0) {
+      none.push(item);
+      continue;
+    }
+    for (const value of values) {
+      let list = groups.get(value);
+      if (!list) {
+        list = [];
+        groups.set(value, list);
+        unnamed.push(value);
+      }
+      list.push(item);
+    }
+  }
+  const out: Group<T>[] = [...grouping.values, ...unnamed].map((value) => ({ value, items: groups.get(value) ?? [] }));
+  if (none.length > 0) out.push({ value: NONE, items: none });
+  return out;
+}
+
+/** The count a group shows: how many tasks are in it. */
+export function countOf(group: Group<unknown>): number {
+  return group.items.length;
+}
+
+/** The group before (`-1`) or after (`1`) `value`, or null at the end: where a key moves a card to. */
+export function neighbourGroup(groups: readonly Group<unknown>[], value: string, dir: 1 | -1): string | null {
+  const at = groups.findIndex((g) => g.value === value);
+  if (at < 0) return null;
+  return groups[at + dir]?.value ?? null;
+}
+
+/** What a drop comes to. */
+export type Drop =
+  | { kind: 'ops'; ops: Op[] }
+  /** The area: not an operation of the field but a move of the file, which the page asks the engine to preview first. */
+  | { kind: 'move_area'; id: string; area: string }
+  | { kind: 'refused'; reason: 'read_only' | 'same' | 'required' | 'unknown' };
+
+/** A field of the file the page turns back to what the file has: a number as a number, the rest as it is. */
+function written(grouping: Grouping, value: string): string | number {
+  return grouping.value_type === 'number' ? Number(value) : value;
+}
+
+/**
+ * The drop of `task` from the group `from` onto the group `to` (`NONE` is the group of those that have none). `copy`
+ * (the Ctrl key) keeps the group it leaves: only for a list of tags, where a task can be in both.
+ *
+ * - a field of the file (`set`): one `set` of the field, with the version of the file the card showed (`if_match`); the
+ *   group of none takes the key out (`null`), except for a field the file must have (`status`);
+ * - the list of tags: one `set` of the whole list - the tag of the group left goes, the tag of the group entered comes
+ *   (a tag the task has already is not doubled); with `copy` nothing goes;
+ * - the area: not written here (`move_area`);
+ * - a field the engine does not write (no `mode`): refused.
+ */
+export function dropOps(task: TaskEntry, grouping: Grouping, from: string, to: string, copy = false): Drop {
+  if (grouping.mode === undefined || !grouping.writable) return { kind: 'refused', reason: 'read_only' };
+  if (from === to && !copy) return { kind: 'refused', reason: 'same' };
+  if (grouping.mode === 'move_area') {
+    if (to === NONE) return { kind: 'refused', reason: 'required' };
+    return { kind: 'move_area', id: task.id, area: to };
+  }
+  if (to !== NONE && !grouping.values.includes(to)) return { kind: 'refused', reason: 'unknown' };
+  const guard = task.etag ? { if_match: task.etag } : {};
+  if (grouping.mode === 'tags') {
+    const has = task.tags ?? [];
+    const next = has.filter((tag) => copy || tag !== from);
+    if (to !== NONE && !next.includes(to)) next.push(to);
+    if (next.length === has.length && next.every((tag, i) => tag === has[i])) return { kind: 'refused', reason: 'same' };
+    return { kind: 'ops', ops: [{ op: 'set', id: task.id, patch: { tags: next.length > 0 ? next : null }, ...guard }] };
+  }
+  if (to === NONE) {
+    if (grouping.field === 'status') return { kind: 'refused', reason: 'required' };
+    return { kind: 'ops', ops: [{ op: 'set', id: task.id, patch: { [grouping.field]: null }, ...guard }] };
+  }
+  return { kind: 'ops', ops: [{ op: 'set', id: task.id, patch: { [grouping.field]: written(grouping, to) }, ...guard }] };
+}
+
+/**
+ * The two fields of a matrix: the cells of rows by columns, each with the tasks in both. Rows and columns are the groups
+ * of the two groupings over all the tasks (so every row has the same columns, an empty cell included); the task of a list
+ * field stands in every cell it belongs to.
+ */
+export function cellsOf<T extends TaskEntry>(
+  items: readonly T[],
+  rows: Grouping,
+  columns: Grouping,
+): { row: string; column: string; items: T[] }[] {
+  const columnGroups = groupsOf(items, columns).map((g) => ({ value: g.value, ids: new Set(g.items.map((i) => i.id)) }));
+  const out: { row: string; column: string; items: T[] }[] = [];
+  for (const row of groupsOf(items, rows)) {
+    for (const column of columnGroups) {
+      out.push({ row: row.value, column: column.value, items: row.items.filter((i) => column.ids.has(i.id)) });
+    }
+  }
+  return out;
+}
