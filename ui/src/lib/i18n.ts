@@ -1762,6 +1762,9 @@ const de: Record<Key, string> = {
 export const dictionaries: Record<Lang, Record<Key, string>> = { en, de };
 
 /** Is this one of the languages we have? */
+/** The languages of the page. */
+export const LANGS: readonly Lang[] = ['de', 'en'];
+
 export function isLang(value: unknown): value is Lang {
   return value === 'de' || value === 'en';
 }

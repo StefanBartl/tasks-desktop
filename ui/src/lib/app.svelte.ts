@@ -39,8 +39,9 @@ import type { DailyPrefs } from './daily';
 import { parseConflictMode, type ConflictMode } from 'appkit-ui/conflicts';
 import type { CountKey, CountView } from './counts';
 import { conflictsOf, conflictsOfRequest, retryOp, type Conflict } from './conflicts';
-import { backoffSeconds, readStream, StreamRefused, type SseMessage } from 'appkit-ui/sse';
-import { detectLang, isLang, translate, type Key, type Lang } from './i18n';
+import { Preferences, StreamSession } from 'appkit-ui/session';
+import type { SseMessage } from 'appkit-ui/sse';
+import { LANGS, translate, type Key, type Lang } from './i18n';
 import { csvSeparatorFor, exportText, type ExportFormat } from './export';
 import { applyOrder, orderOf, parseSort, type SortWord } from './sort';
 import { fromEngineList, type EngineList } from './engineLists';
@@ -137,12 +138,27 @@ export class App {
   /** A code that arrived while the page was still starting: the pending start trades it. */
   private pendingCode: string | null = null;
   problem = $state<string | null>(null);
-  connection = $state<Connection>('offline');
   view = $state<View>('today');
-  lang = $state<Lang>('en');
-  theme = $state<Theme>('auto');
+  /** What the person chose for the whole page (the kit's `Preferences`): the language, the theme, the single keys. */
+  readonly prefs: Preferences<Lang>;
+  /** The connection to the hub, and the event stream (the kit's `StreamSession`). */
+  readonly stream = new StreamSession();
+  get lang(): Lang {
+    return this.prefs.lang;
+  }
+  get theme(): Theme {
+    return this.prefs.theme;
+  }
   /** Single-key shortcuts; a person with assistive software may turn them off. */
-  shortcuts = $state(true);
+  get shortcuts(): boolean {
+    return this.prefs.shortcuts;
+  }
+  get connection(): Connection {
+    return this.stream.connection;
+  }
+  set connection(value: Connection) {
+    this.stream.connection = value;
+  }
   #filter = $state<Filter>(freshFilter());
   /** What is chosen to see. It is remembered (not the search words), so it outlives a reload. */
   get filter(): Filter {
@@ -387,8 +403,10 @@ export class App {
   cachedAt = $state<number | null>(null);
 
   private etag: string | null = null;
-  private stopped = false;
-  private abort: AbortController | null = null;
+  /** The page was stopped (the kit's `StreamSession` knows). */
+  private get stopped(): boolean {
+    return this.stream.stopped;
+  }
   /** The read in progress (and the reads it repeats), if any. */
   private loop: Promise<void> | null = null;
   private dirty = false;
@@ -400,11 +418,13 @@ export class App {
       getItem: (key) => safe(() => env.prefs.getItem(key)),
       setItem: (key, value) => void safe(() => env.prefs.setItem(key, value)),
     });
-    const lang = safe(() => env.prefs.getItem('tasks-desktop.lang'));
-    this.lang = isLang(lang) ? lang : detectLang(env.preferredLanguages);
-    const theme = safe(() => env.prefs.getItem('tasks-desktop.theme'));
-    this.theme = theme === 'light' || theme === 'dark' ? theme : 'auto';
-    this.shortcuts = safe(() => env.prefs.getItem('tasks-desktop.shortcuts')) !== 'off';
+    this.prefs = new Preferences<Lang>(
+      env.prefs,
+      { lang: 'tasks-desktop.lang', theme: 'tasks-desktop.theme', shortcuts: 'tasks-desktop.shortcuts' },
+      LANGS,
+      env.preferredLanguages,
+      'en',
+    );
     this.shortAreas = safe(() => env.prefs.getItem('tasks-desktop.short-areas')) !== 'off';
     this.sort = parseSort(safe(() => env.prefs.getItem('tasks-desktop.sort')));
     this.listMemory = parseListMemory(safe(() => env.prefs.getItem('tasks-desktop.lists')));
@@ -598,13 +618,11 @@ export class App {
   // ── preferences ───────────────────────────────────────────────────────
 
   setLang(lang: Lang): void {
-    this.lang = lang;
-    safe(() => this.env.prefs.setItem('tasks-desktop.lang', lang));
+    this.prefs.setLang(lang);
   }
 
   setShortcuts(on: boolean): void {
-    this.shortcuts = on;
-    safe(() => this.env.prefs.setItem('tasks-desktop.shortcuts', on ? 'on' : 'off'));
+    this.prefs.setShortcuts(on);
   }
 
   // ── writing ───────────────────────────────────────────────────────────
@@ -1734,15 +1752,14 @@ export class App {
   }
 
   setTheme(theme: Theme): void {
-    this.theme = theme;
-    safe(() => this.env.prefs.setItem('tasks-desktop.theme', theme));
+    this.prefs.setTheme(theme);
   }
 
   // ── start ─────────────────────────────────────────────────────────────
 
   /** Bring the page up. `code` is a pairing code taken from the address. */
   async start(code: string | null): Promise<void> {
-    this.stopped = false;
+    this.stream.resume();
     this.phase = 'starting';
     if (code) this.pendingCode = code;
     let stored = safe(() => this.env.session.getItem(TOKEN_KEY));
@@ -1856,11 +1873,11 @@ export class App {
   }
 
   stop(): void {
-    this.stopped = true;
+    this.stream.stop();
     this.checkState.invalidate();
     this.matrixState.invalidate();
     this.graphState.invalidate();
-    this.abort?.abort();
+    this.stream.cut();
   }
 
   /** The session of this tab was confirmed (a token held for the cached list only is not that). */
@@ -1877,7 +1894,7 @@ export class App {
     this.checkState.forget();
     safe(() => this.env.session.removeItem(TOKEN_KEY));
     this.env.hub.setToken(null);
-    this.abort?.abort();
+    this.stream.cut();
     this.phase = 'needs_pairing';
     this.connection = 'offline';
     this.tasks = [];
@@ -2303,37 +2320,18 @@ export class App {
     await this.refresh();
   }
 
-  private async followStream(): Promise<void> {
-    let attempt = 0;
-    while (!this.stopped && this.env.hub.hasToken) {
-      this.abort = new AbortController();
-      try {
-        await readStream(
-          this.env.fetchFn,
-          this.env.hub.url('/api/tasks/events'),
-          this.env.hub.bearer,
-          {
-            onOpen: () => {
-              attempt = 0;
-              this.connection = 'live';
-              // What happened while the stream was down.
-              void this.refresh();
-            },
-            onMessage: (m) => this.onMessage(m),
-          },
-          this.abort.signal,
-        );
-      } catch (error) {
-        if (this.stopped) return;
-        if (error instanceof StreamRefused && error.status === 401) {
-          this.lostSession();
-          return;
-        }
-      }
-      if (this.stopped || !this.env.hub.hasToken) return;
-      this.connection = 'reconnecting';
-      await this.env.sleep(backoffSeconds(attempt++) * 1000);
-    }
+  private followStream(): Promise<void> {
+    return this.stream.follow({
+      fetchFn: this.env.fetchFn,
+      url: () => this.env.hub.url('/api/tasks/events'),
+      bearer: () => this.env.hub.bearer,
+      hasToken: () => this.env.hub.hasToken,
+      sleep: (ms) => this.env.sleep(ms),
+      // What happened while the stream was down.
+      onOpen: () => void this.refresh(),
+      onMessage: (m) => this.onMessage(m),
+      onLost: () => this.lostSession(),
+    });
   }
 
   private onMessage(message: SseMessage): void {
