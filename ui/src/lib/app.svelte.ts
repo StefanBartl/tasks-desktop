@@ -67,7 +67,7 @@ export type Connection = 'live' | 'reconnecting' | 'offline';
 export type View = 'today' | 'list' | 'board' | 'plan' | 'inbox' | 'cross' | 'done';
 export type Theme = 'auto' | 'light' | 'dark';
 /** The blocks of the Today view that a person may hide. */
-export const TILES = ['next', 'waiting', 'remind', 'cdx', 'counts'] as const;
+export const TILES = ['next', 'waiting', 'remind', 'cdx', 'counts', 'daily'] as const;
 export type Tile = (typeof TILES)[number];
 /** The blocks of the column that can be put in another order (the counts have a column of their own). */
 export const ORDERED_TILES = ['next', 'waiting', 'remind', 'cdx'] as const satisfies readonly Tile[];

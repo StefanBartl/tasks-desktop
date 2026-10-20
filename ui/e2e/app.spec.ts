@@ -576,7 +576,7 @@ test('the tiles of the overview can be put in another order with the keys, the o
   await pair(page);
   await read;
   await expect(page.getByText('Next task')).toBeVisible();
-  const order = () => page.locator('section[data-tile]').evaluateAll((els) =>
+  const order = () => page.locator('section[data-tile]:has(button.grip)').evaluateAll((els) =>
     els.sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top).map((e) => (e as HTMLElement).dataset.tile));
   const before = (await order()) as string[];
   expect(before.length).toBeGreaterThan(1);
@@ -649,6 +649,50 @@ test('the explanations of the vault and of the graph are reachable with the keyb
   await graphInfo.focus();
   await expect(tip).toContainText('has to wait for');
   await expect(graphInfo).toHaveAccessibleDescription(/longest chain/);
+});
+
+test('the start page has a small summary of today: tasks finished, made and changed', async ({ page }) => {
+  await pair(page);
+  const card = page.locator('section[data-tile="daily"]');
+  await expect(card).toBeVisible();
+  await expect(card.getByRole('heading', { name: /Today/ })).toBeVisible();
+  const figure = async (name: string): Promise<number> => {
+    const text = (await card.locator(`li[data-figure="${name}"] .num`).textContent())?.trim() ?? '';
+    return Number(text);
+  };
+  await expect.poll(async () => Number.isNaN(await figure('finished'))).toBe(false);
+  const before = { finished: await figure('finished'), created: await figure('created') };
+
+  // A task that is made now is new today ...
+  await page.keyboard.press('c');
+  const dialog = page.getByRole('dialog', { name: 'New task' });
+  await expect(dialog).toBeVisible();
+  const title = `Daily figures ${Date.now()}`;
+  await dialog.getByLabel('Title').fill(title);
+  await dialog.locator('select').first().selectOption('lib.nvim');
+  await dialog.getByRole('button', { name: 'Create' }).click();
+  await expect(dialog).toHaveCount(0);
+  // Making a task shows it in the list: back to the start page.
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Today', exact: true }).click();
+  await expect.poll(() => figure('created')).toBe(before.created + 1);
+
+  // ... and finished today when it is finished (the engine counts the Backlog).
+  await showList(page);
+  await page.locator('button.row', { hasText: title }).first().click();
+  await page.locator('aside.detail').getByRole('button', { name: 'Finish ...' }).click();
+  const done = page.getByRole('dialog', { name: 'Finish this task?' });
+  await done.getByRole('button', { name: 'Finish', exact: true }).click();
+  await expect(done).toHaveCount(0);
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Today', exact: true }).click();
+  await expect.poll(() => figure('finished')).toBe(before.finished + 1);
+
+  // The tile can be hidden like the others, and comes back.
+  await card.getByRole('button', { name: /Hide/ }).click();
+  await expect(card).toHaveCount(0);
+  await page.getByRole('button', { name: /Hidden tiles/ }).click();
+  await expect(card).toBeVisible();
 });
 
 test('every entry of the header explains itself on hover: the five menus and the connection', async ({ page }) => {
