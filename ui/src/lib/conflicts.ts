@@ -2,18 +2,13 @@
 // one place instead of one toast each. For every one the person sees what was wanted next to what is there now, and
 // can try again on the version that is there (which is a decision, so it is never done by itself) or let it go.
 
+import { CONFLICT_CODES, formatValue } from 'appkit-ui/conflicts';
 import type { Op } from './api';
 import { editedTags, type TagEdit } from './bulk';
 import type { Result, TaskEntry } from './contract';
 
 /** The kinds of operation whose refusal is kept. */
 type Kept = Extract<Op, { op: 'set' | 'reorder' }>;
-
-/** The refusals that say "not now, or not like this": the file changed, is gone or is locked. */
-export const CONFLICT_CODES: readonly string[] = ['conflict', 'not_found', 'locked', 'lock_stuck'];
-
-/** Entries kept; the oldest go. */
-export const CONFLICTS_MAX = 50;
 
 export interface Conflict {
   /** One entry for the same change of the same task: a newer refusal replaces the older one. */
@@ -64,20 +59,6 @@ export function conflictsOfRequest(ops: readonly Op[], now: number, tags?: TagEd
 /** The tag wish belongs to the changes that carry tags. */
 function tagsOf(op: Kept, tags: TagEdit | undefined): { tags?: TagEdit } {
   return tags && op.op === 'set' && 'tags' in op.patch ? { tags } : {};
-}
-
-/** `add` in front of `list`: a newer refusal of the same change replaces the older, the newest come first. */
-export function mergeConflicts(list: readonly Conflict[], add: readonly Conflict[]): Conflict[] {
-  if (add.length === 0) return [...list];
-  const fresh = new Set(add.map((c) => c.key));
-  return [...add, ...list.filter((c) => !fresh.has(c.key))].slice(0, CONFLICTS_MAX);
-}
-
-/** A value as the list shows it: a list joined, nothing as a dash. */
-export function formatValue(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '-';
-  if (Array.isArray(value)) return value.length === 0 ? '-' : value.map(String).join(', ');
-  return String(value);
 }
 
 export interface Difference {
@@ -136,3 +117,6 @@ export function retryOp(conflict: Conflict, task: TaskEntry | undefined): Op | n
     ...(task.etag ? { if_match: task.etag } : {}),
   };
 }
+
+// What the queue of refusals is, the kit says (the same for every app); the tests and the page read it from here.
+export { CONFLICT_CODES, CONFLICTS_MAX, formatValue, mergeConflicts } from 'appkit-ui/conflicts';

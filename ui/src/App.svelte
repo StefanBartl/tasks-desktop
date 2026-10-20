@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { App } from './lib/app.svelte';
+  import type { App, View } from './lib/app.svelte';
+  import { matches } from 'appkit-ui/keymap';
+  import { keymap, pressOf } from './lib/keymap';
   import { ago, dictionaries, translate, type Key } from './lib/i18n';
   import Today from './views/Today.svelte';
   import ListView from './views/ListView.svelte';
@@ -75,12 +77,12 @@
     chord = on;
     clearTimeout(chordTimer);
     // A `g` that nothing follows is forgotten.
-    if (on) chordTimer = setTimeout(() => (chord = false), 1500);
+    if (on) chordTimer = setTimeout(() => (chord = false), keymap.chord.timeoutMs);
   }
 
   function onKey(event: KeyboardEvent): void {
     // The palette is not a single-key shortcut: it opens with Ctrl or Cmd and K, also in a field and with the keys off.
-    if (app.phase === 'ready' && (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'k') {
+    if (app.phase === 'ready' && matches(keymap.palette, pressOf(event))) {
       event.preventDefault();
       // Only opens: a second press while it is open leaves it as it is (Escape closes).
       app.openPalette();
@@ -93,28 +95,9 @@
       setChord(false);
       // Only a key that is part of the chord is taken; Tab and the others
       // keep doing what they do.
-      if (event.key === 'h') {
-        app.setView('today');
-        event.preventDefault();
-        return;
-      }
-      if (event.key === 'l') {
-        app.setView('list');
-        event.preventDefault();
-        return;
-      }
-      if (event.key === 'p') {
-        app.setView('plan');
-        event.preventDefault();
-        return;
-      }
-      if (event.key === 'b') {
-        app.setView('board');
-        event.preventDefault();
-        return;
-      }
-      if (event.key === 'i') {
-        app.setView('inbox');
+      const target = keymap.chord.targets[event.key];
+      if (target !== undefined) {
+        app.setView(target as View);
         event.preventDefault();
         return;
       }

@@ -2112,6 +2112,18 @@ describe('writing', () => {
   });
 
   describe('the conflict center', () => {
+    it('shows every conflict until the person chooses one at a time, and remembers the choice', () => {
+      const prefs = new Map<string, string>();
+      const first = make({ prefs });
+      expect(first.app.conflictMode).toBe('list');
+      first.app.setConflictMode('single');
+      expect(prefs.get('tasks-desktop.conflict-mode')).toBe('single');
+      expect(make({ prefs }).app.conflictMode).toBe('single');
+      // Anything else in the profile is the default again.
+      prefs.set('tasks-desktop.conflict-mode', '<img src=x>');
+      expect(make({ prefs }).app.conflictMode).toBe('list');
+    });
+
     const refused = (code: string): Result =>
       ({
         kind: 'tasks.result',

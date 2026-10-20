@@ -1,11 +1,12 @@
 // A typed dictionary, German and English, and `Intl` for numbers and dates.
 // The UI language is not the language of the data: titles stay as written.
 
-import { fill, pickLang } from 'appkit-ui/i18n';
+import { ago as kitAgo, formatNumber as kitFormatNumber, hintOf as kitHintOf, kitTexts, labelOf as kitLabelOf, lookup, pickLang } from 'appkit-ui/i18n';
 
 export type Lang = 'de' | 'en';
 
 const en = {
+  ...kitTexts.en,
   'app.title': 'Tasks',
   'nav.today': 'Today',
   'nav.list': 'List',
@@ -542,6 +543,10 @@ const en = {
   'conflicts.order': 'A change of the place in the list: the list has moved on, drag the card again.',
   'conflicts.locked': 'The file was locked by another program.',
   'conflicts.close': 'Close',
+  'conflicts.view': 'Show',
+  'conflicts.view_list': 'All',
+  'conflicts.view_single': 'One at a time',
+  'conflicts.more': '{n} more',
   'palette.title': 'Command palette',
   'palette.label': 'Find an action or a task',
   'palette.placeholder': 'Type an action or the words of a task ...',
@@ -713,10 +718,6 @@ const en = {
   'actor.none.hint': 'Nobody was named for this task',
   'multi.reset': 'Clear selection',
   'multi.search': 'Narrow the list',
-  'ago.seconds': '{n} s',
-  'ago.minutes': '{n} min',
-  'ago.hours': '{n} h',
-  'ago.days': '{n} d',
   'mark.invalid': 'file not readable',
   'mark.flagged': '{n} findings of the check',
   'mark.cross': 'touches {n} areas',
@@ -784,6 +785,7 @@ const en = {
 export type Key = keyof typeof en;
 
 const de: Record<Key, string> = {
+  ...kitTexts.de,
   'app.title': 'Tasks',
   'nav.today': 'Heute',
   'nav.list': 'Liste',
@@ -1320,6 +1322,10 @@ const de: Record<Key, string> = {
   'conflicts.order': 'Eine Änderung der Stelle in der Liste: die Liste hat sich weiterbewegt, die Karte neu ziehen.',
   'conflicts.locked': 'Die Datei war von einem anderen Programm gesperrt.',
   'conflicts.close': 'Schließen',
+  'conflicts.view': 'Anzeige',
+  'conflicts.view_list': 'Alle',
+  'conflicts.view_single': 'Einzeln',
+  'conflicts.more': '{n} weitere',
   'palette.title': 'Befehlspalette',
   'palette.label': 'Aktion oder Task finden',
   'palette.placeholder': 'Aktion oder Worte eines Tasks eintippen ...',
@@ -1491,10 +1497,6 @@ const de: Record<Key, string> = {
   'actor.none.hint': 'Für diesen Task wurde niemand genannt',
   'multi.reset': 'Auswahl aufheben',
   'multi.search': 'Liste eingrenzen',
-  'ago.seconds': '{n} s',
-  'ago.minutes': '{n} min',
-  'ago.hours': '{n} Std',
-  'ago.days': '{n} Tg.',
   'mark.invalid': 'Datei nicht lesbar',
   'mark.flagged': '{n} Funde der Prüfung',
   'mark.cross': 'berührt {n} Bereiche',
@@ -1578,22 +1580,16 @@ export function translate(
 ): string {
   // A key that is not there (never from the code, which is typed) shows as
   // itself rather than breaking the page.
-  return fill(dictionaries[lang][key] ?? key, params);
+  return lookup(dictionaries[lang], key, params);
 }
 
 /** "5 min", "2 h": how long ago, in the unit that fits. */
 export function ago(lang: Lang, milliseconds: number): string {
-  const seconds = Math.max(0, Math.round(milliseconds / 1000));
-  if (seconds < 90) return translate(lang, 'ago.seconds', { n: seconds });
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 90) return translate(lang, 'ago.minutes', { n: minutes });
-  const hours = Math.round(minutes / 60);
-  if (hours < 48) return translate(lang, 'ago.hours', { n: hours });
-  return translate(lang, 'ago.days', { n: Math.round(hours / 24) });
+  return kitAgo((key, params) => translate(lang, key, params), milliseconds);
 }
 
 export function formatNumber(lang: Lang, value: number): string {
-  return new Intl.NumberFormat(lang, { maximumFractionDigits: 2 }).format(value);
+  return kitFormatNumber(lang, value);
 }
 
 /**
@@ -1601,18 +1597,13 @@ export function formatNumber(lang: Lang, value: number): string {
  * addition, and a word this version does not know has no explanation yet.
  */
 export function hintOf(lang: Lang, prefix: string, value: string | undefined): string {
-  if (value === undefined) return '';
-  const key = `${prefix}.${value}`;
-  return Object.hasOwn(dictionaries[lang], key) ? translate(lang, key as Key) : '';
+  return kitHintOf(dictionaries[lang], prefix, value);
 }
 
 /**
- * The word for a value the engine named (`status.doing`, `state.ready`). A
- * value this version does not know shows as it is: the contract may grow
- * a new word, and the page must not break on it.
+ * The word for a value the engine named (`status.doing`, `state.ready`). A value this version does not know
+ * shows as it is: the contract may grow a new word, and the page must not break on it.
  */
 export function labelOf(lang: Lang, prefix: string, value: string | undefined): string {
-  if (value === undefined) return '?';
-  const key = `${prefix}.${value}`;
-  return Object.hasOwn(dictionaries[lang], key) ? translate(lang, key as Key) : value;
+  return kitLabelOf(dictionaries[lang], prefix, value);
 }

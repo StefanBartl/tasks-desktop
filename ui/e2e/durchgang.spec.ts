@@ -226,7 +226,7 @@ test('the menu bar is one tab stop: Tab leaves it, Left, Right, Home and End wal
   const count = await triggers.count();
   expect(count).toBeGreaterThanOrEqual(4);
   // Only one trigger takes the tab stop.
-  const stops = await page.evaluate(() => [...document.querySelectorAll('[role="menubar"] button.trigger')].filter((b) => (b as HTMLElement).tabIndex === 0).length);
+  const stops = await page.evaluate(() => [...document.querySelectorAll('[role="menubar"] button.mb-trigger')].filter((b) => (b as HTMLElement).tabIndex === 0).length);
   expect(stops).toBe(1);
   await triggers.first().focus();
   await page.keyboard.press('End');

@@ -28,7 +28,8 @@ import { inboxOf, triageKey } from './inbox';
 import { findingsByTask, groundOf, judgeFindings, type Finding, type Ground, type Judged } from './check';
 import { assumeOf, changesOf, failedIdsOf, MATRIX_MAX, matrixIds, pruneDraft, withCell, type Draft } from './estimate';
 import { moved, parseOrder } from './tiles';
-import { bumped, parseFrecency, type Frecency } from './palette';
+import { bumped, parseFrecency, type Frecency } from 'appkit-ui/palette';
+import { DEFAULT_CONFLICT_MODE, parseConflictMode, type ConflictMode } from 'appkit-ui/conflicts';
 import { defaultView, nextView, parseViews, type CountKey, type CountView } from './counts';
 import { conflictsOf, conflictsOfRequest, mergeConflicts, retryOp, type Conflict } from './conflicts';
 import { backoffSeconds, readStream, StreamRefused, type SseMessage } from 'appkit-ui/sse';
@@ -287,6 +288,8 @@ export class App {
   conflicts = $state.raw<Conflict[]>([]);
   /** The conflict center is open. */
   conflictsOpen = $state(false);
+  /** How the conflict center shows its list: every conflict (the default), or one at a time. */
+  conflictMode = $state<ConflictMode>(DEFAULT_CONFLICT_MODE);
   /** The command palette is open. */
   palette = $state(false);
   /** What the palette's choices were, to put them first next time. */
@@ -356,6 +359,7 @@ export class App {
     this.tileOrder = parseOrder(safe(() => env.prefs.getItem('tasks-desktop.tiles-order')), ORDERED_TILES);
     this.countViews = parseViews(safe(() => env.prefs.getItem('tasks-desktop.count-views')));
     this.frecency = parseFrecency(safe(() => env.prefs.getItem('tasks-desktop.frecency')));
+    this.conflictMode = parseConflictMode(safe(() => env.prefs.getItem('tasks-desktop.conflict-mode')));
     this.finishedPrefs = parsePrefs(safe(() => env.prefs.getItem('tasks-desktop.finished')));
     // The page opens on the view it was left on.
     const view = safe(() => env.prefs.getItem('tasks-desktop.view'));
@@ -606,6 +610,12 @@ export class App {
 
   closeConflicts(): void {
     this.conflictsOpen = false;
+  }
+
+  /** The way the conflict center shows its list, kept in this browser. */
+  setConflictMode(mode: ConflictMode): void {
+    this.conflictMode = mode;
+    safe(() => this.env.prefs.setItem('tasks-desktop.conflict-mode', mode));
   }
 
   /** Let a refused change go. */
