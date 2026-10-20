@@ -46,6 +46,7 @@ impl Subject for Tasks {
             "about",
             "links",
             "groupings",
+            "views",
             "finished",
             "events",
             "ops",

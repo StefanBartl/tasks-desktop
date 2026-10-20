@@ -322,6 +322,22 @@ async fn the_groupings_of_the_engine_come_through_unchanged() {
 }
 
 #[tokio::test]
+async fn the_views_of_the_engine_come_through_unchanged() {
+    let h = hub(Some(fake_engine()), ready()).await;
+    let r = get(&h, "/api/tasks/views", &[]).await;
+    assert_eq!(r.status, 200, "{r:?}");
+    let doc: Value = serde_json::from_str(&r.body).unwrap();
+    assert_eq!(doc["kind"], "tasks.views");
+    assert_eq!(doc["views"][0]["id"], "alpha.nvim/by-status");
+    assert_eq!(doc["views"][0]["etag"], "sha256:00000000000000b1");
+    assert_eq!(doc["problems"], serde_json::json!([]));
+    // No engine: the route says so and does not invent a view.
+    let none = hub(None, ready()).await;
+    let r = get(&none, "/api/tasks/views", &[]).await;
+    assert_eq!(r.status, 503, "{r:?}");
+}
+
+#[tokio::test]
 async fn the_links_of_the_engine_come_through_unchanged() {
     let h = hub(Some(fake_engine()), ready()).await;
     let r = get(&h, "/api/tasks/links", &[]).await;
@@ -361,6 +377,8 @@ async fn queries_that_are_not_plain_are_refused_before_the_engine() {
         "/api/tasks/areas?x=1",
         "/api/tasks/groupings?x=1",
         "/api/tasks/groupings?field=status",
+        "/api/tasks/views?x=1",
+        "/api/tasks/views?area=a",
         "/api/tasks/links?x=1",
         "/api/tasks/links?area=a",
         "/api/tasks/finished?x=1",

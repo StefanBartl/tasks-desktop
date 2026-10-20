@@ -279,8 +279,9 @@ pub(super) async fn search_route(
 /// The operations the page may ask for. `move_area` asked as a dry run is the
 /// report of what the move would break; without it the engine moves the task. A dry
 /// run of `plan_new` names the plan without making it. `tick_step`, `append_note` and `set_body` change the text of one open task
-/// (a step, a line of the notes, the text); the engine checks the version and the text.
-pub(super) const OPS_ALLOWED: [&str; 10] = [
+/// (a step, a line of the notes, the text); the engine checks the version and the text. `view_save` and `view_delete` make,
+/// replace and delete a saved view (a small file of the vault, not a task); the engine checks the view and its version.
+pub(super) const OPS_ALLOWED: [&str; 12] = [
     "set",
     "new",
     "reorder",
@@ -291,6 +292,8 @@ pub(super) const OPS_ALLOWED: [&str; 10] = [
     "append_note",
     "reopen",
     "set_body",
+    "view_save",
+    "view_delete",
 ];
 /// The fields of a request of `ops` (the engine checks the rest, strictly).
 pub(super) const OPS_FIELDS: [&str; 4] = ["schema", "client_op_id", "dry_run", "ops"];
@@ -559,6 +562,18 @@ pub(super) async fn groupings(
         return response;
     }
     match ask(&st, Calls::Groupings, None).await {
+        Ok(reply) => json_response(StatusCode::OK, reply.text, None),
+        Err(response) => response,
+    }
+}
+
+/// `GET /api/tasks/views`: the saved views of the vault (a selection, a grouping and how it is drawn), each with the version of
+/// its file. A read without parameters; the views are the engine's, kept in the vault, so they are the same on every machine.
+pub(super) async fn views(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {
+    if let Some(response) = no_query(query.as_deref()) {
+        return response;
+    }
+    match ask(&st, Calls::Views, None).await {
         Ok(reply) => json_response(StatusCode::OK, reply.text, None),
         Err(response) => response,
     }

@@ -234,6 +234,7 @@ fn app_routes(core: &Arc<Shared>) -> Router<Arc<Shared>> {
         .route(&r("order"), get(order))
         .route(&r("lists"), get(lists))
         .route(&r("groupings"), get(groupings))
+        .route(&r("views"), get(views))
         .route(&r("plan_for"), get(plan_for))
         .route(&r("check"), get(check_state))
         .route(

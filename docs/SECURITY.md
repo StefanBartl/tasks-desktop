@@ -48,7 +48,7 @@ itself and never reaches the router.
 |---|---|---|
 | none | | the placeholder page, `GET /api/tasks/hello` (version, instance id, whether the engine is ready, a short problem code; no task, no area, no path) |
 | pairing code | 128 bits, one use, 60 s | `POST /auth/exchange` for a session token |
-| session token | 256 bits, in the memory of the hub only, at most 16 open | the data routes: `GET /api/tasks/snapshot`, `task?id=`, `next`, `areas`, `about`, `finished`, `order`, `lists`, `groupings`, `links`, `events` (and the other reads of the engine), and `POST /api/tasks/rescan` |
+| session token | 256 bits, in the memory of the hub only, at most 16 open | the data routes: `GET /api/tasks/snapshot`, `task?id=`, `next`, `areas`, `about`, `finished`, `order`, `lists`, `groupings`, `views`, `links`, `events` (and the other reads of the engine), and `POST /api/tasks/rescan` |
 | control secret | 256 bits, in `control.secret` | `POST /api/control/pair`: mint a pairing code. Nothing else. |
 
 Comparisons are constant time and look at every stored entry. Secrets come

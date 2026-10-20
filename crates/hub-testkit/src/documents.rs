@@ -156,6 +156,19 @@ fn tasks_fill(call: &Call<'_>, doc: &mut Value) {
                 { "field": "state", "values": ["ready", "waiting"], "value_type": "string", "truncated": false, "writable": false },
             ]);
         }
+        "views" => {
+            doc["rev"] = json!("rev:bbbbbb");
+            doc["digest"] = json!("sha256:00000000000000bb");
+            doc["views"] = json!([
+                {
+                    "id": "alpha.nvim/by-status", "area": "alpha.nvim", "title": "Columns by status",
+                    "display": "columns", "group_by": "status", "collapsed": [],
+                    "select": { "areas": [], "statuses": ["open", "doing"], "actors": [], "kinds": [], "tags": [], "plans": [] },
+                    "etag": "sha256:00000000000000b1", "created": "2026-01-01", "updated": "2026-01-01",
+                },
+            ]);
+            doc["problems"] = json!([]);
+        }
         "lists" => {
             doc["lists"] = json!([
                 {

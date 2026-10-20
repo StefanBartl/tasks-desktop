@@ -62,7 +62,7 @@ pub fn cli_config_from_setup(setup: &Setup, env: Env) -> CliEngineConfig {
 
 /// The calls of the contract `tasks-export/1` and `tasks-ops/1`: the table of this app. The seam
 /// reads the flags of each entry; it knows no call by name.
-static SPECS: [MethodSpec; 17] = [
+static SPECS: [MethodSpec; 18] = [
     MethodSpec::bare("hello", "tasks.hello"),
     MethodSpec::bare("snapshot", "tasks.snapshot"),
     MethodSpec::read("list", "tasks.list"),
@@ -80,6 +80,7 @@ static SPECS: [MethodSpec; 17] = [
     MethodSpec::read("order", "tasks.order"),
     MethodSpec::bare("lists", "tasks.lists"),
     MethodSpec::bare("groupings", "tasks.groupings"),
+    MethodSpec::bare("views", "tasks.views"),
 ];
 
 /// The calls of the tasks engine, by name.
@@ -104,9 +105,10 @@ impl Calls {
     pub const Order: Method = Method::new(&SPECS[14]);
     pub const Lists: Method = Method::new(&SPECS[15]);
     pub const Groupings: Method = Method::new(&SPECS[16]);
+    pub const Views: Method = Method::new(&SPECS[17]);
 
     /// Every call of the table.
-    pub const ALL: [Method; 17] = [
+    pub const ALL: [Method; 18] = [
         Self::Hello,
         Self::Snapshot,
         Self::List,
@@ -124,6 +126,7 @@ impl Calls {
         Self::Order,
         Self::Lists,
         Self::Groupings,
+        Self::Views,
     ];
 
     /// Parse the name of a route or a request. Nothing else is accepted.
@@ -149,7 +152,7 @@ mod table_tests {
     }
 
     #[test]
-    fn the_calls_without_parameters_are_the_six_bare_reads() {
+    fn the_calls_without_parameters_are_the_seven_bare_reads() {
         let bare: Vec<_> = Calls::ALL
             .iter()
             .filter(|m| !m.takes_params())
@@ -157,7 +160,15 @@ mod table_tests {
             .collect();
         assert_eq!(
             bare,
-            ["hello", "snapshot", "areas", "links", "lists", "groupings"]
+            [
+                "hello",
+                "snapshot",
+                "areas",
+                "links",
+                "lists",
+                "groupings",
+                "views"
+            ]
         );
     }
 
@@ -167,6 +178,6 @@ mod table_tests {
             assert_eq!(Calls::parse(m.as_str()), Some(m));
             assert!(m.reply_kind().starts_with("tasks."), "{}", m.as_str());
         }
-        assert_eq!(Calls::ALL.len(), 17);
+        assert_eq!(Calls::ALL.len(), 18);
     }
 }

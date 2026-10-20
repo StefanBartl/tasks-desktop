@@ -29,6 +29,9 @@ pub const TASKS: FakeDialect = FakeDialect {
         "order",
         "snapshot",
         "task",
+        "view_delete",
+        "view_save",
+        "views",
     ],
     kind_of: tasks_kind,
 };

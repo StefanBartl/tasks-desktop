@@ -264,6 +264,8 @@ async fn a_plan_may_be_asked_for_and_an_unknown_operation_is_not() {
         r#"{"dry_run":true,"ops":[{"op":"append_note","id":"alpha.nvim/t1","text":"a note"}]}"#,
         r#"{"dry_run":true,"ops":[{"op":"reopen","id":"alpha.nvim/t1"}]}"#,
         r#"{"dry_run":true,"ops":[{"op":"set_body","id":"alpha.nvim/t1","body":"text"}]}"#,
+        r#"{"dry_run":true,"ops":[{"op":"view_save","area":"alpha.nvim","view":{"title":"A view","display":"list","group_by":"status"}}]}"#,
+        r#"{"dry_run":true,"ops":[{"op":"view_delete","id":"alpha.nvim/a-view"}]}"#,
     ] {
         let (status, doc) = post(&r, "/api/tasks/ops", body, JSON, true).await;
         assert_eq!(status, 200, "the door refused {body}: {doc}");
