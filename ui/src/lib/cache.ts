@@ -7,6 +7,7 @@
 // survives in the cache through an edge.
 
 import type { Snapshot, TaskEntry } from './contract';
+import { cacheableClass as kitCacheableClass, indexedDbStore as kitIndexedDbStore, type CacheStore } from 'appkit-ui/cache';
 import type { HubArea } from './api';
 
 export interface CachedList {
@@ -24,9 +25,9 @@ export interface CachedList {
   tasks: TaskEntry[];
 }
 
-/** May tasks of this class be written to the cache? */
+/** May tasks of this class be written to the cache? (The kit says it: only public and internal, fail closed.) */
 export function cacheableClass(dataClass: HubArea['data_class'] | undefined): boolean {
-  return dataClass === 'public' || dataClass === 'internal';
+  return kitCacheableClass(dataClass);
 }
 
 /** The part of a snapshot that may be cached, or `null` when nothing may. */
@@ -65,63 +66,15 @@ export function cacheableList(
 }
 
 /** Where the list is kept. An interface, so that tests need no browser. */
-export interface ListStore {
-  load(): Promise<CachedList | null>;
-  save(list: CachedList): Promise<void>;
-  clear(): Promise<void>;
-}
-
-const DB = 'tasks-desktop';
-const STORE = 'list';
-const KEY = 'current';
-
-function open(factory: IDBFactory): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = factory.open(DB, 1);
-    request.onupgradeneeded = () => request.result.createObjectStore(STORE);
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-function done<T>(request: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-/** IndexedDB behind `ListStore`. Every failure is a miss, never an error. */
-export function indexedDbStore(factory: IDBFactory | undefined): ListStore {
-  const run = async <T>(mode: IDBTransactionMode, work: (s: IDBObjectStore) => IDBRequest<T>) => {
-    if (!factory) return null;
-    try {
-      const db = await open(factory);
-      try {
-        return await done(work(db.transaction(STORE, mode).objectStore(STORE)));
-      } finally {
-        db.close();
-      }
-    } catch {
-      return null;
-    }
-  };
-  return {
-    async load() {
-      const value = await run('readonly', (s) => s.get(KEY));
-      return isCachedList(value) ? value : null;
-    },
-    async save(list) {
-      await run('readwrite', (s) => s.put(list, KEY));
-    },
-    async clear() {
-      await run('readwrite', (s) => s.delete(KEY));
-    },
-  };
-}
+export type ListStore = CacheStore<CachedList>;
 
 function isCachedList(value: unknown): value is CachedList {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Partial<CachedList>;
   return typeof v.vault === 'string' && Array.isArray(v.tasks) && typeof v.savedAt === 'number';
+}
+
+/** IndexedDB behind `ListStore`. Every failure is a miss, never an error. */
+export function indexedDbStore(factory: IDBFactory | undefined): ListStore {
+  return kitIndexedDbStore(factory, { db: 'tasks-desktop', store: 'list', key: 'current', valid: isCachedList });
 }

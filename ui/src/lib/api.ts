@@ -2,16 +2,11 @@
 
 import type { Areas, Check, DonePreview, Estimate, Finished, Links, NamedLists, Next, Order, PlanFor, Result, Snapshot, TaskDocument } from './contract';
 import type { About } from './about';
+import { ApiError, failure, HubClient, textOf, type Hello, type SnapshotResult as KitSnapshotResult } from 'appkit-ui/client';
 
-export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+// The transport (the bearer token, the refusal, the pairing code, hello, the snapshot with its tag, rescan) is the
+// kit's; this file is the routes of the tasks.
+export { ApiError, type Hello };
 
 /** One operation of a write. The engine checks the rules; the form is the page's. */
 export type Op =
@@ -47,12 +42,6 @@ export interface OpsRequest {
   client_op_id: string;
   dry_run?: boolean;
   ops: Op[];
-}
-
-export interface Hello {
-  instance: string;
-  version: string;
-  engine: { ready: boolean; problem: string | null; capabilities: string[] | null };
 }
 
 /** One area as `GET /api/tasks/areas` tells it, with the class it is shown with. */
@@ -99,77 +88,17 @@ export interface SearchResult {
   hits: SearchHit[];
 }
 
-export type SnapshotResult =
-  | { kind: 'fresh'; doc: Snapshot; etag: string | null }
-  | { kind: 'not_modified' };
+export type SnapshotResult = KitSnapshotResult<Snapshot>;
 
-export class Hub {
-  private token: string | null = null;
-  /** Called when the hub says the session is gone. */
-  onUnauthorized: () => void = () => {};
-
-  constructor(
-    private readonly fetchFn: typeof fetch,
-    private readonly base: string = '',
-  ) {}
-
-  setToken(token: string | null): void {
-    this.token = token;
-  }
-
-  get hasToken(): boolean {
-    return this.token !== null;
-  }
-
-  /** The session token, for a request the browser makes by itself (the stream). */
-  get bearer(): string {
-    return this.token ?? '';
-  }
-
-  url(path: string): string {
-    return this.base + path;
-  }
-
-  private async request(path: string, init: RequestInit = {}): Promise<Response> {
-    const headers = new Headers(init.headers);
-    const sent = this.token;
-    if (sent) headers.set('Authorization', `Bearer ${sent}`);
-    const response = await this.fetchFn(this.url(path), {
-      ...init,
-      headers,
-      cache: 'no-store',
-      credentials: 'omit',
-      referrerPolicy: 'no-referrer',
-    });
-    // The session that was refused is the one that is gone: a refusal that comes after another token was set (a late
-    // answer to a question asked with an old one) says nothing about the new one.
-    if (response.status === 401 && this.token === sent) this.onUnauthorized();
-    return response;
-  }
-
-  private async json<T>(path: string, init?: RequestInit): Promise<T> {
-    const response = await this.request(path, init);
-    if (!response.ok) throw await failure(response);
-    return (await response.json()) as T;
-  }
-
-  async hello(): Promise<Hello> {
-    const doc = await this.json<{
-      instance: string;
-      version: string;
-      engine: { ready: boolean; problem: string | null; capabilities?: string[] };
-    }>('/api/tasks/hello');
-    return {
-      instance: doc.instance,
-      version: doc.version,
-      engine: { ...doc.engine, capabilities: doc.engine.capabilities ?? null },
-    };
+export class Hub extends HubClient<Snapshot> {
+  constructor(fetchFn: typeof fetch, base: string = '') {
+    super(fetchFn, '/api/tasks', base);
   }
 
   /** What this build is and which engine answers (APP-09): only the words the page shows are taken from the hub. */
   async about(): Promise<About> {
     const doc = await this.json<Record<string, unknown>>('/api/tasks/about');
-    const text = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+    const text = textOf;
     const engine = doc['engine'];
     const pinned = doc['pinned'];
     const part = (v: unknown, key: string): string | null =>
@@ -187,33 +116,6 @@ export class Hub {
       engineProblem: text(doc['engine_problem']),
       pinned: { engine: part(pinned, 'engine'), lib: part(pinned, 'lib') },
     };
-  }
-
-  /** Trade a pairing code for a session token. */
-  async exchange(code: string): Promise<string> {
-    const response = await this.fetchFn(this.url('/auth/exchange'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code }),
-      cache: 'no-store',
-      credentials: 'omit',
-      referrerPolicy: 'no-referrer',
-    });
-    if (!response.ok) throw await failure(response);
-    const doc = (await response.json()) as { token?: string };
-    if (typeof doc.token !== 'string') throw new ApiError(502, 'bad_reply', 'no token');
-    return doc.token;
-  }
-
-  async snapshot(etag: string | null): Promise<SnapshotResult> {
-    const headers: Record<string, string> = {};
-    if (etag) headers['If-None-Match'] = `"${etag}"`;
-    const response = await this.request('/api/tasks/snapshot', { headers });
-    if (response.status === 304) return { kind: 'not_modified' };
-    if (!response.ok) throw await failure(response);
-    const raw = response.headers.get('etag');
-    const tag = raw ? raw.replace(/^W\//, '').replace(/^"|"$/g, '') : null;
-    return { kind: 'fresh', doc: (await response.json()) as Snapshot, etag: tag };
   }
 
   /** One task with its body. A `signal` that aborts drops the request: the hub then never starts the read. */
@@ -246,13 +148,8 @@ export class Hub {
     return this.json<VaultList>('/api/vaults');
   }
 
-  private async vaultPost(path: string, body: Record<string, unknown>): Promise<void> {
-    const response = await this.request(path, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) throw await failure(response);
+  private vaultPost(path: string, body: Record<string, unknown>): Promise<void> {
+    return this.post(path, body);
   }
 
   /** Remember a folder as a vault; the page has asked the person first. */
@@ -354,26 +251,4 @@ export class Hub {
     const path = `/api/tasks/done_preview?id=${encodeURIComponent(id).replace(/%2F/gi, '/')}`;
     return this.json<DonePreview>(path);
   }
-
-  async rescan(): Promise<void> {
-    const response = await this.request('/api/tasks/rescan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
-    });
-    if (!response.ok) throw await failure(response);
-  }
-}
-
-async function failure(response: Response): Promise<ApiError> {
-  let code = 'http_error';
-  let message = `HTTP ${response.status}`;
-  try {
-    const doc = (await response.json()) as { error?: { code?: string; message?: string } };
-    if (doc.error?.code) code = doc.error.code;
-    if (doc.error?.message) message = doc.error.message;
-  } catch {
-    // not JSON: keep the generic words
-  }
-  return new ApiError(response.status, code, message);
 }
