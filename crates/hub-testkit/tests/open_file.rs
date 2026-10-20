@@ -250,31 +250,34 @@ async fn the_folder_of_the_vault_is_shown_and_the_page_names_nothing() {
 async fn a_new_vault_is_made_only_when_confirmed_and_never_over_something() {
     let r = rig("create", false).await;
     let target = r.vault.parent().unwrap().join("fresh");
-    let text = |extra: &str| {
+    let body = |area: &str, extra: &str| {
         format!(
-            r#"{{"path":{},"area":"alpha.nvim"{extra}}}"#,
+            r#"{{"path":{},"area":"{area}"{extra}}}"#,
             serde_json::to_string(&target.to_string_lossy()).unwrap()
         )
     };
     let route = "/api/tasks/vault_create";
-    let (status, doc) = post(&r, route, &text(""), true).await;
+    let (status, doc) = post(&r, route, &body("alpha.nvim", ""), true).await;
     assert_eq!(
         (status, doc["error"]["code"].as_str()),
         (400, Some("not_confirmed"))
     );
     assert!(!target.exists());
-    let (status, _) = post(&r, route, &text(r#","confirm":true"#), false).await;
+    let (status, _) = post(&r, route, &body("alpha.nvim", r#","confirm":true"#), false).await;
     assert_eq!(status, 401);
     assert!(!target.exists());
-    let (status, doc) = post(&r, route, &text(r#","confirm":true"#), true).await;
+    let (status, doc) = post(&r, route, &body("alpha.nvim", r#","confirm":true"#), true).await;
     assert_eq!(status, 200, "{doc}");
     assert!(target.join("alpha.nvim/ROADMAP/tasks").is_dir());
-    // A second time the folder is not empty: nothing is merged into it.
-    let (status, doc) = post(&r, route, &text(r#","confirm":true"#), true).await;
+    // The same area again is the folder of the earlier try; another area would be merged into it, and is refused.
+    let (status, doc) = post(&r, route, &body("beta.nvim", r#","confirm":true"#), true).await;
     assert_eq!(
         (status, doc["error"]["code"].as_str()),
         (400, Some("not_empty"))
     );
+    assert!(!target.join("beta.nvim").exists());
+    let (status, _) = post(&r, route, &body("alpha.nvim", r#","confirm":true"#), true).await;
+    assert_eq!(status, 200, "the folder of the earlier try is taken again");
     let bad = r#"{"path":"relative/v","area":"a","confirm":true}"#;
     let (status, doc) = post(&r, route, bad, true).await;
     assert_eq!(

@@ -381,7 +381,7 @@ with no path. `TASKS_DESKTOP_EDITOR_LOG` makes it write `reveal <folder>` instea
 
 `vault_create` takes `{ path, area, confirm: true }` and writes on the machine of the hub, so without `confirm: true` it does
 nothing. The path must be absolute without `.` or `..`, its parent must exist, and the target must not exist or be an empty
-folder (never a file, never a folder with something in it: nothing is merged or overwritten). The area must be a plain folder
+folder (never a file, never a folder with something in it: nothing is merged or overwritten). The one exception is a folder that holds exactly the structure of the same area and nothing else, what an earlier try left when the second step was refused: it is taken as it is, so that the person can try again. The area must be a plain folder
 name. It makes `<path>/<area>/ROADMAP/tasks`, the folders the engine looks for, and does not register the vault: the page
 then calls `vaults/add` as for any folder. Both routes need a session and count as mutations.
 
