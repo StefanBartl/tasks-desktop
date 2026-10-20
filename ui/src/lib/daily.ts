@@ -148,12 +148,6 @@ export function metricValues(
   };
 }
 
-/** The made and the changed tasks of one day (the first two figures of the tile). */
-export function dailyFigures(tasks: readonly Pick<TaskEntry, 'created' | 'updated'>[], day: string): { created: number; changed: number } {
-  const v = metricValues(tasks, null, { since: day, until: day });
-  return { created: v.created.value ?? 0, changed: v.changed.value ?? 0 };
-}
-
 // ── what the person chose ─────────────────────────────────────────────────────────────────────────────────────────
 
 export interface DailyPrefs {

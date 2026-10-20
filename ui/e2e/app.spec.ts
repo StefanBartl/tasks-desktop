@@ -780,6 +780,34 @@ test('the tile Today turns to a week, a month and days that are named, counts wh
   await expect(again.locator('input[data-metric]')).toHaveCount(0);
 });
 
+test('the tile does not show the finished figure of one period under the days of the next while that one is on its way', async ({ page }) => {
+  let today = '';
+  const doc = (total: number) =>
+    JSON.stringify({ kind: 'tasks.finished', total, offset: 0, limit: 100, items: [], undated: 0, incomplete: [], stats: { effort_days: 0, without_effort: 0, by_area: [], by_kind: [], by_prio: [] } });
+  await page.route('**/api/tasks/finished*', async (route) => {
+    const since = new URL(route.request().url()).searchParams.get('since');
+    // Today answers at once with 7; every other day answers 0, but late.
+    if (since === today) return route.fulfill({ status: 200, contentType: 'application/json', body: doc(7) });
+    await new Promise((r) => setTimeout(r, 1500));
+    return route.fulfill({ status: 200, contentType: 'application/json', body: doc(0) });
+  });
+  await watchViolations(page);
+  await page.addInitScript((token) => sessionStorage.setItem('tasks-desktop.session', token), state().token);
+  await page.goto('/');
+  const card = page.locator('section[data-tile="daily"]');
+  await expect(card).toBeVisible();
+  today = ((await card.locator('[data-range]').textContent()) ?? '').trim();
+  // The first answer for today may have gone before the day was known: ask again by turning back and forth.
+  await card.locator('button[data-turn="prev"]').click();
+  await card.locator('button[data-turn="next"]').click();
+  const finished = card.locator('li[data-figure="finished"] .num');
+  await expect(finished).toHaveText('7');
+  await card.locator('button[data-turn="prev"]').click();
+  // The day before is on its way: a dash, not the 7 of today.
+  await expect(finished).toHaveText('–', { timeout: 1000 });
+  await expect(finished).toHaveText('0');
+});
+
 test('every entry of the header explains itself on hover: the five menus and the connection', async ({ page }) => {
   await pair(page);
   const tip = page.locator('#hint-tip');

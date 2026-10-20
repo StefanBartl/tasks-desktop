@@ -80,18 +80,21 @@
 
   // The finished tasks of the period: asked again when the snapshot or the period changes, and only when a chosen
   // evaluation needs them.
-  let finished = $state<Finished | null>(null);
+  // An answer is kept with the days it is for: while the next period is on its way the old numbers are not shown under
+  // the new days (a dash instead).
+  let answer = $state<{ since: string; until: string; doc: Finished } | null>(null);
+  const finished = $derived(answer !== null && answer.since === days.since && answer.until === days.until ? answer.doc : null);
   const needsFinished = $derived(prefs.metrics.some((m) => m !== 'created' && m !== 'changed'));
   $effect(() => {
     const { since, until } = days;
     void app.snapshot?.rev;
     if (!needsFinished || !app.can('finished')) {
-      finished = null;
+      answer = null;
       return;
     }
     const controller = new AbortController();
-    void readFinished(since, until, controller.signal).then((answer) => {
-      if (!controller.signal.aborted) finished = answer;
+    void readFinished(since, until, controller.signal).then((doc) => {
+      if (!controller.signal.aborted) answer = doc === null ? null : { since, until, doc };
     });
     return () => controller.abort();
   });
@@ -112,12 +115,17 @@
 
   const rows = $derived<DailyRow[]>(shownMetrics.map((m) => ({ label: t(`daily.m.${m}` as Key), value: textOf(m) })));
 
+  /** What the page shows, as plain colours for the canvas: asked of an element, so that `light-dark()` follows the theme. */
   function colors() {
-    const css = getComputedStyle(document.documentElement);
-    const read = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
-    // `light-dark()` stays as written in a custom property; the canvas takes a plain colour, so the page's own are read.
-    const body = getComputedStyle(document.body);
-    return { background: body.backgroundColor, text: body.color, muted: read('--muted', body.color) };
+    const resolve = (css: string): string => {
+      const probe = document.createElement('span');
+      probe.style.color = css;
+      document.body.append(probe);
+      const colour = getComputedStyle(probe).color;
+      probe.remove();
+      return colour;
+    };
+    return { background: resolve('var(--bg)'), text: resolve('var(--text)'), muted: resolve('var(--muted)') };
   }
 
   async function saveImage(): Promise<void> {
