@@ -614,6 +614,16 @@ test('the tiles of the overview can be put in another order with the keys, the o
   await expect(page.getByRole('menuitem', { name: 'Reset the order of the tiles' })).toBeDisabled();
 });
 
+test('Tasks, Next task opens the task that the tile Next task shows, not the pick of an agent', async ({ page }) => {
+  await pair(page);
+  const id = (await page.locator('section[data-tile="next"] p.id code').textContent())?.trim() ?? '';
+  expect(id).not.toBe('');
+  await page.getByRole('menuitem', { name: 'Tasks', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Next task', exact: true }).click();
+  await expect(page.locator('aside.detail')).toContainText(id);
+  await expect(page.locator('button.row[aria-current="true"], button.row.selected').first()).toBeVisible();
+});
+
 test('every entry of the header explains itself on hover: the five menus and the connection', async ({ page }) => {
   await pair(page);
   const tip = page.locator('#hint-tip');
@@ -687,6 +697,9 @@ test('the menus are Tasks, Project, View, Options and Help, with sections and th
   // Project: the vault section tells which vault and how big it is, and the old Vaults menu is gone.
   await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
   const project = page.getByRole('menu');
+  // The hint of the menu does not lie over its first items while it is open.
+  await page.waitForTimeout(600);
+  await expect(page.locator('#hint-tip')).toBeHidden();
   await expect(project.getByText('Vault', { exact: true })).toBeVisible();
   await expect(project.getByText(/\d+ areas, \d+ tasks/)).toBeVisible();
   await expect(project.getByRole('menuitem', { name: 'Read the vault again' })).toBeVisible();

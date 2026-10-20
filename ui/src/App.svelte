@@ -212,8 +212,8 @@
     app.announceExport((await copyText(navigator.clipboard, text)) ? 'copied' : 'copy_failed', count);
   }
 
-  /** The task the engine names as the next one to take (an agent's first, else the first alternative). */
-  const nextTaskId = $derived(app.next?.cdx[0]?.id ?? app.next?.alternatives[0]?.id ?? null);
+  /** The task the engine names as the next one to take: the one the tile of that name shows. */
+  const nextTaskId = $derived(app.next?.task?.id ?? null);
   const areaCount = $derived(new Set(app.tasks.map((x) => x.area)).size);
 
   /** The list with the cursor in its search box. */
