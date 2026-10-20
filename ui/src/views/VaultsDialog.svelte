@@ -4,6 +4,7 @@
   // says what it means before the button, and the request says it was confirmed.
   import type { App } from '../lib/app.svelte';
   import { translate, type Key } from '../lib/i18n';
+  import Info from 'appkit-ui/Info.svelte';
 
   let { app }: { app: App } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) =>
@@ -37,6 +38,7 @@
   }}
 >
   <h2 id="vaults-title">{t('vaults.title')}</h2>
+  <Info hint={t('hint.vaults.active')} label={t('hint.about', { what: t('vaults.active') })} />
   <p class="muted">{t('vaults.intro')}</p>
   {#if list}
     <ul class="vaults">

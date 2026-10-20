@@ -5,6 +5,8 @@
   import { hintOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
   import { timeOf } from '../lib/check';
+  import { checkLegend } from '../lib/legend';
+  import Info from 'appkit-ui/Info.svelte';
 
   let { app }: { app: App } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
@@ -33,6 +35,10 @@
 <dialog bind:this={dialog} aria-labelledby="check-title" onclose={() => app.closeChecks()}>
   {#if app.checking}
     <h2 id="check-title">{t('check.title')}</h2>
+    <!-- The codes of the findings are explained on hover; this is the way for the keyboard and a screen reader: one stop. -->
+    {#if findings.length > 0 || stale.length > 0}
+      <Info hint={checkLegend(app.lang, [...findings, ...stale].map((f) => f.code))} label={t('hint.about', { what: t('check.codes_what') })} />
+    {/if}
     <p class="help">{t('check.help')}</p>
     <div class="run">
       <label><input type="checkbox" bind:checked={refs} disabled={running} /> {t('check.refs')}</label>

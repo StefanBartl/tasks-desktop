@@ -624,6 +624,33 @@ test('Tasks, Next task opens the task that the tile Next task shows, not the pic
   await expect(page.locator('button.row[aria-current="true"], button.row.selected').first()).toBeVisible();
 });
 
+test('the explanations of the vault and of the graph are reachable with the keyboard: one info button each', async ({ page }) => {
+  await pair(page);
+  const tip = page.locator('#hint-tip');
+
+  // The vaults dialog: the "read now" tag explained on hover now has an info button beside the title.
+  await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Manage vaults ...' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Vaults' });
+  const vaultInfo = dialog.getByRole('button', { name: /Explanation/ });
+  await vaultInfo.focus();
+  await expect(tip).toHaveText(/The vault the hub reads now/);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+
+  // The graph of a task: one stop with the words of the directions, the count, a circle, the wait line.
+  await showList(page);
+  await page.locator('button.row').first().click();
+  await page.getByRole('button', { name: 'What do I need for this?' }).click();
+  const graph = page.locator('section.graph');
+  await expect(graph).toBeVisible();
+  const graphInfo = graph.getByRole('button', { name: /Explanation/ });
+  await graphInfo.focus();
+  await expect(tip).toContainText('has to wait for');
+  await expect(graphInfo).toHaveAccessibleDescription(/longest chain/);
+});
+
 test('every entry of the header explains itself on hover: the five menus and the connection', async ({ page }) => {
   await pair(page);
   const tip = page.locator('#hint-tip');
@@ -1245,6 +1272,13 @@ test('the check runs as a job in the background and its findings reach the list 
   await expect(findings.first()).toBeVisible();
   await expect(findings.filter({ hasText: 'lib.nvim/broken' }).first()).toContainText('bad-');
   await expectAccessible(page, 'check findings');
+  // The codes are explained with the keyboard too: one info button names every code that is listed, each with its rule.
+  const codesInfo = dialog.getByRole('button', { name: /Explanation/ });
+  await codesInfo.focus();
+  await expect(page.locator('#hint-tip')).toContainText(/bad-[a-z-]+: /);
+  await expect(codesInfo).toHaveAccessibleDescription(/bad-[a-z-]+: /);
+  // The popup of a focused control stays until the focus leaves: it would lie over the findings.
+  await codesInfo.blur();
   // The jump goes to the task in the list, and the detail names the findings.
   await findings.filter({ hasText: 'lib.nvim/broken' }).first().getByRole('button', { name: 'lib.nvim/broken' }).click();
   await expect(dialog).toHaveCount(0);
@@ -1876,7 +1910,8 @@ test('explanations: the popup stays while the pointer crosses to it, follows fro
   // An element below the fold: the browser scrolls it into view when it gets the focus, and the popup follows.
   await page.setViewportSize({ width: 1000, height: 300 });
   await page.keyboard.press('Escape');
-  const info = page.locator('.info').last();
+  // The info buttons of the closed dialogs are in the page too: only the ones of the view count here.
+  const info = page.locator('main .info').last();
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect(info).not.toBeInViewport();
   await info.focus();

@@ -6,6 +6,8 @@
   import type { App } from '../lib/app.svelte';
   import { hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
+  import { graphLegend } from '../lib/legend';
+  import Info from 'appkit-ui/Info.svelte';
 
   let { app }: { app: App } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
@@ -96,6 +98,7 @@
   <section class="graph card" onkeydown={onPanelKey} aria-label={t(graph.direction === 'needs' ? 'graph.title.needs' : 'graph.title.unlocks', { id: graph.id })}>
     <header>
       <h2 bind:this={heading} tabindex="-1">{t(graph.direction === 'needs' ? 'graph.title.needs' : 'graph.title.unlocks', { id: graph.id })}</h2>
+      <Info hint={graphLegend(app.lang)} label={t('hint.about', { what: t('graph.legend_what') })} />
       <div class="dir" role="group" aria-label={t('graph.direction')}>
         <button type="button" data-hint={t('hint.graph.needs')} aria-pressed={graph.direction === 'needs'} onclick={() => app.openGraph(graph.id, 'needs')}>{t('graph.dir.needs')}</button>
         <button type="button" data-hint={t('hint.graph.unlocks')} aria-pressed={graph.direction === 'unlocks'} onclick={() => app.openGraph(graph.id, 'unlocks')}>{t('graph.dir.unlocks')}</button>
