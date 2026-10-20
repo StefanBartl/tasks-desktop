@@ -1,0 +1,218 @@
+// The parts of the state of the page, each on its own (the page tests, `app.test.ts`, go through `App`).
+
+import { describe, expect, it, vi } from 'vitest';
+import { ApiError, type VaultList } from '../api';
+import type { Conflict } from '../conflicts';
+import { AboutState } from './about.svelte';
+import { ConflictsState } from './conflicts.svelte';
+import { TodayState } from './today.svelte';
+import { VaultsState } from './vaults.svelte';
+
+const conflict = (key: string): Conflict => ({ key, id: `a/${key}`, op: { op: 'set', id: `a/${key}`, patch: {} }, code: 'conflict', at: 1 });
+
+describe('the conflicts', () => {
+  it('keeps the newest first, replaces a newer refusal of the same change, and opens only with something in it', () => {
+    const state = new ConflictsState(() => undefined);
+    state.show();
+    expect(state.open).toBe(false);
+    state.add([conflict('a'), conflict('b')]);
+    state.add([conflict('b')]);
+    expect(state.list.map((c) => c.key)).toEqual(['b', 'a']);
+    state.show();
+    expect(state.open).toBe(true);
+  });
+
+  it('closes with the last conflict that goes, and finds one by its key', () => {
+    const state = new ConflictsState(() => undefined);
+    state.add([conflict('a'), conflict('b')]);
+    state.show();
+    state.discard('a');
+    expect(state.open).toBe(true);
+    expect(state.find('b')?.id).toBe('a/b');
+    expect(state.find('a')).toBeUndefined();
+    state.discard('b');
+    expect(state.open).toBe(false);
+    state.add([conflict('c')]);
+    state.show();
+    state.discardAll();
+    expect([state.list, state.open]).toEqual([[], false]);
+  });
+
+  it('hands the way of showing to the profile', () => {
+    const remembered: string[] = [];
+    const state = new ConflictsState((mode) => void remembered.push(mode));
+    expect(state.mode).toBe('list');
+    state.setMode('single');
+    expect([state.mode, remembered]).toEqual(['single', ['single']]);
+  });
+});
+
+describe('the vaults', () => {
+  const listed: VaultList = { active: 'main', vaults: [{ name: 'main', label: 'v', main: true }] };
+  function host(over: Partial<ConstructorParameters<typeof VaultsState>[0]> = {}) {
+    const said: string[] = [];
+    return {
+      said,
+      host: {
+        ready: () => true,
+        vaults: async () => listed,
+        selectVault: async () => undefined,
+        addVault: async () => undefined,
+        removeVault: async () => undefined,
+        say: (kind: string, key: string, params?: Record<string, string>) => void said.push(`${kind}:${key}:${params?.['message'] ?? ''}`),
+        ...over,
+      } as ConstructorParameters<typeof VaultsState>[0],
+    };
+  }
+
+  it('reads the list, and tells a hub without a list from one that did not answer', async () => {
+    const ok = new VaultsState(host().host);
+    expect(await ok.read()).toBe('ok');
+    expect(ok.list).toEqual(listed);
+    const none = new VaultsState(host({ vaults: async () => Promise.reject(new ApiError(404, 'not_found', 'x')) }).host);
+    expect(await none.read()).toBe('none');
+    expect([none.list, none.failed]).toEqual([null, false]);
+    const down = new VaultsState(host({ vaults: async () => Promise.reject(new Error('network')) }).host);
+    expect(await down.read()).toBe('failed');
+    expect(down.failed).toBe(true);
+  });
+
+  it('opens the dialog only for a page that is ready and has a list', async () => {
+    const state = new VaultsState(host().host);
+    state.open();
+    expect(state.managing).toBe(false);
+    await state.read();
+    state.open();
+    expect(state.managing).toBe(true);
+    state.close();
+    expect(state.managing).toBe(false);
+    const idle = new VaultsState(host({ ready: () => false }).host);
+    await idle.read();
+    idle.open();
+    expect(idle.managing).toBe(false);
+  });
+
+  it('does one step at a time, says what it did, and says the hub\'s words when it is refused', async () => {
+    let release = (): void => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const h = host({ addVault: () => gate });
+    const state = new VaultsState(h.host);
+    const first = state.add(' one ', ' /p ');
+    expect(state.busy).toBe(true);
+    // A second step beside it is not started.
+    expect(await state.add('two', '/q')).toBe(false);
+    release();
+    expect(await first).toBe(true);
+    expect(h.said).toEqual(['ok:vaults.added:']);
+    expect(state.busy).toBe(false);
+
+    const refused = host({ removeVault: async () => Promise.reject(new ApiError(409, 'busy', 'in use')) });
+    const other = new VaultsState(refused.host);
+    await other.remove('x');
+    expect(refused.said).toEqual(['error:vaults.failed:in use']);
+    expect(other.busy).toBe(false);
+  });
+
+  it('trims what is added, and runs what the page does before taking the choice of another vault', async () => {
+    const added: string[][] = [];
+    const order: string[] = [];
+    const h = host({
+      addVault: async (n: string, p: string) => void added.push([n, p]),
+      selectVault: async () => void order.push('hub'),
+    });
+    const state = new VaultsState(h.host);
+    await state.add('  n  ', '  /p  ');
+    expect(added).toEqual([['n', '/p']]);
+    expect(await state.select('other', async () => void order.push('page'))).toBe(true);
+    expect(order).toEqual(['hub', 'page']);
+  });
+});
+
+describe('the info dialog', () => {
+  const doc = { app: 'a', version: '1' } as never;
+
+  it('opens only where the page may show it, and closes', () => {
+    let allowed = false;
+    const state = new AboutState({ available: () => allowed, about: async () => doc });
+    state.open();
+    expect(state.dialog.state).toBe('closed');
+    allowed = true;
+    state.open('report');
+    expect(state.dialog).toEqual({ state: 'loading', focus: 'report' });
+    state.close();
+    expect(state.dialog.state).toBe('closed');
+  });
+
+  it('shows the answer of the opening it belongs to and not one that was closed meanwhile', async () => {
+    let release = (): void => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const state = new AboutState({ available: () => true, about: async () => (await gate, doc) });
+    state.open();
+    state.close();
+    release();
+    await vi.waitFor(() => expect(state.dialog.state).toBe('closed'));
+    await Promise.resolve();
+    expect(state.dialog.state).toBe('closed');
+  });
+
+  it('says why when the hub does not answer', async () => {
+    const state = new AboutState({ available: () => true, about: async () => Promise.reject(new Error('no answer')) });
+    state.open();
+    await vi.waitFor(() => expect(state.dialog).toEqual({ state: 'failed', message: 'no answer' }));
+  });
+});
+
+describe('the start page layout', () => {
+  function profile(initial: Record<string, string> = {}) {
+    const store = new Map(Object.entries(initial));
+    return {
+      store,
+      host: { lang: () => 'en' as const, getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) },
+    };
+  }
+
+  it('reads the profile back, and drops what is not a known block', () => {
+    const p = profile({ 'tasks-desktop.tiles-hidden': '["next","nonsense","daily"]', 'tasks-desktop.tiles-order': '["waiting","next","remind","cdx"]' });
+    const state = new TodayState(p.host);
+    expect(state.hidden).toEqual(['next', 'daily']);
+    expect(state.order).toEqual(['waiting', 'next', 'remind', 'cdx']);
+    expect(state.orderChanged).toBe(true);
+  });
+
+  it('hides a block once, shows all again, and keeps each in the profile', () => {
+    const p = profile();
+    const state = new TodayState(p.host);
+    state.hide('next');
+    state.hide('next');
+    expect(state.hidden).toEqual(['next']);
+    expect(p.store.get('tasks-desktop.tiles-hidden')).toBe('["next"]');
+    state.showAll();
+    expect(p.store.get('tasks-desktop.tiles-hidden')).toBe('[]');
+  });
+
+  it('moves a block and says where it is now, and puts the order back', () => {
+    const p = profile();
+    const state = new TodayState(p.host);
+    state.move('next', 'waiting', true, ['next', 'waiting', 'remind', 'cdx']);
+    expect(state.order.slice(0, 2)).toEqual(['waiting', 'next']);
+    expect(state.note).toContain('2');
+    expect(p.store.get('tasks-desktop.tiles-order')).toContain('waiting');
+    state.resetOrder();
+    expect(state.orderChanged).toBe(false);
+  });
+
+  it('opens a number, walks its views with the key, and keeps the choice of the views and of the tile Today', () => {
+    const p = profile();
+    const state = new TodayState(p.host);
+    state.cycleCountView('doing');
+    expect(state.countOpen).toBe('doing');
+    const first = state.countView('doing');
+    state.cycleCountView('doing');
+    expect(state.countView('doing')).not.toBe(first);
+    expect(p.store.get('tasks-desktop.count-views')).toContain('doing');
+    state.toggleCount('doing');
+    expect(state.countOpen).toBeNull();
+    state.setDaily({ mode: 'week', metrics: ['finished'] });
+    expect(new TodayState(p.host).daily).toEqual({ mode: 'week', metrics: ['finished'] });
+  });
+});

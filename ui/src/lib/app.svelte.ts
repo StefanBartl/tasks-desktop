@@ -25,14 +25,20 @@ import { indexOfLinks, touchedAreas } from './cross';
 import { parsePrefs, type Prefs as FinishedPrefs } from './finished';
 import { applyFilter, filterVaultOf, freshFilter, moveSelection, parseFilter, serializeFilter, type Filter } from './filter';
 import { inboxOf, triageKey } from './inbox';
-import { findingsByTask, groundOf, judgeFindings, type Finding, type Ground, type Judged } from './check';
-import { assumeOf, changesOf, failedIdsOf, MATRIX_MAX, matrixIds, pruneDraft, withCell, type Draft } from './estimate';
-import { moved, parseOrder } from './tiles';
+import type { Finding } from './check';
+import { CheckState } from './state/check.svelte';
+import { changesOf, failedIdsOf, MATRIX_MAX, matrixIds, type Draft } from './estimate';
+import { MatrixState } from './state/matrix.svelte';
 import { bumped, parseFrecency, type Frecency } from 'appkit-ui/palette';
-import { DEFAULT_PREFS as DEFAULT_DAILY, parseDailyPrefs, type DailyPrefs } from './daily';
+import { AboutState, type AboutDialog } from './state/about.svelte';
+import { ConflictsState } from './state/conflicts.svelte';
+import { VaultsState } from './state/vaults.svelte';
+import { TodayState } from './state/today.svelte';
+import { GraphState } from './state/graph.svelte';
+import type { DailyPrefs } from './daily';
 import { DEFAULT_CONFLICT_MODE, parseConflictMode, type ConflictMode } from 'appkit-ui/conflicts';
-import { defaultView, nextView, parseViews, type CountKey, type CountView } from './counts';
-import { conflictsOf, conflictsOfRequest, mergeConflicts, retryOp, type Conflict } from './conflicts';
+import type { CountKey, CountView } from './counts';
+import { conflictsOf, conflictsOfRequest, retryOp, type Conflict } from './conflicts';
 import { backoffSeconds, readStream, StreamRefused, type SseMessage } from 'appkit-ui/sse';
 import { detectLang, isLang, translate, type Key, type Lang } from './i18n';
 import { csvSeparatorFor, exportText, type ExportFormat } from './export';
@@ -53,13 +59,6 @@ import {
 import { localToday } from './remind';
 import type { About } from './about';
 
-/** The state of the Info dialog (APP-09). */
-export type AboutState =
-  | { state: 'closed' }
-  | { state: 'loading'; focus: 'info' | 'report' }
-  | { state: 'ok'; doc: About; focus: 'info' | 'report' }
-  | { state: 'failed'; message: string };
-
 /** The longest line of the notes the engine takes (`append_note`), in characters. */
 const NOTE_MAX = 1000;
 
@@ -68,11 +67,8 @@ export type Connection = 'live' | 'reconnecting' | 'offline';
 export type View = 'today' | 'list' | 'board' | 'plan' | 'inbox' | 'cross' | 'done';
 export type Theme = 'auto' | 'light' | 'dark';
 /** The blocks of the Today view that a person may hide. */
-export const TILES = ['next', 'waiting', 'remind', 'cdx', 'counts', 'daily'] as const;
-export type Tile = (typeof TILES)[number];
-/** The blocks of the column that can be put in another order (the counts have a column of their own). */
-export const ORDERED_TILES = ['next', 'waiting', 'remind', 'cdx'] as const satisfies readonly Tile[];
-export type OrderedTile = (typeof ORDERED_TILES)[number];
+export { ORDERED_TILES, TILES, type OrderedTile, type Tile } from './tiles-list';
+import type { OrderedTile, Tile } from './tiles-list';
 
 /** What the last write did, in one line; `undo` is the way back, when there is one. */
 export interface Toast {
@@ -132,23 +128,6 @@ function safe<T>(work: () => T): T | null {
 }
 
 /** The remembered hidden blocks; anything that is not a known block is dropped. */
-/** The pause between two looks for a check the hub started by itself, and how many looks. */
-const CHECK_WAIT_MS = 15_000;
-const CHECK_WAITS = 12;
-
-const TILE_LABELS = { next: 'today.next', waiting: 'today.waiting', remind: 'remind.title', cdx: 'today.cdx' } as const;
-
-function parseTiles(text: string | null): Tile[] {
-  if (!text) return [];
-  try {
-    const value: unknown = JSON.parse(text);
-    if (!Array.isArray(value)) return [];
-    return TILES.filter((t) => value.includes(t));
-  } catch {
-    return [];
-  }
-}
-
 /** How many reads that began after a batch of moves may still bring the list of before the move (see `#arriving`). */
 const LATE_READS = 3;
 
@@ -184,15 +163,27 @@ export class App {
   #filterVault: string | null | undefined = undefined;
   /** The vault the hub named last: `undefined` not asked yet (or not answered), `null` a hub that has no list of vaults. */
   #hubVault: string | null | undefined = undefined;
+  /** How the start page is laid out and what was chosen there (its own state: `state/today.svelte.ts`). */
+  readonly todayState: TodayState;
   /** Blocks of the Today view the person put away. */
-  hiddenTiles = $state<Tile[]>([]);
-  tileOrder = $state<OrderedTile[]>([...ORDERED_TILES]);
+  get hiddenTiles(): Tile[] {
+    return this.todayState.hidden;
+  }
+  get tileOrder(): OrderedTile[] {
+    return this.todayState.order;
+  }
   /** What a move of a block says to a screen reader. */
-  tileNote = $state('');
+  get tileNote(): string {
+    return this.todayState.note;
+  }
   /** The number of the overview whose tasks are shown (none: closed). */
-  countOpen = $state<CountKey | null>(null);
+  get countOpen() {
+    return this.todayState.countOpen;
+  }
   /** The view chosen for each number; what is not here has the default. */
-  countViews = $state<Partial<Record<CountKey, CountView>>>({});
+  get countViews() {
+    return this.todayState.countViews;
+  }
   /** Area names without the prefix `wkdbook-` where that is unambiguous. */
   shortAreas = $state(true);
   /** The day of the reader, `YYYY-MM-DD`; renewed when the window is looked at again. */
@@ -245,70 +236,128 @@ export class App {
   /** A task whose area the person wants to choose (no drag: the key or the button of the row), until it is chosen. */
   dropChoose = $state<string | null>(null);
   #dropAsks = 0;
-  /** The estimate matrix: the ids it holds (null: closed), what was chosen in it, and what the engine says it adds up to. */
-  matrix = $state.raw<{ ids: string[] } | null>(null);
-  matrixDraft = $state.raw<Draft>({});
-  matrixFigures = $state.raw<Estimate | null>(null);
-  /** Why the figures are not there (the engine's words), or null. */
-  matrixProblem = $state<string | null>(null);
-  /** The graph of one task in the plan view: which task, which way, what the engine says, and why it does not. */
-  graph = $state.raw<{ id: string; direction: 'needs' | 'unlocks' } | null>(null);
-  graphDoc = $state.raw<PlanFor | null>(null);
-  graphProblem = $state<string | null>(null);
-  /** The panel takes the focus once, when the graph is opened (not when it is drawn again after a change of view). */
-  graphWantsFocus = false;
-  /** The rev of the snapshot the graph on the screen was asked for. */
-  private graphRev: string | undefined;
-  private graphSeq = 0;
-  /** The check dialog and the job behind it: what the hub says of it, and why it cannot say. */
-  checking = $state(false);
-  checkJob = $state.raw<CheckJobState | null>(null);
-  checkProblem = $state<string | null>(null);
-  /**
-   * The ground of the check that is done: the versions of the tasks as they were when it was made, taken from the
-   * snapshot of the same `rev` (the job's id says which check). Without it the check was made for a state the page
-   * never saw whole (the vault changed while it ran), and its findings are not shown.
-   */
-  private checkGround = $state.raw<{ id: number; ground: Ground } | null>(null);
-  /** The judged findings for one job, ground and list: judged once, not once for every row that asks. */
-  private checkJudged: { job: CheckJobState; ground: Ground; tasks: readonly TaskEntry[]; judged: Judged; byTask: Map<string, Finding[]> } | null = null;
-  private heldGrounds = new Map<string, Ground>();
-  /** How often the page looked for a check the hub started by itself since the list last changed. */
-  private checkWaits = 0;
-  private checkTimer: ReturnType<typeof setTimeout> | undefined;
-  /** The newest start or ask of the job: an older answer does not replace it. */
-  private checkSeq = 0;
+  /** The estimate matrix (its own state: `state/matrix.svelte.ts`). */
+  readonly matrixState = new MatrixState({
+    lang: () => this.lang,
+    tasks: () => this.tasks,
+    estimate: (request, signal) => this.env.hub.estimate(request, signal),
+  });
+  get matrix() {
+    return this.matrixState.matrix;
+  }
+  get matrixDraft(): Draft {
+    return this.matrixState.draft;
+  }
+  set matrixDraft(value: Draft) {
+    this.matrixState.draft = value;
+  }
+  get matrixFigures() {
+    return this.matrixState.figures;
+  }
+  get matrixProblem() {
+    return this.matrixState.problem;
+  }
   /** The figures shown are for an older draft than the table: a question is due or under way. */
-  matrixPending = $state(false);
-  private matrixSeq = 0;
-  private matrixTimer: ReturnType<typeof setTimeout> | undefined;
-  private matrixAbort: AbortController | undefined;
+  get matrixPending(): boolean {
+    return this.matrixState.pending;
+  }
+  /** The graph of one task in the plan view (its own state: `state/graph.svelte.ts`). */
+  readonly graphState = new GraphState({
+    ready: () => this.phase === 'ready',
+    can: (capability) => this.can(capability),
+    lang: () => this.lang,
+    rev: () => this.snapshot?.rev,
+    showPlan: () => this.setView('plan'),
+    planFor: (id, direction) => this.env.hub.planFor(id, direction),
+  });
+  get graph() {
+    return this.graphState.graph;
+  }
+  get graphDoc() {
+    return this.graphState.doc;
+  }
+  get graphProblem() {
+    return this.graphState.problem;
+  }
+  get graphWantsFocus(): boolean {
+    return this.graphState.wantsFocus;
+  }
+  set graphWantsFocus(value: boolean) {
+    this.graphState.wantsFocus = value;
+  }
+  /** The check of the vault as a job and its findings (its own state: `state/check.svelte.ts`). */
+  readonly checkState = new CheckState({
+    ready: () => this.phase === 'ready',
+    can: (capability) => this.can(capability),
+    lang: () => this.lang,
+    rev: () => this.snapshot?.rev,
+    tasks: () => this.tasks,
+    checkStart: (request) => this.env.hub.checkStart(request),
+    checkState: () => this.env.hub.checkState(),
+  });
+  get checking(): boolean {
+    return this.checkState.checking;
+  }
+  get checkJob() {
+    return this.checkState.job;
+  }
+  get checkProblem() {
+    return this.checkState.problem;
+  }
   /** A card that goes to the blocked column and has no blocker yet, waiting for the person's answer. */
   blocking = $state.raw<{ id: string } | null>(null);
-  /** The changes the engine refused because the file moved on: the conflict center lists them. */
-  conflicts = $state.raw<Conflict[]>([]);
+  /** The changes the engine refused because the file moved on (its own state: `state/conflicts.svelte.ts`). */
+  /** The vaults the hub can read (its own state: `state/vaults.svelte.ts`). */
+  readonly vaultsState = new VaultsState({
+    ready: () => this.phase === 'ready',
+    vaults: () => this.env.hub.vaults(),
+    selectVault: (name) => this.env.hub.selectVault(name),
+    addVault: (name, path) => this.env.hub.addVault(name, path),
+    removeVault: (name) => this.env.hub.removeVault(name),
+    say: (kind, key, params) => this.say(kind, key, params),
+  });
+  get vaultList(): VaultList | null {
+    return this.vaultsState.list;
+  }
+  get managingVaults(): boolean {
+    return this.vaultsState.managing;
+  }
+  get vaultBusy(): boolean {
+    return this.vaultsState.busy;
+  }
+  get vaultsFailed(): boolean {
+    return this.vaultsState.failed;
+  }
+  /** The Info dialog (its own state: `state/about.svelte.ts`). */
+  readonly aboutState = new AboutState({
+    available: () => this.phase === 'ready' || (this.phase === 'unavailable' && this.env.hub.hasToken),
+    about: () => this.env.hub.about(),
+  });
+  get about(): AboutDialog {
+    return this.aboutState.dialog;
+  }
+  readonly conflictsState = new ConflictsState((mode) => safe(() => this.env.prefs.setItem('tasks-desktop.conflict-mode', mode)));
+  get conflicts(): Conflict[] {
+    return this.conflictsState.list;
+  }
   /** The conflict center is open. */
-  conflictsOpen = $state(false);
+  get conflictsOpen(): boolean {
+    return this.conflictsState.open;
+  }
   /** How the conflict center shows its list: every conflict (the default), or one at a time. */
-  conflictMode = $state<ConflictMode>(DEFAULT_CONFLICT_MODE);
+  get conflictMode(): ConflictMode {
+    return this.conflictsState.mode;
+  }
   /** What the tile Today shows: the kind of period, the days of a named one, the evaluations chosen. */
-  dailyPrefs = $state.raw<DailyPrefs>({ ...DEFAULT_DAILY, metrics: [...DEFAULT_DAILY.metrics] });
+  get dailyPrefs() {
+    return this.todayState.daily;
+  }
   /** The command palette is open. */
   palette = $state(false);
   /** What the palette's choices were, to put them first next time. */
   frecency = $state.raw<Frecency>({});
   /** The plan wizard is open. */
   planning = $state(false);
-  /** The vaults the hub offers (null: none known, or the hub has no list). */
-  vaultList = $state.raw<VaultList | null>(null);
-  /** The dialog of the vaults is open. */
-  managingVaults = $state(false);
-  /** The Info dialog: closed, asking the hub, the words of the hub, or why it did not answer. */
-  about = $state.raw<AboutState>({ state: 'closed' });
-  /** Which opening of the Info dialog an answer belongs to (an older answer is thrown away). */
-  private aboutSeq = 0;
-  /** A vault is being chosen or changed: one at a time. */
-  vaultBusy = $state(false);
   /** The task that is being finished, with what the engine says that does. */
   finishing = $state.raw<{ id: string; preview: DonePreview } | null>(null);
   private opCount = 0;
@@ -318,8 +367,6 @@ export class App {
 
   tasks = $state.raw<TaskEntry[]>([]);
   snapshot = $state.raw<Snapshot | null>(null);
-  /** The last ask for the list of vaults failed with something other than "there is none". */
-  vaultsFailed = $state(false);
   /** The named lists of the engine (read only; the ones of the editor, built in, or from its configuration). */
   engineLists = $state.raw<EngineList[]>([]);
   #engineListsAsked = false;
@@ -346,6 +393,12 @@ export class App {
   private dirty = false;
 
   constructor(private readonly env: Env) {
+    // Made here, not as a field: it reads the profile at once, and the fields are made before `env` is held.
+    this.todayState = new TodayState({
+      lang: () => this.lang,
+      getItem: (key) => safe(() => env.prefs.getItem(key)),
+      setItem: (key, value) => void safe(() => env.prefs.setItem(key, value)),
+    });
     const lang = safe(() => env.prefs.getItem('tasks-desktop.lang'));
     this.lang = isLang(lang) ? lang : detectLang(env.preferredLanguages);
     const theme = safe(() => env.prefs.getItem('tasks-desktop.theme'));
@@ -354,16 +407,11 @@ export class App {
     this.shortAreas = safe(() => env.prefs.getItem('tasks-desktop.short-areas')) !== 'off';
     this.sort = parseSort(safe(() => env.prefs.getItem('tasks-desktop.sort')));
     this.listMemory = parseListMemory(safe(() => env.prefs.getItem('tasks-desktop.lists')));
-    const hidden = safe(() => env.prefs.getItem('tasks-desktop.tiles-hidden'));
-    this.hiddenTiles = parseTiles(hidden);
     const remembered = safe(() => env.prefs.getItem('tasks-desktop.filter'));
     this.#filter = parseFilter(remembered);
     this.#filterVault = filterVaultOf(remembered);
-    this.tileOrder = parseOrder(safe(() => env.prefs.getItem('tasks-desktop.tiles-order')), ORDERED_TILES);
-    this.countViews = parseViews(safe(() => env.prefs.getItem('tasks-desktop.count-views')));
     this.frecency = parseFrecency(safe(() => env.prefs.getItem('tasks-desktop.frecency')));
-    this.dailyPrefs = parseDailyPrefs(safe(() => env.prefs.getItem('tasks-desktop.daily')));
-    this.conflictMode = parseConflictMode(safe(() => env.prefs.getItem('tasks-desktop.conflict-mode')));
+    this.conflictsState.mode = parseConflictMode(safe(() => env.prefs.getItem('tasks-desktop.conflict-mode')));
     this.finishedPrefs = parsePrefs(safe(() => env.prefs.getItem('tasks-desktop.finished')));
     // The page opens on the view it was left on.
     const view = safe(() => env.prefs.getItem('tasks-desktop.view'));
@@ -609,28 +657,25 @@ export class App {
   }
 
   openConflicts(): void {
-    if (this.conflicts.length > 0) this.conflictsOpen = true;
+    this.conflictsState.show();
   }
 
   closeConflicts(): void {
-    this.conflictsOpen = false;
+    this.conflictsState.hide();
   }
 
   /** The way the conflict center shows its list, kept in this browser. */
   setConflictMode(mode: ConflictMode): void {
-    this.conflictMode = mode;
-    safe(() => this.env.prefs.setItem('tasks-desktop.conflict-mode', mode));
+    this.conflictsState.setMode(mode);
   }
 
   /** Let a refused change go. */
   discardConflict(key: string): void {
-    this.conflicts = this.conflicts.filter((c) => c.key !== key);
-    if (this.conflicts.length === 0) this.conflictsOpen = false;
+    this.conflictsState.discard(key);
   }
 
   discardAllConflicts(): void {
-    this.conflicts = [];
-    this.conflictsOpen = false;
+    this.conflictsState.discardAll();
   }
 
   /**
@@ -638,13 +683,12 @@ export class App {
    * list first; a second refusal puts it back as a new entry.
    */
   async retryConflict(key: string): Promise<void> {
-    const conflict = this.conflicts.find((c) => c.key === key);
+    const conflict = this.conflictsState.find(key);
     // Not now (a write is under way, or the page is not connected): the entry stays, nothing is lost.
     if (!conflict || this.saving || this.phase !== 'ready') return;
     const op = retryOp(conflict, this.tasks.find((t) => t.id === conflict.id));
     if (op === null) return;
-    this.conflicts = this.conflicts.filter((c) => c.key !== key);
-    if (this.conflicts.length === 0) this.conflictsOpen = false;
+    this.conflictsState.discard(key);
     await this.write([op]);
   }
 
@@ -734,7 +778,7 @@ export class App {
     try {
       const result = await this.env.hub.ops({ client_op_id: this.opId(), ops });
       this.answering = false;
-      this.conflicts = mergeConflicts(this.conflicts, conflictsOf(ops, result, Date.now(), opts.tags));
+      this.conflictsState.add(conflictsOf(ops, result, Date.now(), opts.tags));
       const failed = result.results.find((r) => !r.ok);
       if (opts.onAnswer?.(result)) {
         // said already
@@ -762,7 +806,7 @@ export class App {
       if (error instanceof ApiError && error.code === 'outcome_unknown') {
         this.say('error', 'write.unknown');
       } else if (error instanceof ApiError && error.status === 409) {
-        this.conflicts = mergeConflicts(this.conflicts, conflictsOfRequest(ops, Date.now(), opts.tags));
+        this.conflictsState.add(conflictsOfRequest(ops, Date.now(), opts.tags));
         this.say('error', 'write.conflict');
       } else if (error instanceof ApiError && error.status === 400) {
         this.say('error', 'write.invalid', { message: error.message });
@@ -1259,188 +1303,59 @@ export class App {
   /** Set the priority and place the card, as one batch (the way back is the inverse of both). */
   // ── the check of the vault, as a job ───────────────────────────────────
 
-  /**
-   * Take what the hub says of the job. A check that is done for the state the page shows gets its ground: the
-   * versions of the tasks now, which are the versions it read (same `rev`). A done check whose `rev` the page does
-   * not hold yet is grounded when the list that matches it is read (`readOnce`).
-   */
-  private adoptCheck(job: CheckJobState): void {
-    if (job.state === 'running') this.checkWaits = 0;
-    this.checkJob = job;
-    this.groundCheck();
-  }
-
-  private groundCheck(): void {
-    const job = this.checkJob;
-    // Also a check that is done: the hub may run the next one by itself, and the page never sees it run.
-    this.holdGround(job !== null);
-    if (job?.state !== 'done' || this.checkGround?.id === job.id) return;
-    // The page may have read a newer list before it saw the job done: the ground of the rev the check read was held
-    // while the job ran.
-    const ground = job.result.rev === this.snapshot?.rev ? groundOf(this.tasks) : this.heldGrounds.get(job.result.rev);
-    if (ground === undefined) return;
-    this.checkGround = { id: job.id, ground };
-    this.heldGrounds.clear();
-  }
-
-  /** While a job runs, keep the versions of the list the page holds: the check may be made for any of them. */
-  private holdGround(running: boolean): void {
-    const rev = this.snapshot?.rev;
-    if (!running || rev === undefined || this.heldGrounds.has(rev)) return;
-    if (this.heldGrounds.size >= 8) this.heldGrounds.clear();
-    this.heldGrounds.set(rev, groundOf(this.tasks));
-  }
-
-  /** The findings judged against the tasks as they are now (see `lib/check.ts`); nothing for a check without ground. */
-  private judged(): { judged: Judged; byTask: Map<string, Finding[]> } {
-    const job = this.checkJob;
-    const grounded = this.checkGround;
-    if (job?.state !== 'done' || grounded?.id !== job.id) return { judged: { valid: [], stale: [], changed: 0 }, byTask: new Map() };
-    const memo = this.checkJudged;
-    if (memo && memo.job === job && memo.ground === grounded.ground && memo.tasks === this.tasks) return memo;
-    const judged = judgeFindings(job.result.findings, grounded.ground, this.tasks);
-    const next = { job, ground: grounded.ground, tasks: this.tasks, judged, byTask: findingsByTask(judged.valid) };
-    this.checkJudged = next;
-    return next;
-  }
-
   /** The findings that hold: of tasks as they were when the check was made, and of what is no listed task. */
   get checkFindings(): Finding[] {
-    return this.judged().judged.valid;
+    return this.checkState.findings;
   }
 
   /** The findings of tasks that changed since the check: possibly resolved, shown as such. */
   get checkStale(): Finding[] {
-    return this.judged().judged.stale;
+    return this.checkState.stale;
   }
 
   /** How many tasks with findings changed or went away since the check. */
   get checkChanged(): number {
-    return this.judged().judged.changed;
+    return this.checkState.changed;
   }
 
   /** The findings that hold about the task `id`. */
   findingsFor(id: string): Finding[] {
-    return this.judged().byTask.get(id) ?? [];
+    return this.checkState.findingsFor(id);
   }
 
   /** Whether the check that is done was made for a state the page never held (the vault changed while it ran). */
   get checkOutdated(): boolean {
-    const job = this.checkJob;
-    return job?.state === 'done' && this.checkGround?.id !== job.id;
+    return this.checkState.outdated;
   }
 
   /** Open the check dialog on what the hub knows of the job. */
-  async openChecks(): Promise<void> {
-    if (this.phase !== 'ready' || !this.can('check')) return;
-    this.checking = true;
-    await this.pollCheck();
+  openChecks(): Promise<void> {
+    return this.checkState.open();
   }
 
   closeChecks(): void {
-    this.checking = false;
+    this.checkState.close();
   }
 
   /** Start the check; it runs in the hub and the page goes on. */
-  async runCheck(refs: boolean): Promise<void> {
-    this.checkProblem = null;
-    this.checkSeq += 1;
-    const seq = this.checkSeq;
-    // The check reads the list the page holds now (or a later one): its ground is kept for when the job is done.
-    this.holdGround(true);
-    try {
-      const job = await this.env.hub.checkStart(refs ? { stale: 'refs' } : {});
-      if (seq !== this.checkSeq) return;
-      this.adoptCheck(job);
-    } catch (error) {
-      if (seq !== this.checkSeq) return;
-      this.checkProblem = error instanceof ApiError ? error.message : translate(this.lang, 'check.failed');
-      return;
-    }
-    this.watchCheck();
-  }
-
-  /** Ask for the state of the job, and again a second later while it runs. */
-  private async pollCheck(): Promise<void> {
-    clearTimeout(this.checkTimer);
-    this.checkSeq += 1;
-    const seq = this.checkSeq;
-    try {
-      const job = await this.env.hub.checkState();
-      if (seq !== this.checkSeq) return;
-      this.adoptCheck(job);
-      this.checkProblem = null;
-    } catch (error) {
-      if (seq !== this.checkSeq) return;
-      this.checkProblem = error instanceof ApiError ? error.message : translate(this.lang, 'check.failed');
-      // A job that was running may well still run: one failed question ends neither it nor the asking. The next
-      // try is a little later (the hub may be busy), and the run button is not held back by the old state.
-      if (this.checkJob?.state === 'running' && this.phase === 'ready') {
-        this.checkTimer = setTimeout(() => void this.pollCheck(), 3000);
-      }
-      return;
-    }
-    this.watchCheck();
-  }
-
-  private watchCheck(): void {
-    clearTimeout(this.checkTimer);
-    if (this.phase !== 'ready') return;
-    const job = this.checkJob;
-    if (job?.state === 'running') {
-      this.checkTimer = setTimeout(() => void this.pollCheck(), 1000);
-    } else if (job?.state === 'done' && job.result.rev !== this.snapshot?.rev && this.checkWaits < CHECK_WAITS) {
-      // The vault changed since the check. The hub runs it again by itself after a quiet time (and a gap since the last
-      // one), so the page looks now and then for a job it did not start; it gives up after a while, since the hub may
-      // not run it (no client at the time, a check with refs, a vault that never rests).
-      this.checkWaits += 1;
-      this.checkTimer = setTimeout(() => void this.pollCheck(), CHECK_WAIT_MS);
-    }
+  runCheck(refs: boolean): Promise<void> {
+    return this.checkState.run(refs);
   }
 
   // ── the graph of a task ────────────────────────────────────────────────
 
   /** Show what `id` needs (or what waits for it) in the plan view. */
   openGraph(id: string, direction: 'needs' | 'unlocks' = 'needs'): void {
-    if (this.phase !== 'ready' || !this.can('plan_for')) return;
-    this.graph = { id, direction };
-    this.graphDoc = null;
-    this.graphProblem = null;
-    this.graphWantsFocus = true;
-    this.setView('plan');
-    void this.askGraph();
+    this.graphState.open(id, direction);
   }
 
   closeGraph(): void {
-    this.graphSeq += 1;
-    this.graph = null;
-    this.graphDoc = null;
-    this.graphProblem = null;
+    this.graphState.close();
   }
 
   /** Ask again for the graph that is open, after the vault changed (the old one stays until the new one is there). */
   reloadGraph(): void {
-    if (this.graph && this.graphDoc !== null && this.snapshot?.rev !== this.graphRev) void this.askGraph();
-  }
-
-  private async askGraph(): Promise<void> {
-    const graph = this.graph;
-    if (!graph) return;
-    this.graphSeq += 1;
-    const seq = this.graphSeq;
-    this.graphRev = this.snapshot?.rev;
-    try {
-      const doc = await this.env.hub.planFor(graph.id, graph.direction);
-      if (seq !== this.graphSeq || !this.graph) return;
-      this.graphDoc = doc;
-      this.graphProblem = null;
-    } catch (error) {
-      if (seq !== this.graphSeq || !this.graph) return;
-      // The engine's words, as they are (a task that is finished meanwhile is "no such open task"); the list that was
-      // there is not left standing under them.
-      this.graphDoc = null;
-      this.graphProblem = error instanceof ApiError ? error.message : translate(this.lang, 'graph.failed');
-    }
+    this.graphState.reload();
   }
 
   // ── the estimate matrix ───────────────────────────────────────────────
@@ -1456,83 +1371,26 @@ export class App {
     }
     const wanted = this.marks.length > 0 ? this.marks.length : this.shown.length;
     if (wanted > MATRIX_MAX) this.say('ok', 'matrix.cut', { n: MATRIX_MAX, total: wanted });
-    this.matrix = { ids };
-    this.matrixDraft = {};
-    this.matrixFigures = null;
-    this.matrixProblem = null;
-    void this.askFigures();
+    this.matrixState.start(ids);
   }
 
   closeMatrix(): void {
-    clearTimeout(this.matrixTimer);
-    this.matrixAbort?.abort();
-    this.matrixSeq += 1;
-    this.matrixPending = false;
-    this.matrix = null;
-    this.matrixDraft = {};
-    this.matrixFigures = null;
-    this.matrixProblem = null;
+    this.matrixState.close();
   }
 
   /** The tasks of the matrix that are still there, in the order they were asked for. */
   get matrixRows(): TaskEntry[] {
-    const ids = this.matrix?.ids ?? [];
-    const byId = new Map(this.tasks.map((t) => [t.id, t] as const));
-    return ids.flatMap((id) => {
-      const task = byId.get(id);
-      return task ? [task] : [];
-    });
+    return this.matrixState.rows;
   }
 
   /** How many tasks the draft would change (a cell equal to its file changes nothing). */
   get matrixChanges(): number {
-    return changesOf(this.matrixRows, this.matrixDraft).length;
+    return this.matrixState.changes;
   }
 
   /** Choose a cell (or put it back with `undefined`); the figures are asked for again a moment later. */
   setCell(id: string, field: 'effort' | 'value', value: string | number | undefined): void {
-    if (!this.matrix) return;
-    const task = this.tasks.find((t) => t.id === id);
-    this.matrixDraft = withCell(this.matrixDraft, id, field, value, task?.etag);
-    // What was asked for the older draft is no answer to this one: it is dropped at once, not when the next
-    // question starts, and the figures say they are being reckoned.
-    this.matrixAbort?.abort();
-    this.matrixSeq += 1;
-    this.matrixPending = true;
-    clearTimeout(this.matrixTimer);
-    this.matrixTimer = setTimeout(() => void this.askFigures(), 250);
-  }
-
-  private async askFigures(): Promise<void> {
-    if (!this.matrix) return;
-    // The tasks that are there now: one that was finished or moved meanwhile would make the engine refuse every
-    // question from here on (`no open task`), so it leaves the question and the draft.
-    const ids = this.matrixRows.map((t) => t.id);
-    this.matrixDraft = pruneDraft(this.matrixDraft, ids);
-    this.matrixAbort?.abort();
-    const abort = new AbortController();
-    this.matrixAbort = abort;
-    this.matrixSeq += 1;
-    const seq = this.matrixSeq;
-    if (ids.length === 0) {
-      this.matrixFigures = null;
-      this.matrixPending = false;
-      return;
-    }
-    const assume = assumeOf(this.matrixDraft, ids);
-    try {
-      const figures = await this.env.hub.estimate({ ids, ...(assume.length > 0 ? { assume } : {}) }, abort.signal);
-      // An older answer does not replace a newer question's.
-      if (seq !== this.matrixSeq || !this.matrix) return;
-      this.matrixFigures = figures;
-      this.matrixProblem = null;
-      this.matrixPending = false;
-    } catch (error) {
-      if (seq !== this.matrixSeq || !this.matrix || abort.signal.aborted) return;
-      this.matrixPending = false;
-      // The engine's words, as they are: the page does not interpret them.
-      this.matrixProblem = error instanceof ApiError ? error.message : translate(this.lang, 'matrix.failed');
-    }
+    this.matrixState.setCell(id, field, value);
   }
 
   /**
@@ -1567,7 +1425,7 @@ export class App {
       } else {
         this.matrixDraft = rest;
         this.say('error', 'bulk.partial', { done: ops.length - failed.size, failed: failed.size }, undo);
-        void this.askFigures();
+        void this.matrixState.ask();
       }
       return true;
     };
@@ -1816,33 +1674,29 @@ export class App {
 
   /** The choice of the tile Today (the period and the evaluations), kept in this browser. */
   setDailyPrefs(prefs: DailyPrefs): void {
-    this.dailyPrefs = prefs;
-    safe(() => this.env.prefs.setItem('tasks-desktop.daily', JSON.stringify(prefs)));
+    this.todayState.setDaily(prefs);
   }
 
   hideTile(tile: Tile): void {
-    if (this.hiddenTiles.includes(tile)) return;
-    this.hiddenTiles = [...this.hiddenTiles, tile];
-    this.saveTiles();
+    this.todayState.hide(tile);
   }
 
   /** The view a number shows its tasks in. */
   countView(key: CountKey): CountView {
-    return this.countViews[key] ?? defaultView(key);
+    return this.todayState.countView(key);
   }
 
   /** Open the tasks behind a number, or close them when they are open. */
   toggleCount(key: CountKey): void {
-    this.countOpen = this.countOpen === key ? null : key;
+    this.todayState.toggleCount(key);
   }
 
   closeCount(): void {
-    this.countOpen = null;
+    this.todayState.closeCount();
   }
 
   setCountView(key: CountKey, view: CountView): void {
-    this.countViews = { ...this.countViews, [key]: view };
-    safe(() => this.env.prefs.setItem('tasks-desktop.count-views', JSON.stringify(this.countViews)));
+    this.todayState.setCountView(key, view);
   }
 
   /**
@@ -1850,11 +1704,7 @@ export class App {
    * holds, it does not skip a view); one that is open goes on to its next view.
    */
   cycleCountView(key: CountKey): void {
-    if (this.countOpen !== key) {
-      this.countOpen = key;
-      return;
-    }
-    this.setCountView(key, nextView(key, this.countView(key)));
+    this.todayState.cycleCountView(key);
   }
 
   /** The tasks of a number in the list, with the status filter that fits (only "doing" and "blocked" have one). */
@@ -1866,40 +1716,20 @@ export class App {
 
   /** Put the block `tile` before (or after) `target`; `visible` are the blocks on the page, for the number said aloud. */
   moveTile(tile: OrderedTile, target: OrderedTile, after: boolean, visible: readonly OrderedTile[]): void {
-    const order = moved(this.tileOrder, tile, target, after);
-    if (order.every((t, i) => t === this.tileOrder[i])) return;
-    this.tileOrder = order;
-    this.saveOrder();
-    const now = order.filter((t) => visible.includes(t));
-    this.tileNote = translate(this.lang, 'today.moved', {
-      tile: translate(this.lang, TILE_LABELS[tile]),
-      n: now.indexOf(tile) + 1,
-      total: now.length,
-    });
+    this.todayState.move(tile, target, after, visible);
   }
 
   /** The blocks are not in the standard order (what "reset the order" would change). */
   get tileOrderChanged(): boolean {
-    return this.tileOrder.some((tile, i) => tile !== ORDERED_TILES[i]);
+    return this.todayState.orderChanged;
   }
 
   resetTileOrder(): void {
-    this.tileOrder = [...ORDERED_TILES];
-    this.saveOrder();
-    this.tileNote = translate(this.lang, 'today.order_reset');
-  }
-
-  private saveOrder(): void {
-    safe(() => this.env.prefs.setItem('tasks-desktop.tiles-order', JSON.stringify(this.tileOrder)));
+    this.todayState.resetOrder();
   }
 
   showTiles(): void {
-    this.hiddenTiles = [];
-    this.saveTiles();
-  }
-
-  private saveTiles(): void {
-    safe(() => this.env.prefs.setItem('tasks-desktop.tiles-hidden', JSON.stringify(this.hiddenTiles)));
+    this.todayState.showAll();
   }
 
   setTheme(theme: Theme): void {
@@ -2026,11 +1856,9 @@ export class App {
 
   stop(): void {
     this.stopped = true;
-    this.checkSeq += 1;
-    this.matrixSeq += 1;
-    this.graphSeq += 1;
-    clearTimeout(this.checkTimer);
-    clearTimeout(this.matrixTimer);
+    this.checkState.invalidate();
+    this.matrixState.invalidate();
+    this.graphState.invalidate();
     this.abort?.abort();
   }
 
@@ -2045,9 +1873,7 @@ export class App {
     this.closeGraph();
     this.closeMatrix();
     this.closeChecks();
-    this.checkSeq += 1;
-    this.checkJob = null;
-    clearTimeout(this.checkTimer);
+    this.checkState.forget();
     safe(() => this.env.session.removeItem(TOKEN_KEY));
     this.env.hub.setToken(null);
     this.abort?.abort();
@@ -2056,9 +1882,6 @@ export class App {
     this.tasks = [];
     this.snapshot = null;
     this.#order = null;
-    this.checkJob = null;
-    this.checkGround = null;
-    this.heldGrounds.clear();
     this.next = null;
     this.nextFor = null;
     this.hubAreas = [];
@@ -2113,9 +1936,7 @@ export class App {
         this.tasks = result.doc.tasks;
         this.etag = result.etag;
         if (this.sort !== 'default') void this.readOrder();
-        this.groundCheck();
-        this.checkWaits = 0;
-        this.watchCheck();
+        this.checkState.listChanged();
       }
       this.cachedAt = null;
       this.phase = 'ready';
@@ -2233,19 +2054,10 @@ export class App {
   }
 
   async loadVaults(): Promise<void> {
-    try {
-      this.vaultList = await this.env.hub.vaults();
-      this.vaultsFailed = false;
-    } catch (error) {
-      this.vaultList = null;
-      // A hub with one vault and no list names none: the remembered filter stays as it is.
-      const none = error instanceof ApiError && error.status === 404;
-      if (none) this.#hubVault = null;
-      // Any other answer (a hub that errs, a network that fails) leaves the vault unknown; the next read of the list asks
-      // again, and the page says so where it needs the name (the lists).
-      this.vaultsFailed = !none;
-      return;
-    }
+    const read = await this.vaultsState.read();
+    // A hub with one vault and no list names none: the remembered filter stays as it is.
+    if (read === 'none') this.#hubVault = null;
+    if (read !== 'ok' || this.vaultList === null) return;
     // A filter made in another vault (chosen in another tab, or in the settings of the hub) is not taken over: its
     // areas, tags and plans are not those of this one. A filter that does not say its vault is now of this one.
     const active = this.vaultList.active;
@@ -2265,69 +2077,32 @@ export class App {
     this.scheduleTextSearch('', 0);
   }
 
-  /** Open the Info dialog (APP-09); `focus` says what the person came for, so that the keyboard lands there. */
-  /**
-   * The Info dialog is for a running page and for the page whose engine is not there: that is when a report is
-   * needed most, and the hub answers `about` without an engine. It needs a session, so the phases before pairing
-   * are out.
-   */
+  /** Whether the Info dialog can be opened: a running page, or one whose engine is not there (needs a session). */
   get canAbout(): boolean {
-    return this.phase === 'ready' || (this.phase === 'unavailable' && this.env.hub.hasToken);
+    return this.aboutState.available;
   }
 
+  /** Open the Info dialog (APP-09); `focus` says what the person came for, so that the keyboard lands there. */
   openAbout(focus: 'info' | 'report' = 'info'): void {
-    if (!this.canAbout) return;
-    this.aboutSeq += 1;
-    this.about = { state: 'loading', focus };
-    void this.loadAbout(focus, this.aboutSeq);
+    this.aboutState.open(focus);
   }
 
   closeAbout(): void {
-    // An answer that is still on its way belongs to this opening, not to the next one.
-    this.aboutSeq += 1;
-    this.about = { state: 'closed' };
-  }
-
-  private async loadAbout(focus: 'info' | 'report', seq: number): Promise<void> {
-    try {
-      const doc = await this.env.hub.about();
-      if (seq === this.aboutSeq) this.about = { state: 'ok', doc, focus };
-    } catch (error) {
-      if (seq === this.aboutSeq) {
-        this.about = { state: 'failed', message: error instanceof Error ? error.message : String(error) };
-      }
-    }
+    this.aboutState.close();
   }
 
   openVaults(): void {
-    if (this.phase === 'ready' && this.vaultList) this.managingVaults = true;
+    this.vaultsState.open();
   }
 
   closeVaults(): void {
-    this.managingVaults = false;
-  }
-
-  private async vaultStep(work: () => Promise<void>, ok?: Key): Promise<boolean> {
-    if (this.vaultBusy) return false;
-    this.vaultBusy = true;
-    try {
-      await work();
-      if (ok) this.say('ok', ok);
-      return true;
-    } catch (error) {
-      const message = error instanceof ApiError ? error.message : '';
-      this.say('error', 'vaults.failed', { message });
-      return false;
-    } finally {
-      this.vaultBusy = false;
-    }
+    this.vaultsState.close();
   }
 
   /** Read another vault. What the page holds of the old one (the list, the cache) goes; the page loads again. */
   async selectVault(name: string): Promise<void> {
     if (this.vaultList?.active === name) return;
-    const done = await this.vaultStep(async () => {
-      await this.env.hub.selectVault(name);
+    const done = await this.vaultsState.select(name, async () => {
       // The list that is cached belongs to the vault that was left.
       await this.env.cache.clear();
       // The areas, tags and plans of a filter are those of the vault that was left; the empty one is the new vault's.
@@ -2337,19 +2112,12 @@ export class App {
     if (done) (this.env.reload ?? (() => undefined))();
   }
 
-  async addVault(name: string, path: string): Promise<boolean> {
-    const done = await this.vaultStep(async () => {
-      await this.env.hub.addVault(name.trim(), path.trim());
-      this.vaultList = await this.env.hub.vaults();
-    }, 'vaults.added');
-    return done;
+  addVault(name: string, path: string): Promise<boolean> {
+    return this.vaultsState.add(name, path);
   }
 
-  async removeVault(name: string): Promise<void> {
-    await this.vaultStep(async () => {
-      await this.env.hub.removeVault(name);
-      this.vaultList = await this.env.hub.vaults();
-    }, 'vaults.removed');
+  removeVault(name: string): Promise<void> {
+    return this.vaultsState.remove(name);
   }
 
   private nextFor: string | null = null;
