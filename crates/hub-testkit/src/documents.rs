@@ -164,6 +164,21 @@ fn tasks_fill(call: &Call<'_>, doc: &mut Value) {
             ]);
             doc["notes"] = json!([]);
         }
+        "links" => {
+            doc["rev"] = json!("rev:aaaaaa");
+            doc["digest"] = json!("sha256:00000000000000aa");
+            doc["edge_count"] = json!(1);
+            doc["truncated"] = json!(false);
+            doc["pairs"] = json!([{
+                "a": "alpha.nvim",
+                "b": "beta.nvim",
+                "count": 1,
+                "kinds": { "blocked_by": 1 },
+                "edges": [{ "from": "beta.nvim/two", "to": "alpha.nvim/one", "kind": "blocked_by" }],
+            }]);
+            doc["tasks"] = json!([{ "id": "beta.nvim/two", "areas": ["alpha.nvim", "beta.nvim"] }]);
+            doc["incomplete"] = json!([]);
+        }
         "areas" => {
             doc["areas"] = json!([
                 { "name": "alpha.nvim", "open": 1 },

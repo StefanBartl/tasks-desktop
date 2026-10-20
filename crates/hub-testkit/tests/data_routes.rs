@@ -304,6 +304,23 @@ async fn lists_passes_the_lists_of_the_engine_as_they_are() {
 }
 
 #[tokio::test]
+async fn the_links_of_the_engine_come_through_unchanged() {
+    let h = hub(Some(fake_engine()), ready()).await;
+    let r = get(&h, "/api/tasks/links", &[]).await;
+    assert_eq!(r.status, 200, "{r:?}");
+    let doc: Value = serde_json::from_str(&r.body).unwrap();
+    assert_eq!(doc["kind"], "tasks.links");
+    assert_eq!(doc["pairs"][0]["a"], "alpha.nvim");
+    assert_eq!(doc["pairs"][0]["kinds"]["blocked_by"], 1);
+    assert_eq!(doc["tasks"][0]["areas"][1], "beta.nvim");
+    assert_eq!(doc["edge_count"], 1);
+    // No engine: the route says so and does not invent an empty answer.
+    let none = hub(None, ready()).await;
+    let r = get(&none, "/api/tasks/links", &[]).await;
+    assert_eq!(r.status, 503, "{r:?}");
+}
+
+#[tokio::test]
 async fn queries_that_are_not_plain_are_refused_before_the_engine() {
     let h = hub(Some(fake_engine()), ready()).await;
     for path in [
