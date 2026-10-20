@@ -17,9 +17,9 @@ import {
 } from './bulk';
 import { planOp, type PlanForm, type PlanPreview } from './planwizard';
 import { columnsOf, isColumn, neighbourColumn, placeNear, stepInGroup, type Move } from './board';
-import { ApiError, type CheckJobState, type Hub, type HubArea, type HubAreas, type SearchResult, type VaultList } from './api';
+import { ApiError, type Hub, type HubArea, type HubAreas, type SearchResult, type VaultList } from './api';
 import { cacheableClass, cacheableList, type CachedList, type ListStore } from './cache';
-import type { Check, DonePreview, Estimate, Finished, Links, MovePlan, Next, PlanFor, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
+import type { DonePreview, Finished, Links, MovePlan, Next, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
 import type { Op } from './api';
 import { indexOfLinks, touchedAreas } from './cross';
 import { parsePrefs, type Prefs as FinishedPrefs } from './finished';
@@ -36,7 +36,7 @@ import { VaultsState } from './state/vaults.svelte';
 import { TodayState } from './state/today.svelte';
 import { GraphState } from './state/graph.svelte';
 import type { DailyPrefs } from './daily';
-import { DEFAULT_CONFLICT_MODE, parseConflictMode, type ConflictMode } from 'appkit-ui/conflicts';
+import { parseConflictMode, type ConflictMode } from 'appkit-ui/conflicts';
 import type { CountKey, CountView } from './counts';
 import { conflictsOf, conflictsOfRequest, retryOp, type Conflict } from './conflicts';
 import { backoffSeconds, readStream, StreamRefused, type SseMessage } from 'appkit-ui/sse';
@@ -57,7 +57,6 @@ import {
   type NamedList,
 } from './lists';
 import { localToday } from './remind';
-import type { About } from './about';
 
 /** The longest line of the notes the engine takes (`append_note`), in characters. */
 const NOTE_MAX = 1000;
