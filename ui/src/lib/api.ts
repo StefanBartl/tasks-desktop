@@ -157,6 +157,16 @@ export class Hub extends HubClient<Snapshot> {
     return this.vaultPost('/api/vaults/add', { name, path, confirm: true });
   }
 
+  /** Make a folder that is new (or empty) a vault with one area; the page has asked the person first. It does not register it. */
+  createVault(path: string, area: string): Promise<void> {
+    return this.vaultPost('/api/tasks/vault_create', { path, area, confirm: true });
+  }
+
+  /** Show the folder of the vault the hub reads in the file manager (the page names no folder). */
+  revealVault(): Promise<void> {
+    return this.vaultPost('/api/tasks/vault_reveal', {});
+  }
+
   removeVault(name: string): Promise<void> {
     return this.vaultPost('/api/vaults/remove', { name });
   }

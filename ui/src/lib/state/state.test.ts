@@ -113,6 +113,33 @@ describe('the vaults', () => {
     expect(other.busy).toBe(false);
   });
 
+  it('makes the folder first and remembers it only when that worked; shows the folder, with the words of the hub on a refusal', async () => {
+    const calls: string[] = [];
+    const ok = host({
+      createVault: async (p: string, a: string) => void calls.push(`create ${p} ${a}`),
+      addVault: async (n: string, p: string) => void calls.push(`add ${n} ${p}`),
+    });
+    expect(await new VaultsState(ok.host).create(' n ', ' /p ', ' a ')).toBe(true);
+    expect(calls).toEqual(['create /p a', 'add n /p']);
+    expect(ok.said).toEqual(['ok:vaults.created:']);
+
+    const added: string[] = [];
+    const refused = host({
+      createVault: async () => Promise.reject(new ApiError(400, 'not_empty', 'the folder is not empty')),
+      addVault: async () => void added.push('add'),
+    });
+    expect(await new VaultsState(refused.host).create('n', '/p', 'a')).toBe(false);
+    expect([added, refused.said]).toEqual([[], ['error:vaults.failed:the folder is not empty']]);
+
+    const shown: string[] = [];
+    const reveal = host({ revealVault: async () => void shown.push('reveal') });
+    await new VaultsState(reveal.host).reveal();
+    expect([shown, reveal.said]).toEqual([['reveal'], []]);
+    const gone = host({ revealVault: async () => Promise.reject(new ApiError(404, 'open_unavailable', 'no')) });
+    await new VaultsState(gone.host).reveal();
+    expect(gone.said).toEqual(['error:vaults.failed:no']);
+  });
+
   it('trims what is added, and runs what the page does before taking the choice of another vault', async () => {
     const added: string[][] = [];
     const order: string[] = [];

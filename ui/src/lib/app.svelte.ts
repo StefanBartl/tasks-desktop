@@ -313,6 +313,8 @@ export class App {
     selectVault: (name) => this.env.hub.selectVault(name),
     addVault: (name, path) => this.env.hub.addVault(name, path),
     removeVault: (name) => this.env.hub.removeVault(name),
+    createVault: (path, area) => this.env.hub.createVault(path, area),
+    revealVault: () => this.env.hub.revealVault(),
     say: (kind, key, params) => this.say(kind, key, params),
   });
   get vaultList(): VaultList | null {
@@ -2117,6 +2119,14 @@ export class App {
 
   removeVault(name: string): Promise<void> {
     return this.vaultsState.remove(name);
+  }
+
+  createVault(name: string, path: string, area: string): Promise<boolean> {
+    return this.vaultsState.create(name, path, area);
+  }
+
+  revealVault(): Promise<void> {
+    return this.vaultsState.reveal();
   }
 
   private nextFor: string | null = null;

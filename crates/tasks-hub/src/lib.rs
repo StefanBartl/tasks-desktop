@@ -13,6 +13,7 @@ pub mod config;
 pub mod discovery;
 pub mod editor;
 pub mod engine;
+pub mod newvault;
 pub mod search;
 pub mod server;
 pub mod setup;

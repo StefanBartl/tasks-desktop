@@ -13,6 +13,8 @@
   let dialog: HTMLDialogElement | undefined = $state();
   let name = $state('');
   let path = $state('');
+  let create = $state(false);
+  let area = $state('');
   const list = $derived(app.vaultList);
 
   $effect(() => {
@@ -22,10 +24,13 @@
   });
 
   async function add(): Promise<void> {
-    if (name.trim() === '' || path.trim() === '') return;
-    if (await app.addVault(name, path)) {
+    if (name.trim() === '' || path.trim() === '' || (create && area.trim() === '')) return;
+    const done = create ? await app.createVault(name, path, area) : await app.addVault(name, path);
+    if (done) {
       name = '';
       path = '';
+      area = '';
+      create = false;
     }
   }
 </script>
@@ -80,6 +85,16 @@
       <span>{t('vaults.path')} <small>({t('vaults.path_hint')})</small></span>
       <input type="text" bind:value={path} maxlength="1024" disabled={app.vaultBusy} />
     </label>
+    <label class="check">
+      <input type="checkbox" bind:checked={create} disabled={app.vaultBusy} />
+      <span>{t('vaults.create')} <small>({t('vaults.create_hint')})</small></span>
+    </label>
+    {#if create}
+      <label>
+        <span>{t('vaults.area')} <small>({t('vaults.name_hint')})</small></span>
+        <input type="text" bind:value={area} maxlength="128" disabled={app.vaultBusy} />
+      </label>
+    {/if}
     <p class="warn">{t('vaults.warn')}</p>
   </div>
   <div class="actions">
@@ -87,8 +102,8 @@
     <button
       type="button"
       class="primary"
-      disabled={app.vaultBusy || name.trim() === '' || path.trim() === ''}
-      onclick={() => void add()}>{t('vaults.add')}</button
+      disabled={app.vaultBusy || name.trim() === '' || path.trim() === '' || (create && area.trim() === '')}
+      onclick={() => void add()}>{create ? t('vaults.create_button') : t('vaults.add')}</button
     >
   </div>
 </dialog>
@@ -146,6 +161,15 @@
     gap: 0.15rem;
     font-size: 0.8rem;
     color: var(--muted);
+  }
+  .add label.check {
+    display: flex;
+    gap: 0.4rem;
+    align-items: flex-start;
+  }
+  .add label.check input {
+    padding: 0;
+    margin-top: 0.15rem;
   }
   .warn {
     margin: 0;

@@ -11,8 +11,10 @@ export interface VaultsHost {
   selectVault(name: string): Promise<void>;
   addVault(name: string, path: string): Promise<void>;
   removeVault(name: string): Promise<void>;
+  createVault(path: string, area: string): Promise<void>;
+  revealVault(): Promise<void>;
   /** A word to the person: a success (`ok`) or a refusal with the hub's message. */
-  say(kind: 'ok' | 'error', key: 'vaults.added' | 'vaults.removed' | 'vaults.failed', params?: Record<string, string>): void;
+  say(kind: 'ok' | 'error', key: 'vaults.added' | 'vaults.created' | 'vaults.removed' | 'vaults.failed', params?: Record<string, string>): void;
 }
 
 /** How a read of the list ended: the list is there, the hub has no list (a hub with one vault), or it did not answer. */
@@ -55,7 +57,7 @@ export class VaultsState {
   }
 
   /** One step at a time; a refusal of the hub is said with its words. */
-  private async step(work: () => Promise<void>, ok?: 'vaults.added' | 'vaults.removed'): Promise<boolean> {
+  private async step(work: () => Promise<void>, ok?: 'vaults.added' | 'vaults.created' | 'vaults.removed'): Promise<boolean> {
     if (this.busy) return false;
     this.busy = true;
     try {
@@ -83,6 +85,20 @@ export class VaultsState {
       await this.host.addVault(name.trim(), path.trim());
       this.list = await this.host.vaults();
     }, 'vaults.added');
+  }
+
+  /** Make the folder a vault with one area, then remember it; the second step only runs when the first one worked. */
+  create(name: string, path: string, area: string): Promise<boolean> {
+    return this.step(async () => {
+      await this.host.createVault(path.trim(), area.trim());
+      await this.host.addVault(name.trim(), path.trim());
+      this.list = await this.host.vaults();
+    }, 'vaults.created');
+  }
+
+  /** Show the folder of the vault read now in the file manager. */
+  async reveal(): Promise<void> {
+    await this.step(() => this.host.revealVault());
   }
 
   async remove(name: string): Promise<void> {

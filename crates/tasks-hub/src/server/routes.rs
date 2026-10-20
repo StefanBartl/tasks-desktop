@@ -676,6 +676,72 @@ pub(super) async fn open_file(State(st): State<Arc<Shared>>, body: Bytes) -> Res
     }
 }
 
+/// `POST /api/tasks/vault_reveal` `{}`: show the folder of the vault the hub reads in the file manager. The page names
+/// nothing: the folder is the one the hub holds.
+pub(super) async fn vault_reveal(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
+    if let Err(r) = vault_request(&body, &[]) {
+        return r;
+    }
+    let rt = st.rt();
+    let Some(opener) = &rt.opener else {
+        return error_body(
+            StatusCode::NOT_FOUND,
+            "open_unavailable",
+            "this hub cannot open a folder",
+        );
+    };
+    let Some(vault) = rt.vault.clone() else {
+        return engine_unavailable(&st);
+    };
+    if !vault.is_dir() {
+        return error_body(
+            StatusCode::NOT_FOUND,
+            "vault_missing",
+            "the folder of the vault is not there",
+        );
+    }
+    match opener.reveal(&vault) {
+        Ok(()) => axum::Json(json!({ "ok": true })).into_response(),
+        Err(why) => error_body(StatusCode::BAD_GATEWAY, "open_failed", &why),
+    }
+}
+
+/// `POST /api/tasks/vault_create` `{ "path", "area", "confirm": true }`: make a folder that is new (or empty) a vault
+/// with one area. It writes on the machine of the hub, so the person has been asked and the body says so; it does not
+/// register the vault (the page does that with `vaults/add`, as for any folder).
+pub(super) async fn vault_create(body: Bytes) -> Response {
+    let map = match vault_request(&body, &["path", "area", "confirm"]) {
+        Ok(m) => m,
+        Err(r) => return r,
+    };
+    if map.get("confirm") != Some(&serde_json::Value::Bool(true)) {
+        return error_body(
+            StatusCode::BAD_REQUEST,
+            "not_confirmed",
+            "a new vault is made only after the person confirmed it",
+        );
+    }
+    let path = match vault_text(&map, "path", 1024) {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    let area = match vault_text(&map, "area", 128) {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    let path = std::path::PathBuf::from(path);
+    let made = tokio::task::spawn_blocking(move || crate::newvault::create(&path, &area)).await;
+    match made {
+        Ok(Ok(())) => axum::Json(json!({ "ok": true })).into_response(),
+        Ok(Err(refused)) => error_body(StatusCode::BAD_REQUEST, refused.code, refused.why),
+        Err(_) => error_body(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "vault_create_failed",
+            "the vault could not be made",
+        ),
+    }
+}
+
 /// `POST /api/tasks/rescan`: a client that got the focus again asks for a
 /// full scan. Many asks while one runs are one scan.
 pub(super) async fn rescan(State(st): State<Arc<Shared>>) -> Response {

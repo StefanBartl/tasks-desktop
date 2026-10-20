@@ -373,6 +373,18 @@ do: a path of 260 UTF-16 units or more, and a name Windows reads differently wit
 private is opened too: it is the person at this machine who asks, and showing it here is not a use that leaves the hub.
 `TASKS_DESKTOP_EDITOR_LOG` (a file) makes the hub write the file instead of starting anything; the browser tests use it.
 
+## Showing the vault folder and making a new vault (`POST /api/tasks/vault_reveal`, `POST /api/tasks/vault_create`)
+
+`vault_reveal` takes `{}` (any field is refused): the page names no folder. The hub shows the folder of the vault it reads in
+the file manager of the system (`explorer.exe`, `open`, `xdg-open`; no shell, the folder as the one argument) and answers
+with no path. `TASKS_DESKTOP_EDITOR_LOG` makes it write `reveal <folder>` instead of starting anything.
+
+`vault_create` takes `{ path, area, confirm: true }` and writes on the machine of the hub, so without `confirm: true` it does
+nothing. The path must be absolute without `.` or `..`, its parent must exist, and the target must not exist or be an empty
+folder (never a file, never a folder with something in it: nothing is merged or overwritten). The area must be a plain folder
+name. It makes `<path>/<area>/ROADMAP/tasks`, the folders the engine looks for, and does not register the vault: the page
+then calls `vaults/add` as for any folder. Both routes need a session and count as mutations.
+
 ## Search in the text of the tasks
 
 The engine alone reads task files, so the texts come from it: the verb

@@ -141,6 +141,10 @@ async fn rig(name: &str, with_opener: bool) -> Rig {
 }
 
 async fn open(r: &Rig, body: &str, session: bool) -> (u16, Value) {
+    post(r, "/api/tasks/open", body, session).await
+}
+
+async fn post(r: &Rig, route: &str, body: &str, session: bool) -> (u16, Value) {
     let auth = format!("Bearer {}", r.token);
     let origin = format!("http://127.0.0.1:{}", r.server.addr().port());
     let mut headers: Vec<(&str, &str)> =
@@ -148,15 +152,9 @@ async fn open(r: &Rig, body: &str, session: bool) -> (u16, Value) {
     if session {
         headers.push(("Authorization", &auth));
     }
-    let reply = client::request(
-        r.server.addr().port(),
-        "POST",
-        "/api/tasks/open",
-        &headers,
-        body,
-    )
-    .await
-    .unwrap();
+    let reply = client::request(r.server.addr().port(), "POST", route, &headers, body)
+        .await
+        .unwrap();
     (
         reply.status,
         serde_json::from_str(&reply.body).unwrap_or(Value::Null),
@@ -222,5 +220,65 @@ async fn the_form_the_credential_and_a_hub_without_an_editor() {
     assert_eq!(
         (status, doc["error"]["code"].as_str()),
         (404, Some("open_unavailable"))
+    );
+}
+
+#[tokio::test]
+async fn the_folder_of_the_vault_is_shown_and_the_page_names_nothing() {
+    let r = rig("reveal", true).await;
+    let (status, doc) = post(&r, "/api/tasks/vault_reveal", "{}", true).await;
+    assert_eq!(status, 200, "{doc}");
+    let seen = opened(&r);
+    assert_eq!(seen.len(), 1, "{seen:?}");
+    assert!(seen[0].starts_with("reveal "), "{seen:?}");
+    assert!(!doc.to_string().contains("vault"), "no path in the answer");
+    // A folder named by the page is not taken, and the credential comes first.
+    let (status, _) = post(&r, "/api/tasks/vault_reveal", r#"{"path":"/etc"}"#, true).await;
+    assert_eq!(status, 400);
+    let (status, _) = post(&r, "/api/tasks/vault_reveal", "{}", false).await;
+    assert_eq!(status, 401);
+    assert_eq!(opened(&r).len(), 1);
+    let none = rig("reveal-none", false).await;
+    let (status, doc) = post(&none, "/api/tasks/vault_reveal", "{}", true).await;
+    assert_eq!(
+        (status, doc["error"]["code"].as_str()),
+        (404, Some("open_unavailable"))
+    );
+}
+
+#[tokio::test]
+async fn a_new_vault_is_made_only_when_confirmed_and_never_over_something() {
+    let r = rig("create", false).await;
+    let target = r.vault.parent().unwrap().join("fresh");
+    let text = |extra: &str| {
+        format!(
+            r#"{{"path":{},"area":"alpha.nvim"{extra}}}"#,
+            serde_json::to_string(&target.to_string_lossy()).unwrap()
+        )
+    };
+    let route = "/api/tasks/vault_create";
+    let (status, doc) = post(&r, route, &text(""), true).await;
+    assert_eq!(
+        (status, doc["error"]["code"].as_str()),
+        (400, Some("not_confirmed"))
+    );
+    assert!(!target.exists());
+    let (status, _) = post(&r, route, &text(r#","confirm":true"#), false).await;
+    assert_eq!(status, 401);
+    assert!(!target.exists());
+    let (status, doc) = post(&r, route, &text(r#","confirm":true"#), true).await;
+    assert_eq!(status, 200, "{doc}");
+    assert!(target.join("alpha.nvim/ROADMAP/tasks").is_dir());
+    // A second time the folder is not empty: nothing is merged into it.
+    let (status, doc) = post(&r, route, &text(r#","confirm":true"#), true).await;
+    assert_eq!(
+        (status, doc["error"]["code"].as_str()),
+        (400, Some("not_empty"))
+    );
+    let bad = r#"{"path":"relative/v","area":"a","confirm":true}"#;
+    let (status, doc) = post(&r, route, bad, true).await;
+    assert_eq!(
+        (status, doc["error"]["code"].as_str()),
+        (400, Some("bad_path"))
     );
 }

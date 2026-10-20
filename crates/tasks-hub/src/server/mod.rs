@@ -240,6 +240,14 @@ fn app_routes(core: &Arc<Shared>) -> Router<Arc<Shared>> {
             &r("open"),
             post(open_file).layer(DefaultBodyLimit::max(small)),
         )
+        .route(
+            &r("vault_reveal"),
+            post(vault_reveal).layer(DefaultBodyLimit::max(small)),
+        )
+        .route(
+            &r("vault_create"),
+            post(vault_create).layer(DefaultBodyLimit::max(small)),
+        )
 }
 
 #[cfg(test)]

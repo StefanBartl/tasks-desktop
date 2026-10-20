@@ -302,6 +302,12 @@
           })),
           {
             kind: 'action' as const,
+            label: t('menu.vault_reveal'),
+            disabled: !ready || app.vaultBusy,
+            onselect: () => void app.revealVault(),
+          },
+          {
+            kind: 'action' as const,
             label: t('menu.vaults_manage'),
             disabled: !ready || !app.vaultList,
             onselect: () => app.openVaults(),

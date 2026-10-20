@@ -25,6 +25,28 @@ pub trait FileOpener: Send + Sync {
     ///
     /// Why the editor could not be started.
     fn open(&self, file: &Path) -> Result<(), String>;
+
+    /// Show `dir` in the file manager of the system; does not wait for it.
+    ///
+    /// # Errors
+    ///
+    /// Why the file manager could not be started.
+    fn reveal(&self, dir: &Path) -> Result<(), String>;
+}
+
+/// How to show a folder in the file manager on `os`, or `None` when no way is known. `find` looks a program up.
+#[must_use]
+pub fn reveal_plan(dir: &Path, os: &str, find: &dyn Fn(&str) -> Option<PathBuf>) -> Option<Launch> {
+    let program = match os {
+        "windows" => Some(PathBuf::from("explorer.exe")),
+        "macos" => Some(PathBuf::from("open")),
+        "linux" => find("xdg-open"),
+        _ => None,
+    };
+    program.map(|program| Launch {
+        program,
+        args: vec![dir.as_os_str().to_owned()],
+    })
 }
 
 /// A program and its arguments.
@@ -134,6 +156,33 @@ impl FileOpener for TerminalOpener {
         })?;
         let mut child = spawn(&launch).map_err(|_| "Neovim could not be started".to_owned())?;
         // Reaped when it ends; the hub never waits for the editor.
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+        Ok(())
+    }
+
+    fn reveal(&self, dir: &Path) -> Result<(), String> {
+        if let Some(log) = self.env.path(&crate::IDENTITY.var("EDITOR_LOG")) {
+            let mut out = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log)
+                .map_err(|_| "the test log cannot be written".to_owned())?;
+            writeln!(out, "reveal {}", dir.display())
+                .map_err(|_| "the test log cannot be written".to_owned())?;
+            return Ok(());
+        }
+        let find = |name: &str| on_path(&self.env, name);
+        let launch = reveal_plan(dir, std::env::consts::OS, &find)
+            .ok_or_else(|| "no file manager is known on this system".to_owned())?;
+        let mut child = std::process::Command::new(&launch.program)
+            .args(&launch.args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|_| "the file manager could not be started".to_owned())?;
         std::thread::spawn(move || {
             let _ = child.wait();
         });
@@ -335,6 +384,26 @@ mod tests {
                 "{plain}"
             );
         }
+    }
+
+    #[test]
+    fn a_folder_is_shown_by_the_file_manager_of_the_system() {
+        let dir = Path::new("/v");
+        let none = |_: &str| None;
+        let xdg = |name: &str| (name == "xdg-open").then(|| PathBuf::from("/usr/bin/xdg-open"));
+        let win = reveal_plan(dir, "windows", &none).unwrap();
+        assert_eq!(win.program, PathBuf::from("explorer.exe"));
+        assert_eq!(win.args, vec![dir.as_os_str().to_owned()]);
+        assert_eq!(
+            reveal_plan(dir, "macos", &none).unwrap().program,
+            PathBuf::from("open")
+        );
+        assert_eq!(
+            reveal_plan(dir, "linux", &xdg).unwrap().program,
+            PathBuf::from("/usr/bin/xdg-open")
+        );
+        assert!(reveal_plan(dir, "linux", &none).is_none());
+        assert!(reveal_plan(dir, "plan9", &xdg).is_none());
     }
 
     #[test]

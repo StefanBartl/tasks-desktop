@@ -3188,6 +3188,52 @@ test('the vaults menu lists the vault that is read, and the dialog adds, shows a
   expect((consoleProblems.get(page) ?? []).filter((m) => !m.includes('status of 400'))).toEqual([]);
 });
 
+test('a new vault is made from an empty folder and added, and the folder of the vault is shown in the file manager', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  const fresh = join(state().vault, '..', 'new-vault-e2e');
+  removeFile(fresh);
+  const log = join(state().config, '..', 'editor.log');
+  const shown = (): string[] => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter((l) => l.startsWith('reveal ')) : []);
+  const before = shown().length;
+
+  await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Show vault folder' }).click();
+  await expect.poll(() => shown().length).toBe(before + 1);
+
+  await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Manage vaults ...' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Vaults' });
+  await dialog.getByLabel(/^Name/).fill('brand-new');
+  await dialog.getByLabel(/^Folder/).fill(fresh);
+  await dialog.getByRole('checkbox', { name: /Make this folder a new vault/ }).check();
+  await expect(dialog.getByRole('button', { name: 'Make and add' })).toBeDisabled();
+  await dialog.getByLabel(/^First area/).fill('first.nvim');
+  await expectAccessible(page, 'the vaults dialog with the new vault form');
+  await dialog.getByRole('button', { name: 'Make and add' }).click();
+  await expect(page.getByRole('status').getByText('Vault made and added.')).toBeVisible();
+  await expect(dialog.getByText('brand-new')).toBeVisible();
+  expect(existsSync(join(fresh, 'first.nvim', 'ROADMAP', 'tasks'))).toBe(true);
+
+  // A folder that has something in it is refused in the words of the hub, and nothing is added.
+  await dialog.getByLabel(/^Name/).fill('twice');
+  await dialog.getByLabel(/^Folder/).fill(fresh);
+  await dialog.getByRole('checkbox', { name: /Make this folder a new vault/ }).check();
+  await dialog.getByLabel(/^First area/).fill('other.nvim');
+  await dialog.getByRole('button', { name: 'Make and add' }).click();
+  await expect(page.getByRole('alert').getByText(/folder is not empty/)).toBeVisible();
+  await expect(dialog.getByText('twice')).toHaveCount(0);
+  expect(existsSync(join(fresh, 'other.nvim'))).toBe(false);
+
+  await dialog.getByRole('button', { name: 'Forget: brand-new' }).click();
+  await expect(dialog.getByText('brand-new')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  removeFile(fresh);
+  expect(await violations(page)).toEqual([]);
+  expect((consoleProblems.get(page) ?? []).filter((m) => !m.includes('status of 400'))).toEqual([]);
+});
+
 test('another vault is chosen: the page loads again and shows its tasks, and the first one can be chosen back', async ({ page }) => {
   await watchViolations(page);
   await pair(page);
