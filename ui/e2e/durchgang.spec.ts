@@ -80,6 +80,10 @@ test('the last menu opens inside the window, and a choice closes when the focus 
   await page.keyboard.press('Escape');
 
   await showList(page);
+  // The popup of the menu is gone before the choice is pressed (a popup that is still warm shows at once on the next
+  // control and, in a window this narrow, can land under the pointer: see the task about the popup under the pointer).
+  await page.mouse.move(0, 700);
+  await expect(page.locator('#hint-tip')).toBeHidden();
   await page.getByRole('button', { name: 'Areas', exact: true }).click();
   const choice = page.getByRole('group', { name: 'Areas' });
   await expect(choice).toBeVisible();
@@ -148,7 +152,7 @@ test('a blocker that is not in the list is no button, and "Close" is no directio
 test('a refusal is an alert, a "Saved." is not', async ({ page }) => {
   await pair(page);
   await showList(page);
-  await page.getByRole('menuitem', { name: 'Vaults', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Manage vaults ...' }).click();
   const dialog = page.getByRole('dialog', { name: 'Vaults' });
   await dialog.getByLabel(/^Name/).fill('nowhere');
@@ -322,9 +326,10 @@ for (const lang of ['en', 'de'] as const) {
       const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
       const lum = bg.match(/\d+/g)!.slice(0, 3).map(Number).reduce((x, y) => x + y, 0) / 3;
       expect(theme === 'dark' ? lum < 100 : lum > 150, `${theme} background ${bg}`).toBe(true);
-      const viewMenu = page.getByRole('menubar').getByRole('menuitem').nth(1);
+      const viewMenu = page.getByRole('menubar').getByRole('menuitem').nth(2);
       await viewMenu.click();
-      const count = await page.getByRole('menuitemradio').count();
+      // The views come first, the three themes after them.
+      const count = (await page.getByRole('menuitemradio').count()) - 3;
       await page.keyboard.press('Escape');
       expect(count).toBeGreaterThan(4);
       for (let i = 0; i < count; i++) {

@@ -243,6 +243,7 @@
                   <!-- A finger drags by this grip (a screen reader and the keys have the keys of the board). -->
                   <span
                     class="grip"
+                    data-hint={t('hint.ui.board.grip')}
                     role="presentation"
                     aria-hidden="true"
                     onpointerdown={(e) => grip(e, card.id, 'start')}

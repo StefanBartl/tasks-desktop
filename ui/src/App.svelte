@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import type { App, View } from './lib/app.svelte';
   import { matches } from 'appkit-ui/keymap';
   import { keymap, pressOf } from './lib/keymap';
@@ -212,33 +212,99 @@
     app.announceExport((await copyText(navigator.clipboard, text)) ? 'copied' : 'copy_failed', count);
   }
 
+  /** The task the engine names as the next one to take (an agent's first, else the first alternative). */
+  const nextTaskId = $derived(app.next?.cdx[0]?.id ?? app.next?.alternatives[0]?.id ?? null);
+  const areaCount = $derived(new Set(app.tasks.map((x) => x.area)).size);
+
+  /** The list with the cursor in its search box. */
+  async function findTask(): Promise<void> {
+    app.setView('list');
+    await tick();
+    searchBox?.focus();
+  }
+
+  /** The id of the selected task on the clipboard, and a word about it. */
+  async function copyId(): Promise<void> {
+    const id = app.selectedId;
+    if (id === null) return;
+    const ok = await copyText(navigator.clipboard, id);
+    app.tell(ok ? 'ok' : 'error', ok ? 'menu.id_copied' : 'menu.copy_id_failed');
+  }
+
   // The menu bar of the page (the native shell shows the same entries).
   const menus = $derived.by((): Menu[] => {
     const ready = app.phase === 'ready';
     const vault = app.snapshot?.vault?.id;
     return [
       {
-        id: 'project',
-        label: t('menu.project'),
+        id: 'tasks',
+        label: t('menu.tasks'),
+        hint: t('hint.ui.menu.tasks'),
         items: [
-          ...(vault ? [{ kind: 'info' as const, label: t('menu.vault', { name: vault }) }] : []),
+          { kind: 'section', label: t('menu.sec.create') },
           {
             kind: 'action',
             label: t('menu.capture'),
+            shortcut: app.shortcuts ? 'C' : undefined,
             disabled: !ready,
             onselect: () => app.openCapture(),
+          },
+          { kind: 'section', label: t('menu.sec.find') },
+          {
+            kind: 'action',
+            label: t('menu.find_task'),
+            shortcut: app.shortcuts ? '/' : undefined,
+            disabled: !ready,
+            onselect: () => void findTask(),
           },
           {
             kind: 'action',
             label: t('menu.palette'),
+            shortcut: 'Ctrl+K',
             disabled: !ready,
             onselect: () => app.openPalette(),
           },
           {
             kind: 'action',
-            label: t('plan.new.button'),
-            disabled: app.phase !== 'ready' || !app.can('plan_new'),
-            onselect: () => app.openPlanWizard(),
+            label: t('menu.next_task'),
+            disabled: !ready || nextTaskId === null,
+            onselect: () => nextTaskId !== null && app.reveal(nextTaskId),
+          },
+          { kind: 'section', label: t('menu.sec.edit') },
+          {
+            kind: 'action',
+            label: t('menu.copy_id'),
+            disabled: !ready || app.selectedId === null,
+            onselect: () => void copyId(),
+          },
+          {
+            kind: 'action',
+            label: t('menu.reset_filter'),
+            disabled: !ready,
+            onselect: () => app.resetFilter(),
+          },
+        ],
+      },
+      {
+        id: 'project',
+        label: t('menu.project'),
+        hint: t('hint.ui.menu.project'),
+        items: [
+          { kind: 'section', label: t('menu.sec.vault') },
+          ...(vault ? [{ kind: 'info' as const, label: t('menu.vault', { name: vault }) }] : []),
+          ...(ready ? [{ kind: 'info' as const, label: t('menu.vault_info', { areas: areaCount, tasks: app.tasks.length }) }] : []),
+          ...(app.vaultList?.vaults ?? []).map((v) => ({
+            kind: 'radio' as const,
+            label: v.name === 'main' ? `${v.label} (main)` : `${v.name} (${v.label})`,
+            checked: v.name === app.vaultList?.active,
+            disabled: !ready || app.vaultBusy,
+            onselect: () => void app.selectVault(v.name),
+          })),
+          {
+            kind: 'action' as const,
+            label: t('menu.vaults_manage'),
+            disabled: !ready || !app.vaultList,
+            onselect: () => app.openVaults(),
           },
           {
             kind: 'action',
@@ -246,7 +312,14 @@
             disabled: !ready,
             onselect: () => void app.focused(),
           },
-          { kind: 'separator' },
+          { kind: 'section', label: t('menu.sec.plan') },
+          {
+            kind: 'action',
+            label: t('plan.new.button'),
+            disabled: app.phase !== 'ready' || !app.can('plan_new'),
+            onselect: () => app.openPlanWizard(),
+          },
+          { kind: 'section', label: t('menu.sec.export') },
           {
             kind: 'action',
             label: t('menu.save_md'),
@@ -271,14 +344,16 @@
             disabled: !ready,
             onselect: () => void copyToClipboard('csv'),
           },
-          { kind: 'separator' },
+          { kind: 'section', label: t('menu.sec.page') },
           { kind: 'action', label: t('menu.reload'), onselect: () => window.location.reload() },
         ],
       },
       {
         id: 'view',
         label: t('menu.view'),
+        hint: t('hint.ui.menu.view'),
         items: [
+          { kind: 'section', label: t('menu.sec.views') },
           {
             kind: 'radio',
             label: t('nav.today'),
@@ -326,7 +401,7 @@
                 },
               ]
             : []),
-          { kind: 'separator' },
+          { kind: 'section', label: t('menu.sec.tiles') },
           {
             kind: 'action',
             label: t('menu.show_tiles', { n: app.hiddenTiles.length }),
@@ -339,49 +414,21 @@
             disabled: !app.tileOrderChanged,
             onselect: () => app.resetTileOrder(),
           },
-          {
-            kind: 'action',
-            label: t('menu.reset_filter'),
-            disabled: !ready,
-            onselect: () => app.resetFilter(),
-          },
-        ],
-      },
-      {
-        id: 'appearance',
-        label: t('theme.label'),
-        items: (['auto', 'light', 'dark'] as const).map((value) => ({
-          kind: 'radio' as const,
-          label: t(`theme.${value}` as Key),
-          checked: app.theme === value,
-          onselect: () => app.setTheme(value),
-        })),
-      },
-      {
-        id: 'vaults',
-        label: t('menu.vaults'),
-        items: [
-          ...(app.vaultList?.vaults ?? []).map((v) => ({
+          { kind: 'section', label: t('theme.label') },
+          ...(['auto', 'light', 'dark'] as const).map((value) => ({
             kind: 'radio' as const,
-            label: v.name === 'main' ? `${v.label} (main)` : `${v.name} (${v.label})`,
-            checked: v.name === app.vaultList?.active,
-            disabled: !ready || app.vaultBusy,
-            onselect: () => void app.selectVault(v.name),
+            label: t(`theme.${value}` as Key),
+            checked: app.theme === value,
+            onselect: () => app.setTheme(value),
           })),
-          ...(app.vaultList ? [{ kind: 'separator' as const }] : []),
-          {
-            kind: 'action' as const,
-            label: t('menu.vaults_manage'),
-            disabled: !ready || !app.vaultList,
-            onselect: () => app.openVaults(),
-          },
         ],
       },
       {
-        id: 'settings',
-        label: t('menu.settings'),
+        id: 'options',
+        label: t('menu.options'),
+        hint: t('hint.ui.menu.options'),
         items: [
-          { kind: 'info', label: t('lang.label') },
+          { kind: 'section', label: t('lang.label') },
           {
             kind: 'radio',
             label: 'Deutsch',
@@ -394,7 +441,7 @@
             checked: app.lang === 'en',
             onselect: () => app.setLang('en'),
           },
-          { kind: 'separator' },
+          { kind: 'section', label: t('menu.sec.behaviour') },
           {
             kind: 'check',
             label: t('shortcuts.label'),
@@ -412,6 +459,7 @@
       {
         id: 'help',
         label: t('menu.help'),
+        hint: t('hint.ui.menu.help'),
         items: [
           {
             kind: 'action',
@@ -439,12 +487,12 @@
     <MenuBar {menus} label={t('menu.label')} />
     <span class="spacer"></span>
     {#if app.conflicts.length > 0}
-      <button type="button" class="conflicts" onclick={() => app.openConflicts()}
+      <button type="button" class="conflicts" data-hint={t('hint.ui.conflicts')} onclick={() => app.openConflicts()}
         >{t('conflicts.button', { n: app.conflicts.length })}</button
       >
     {/if}
     {#if app.phase === 'ready'}
-      <span class="conn conn-{app.connection}" role="status">
+      <span class="conn conn-{app.connection}" role="status" data-hint={t(`hint.ui.conn.${app.cachedAt !== null ? 'cached' : app.connection}` as Key)}>
         {app.cachedAt !== null ? t('conn.cached') : t(`conn.${app.connection}` as Key)}
       </span>
     {/if}

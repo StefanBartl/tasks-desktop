@@ -279,11 +279,13 @@
       <input
         bind:this={searchBox}
         type="search"
+        data-hint={t('hint.ui.list.search')}
         placeholder={t('list.search')}
         aria-label={t('list.search')}
         value={app.filter.query}
         oninput={(e) => app.setQuery(e.currentTarget.value)}
       />
+      <span class="hintwrap" data-hint={t('hint.ui.list.areas')}>
       <MultiSelect
         label={t('nav.areas')}
         options={areaOptions}
@@ -292,6 +294,8 @@
         resetLabel={t('multi.reset')}
         searchLabel={t('multi.search')}
       />
+      </span>
+      <span class="hintwrap" data-hint={t('hint.ui.list.status')}>
       <MultiSelect
         label={t('list.filter.status')}
         options={statuses.map((s) => ({ value: s, label: t(`status.${s}` as Key) }))}
@@ -300,6 +304,8 @@
         resetLabel={t('multi.reset')}
         searchLabel={t('multi.search')}
       />
+      </span>
+      <span class="hintwrap" data-hint={t('hint.ui.list.actor')}>
       <MultiSelect
         label={t('list.filter.actor')}
         options={actors.map((a) => ({
@@ -312,13 +318,14 @@
         resetLabel={t('multi.reset')}
         searchLabel={t('multi.search')}
       />
-      <label class="pick sort">
+      </span>
+      <label class="pick sort" data-hint={t('hint.ui.list.sort')}>
         <span>{t('sort.label')}</span>
         <select data-sort value={app.sort} onchange={(e) => app.setSort(parseSort(e.currentTarget.value))}>
           {#each SORTS as word (word)}<option value={word}>{t(`sort.${word}` as Key)}</option>{/each}
         </select>
       </label>
-      <label class="pick lists">
+      <label class="pick lists" data-hint={t('hint.ui.list.lists')}>
         <span>{t('lists.label')}</span>
         <select
           data-lists
@@ -359,7 +366,7 @@
         >
       {/if}
       <details class="save-list" bind:open={saveListOpen}>
-        <summary>{t('lists.save')}</summary>
+        <summary data-hint={t('hint.ui.list.save')}>{t('lists.save')}</summary>
         <!-- Not a form: a page of tasks has none (the tests of markup count them), and Enter does the same. -->
         <div class="save-row" role="group" aria-label={t('lists.save')}>
           <input
@@ -380,7 +387,7 @@
       </details>
     </div>
     <details class="more" open={moreOpen} ontoggle={(e) => (moreOpen = e.currentTarget.open)}>
-      <summary bind:this={moreSummary}>{t('filter.more')}{extraOn > 0 ? ` (${extraOn})` : ''}</summary>
+      <summary bind:this={moreSummary} data-hint={t('hint.ui.list.more')}>{t('filter.more')}{extraOn > 0 ? ` (${extraOn})` : ''}</summary>
       <div class="more-body">
         {#each fieldChoices as f (f.key)}
           <MultiSelect
@@ -479,18 +486,18 @@
     {/if}
     <!-- Only the count is a live region: the buttons and the key help beside it are not to be read out again on every change. -->
     <p class="count">
-      <span role="status">{t('list.count', { shown: shown.length, total: app.tasks.length })}</span>
+      <span role="status" data-hint={t('hint.ui.list.count')}>{t('list.count', { shown: shown.length, total: app.tasks.length })}</span>
       <span class="help"
-        ><button type="button" class="linkish" onclick={() => app.markShown()}>{t('bulk.all')}</button> ·
-        {#if app.can('check')}<button type="button" class="linkish" onclick={() => void app.openChecks()}>{t('check.open')}</button> ·{/if}
-        {#if app.can('estimate')}<button type="button" class="linkish" onclick={() => app.openMatrix()}>{t('matrix.open')}</button> ·{/if}
+        ><button type="button" class="linkish" data-hint={t('hint.ui.list.mark_all')} onclick={() => app.markShown()}>{t('bulk.all')}</button> ·
+        {#if app.can('check')}<button type="button" class="linkish" data-hint={t('hint.ui.list.check')} onclick={() => void app.openChecks()}>{t('check.open')}</button> ·{/if}
+        {#if app.can('estimate')}<button type="button" class="linkish" data-hint={t('hint.ui.list.estimate')} onclick={() => app.openMatrix()}>{t('matrix.open')}</button> ·{/if}
         {t('list.help')}</span
       >
       <!-- The marks of the rows, explained with one tab stop (the rows themselves would be hundreds). -->
       <Info hint={marksLegend(app.lang)} label={t('hint.about', { what: t('mark.legend.what') })} />
     </p>
     {#if app.can('finished')}
-      <label class="show-finished"
+      <label class="show-finished" data-hint={t('hint.ui.list.show_finished')}
         ><input type="checkbox" bind:checked={app.showFinished} /> {t('list.show_finished')}</label
       >
     {/if}
@@ -626,6 +633,9 @@
 </div>
 
 <style>
+  .hintwrap {
+    display: contents;
+  }
   .split {
     display: grid;
     grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);

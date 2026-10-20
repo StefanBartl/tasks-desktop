@@ -93,7 +93,7 @@
       </div>
       <div class="toolbar">
         {#if plans.length > 0}
-          <label class="plan-select">
+          <label class="plan-select" data-hint={t('hint.ui.plan.select')}>
             <span>{t('plan.which')}</span>
             <select bind:value={app.planChoice}>
               <option value="">{t('plan.all')}</option>
@@ -103,7 +103,7 @@
             </select>
           </label>
         {/if}
-        <button type="button" class="newplan" disabled={!app.can('plan_new')} onclick={() => app.openPlanWizard()}>{t('plan.new.button')}</button>
+        <button type="button" class="newplan" data-hint={t('hint.ui.plan.new')} disabled={!app.can('plan_new')} onclick={() => app.openPlanWizard()}>{t('plan.new.button')}</button>
       </div>
       {#if phases.length > 0}
         <p class="phases">
@@ -130,7 +130,7 @@
     {#if path && path.path.length > 0}
       <section class="card" aria-label={t('plan.critical')}>
         <div class="headline">
-          <h2 class="eyebrow">{t('plan.critical')}: {daysText(path.days)}</h2>
+          <h2 class="eyebrow" data-hint={t('hint.critical')}>{t('plan.critical')}: {daysText(path.days)}</h2>
           <Info hint={t('hint.critical')} label={t('hint.about', { what: t('plan.critical') })} />
         </div>
         <ol class="path">

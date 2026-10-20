@@ -152,7 +152,7 @@
   {#if showOverview}
     <aside class="card overview" aria-label={t('today.overview')}>
       <header>
-        <h2 class="eyebrow">{t('today.overview')}</h2>
+        <h2 class="eyebrow" data-hint={t('hint.ui.today.overview')}>{t('today.overview')}</h2>
         <button
           type="button"
           class="hide"
@@ -202,7 +202,7 @@
     {#if shown('next')}
       <section data-tile="next" style:order={rank('next')} class:drop={over === 'next'} ondragover={(e) => dragOver(e, 'next')} ondragleave={() => (over = null)} ondrop={(e) => drop(e, 'next')} class="card next" aria-label={t('today.next')}>
         <header>
-          <h2 class="eyebrow">{t('today.next')}</h2>
+          <h2 class="eyebrow" data-hint={t('hint.ui.today.next')}>{t('today.next')}</h2>
           {@render handle('next')}
           <button
             type="button"
@@ -224,7 +224,7 @@
             {#if why(next.task)} · {why(next.task)}{/if}
           </p>
           {#if alternatives.length > 0}
-            <h2 class="eyebrow">{t('today.alternatives')}</h2>
+            <h2 class="eyebrow" data-hint={t('hint.ui.today.alternatives')}>{t('today.alternatives')}</h2>
             <ul class="plain">
               {#each alternatives as alt, i (`${alt.id}:${i}`)}
                 <li>
@@ -260,7 +260,7 @@
     {#if shown('waiting')}
       <section data-tile="waiting" style:order={rank('waiting')} class:drop={over === 'waiting'} ondragover={(e) => dragOver(e, 'waiting')} ondragleave={() => (over = null)} ondrop={(e) => drop(e, 'waiting')} class="card" aria-label={t('today.waiting')}>
         <header>
-          <h2 class="eyebrow">{t('today.waiting')} ({waiting.length})</h2>
+          <h2 class="eyebrow" data-hint={t('hint.ui.today.waiting')}>{t('today.waiting')} ({waiting.length})</h2>
           {@render handle('waiting')}
           <button
             type="button"
@@ -286,7 +286,7 @@
     {#if shown('remind') && reminders.length > 0}
       <section data-tile="remind" style:order={rank('remind')} class:drop={over === 'remind'} ondragover={(e) => dragOver(e, 'remind')} ondragleave={() => (over = null)} ondrop={(e) => drop(e, 'remind')} class="card" aria-label={t('remind.title')}>
         <header>
-          <h2 class="eyebrow">{t('remind.title')} ({reminders.length})</h2>
+          <h2 class="eyebrow" data-hint={t('hint.ui.today.remind')}>{t('remind.title')} ({reminders.length})</h2>
           {@render handle('remind')}
           <button
             type="button"
@@ -335,7 +335,7 @@
     {#if shown('cdx') && cdx.length > 0}
       <section data-tile="cdx" style:order={rank('cdx')} class:drop={over === 'cdx'} ondragover={(e) => dragOver(e, 'cdx')} ondragleave={() => (over = null)} ondrop={(e) => drop(e, 'cdx')} class="card" aria-label={t('today.cdx')}>
         <header>
-          <h2 class="eyebrow">{t('today.cdx')} ({cdx.length})</h2>
+          <h2 class="eyebrow" data-hint={t('hint.ui.today.cdx')}>{t('today.cdx')} ({cdx.length})</h2>
           {@render handle('cdx')}
           <button
             type="button"

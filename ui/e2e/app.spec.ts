@@ -491,14 +491,14 @@ for (const scheme of ['light', 'dark'] as const) {
 
 test('the German page has no violations either', async ({ page }) => {
   await pair(page);
-  await page.getByRole('menuitem', { name: 'Settings' }).click();
+  await page.getByRole('menuitem', { name: 'Options' }).click();
   await page.getByRole('menuitemradio', { name: 'Deutsch' }).click();
   await expect(page.getByRole('menuitem', { name: 'Ansicht' })).toBeVisible();
-  // The name of the app is a name: it stays "Tasks" in German. The menus: the appearance comes right after the view,
-  // and the language is in the settings.
+  // The name of the app is a name: it stays "Tasks" in German. The menus: the appearance is in the view,
+  // the vaults in the project, and the language is in the options.
   await expect(page.locator('.brand')).toHaveText('Tasks');
   const bar = page.getByRole('menubar').getByRole('menuitem');
-  await expect(bar).toHaveText(['Projekt', 'Ansicht', 'Darstellung', 'Vaults', 'Einstellungen', 'Hilfe']);
+  await expect(bar).toHaveText(['Tasks', 'Projekt', 'Ansicht', 'Optionen', 'Hilfe']);
   await showListDe(page);
   const result = await new AxeBuilder({ page }).analyze();
   expect(result.violations, JSON.stringify(result.violations, null, 1)).toEqual([]);
@@ -614,6 +614,93 @@ test('the tiles of the overview can be put in another order with the keys, the o
   await expect(page.getByRole('menuitem', { name: 'Reset the order of the tiles' })).toBeDisabled();
 });
 
+test('every entry of the header explains itself on hover: the five menus and the connection', async ({ page }) => {
+  await pair(page);
+  const tip = page.locator('#hint-tip');
+  const entries = [
+    [page.getByRole('menuitem', { name: 'Tasks', exact: true }), /Create, find and edit tasks/],
+    [page.getByRole('menuitem', { name: 'Project', exact: true }), /vault, the plan and the export/],
+    [page.getByRole('menuitem', { name: 'View', exact: true }), /Switch the view/],
+    [page.getByRole('menuitem', { name: 'Options', exact: true }), /language and how the page behaves/],
+    [page.getByRole('menuitem', { name: 'Help', exact: true }), /About this app/],
+    [page.locator('header .conn'), /gets every change of the vault at once/],
+  ] as const;
+  for (const [entry, words] of entries) {
+    await entry.hover();
+    await expect(tip).toBeVisible();
+    await expect(tip).toHaveText(words);
+    await page.mouse.move(0, 400);
+    await expect(tip).toBeHidden();
+  }
+  // Every entry of the bar is on the list above: a menu added without a hint fails here.
+  await expect(page.getByRole('menubar').getByRole('menuitem')).toHaveCount(5);
+});
+
+test('the controls of the list and the headings of the tiles explain themselves on hover', async ({ page }) => {
+  await pair(page);
+  const tip = page.locator('#hint-tip');
+  await page.getByRole('heading', { name: 'Next task', exact: true }).hover();
+  await expect(tip).toHaveText(/the engine would take next/);
+  await showList(page);
+  // A control that sits in the kit (the area filter) is explained by the span around it.
+  await page.getByRole('button', { name: /^Areas/ }).hover();
+  await expect(tip).toHaveText(/folders of the vault/);
+  const pairs = [
+    [page.locator('input[type="search"]').first(), /words of their title or id/],
+    [page.locator('.count [role="status"]'), /How many tasks the filters leave/],
+    [page.locator('label.sort'), /order of the list/],
+    [page.locator('summary', { hasText: 'More filters' }), /narrow the list/],
+    [page.getByRole('button', { name: 'Mark all shown' }), /Mark every task shown/],
+  ] as const;
+  for (const [element, words] of pairs) {
+    await page.mouse.move(0, 400);
+    await element.hover();
+    await expect(tip).toHaveText(words);
+  }
+});
+
+test('the menus are Tasks, Project, View, Options and Help, with sections and the shortcuts of the keys', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  const bar = page.getByRole('menubar').getByRole('menuitem');
+  await expect(bar).toHaveText(['Tasks', 'Project', 'View', 'Options', 'Help']);
+
+  // Tasks: sections, shortcuts as the keys have them, and the actions work.
+  await page.getByRole('menuitem', { name: 'Tasks', exact: true }).click();
+  const menu = page.getByRole('menu');
+  for (const heading of ['Create', 'Find', 'Edit']) await expect(menu.getByText(heading, { exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: /New task/ })).toHaveAttribute('aria-keyshortcuts', 'C');
+  await expect(menu.getByRole('menuitem', { name: /Find a task/ })).toHaveAttribute('aria-keyshortcuts', '/');
+  await expect(menu.getByRole('menuitem', { name: /Command palette/ })).toHaveAttribute('aria-keyshortcuts', 'Control+K');
+  // Nothing is selected yet: there is no ID to copy.
+  await expect(menu.getByRole('menuitem', { name: /Copy the ID/ })).toBeDisabled();
+  await menu.getByRole('menuitem', { name: /Find a task/ }).click();
+  await expect(page.locator('input[type="search"], input[role="searchbox"]').first()).toBeFocused();
+
+  // A task that is selected can have its ID copied.
+  await page.locator('button.row').first().click();
+  await page.getByRole('menuitem', { name: 'Tasks', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: /Copy the ID/ })).toBeEnabled();
+  await page.getByRole('menuitem', { name: /Copy the ID/ }).click();
+  await expect(page.getByRole('status').getByText(/Task ID copied|clipboard is not available/)).toBeVisible();
+
+  // Project: the vault section tells which vault and how big it is, and the old Vaults menu is gone.
+  await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
+  const project = page.getByRole('menu');
+  await expect(project.getByText('Vault', { exact: true })).toBeVisible();
+  await expect(project.getByText(/\d+ areas, \d+ tasks/)).toBeVisible();
+  await expect(project.getByRole('menuitem', { name: 'Read the vault again' })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // View holds the theme, Options the language.
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await expect(page.getByRole('menuitemradio', { name: 'Dark' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('menuitem', { name: 'Options', exact: true }).click();
+  await expect(page.getByRole('menuitemradio', { name: 'Deutsch' })).toBeVisible();
+  await expect(page.getByRole('menuitemradio', { name: 'Dark' })).toHaveCount(0);
+});
+
 test('the menu bar opens with the keyboard, switches views, language and theme', async ({ page }) => {
   await watchViolations(page);
   await pair(page);
@@ -643,19 +730,19 @@ test('the menu bar opens with the keyboard, switches views, language and theme',
 
   // Left and Right walk the menus.
   await page.keyboard.press('ArrowRight');
-  await expect(page.getByRole('menuitem', { name: 'Theme' })).toBeFocused();
+  await expect(page.getByRole('menuitem', { name: 'Options' })).toBeFocused();
   await page.keyboard.press('ArrowRight');
-  await expect(page.getByRole('menuitem', { name: 'Vaults' })).toBeFocused();
+  await expect(page.getByRole('menuitem', { name: 'Help' })).toBeFocused();
 
   expect(await violations(page)).toEqual([]);
-  await page.getByRole('menuitem', { name: 'Theme' }).click();
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'Dark' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
   // Keys can be switched off from the settings menu.
-  await page.getByRole('menuitem', { name: 'Settings' }).click();
+  await page.getByRole('menuitem', { name: 'Options' }).click();
   await page.getByRole('menuitemcheckbox', { name: 'Keys' }).click();
-  await page.getByRole('menuitem', { name: 'Settings' }).click();
+  await page.getByRole('menuitem', { name: 'Options' }).click();
   await expect(page.getByRole('menuitemcheckbox', { name: 'Keys' })).toHaveAttribute('aria-checked', 'false');
   expect(await violations(page)).toEqual([]);
 });
@@ -2502,7 +2589,7 @@ test('the command palette: Ctrl+K, an action by a few letters, a task by its wor
   await page.keyboard.press('Escape');
 
   // Ctrl+K works from the menu, too, and the page is quiet.
-  await page.getByRole('menuitem', { name: 'Project' }).click();
+  await page.getByRole('menuitem', { name: 'Tasks', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Command palette ...' }).click();
   await expect(palette).toBeVisible();
   await page.keyboard.press('Escape');
@@ -2848,7 +2935,7 @@ test('the vaults menu lists the vault that is read, and the dialog adds, shows a
   await showList(page);
 
   // The vault that is read is ticked in the menu.
-  await page.getByRole('menuitem', { name: 'Vaults', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
   await expect(page.getByRole('menuitemradio', { checked: true })).toHaveCount(1);
   await expect(page.getByRole('menuitemradio').first()).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('menuitem', { name: 'Manage vaults ...' }).click();
@@ -2904,7 +2991,7 @@ test('another vault is chosen: the page loads again and shows its tasks, and the
     ['---', 'title: Solo task of the second vault', 'status: open', 'kind: task', 'prio: 2', 'created: 2026-01-01', 'updated: 2026-01-01', '---', '', 'Solo.', ''].join('\n'),
   );
 
-  await page.getByRole('menuitem', { name: 'Vaults', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Manage vaults ...' }).click();
   const dialog = page.getByRole('dialog', { name: 'Vaults' });
   await dialog.getByLabel(/^Name/).fill('second');
@@ -2918,7 +3005,7 @@ test('another vault is chosen: the page loads again and shows its tasks, and the
   await showList(page);
   await expect(page.locator('button.row', { hasText: 'solo.nvim/solo-task' })).toBeVisible();
   await expect(page.locator('button.row', { hasText: 'lib.nvim/alpha' })).toHaveCount(0);
-  await page.getByRole('menuitem', { name: 'Vaults', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
   await expect(page.getByRole('menuitemradio', { name: /^second/ })).toHaveAttribute('aria-checked', 'true');
 
   // And back: the first vault is the one that is read again, with its tasks.
@@ -2929,7 +3016,7 @@ test('another vault is chosen: the page loads again and shows its tasks, and the
   await expect(page.locator('button.row', { hasText: 'solo.nvim/solo-task' })).toHaveCount(0);
 
   // A vault that was chosen is not forgotten while it is read; the other goes.
-  await page.getByRole('menuitem', { name: 'Vaults', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Project', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Manage vaults ...' }).click();
   await dialog.getByRole('button', { name: 'Forget: second' }).click();
   await expect(page.getByRole('status').getByText(/Vault forgotten/)).toBeVisible();

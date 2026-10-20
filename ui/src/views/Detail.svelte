@@ -346,7 +346,7 @@
           {/each}
         </select>
       </label>
-      <button type="button" class="finish" disabled={app.saving} onclick={() => void app.startFinish(task.id)}
+      <button type="button" class="finish" data-hint={t('hint.ui.detail.finish')} disabled={app.saving} onclick={() => void app.startFinish(task.id)}
         >{t('done.button')}</button
       >
     </div>
@@ -442,11 +442,11 @@
       <h3>
         {t('detail.body')}
         <!-- The label names what the button will do, so it is a plain button, not a pressed one (both at once contradict). -->
-        <button type="button" class="switch" onclick={() => (raw = !raw)}
+        <button type="button" class="switch" data-hint={t('hint.ui.detail.view_raw')} onclick={() => (raw = !raw)}
           >{raw ? t('detail.view_rendered') : t('detail.view_raw')}</button
         >
         {#if app.can('set_body') && editableBody(detail.doc.body, detail.doc.body_truncated) && !editing}
-          <button type="button" class="switch" disabled={app.saving} onclick={editBody}>{t('detail.edit_body')}</button>
+          <button type="button" class="switch" data-hint={t('hint.ui.detail.edit_body')} disabled={app.saving} onclick={editBody}>{t('detail.edit_body')}</button>
         {/if}
       </h3>
       {#if hasHidden(body)}<p class="warn">{t('detail.invisible')}</p>{/if}
@@ -524,7 +524,7 @@
               >{t('move.confirm', { id: movePreview.move.new_id })}</button
             >
           {:else}
-            <button type="button" disabled={app.saving || moveTo === ''} onclick={() => void checkMove()}
+            <button type="button" data-hint={t('hint.ui.detail.move_check')} disabled={app.saving || moveTo === ''} onclick={() => void checkMove()}
               >{t('move.check')}</button
             >
           {/if}
@@ -582,11 +582,11 @@
     <h3>{t('detail.file')}</h3>
     <p><code class="file">{task.file}</code></p>
     <p>
-      <button type="button" class="open-editor" onclick={() => void app.openInEditor(task.id)}
+      <button type="button" class="open-editor" data-hint={t('hint.ui.detail.open_editor')} onclick={() => void app.openInEditor(task.id)}
         >{t('editor.button')}</button
       >
       {#if app.can('plan_for')}
-        <button type="button" class="open-editor" onclick={() => app.openGraph(task.id)}>{t('graph.button')}</button>
+        <button type="button" class="open-editor" data-hint={t('hint.ui.detail.graph')} onclick={() => app.openGraph(task.id)}>{t('graph.button')}</button>
       {/if}
     </p>
   {/if}
