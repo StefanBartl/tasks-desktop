@@ -5,10 +5,10 @@
   import { dueItems } from '../lib/remind';
   import { hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import { effortWords } from '../lib/next';
-  import { dailyFigures } from '../lib/daily';
   import { markHidden } from '../lib/text';
   import { tasksOf, type CountKey } from '../lib/counts';
   import CountPanel from './CountPanel.svelte';
+  import DailyTile from './DailyTile.svelte';
   import FilterNote from './FilterNote.svelte';
 
   let { app }: { app: App } = $props();
@@ -29,28 +29,6 @@
   const reminders = $derived(dueItems(app.shown, filtered ? [] : snapshot?.reminders, app.today));
   const shown = (tile: Tile) => !app.hiddenTiles.includes(tile);
 
-  // The summary of the day: the made and the changed tasks are counted from the snapshot, the finished ones are asked
-  // of the engine (a finished task is in a Backlog, not in the list). It is asked again when the snapshot changes.
-  const daily = $derived(dailyFigures(app.tasks, app.today));
-  let finishedToday = $state<number | null>(null);
-  $effect(() => {
-    const day = app.today;
-    void snapshot?.rev;
-    if (!app.can('finished')) {
-      finishedToday = null;
-      return;
-    }
-    const controller = new AbortController();
-    app
-      .finished({ since: day, until: day, limit: 1 }, controller.signal)
-      .then((answer) => {
-        if (!controller.signal.aborted) finishedToday = answer.total;
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) finishedToday = null;
-      });
-    return () => controller.abort();
-  });
   // The counts need the snapshot; without them there is no block to keep room for.
   const showOverview = $derived(shown('counts') && snapshot !== null);
 
@@ -210,26 +188,7 @@
       <CountPanel {app} key={opened.key} label={t(opened.label)} tasks={opened.tasks} unfiltered={opened.unfiltered} total={opened.total} />
     {/if}
     {#if shown('daily') && snapshot !== null}
-      <section data-tile="daily" class="card daily" aria-label={t('daily.title')}>
-        <header>
-          <h2 class="eyebrow" data-hint={t('hint.ui.daily')}>{t('daily.title')} <span class="muted day">{app.today}</span></h2>
-          <button type="button" class="hide" aria-label={t('today.hide')} title={t('today.hide')} onclick={() => app.hideTile('daily')}>×</button>
-        </header>
-        <ul class="figures">
-          <li data-figure="finished" data-hint={t('hint.ui.daily.finished')}>
-            <span class="num">{finishedToday ?? '–'}</span>
-            <span class="muted">{t('daily.finished')}</span>
-          </li>
-          <li data-figure="created" data-hint={t('hint.ui.daily.created')}>
-            <span class="num">{daily.created}</span>
-            <span class="muted">{t('daily.created')}</span>
-          </li>
-          <li data-figure="changed" data-hint={t('hint.ui.daily.changed')}>
-            <span class="num">{daily.changed}</span>
-            <span class="muted">{t('daily.changed')}</span>
-          </li>
-        </ul>
-      </section>
+      <DailyTile {app} />
     {/if}
     <FilterNote {app} />
     <p class="sr-only" aria-live="polite">{app.tileNote}</p>
@@ -511,34 +470,6 @@
     text-align: left;
     cursor: pointer;
     color: var(--accent);
-  }
-  .daily header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-  .daily .day {
-    font-weight: normal;
-    text-transform: none;
-    letter-spacing: 0;
-    margin-left: 0.4rem;
-  }
-  .figures {
-    display: flex;
-    gap: 1.5rem;
-    flex-wrap: wrap;
-    list-style: none;
-    margin: 0.3rem 0 0;
-    padding: 0;
-  }
-  .figures li {
-    display: flex;
-    align-items: baseline;
-    gap: 0.4rem;
-  }
-  .figures .num {
-    font-size: 1.4rem;
-    font-weight: 600;
   }
   .eyebrow {
     font-size: 0.8rem;

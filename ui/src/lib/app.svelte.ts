@@ -29,6 +29,7 @@ import { findingsByTask, groundOf, judgeFindings, type Finding, type Ground, typ
 import { assumeOf, changesOf, failedIdsOf, MATRIX_MAX, matrixIds, pruneDraft, withCell, type Draft } from './estimate';
 import { moved, parseOrder } from './tiles';
 import { bumped, parseFrecency, type Frecency } from 'appkit-ui/palette';
+import { DEFAULT_PREFS as DEFAULT_DAILY, parseDailyPrefs, type DailyPrefs } from './daily';
 import { DEFAULT_CONFLICT_MODE, parseConflictMode, type ConflictMode } from 'appkit-ui/conflicts';
 import { defaultView, nextView, parseViews, type CountKey, type CountView } from './counts';
 import { conflictsOf, conflictsOfRequest, mergeConflicts, retryOp, type Conflict } from './conflicts';
@@ -290,6 +291,8 @@ export class App {
   conflictsOpen = $state(false);
   /** How the conflict center shows its list: every conflict (the default), or one at a time. */
   conflictMode = $state<ConflictMode>(DEFAULT_CONFLICT_MODE);
+  /** What the tile Today shows: the kind of period, the days of a named one, the evaluations chosen. */
+  dailyPrefs = $state.raw<DailyPrefs>({ ...DEFAULT_DAILY, metrics: [...DEFAULT_DAILY.metrics] });
   /** The command palette is open. */
   palette = $state(false);
   /** What the palette's choices were, to put them first next time. */
@@ -359,6 +362,7 @@ export class App {
     this.tileOrder = parseOrder(safe(() => env.prefs.getItem('tasks-desktop.tiles-order')), ORDERED_TILES);
     this.countViews = parseViews(safe(() => env.prefs.getItem('tasks-desktop.count-views')));
     this.frecency = parseFrecency(safe(() => env.prefs.getItem('tasks-desktop.frecency')));
+    this.dailyPrefs = parseDailyPrefs(safe(() => env.prefs.getItem('tasks-desktop.daily')));
     this.conflictMode = parseConflictMode(safe(() => env.prefs.getItem('tasks-desktop.conflict-mode')));
     this.finishedPrefs = parsePrefs(safe(() => env.prefs.getItem('tasks-desktop.finished')));
     // The page opens on the view it was left on.
@@ -1808,6 +1812,12 @@ export class App {
 
   closePeek(): void {
     this.peeking = false;
+  }
+
+  /** The choice of the tile Today (the period and the evaluations), kept in this browser. */
+  setDailyPrefs(prefs: DailyPrefs): void {
+    this.dailyPrefs = prefs;
+    safe(() => this.env.prefs.setItem('tasks-desktop.daily', JSON.stringify(prefs)));
   }
 
   hideTile(tile: Tile): void {

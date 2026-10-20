@@ -695,6 +695,91 @@ test('the start page has a small summary of today: tasks finished, made and chan
   await expect(card).toBeVisible();
 });
 
+test('the tile Today turns to a week, a month and days that are named, counts what was chosen, and leaves as an image and as a page to print', async ({ page }) => {
+  await pair(page);
+  const card = page.locator('section[data-tile="daily"]');
+  await expect(card).toBeVisible();
+  const range = card.locator('[data-range]');
+  const today = (await range.textContent())?.trim() ?? '';
+  expect(today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  // Today is the last period: there is no page after it.
+  await expect(card.locator('button[data-turn="next"]')).toBeDisabled();
+
+  // The week: Monday to Sunday around today, and back one week.
+  await card.locator('button[data-popup="period"]').click();
+  await card.getByRole('radio', { name: 'Week' }).check();
+  await expect(card.getByRole('heading', { level: 2 })).toContainText('Week');
+  await expect(range).toHaveText(/^\d{4}-\d{2}-\d{2} – \d{4}-\d{2}-\d{2}$/);
+  const thisWeek = (await range.textContent()) ?? '';
+  await card.locator('button[data-turn="prev"]').click();
+  const lastWeek = (await range.textContent()) ?? '';
+  expect(lastWeek).not.toBe(thisWeek);
+  await expect(card.locator('button[data-turn="next"]')).toBeEnabled();
+  await card.locator('button[data-turn="next"]').click();
+  await expect(range).toHaveText(thisWeek);
+
+  // The month, and days that are named.
+  await card.getByRole('radio', { name: 'Month' }).check();
+  await expect(range).toHaveText(/^\d{4}-\d{2}-01 – /);
+  await card.getByRole('radio', { name: 'Period' }).check();
+  await card.locator('input[data-date="from"]').fill('2026-01-01');
+  await card.locator('input[data-date="to"]').fill('2026-01-31');
+  await expect(range).toHaveText('2026-01-01 – 2026-01-31');
+  await card.locator('button[data-turn="prev"]').click();
+  await expect(range).toHaveText('2025-12-01 – 2025-12-31');
+
+  // The choice stays when the page is read again.
+  await page.reload();
+  await expect(page.locator('section[data-tile="daily"] [data-range]')).toHaveText('2025-12-01 – 2025-12-31');
+  const again = page.locator('section[data-tile="daily"]');
+
+  // What is counted: three at first, eight to choose from, each one ticked or unticked.
+  await expect(again.locator('li[data-figure]')).toHaveCount(3);
+  await again.locator('button[data-popup="metrics"]').click();
+  await expect(again.locator('input[data-metric]')).toHaveCount(8);
+  await again.locator('input[data-metric="quick"]').check();
+  await again.locator('input[data-metric="commits"]').check();
+  await again.locator('input[data-metric="changed"]').uncheck();
+  await expect(again.locator('li[data-figure]')).toHaveCount(4);
+  await expect(again.locator('li[data-figure="changed"]')).toHaveCount(0);
+  await expect(again.locator('li[data-figure="quick"] .num')).toHaveText(/^(≥ )?\d+$/);
+  for (const metric of await again.locator('input[data-metric]').all()) await metric.uncheck();
+  await expect(again.getByText('Nothing is chosen to be counted.')).toBeVisible();
+  for (const name of ['finished', 'created']) await again.locator(`input[data-metric="${name}"]`).check();
+
+  // Out as an image: a PNG that the browser saves.
+  await again.locator('button[data-popup="print"]').click();
+  const download = page.waitForEvent('download');
+  await again.locator('button[data-action="png"]').click();
+  const file = await download;
+  expect(file.suggestedFilename()).toBe('tasks-2025-12-01_2025-12-31.png');
+
+  // Out as a page for the printer: the dialog is replaced by a stub that reads what is on the page at that moment.
+  await page.evaluate(() => {
+    (window as unknown as { __printed?: string }).__printed = undefined;
+    window.print = () => {
+      const el = document.getElementById('daily-print');
+      (window as unknown as { __printed?: string }).__printed = `${document.documentElement.classList.contains('print-daily')}|${el?.innerText ?? ''}`;
+      window.dispatchEvent(new Event('afterprint'));
+    };
+  });
+  await again.locator('button[data-popup="print"]').click();
+  await again.locator('button[data-action="print"]').click();
+  const printed = await page.evaluate(() => (window as unknown as { __printed?: string }).__printed ?? '');
+  expect(printed).toContain('true|');
+  expect(printed).toContain('2025-12-01 – 2025-12-31');
+  expect(printed).toMatch(/finished\s*(\d+|–)/);
+  // The page for the printer is gone when the dialog is: nothing is left of it, and the page is as it was.
+  await expect(page.locator('#daily-print')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.classList.contains('print-daily'))).toBe(false);
+
+  // Escape closes the open popup and not the page behind it.
+  await again.locator('button[data-popup="metrics"]').click();
+  await expect(again.locator('input[data-metric]').first()).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(again.locator('input[data-metric]')).toHaveCount(0);
+});
+
 test('every entry of the header explains itself on hover: the five menus and the connection', async ({ page }) => {
   await pair(page);
   const tip = page.locator('#hint-tip');
