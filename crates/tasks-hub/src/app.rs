@@ -472,6 +472,13 @@ impl VaultAdmin<VaultTarget> for ConfigVaults {
     }
 }
 
+/// The data classes the hub starts with: those of the vault the settings name as the one that is read.
+fn start_policy(dir: &Path, file: &FileConfig) -> Result<Arc<AreaPolicy>, String> {
+    Classes::load(dir)
+        .map(|classes| Arc::new(classes.for_vault(file.active_name())))
+        .map_err(|e| e.to_string())
+}
+
 /// The names of the areas the engine knows.
 async fn area_names(engine: &dyn Engine) -> Result<Vec<String>, String> {
     let reply = engine
@@ -507,11 +514,7 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
 
     // A file that cannot be read stops the start: a typo must not turn
     // into "everything unclassified" without anyone seeing it.
-    let policy = Arc::new(
-        Classes::load(&dir)
-            .map_err(|e| e.to_string())?
-            .for_vault(file.active_name()),
-    );
+    let policy = start_policy(&dir, &file)?;
 
     let state = engine_state(&file.effective(), &env).await;
     if let Some(note) = &state.note {
@@ -961,6 +964,25 @@ mod vault_tests {
         let dir = vault.parent().unwrap().join(format!("spare-{name}"));
         std::fs::create_dir_all(&dir).unwrap();
         dir.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn the_hub_starts_with_the_classes_of_the_vault_it_reads() {
+        let (_, cfg, _) = admin("start-policy");
+        std::fs::write(
+            classes::path(&cfg),
+            r#"{"schema":2,"areas":{
+                "main:shared":{"class":"public"},
+                "work:shared":{"class":"private"}}}"#,
+        )
+        .unwrap();
+        let mut file = FileConfig::default();
+        let shown = |file: &FileConfig| start_policy(&cfg, file).unwrap().shown("shared");
+        assert_eq!(shown(&file), classes::Shown::Public);
+        file.active = Some("work".to_owned());
+        assert_eq!(shown(&file), classes::Shown::Private);
+        std::fs::write(classes::path(&cfg), "{").unwrap();
+        assert!(start_policy(&cfg, &file).is_err());
     }
 
     #[test]

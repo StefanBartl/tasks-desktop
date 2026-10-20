@@ -330,6 +330,7 @@ async fn the_links_of_the_engine_come_through_unchanged() {
     assert_eq!(doc["kind"], "tasks.links");
     assert_eq!(doc["pairs"][0]["a"], "alpha.nvim");
     assert_eq!(doc["pairs"][0]["kinds"]["blocked_by"], 1);
+    assert_eq!(doc["pairs"][0]["edges"][0]["from_area"], "beta.nvim");
     assert_eq!(doc["tasks"][0]["areas"][1], "beta.nvim");
     assert_eq!(doc["edge_count"], 1);
     // No engine: the route says so and does not invent an empty answer.

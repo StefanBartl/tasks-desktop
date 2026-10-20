@@ -182,11 +182,21 @@ fn plain_repo_name(name: &str) -> bool {
 }
 
 /// What `areas.json` says for every vault: one [`AreaPolicy`] each.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Classes {
     vaults: BTreeMap<String, AreaPolicy>,
     /// The file is of schema 1 (or there is none): it can be written the same way.
     plain: bool,
+}
+
+/// No file: nothing is classified, and a proposal is written the way schema 1 is.
+impl Default for Classes {
+    fn default() -> Self {
+        Self {
+            vaults: BTreeMap::new(),
+            plain: true,
+        }
+    }
 }
 
 impl Classes {
@@ -199,12 +209,7 @@ impl Classes {
         let file_path = path(dir);
         let file = match std::fs::File::open(&file_path) {
             Ok(f) => f,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(Self {
-                    vaults: BTreeMap::new(),
-                    plain: true,
-                })
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
             Err(e) => return Err(ClassesError::Unreadable(file_path, e)),
         };
         let mut text = String::new();
@@ -770,7 +775,7 @@ mod tests {
         assert_eq!(back.for_vault("main").shown("shared.nvim"), Shown::Public);
         assert_eq!(back.for_vault("work").shown("anything"), Shown::Internal);
         // No file at all, the vault main: schema 1 like before.
-        let none = Classes::load(&std::env::temp_dir().join("tasks-desktop-classes-none")).unwrap();
+        let none = Classes::default();
         let text = propose_in("main", ["a"], &[], &none, &exists).unwrap();
         assert!(text.contains("\"schema\": 1"), "{text}");
     }

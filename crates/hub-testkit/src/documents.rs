@@ -184,7 +184,13 @@ fn tasks_fill(call: &Call<'_>, doc: &mut Value) {
                 "b": "beta.nvim",
                 "count": 1,
                 "kinds": { "blocked_by": 1 },
-                "edges": [{ "from": "beta.nvim/two", "to": "alpha.nvim/one", "kind": "blocked_by" }],
+                "edges": [{
+                    "from": "beta.nvim/two",
+                    "from_area": "beta.nvim",
+                    "to": "alpha.nvim/one",
+                    "to_area": "alpha.nvim",
+                    "kind": "blocked_by",
+                }],
             }]);
             doc["tasks"] = json!([{ "id": "beta.nvim/two", "areas": ["alpha.nvim", "beta.nvim"] }]);
             doc["incomplete"] = json!([]);
