@@ -74,6 +74,11 @@ export function neighbourGroup(groups: readonly Group<unknown>[], value: string,
   return groups[at + dir]?.value ?? null;
 }
 
+/** Whether a drop with `copy` (the Ctrl key) keeps the group it leaves: only a list of tags can; any other field moves. */
+export function keepsGroup(grouping: Grouping, copy: boolean): boolean {
+  return copy && grouping.mode === 'tags';
+}
+
 /** What a drop comes to. */
 export type Drop =
   | { kind: 'ops'; ops: Op[] }

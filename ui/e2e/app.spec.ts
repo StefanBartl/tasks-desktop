@@ -109,9 +109,12 @@ function detailTitle(page: Page): Locator {
 async function settled(page: Page): Promise<void> {
   const cards = page.locator('.card');
   const title = detailTitle(page);
-  await expect(cards.or(title).first(), 'settled() needs a card or the title of the detail').toBeAttached();
+  // The tab of the views says it on the open view (`aria-busy` while a write is on its way).
+  const view = page.locator('section.open[aria-busy]');
+  await expect(cards.or(title).or(view).first(), 'settled() needs a card, the title of the detail or an open view').toBeAttached();
   await expect(page.locator('.card:not([draggable="true"])')).toHaveCount(0, { timeout: WRITE_BUDGET });
   await expect(title.and(page.locator(':disabled'))).toHaveCount(0, { timeout: WRITE_BUDGET });
+  await expect(page.locator('section.open[aria-busy="true"]')).toHaveCount(0, { timeout: WRITE_BUDGET });
 }
 
 /** The answer of the next write the page sends (red after WRITE_BUDGET when none is sent or answered). */
@@ -302,9 +305,7 @@ test('a saved view is made in the tab of the views, kept as a file of the vault,
   await form.getByLabel('Name').fill('E2e view v001');
   await form.getByLabel('Kept in area').selectOption('lib.nvim');
   await form.getByLabel('Group by').selectOption({ label: 'Priority' });
-  const made = nextAnswer(page);
-  await form.getByRole('button', { name: 'Create view' }).click();
-  await made;
+  await write(page, () => form.getByRole('button', { name: 'Create view' }).click());
   // The file is the engine's: in the area chosen, grouped by the field chosen.
   await expect.poll(() => viewFile('lib.nvim', 'E2e view v001'), { timeout: WRITE_BUDGET }).not.toBeNull();
   const file = viewFile('lib.nvim', 'E2e view v001')!;
@@ -377,62 +378,59 @@ test('a task moved between the groups of a view writes the field: by key first, 
   await form.getByLabel('Name').fill('E2e drag view v001');
   await form.getByLabel('Kept in area').selectOption('lib.nvim');
   await form.getByLabel('Group by').selectOption({ label: 'Tags' });
-  const made = nextAnswer(page);
-  await form.getByRole('button', { name: 'Create view' }).click();
-  await made;
+  await write(page, () => form.getByRole('button', { name: 'Create view' }).click());
   const open = page.getByRole('region', { name: 'E2e drag view v001' });
   const tasks = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks');
   const one = join(tasks, 'e2e-drag-v001-one.md');
   const two = join(tasks, 'e2e-drag-v001-two.md');
   const card = (group: string, id: string) => open.locator(`section[data-group="${group}"] [data-view-item="lib.nvim/${id}"]`);
   // Nothing is on its way when the button of a new view can be pressed again.
-  const idle = () => expect(make).toBeEnabled({ timeout: WRITE_BUDGET });
-
   // The groups are the engine's tags of the open tasks (other tests add some), the group of none last: read their order.
   const order = await open.locator('section[data-group]').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset['group'] ?? ''));
   expect(order.at(-1)).toBe('');
   expect(order.length).toBeGreaterThanOrEqual(4);
   const [first, second] = [order.at(-2)!, order.at(-3)!];
+  const live = open.locator('p[aria-live="polite"]');
 
   // The keys first: Shift+h moves the card to the group before.
   await card('', 'e2e-drag-v001-one').focus();
-  let answer = nextAnswer(page);
-  await page.keyboard.press('Shift+h');
-  await answer;
+  await write(page, () => page.keyboard.press('Shift+h'));
   await expect.poll(() => readFileSync(one, 'utf8'), { timeout: WRITE_BUDGET }).toContain(`tags: [${first}]`);
   await expect(card(first, 'e2e-drag-v001-one')).toBeFocused();
-  await expect(page.locator('p[aria-live="polite"]', { hasText: `E2e drag v001 one: now in ${first}` })).toBeAttached();
-  await idle();
+  await expect(live).toHaveText(`E2e drag v001 one: now in ${first}`);
 
   // From one tag to another: the tag it leaves goes, the one it enters comes.
-  answer = nextAnswer(page);
-  await page.keyboard.press('Shift+h');
-  await answer;
+  await write(page, () => page.keyboard.press('Shift+h'));
   await expect.poll(() => readFileSync(one, 'utf8'), { timeout: WRITE_BUDGET }).toContain(`tags: [${second}]`);
-  await idle();
+  await expect(live).toHaveText(`E2e drag v001 one: now in ${second}`);
 
-  // Refused: the file changes after the page showed it, so the engine refuses the move and the file keeps its tag.
+  // Refused: the file changes after the page showed it, so the engine refuses the move and the file keeps its tag;
+  // nothing is announced as moved.
   await page.route('**/api/tasks/ops', async (route) => {
     writeFileSync(one, readFileSync(one, 'utf8') + '\nChanged by someone else.\n');
     await route.continue();
   });
   await card(second, 'e2e-drag-v001-one').focus();
-  answer = nextAnswer(page);
-  await page.keyboard.press('Shift+h');
-  await answer;
+  await write(page, () => page.keyboard.press('Shift+h'));
   await page.unroute('**/api/tasks/ops');
   await expect(page.getByRole('alert').getByText(/changed/i)).toBeVisible();
   expect(readFileSync(one, 'utf8')).toContain(`tags: [${second}]`);
   expect(readFileSync(one, 'utf8')).toContain('Changed by someone else.');
-  await idle();
+  await expect(live).toHaveText(`E2e drag v001 one: now in ${second}`);
 
   // One drag with the mouse: the second task onto the group next to the group of none.
-  answer = nextAnswer(page);
-  await drag(page, open.locator('section[data-group=""] li[data-item="lib.nvim/e2e-drag-v001-two"]'), open.locator(`section[data-group="${first}"]`));
-  await answer;
+  await write(page, () =>
+    drag(page, open.locator('section[data-group=""] li[data-item="lib.nvim/e2e-drag-v001-two"]'), open.locator(`section[data-group="${first}"]`)),
+  );
   await expect.poll(() => readFileSync(two, 'utf8'), { timeout: WRITE_BUDGET }).toContain(`tags: [${first}]`);
-  await idle();
   await expectAccessible(page, 'a view grouped by tags');
+
+  // The menu of a group by key: Shift+F10 on a card opens the menu of its group (the heading of a column takes no focus).
+  await card(first, 'e2e-drag-v001-two').focus();
+  await page.keyboard.press('Shift+F10');
+  await expect(page.getByRole('menu', { name: 'Open as a view' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(card(first, 'e2e-drag-v001-two')).toBeFocused();
 
   // Leave the vault as the other tests know it: the view goes (the two tasks have names no other test uses).
   const gone = nextAnswer(page);
@@ -470,6 +468,8 @@ test('the context menu opens a selection as a view to try: by key from a row, Es
   await page.keyboard.press('Enter');
   const tried = page.getByRole('region', { name: 'lib.nvim', exact: true });
   await expect(tried).toBeVisible();
+  // The menu and its row are gone: the focus is on the view that was opened.
+  await expect(tried.getByRole('heading', { name: 'lib.nvim', level: 2 })).toBeFocused();
   await expect(tried.getByText('Not saved')).toBeVisible();
   await expect(tried.locator('[data-view-item="lib.nvim/alpha"]')).toBeVisible();
   await expect(tried.locator('[data-view-item^="cascade.nvim/"]')).toHaveCount(0);
@@ -490,9 +490,7 @@ test('the context menu opens a selection as a view to try: by key from a row, Es
   const form = page.getByRole('form', { name: 'New view' });
   await expect(form.getByLabel('Name')).toHaveValue('lib.nvim: open');
   await form.getByLabel('Kept in area').selectOption('lib.nvim');
-  const made = nextAnswer(page);
-  await form.getByRole('button', { name: 'Create view' }).click();
-  await made;
+  await write(page, () => form.getByRole('button', { name: 'Create view' }).click());
   await expect.poll(files, { timeout: WRITE_BUDGET }).toBe(before + 1);
   const file = viewFile('lib.nvim', 'lib.nvim: open')!;
   expect(readFileSync(file, 'utf8')).toMatch(/sel_statuses: \[open\]/);
@@ -503,6 +501,23 @@ test('the context menu opens a selection as a view to try: by key from a row, Es
   await page.getByRole('button', { name: 'Delete view' }).click();
   await gone;
   await expect.poll(files, { timeout: WRITE_BUDGET }).toBe(before);
+
+  // The plan chosen in the Plan view: the menu opens on the choice, Tab closes it and goes on from the choice, Escape
+  // gives the focus back to the choice (not to the label around it).
+  await chooseView(page, 'View', 'Plan');
+  const choice = page.getByRole('combobox', { name: 'Plan' });
+  await choice.selectOption({ index: 1 });
+  await choice.focus();
+  await page.keyboard.press('Shift+F10');
+  await expect(menu).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(choice).toBeFocused();
+  await page.keyboard.press('Shift+F10');
+  await expect(menu).toBeVisible();
+  await page.keyboard.press('Tab');
+  await expect(menu).toHaveCount(0);
+  await expect(choice).not.toBeFocused();
 });
 
 test('the ranges of the fields are asked of the hub once, and the property form offers the ones the engine names', async ({ page }) => {

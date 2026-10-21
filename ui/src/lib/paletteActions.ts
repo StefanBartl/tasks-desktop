@@ -46,10 +46,11 @@ export function paletteActions(app: App): PaletteAction[] {
     add('go.views', t('palette.go', { view: t('nav.views') }), () => app.setView('views'));
     // Every saved view of the vault, by its name.
     for (const view of app.viewsState.list) add(`view.${view.id}`, t('palette.view', { name: view.title }), () => app.openView(view.id), view.id);
-    // The list as it is filtered, grouped by a field the engine names (a view to look with: nothing is saved).
+    // The list as it is filtered, grouped by a field the engine names (a view to look with: nothing is saved). Not
+    // under `view.`: that is the key of a saved view, whose id names an area (see `App.chose`).
     for (const field of app.viewsState.groupingsShown?.fields ?? []) {
       const name = t(`views.field.${field.field}` as Key);
-      add(`view.group.${field.field}`, t('palette.group_by', { field: name }), () =>
+      add(`group.${field.field}`, t('palette.group_by', { field: name }), () =>
         app.tryView({
           title: t('views.list_by', { field: name }),
           display: 'columns',

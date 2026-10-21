@@ -38,6 +38,8 @@ export class ViewsState {
    * stays in the page (no file is written for a look), and saving it makes it a view of the vault.
    */
   draft = $state.raw<View | null>(null);
+  /** The tab takes the focus once, onto the view that was opened from a menu (the menu and its element are gone). */
+  wantsFocus = $state(false);
   private seq = 0;
   /** The rev the groupings are being asked for. */
   private groupingsAsked: string | null = null;

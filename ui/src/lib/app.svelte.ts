@@ -553,6 +553,7 @@ export class App {
   tryView(form: ViewForm): void {
     if (!this.can('views')) return;
     this.viewsState.try(form);
+    this.viewsState.wantsFocus = true;
     this.setView('views');
   }
 
@@ -576,6 +577,7 @@ export class App {
     event.preventDefault();
     // The element the menu belongs to (by what it can do, not by its class: the page is also run without a DOM in tests).
     const target = event.currentTarget as Partial<HTMLElement> | null;
+    // (A label around a choice is such an element too: its `focus()` gives the focus to the choice.)
     const origin = target && typeof target.focus === 'function' && typeof target.getBoundingClientRect === 'function' ? (target as HTMLElement) : null;
     // A key opens the menu with no pointer: it opens at the element instead.
     const box = origin?.getBoundingClientRect();
@@ -852,7 +854,11 @@ export class App {
   }
 
   openPalette(): void {
-    if (this.phase === 'ready') this.palette = true;
+    if (this.phase !== 'ready') return;
+    this.palette = true;
+    // The palette names the saved views: read them again when the vault changed since (they are read on a new state
+    // only while their tab is shown).
+    if (this.can('views') && this.#viewsRev !== this.snapshot?.rev) this.readViews();
   }
 
   closePalette(): void {
@@ -1439,7 +1445,8 @@ export class App {
     const tags: TagEdit | undefined = grouping.mode === 'tags' ? { add: to === NONE ? [] : [to], remove: copy ? [] : [from] } : undefined;
     const batch = together.length > 1 ? { onAnswer: this.batchAnswer(ops as { id: string }[]) } : {};
     const result = await this.write(ops, { ...(tags ? { tags } : {}), ...batch });
-    return result !== null;
+    // Moved only when the engine took every operation: a refusal is told by the toast, not announced as a move.
+    return result !== null && result.results.every((r) => r.ok);
   }
 
   /**

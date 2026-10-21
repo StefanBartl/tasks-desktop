@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TaskEntry } from './contract';
-import { cellsOf, countOf, dropOps, groupsOf, neighbourGroup, NONE, valuesOf, type Grouping } from './groups';
+import { cellsOf, countOf, dropOps, groupsOf, keepsGroup, neighbourGroup, NONE, valuesOf, type Grouping } from './groups';
 
 const task = (id: string, extra: Partial<TaskEntry> = {}) => ({ id, area: 'a', etag: `sha256:${id}`, ...extra }) as unknown as TaskEntry;
 const field = (name: Grouping['field'], values: string[], extra: Partial<Grouping> = {}): Grouping => ({
@@ -149,6 +149,15 @@ describe('a drop', () => {
   it('leaves the area to the move of the file, which is asked first', () => {
     expect(dropOps(task('a'), AREA, 'a', 'b')).toEqual({ kind: 'move_area', id: 'a', area: 'b' });
     expect(dropOps(task('a'), AREA, 'a', NONE)).toEqual({ kind: 'refused', reason: 'required' });
+  });
+});
+
+describe('a drop with Ctrl', () => {
+  it('keeps the group it leaves only for a list of tags; any other field moves', () => {
+    expect(keepsGroup(TAGS, true)).toBe(true);
+    expect(keepsGroup(TAGS, false)).toBe(false);
+    expect(keepsGroup(STATUS, true)).toBe(false);
+    expect(keepsGroup(PRIO, true)).toBe(false);
   });
 });
 

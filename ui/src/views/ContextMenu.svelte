@@ -55,7 +55,11 @@
     else if (event.key === 'Home') go(0);
     else if (event.key === 'End') go(list.length - 1);
     else if (event.key === 'Escape') close(true);
-    else if (event.key === 'Tab') close(true);
+    else if (event.key === 'Tab') {
+      // Closed, with the focus back on the element it was opened on: the Tab then goes on from there, as it would have.
+      close(true);
+      return;
+    }
     else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && event.key !== ' ') {
       const now = Date.now();
       typed = now - typedAt < TYPE_AHEAD_MS ? typed + event.key : event.key;

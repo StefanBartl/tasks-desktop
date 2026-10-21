@@ -4237,6 +4237,19 @@ describe('the saved views', () => {
       m.app.stop();
     });
 
+    it('is no move when the engine refuses it (nothing to announce as moved)', async () => {
+      const m = await ready();
+      m.hub.next_ops = {
+        kind: 'tasks.result',
+        ok: false,
+        dry_run: false,
+        results: [{ n: 1, op: 'set', id: 'pub/a', ok: false, outcome: 'failed', changed_ids: [], error: { code: 'conflict', message: 'changed', retryable: false } }],
+      } as unknown as Result;
+      expect(await m.app.dropInView('pub/a', status, 'open', 'doing')).toBe(false);
+      expect(m.hub.sent).toHaveLength(1);
+      m.app.stop();
+    });
+
     it('takes the tag it leaves away and sets the one it enters; with Ctrl it keeps the one it leaves', async () => {
       const m = await ready();
       await m.app.dropInView('pub/b', tags, 'ui', 'api');
@@ -4365,6 +4378,33 @@ describe('the saved views', () => {
       expect(m.app.contextMenu).toBeNull();
       m.app.stop();
     });
+  });
+
+  it('a choice of "group the list by" in the palette is remembered like any action', async () => {
+    const m = made();
+    await m.app.start(null);
+    m.app.setView('views');
+    await vi.waitFor(() => expect(m.app.viewsState.groupingsShown).not.toBeNull());
+    const action = paletteActions(m.app).find((a) => a.key === 'group.tags');
+    expect(action).toBeDefined();
+    m.app.chose(`action:${action!.key}`);
+    expect(m.prefs.get('tasks-desktop.frecency')).toContain('group.tags');
+    m.app.stop();
+  });
+
+  it('the palette reads the views again when the vault changed while their tab was not shown', async () => {
+    const m = made();
+    m.hub.viewList = [view('pub/one')];
+    await m.app.start(null);
+    await vi.waitFor(() => expect(m.hub.viewsCalls).toBe(1));
+    m.app.openPalette();
+    m.app.closePalette();
+    expect(m.hub.viewsCalls).toBe(1);
+    m.hub.doc = snapshot(m.hub.doc.tasks, 'rev:2');
+    await m.app.refresh();
+    m.app.openPalette();
+    await vi.waitFor(() => expect(m.hub.viewsCalls).toBe(2));
+    m.app.stop();
   });
 
   it('the palette names every saved view and opens it', async () => {

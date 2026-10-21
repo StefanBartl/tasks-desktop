@@ -6,7 +6,7 @@
   import { tick, untrack } from 'svelte';
   import type { App } from '../lib/app.svelte';
   import type { GroupField, View, ViewSelect } from '../lib/contract';
-  import { groupsOf, neighbourGroup, NONE, type Grouping } from '../lib/groups';
+  import { groupsOf, keepsGroup, neighbourGroup, NONE, type Grouping } from '../lib/groups';
   import { labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
   import { cleanTitle, emptySelect, formOf, selectOfFilter, type ViewForm } from '../lib/views';
@@ -131,6 +131,15 @@
   /** A task is moved between groups only where the engine writes the field by a set or the list of tags (not the area). */
   const movable = $derived(grouping !== null && grouping.writable && (grouping.mode === 'set' || grouping.mode === 'tags'));
 
+  // A view opened from a context menu takes the focus on its heading: the menu and the element it was opened on are gone.
+  let heading = $state<HTMLHeadingElement | null>(null);
+  $effect(() => {
+    if (heading && saved.wantsFocus) {
+      saved.wantsFocus = false;
+      heading.focus();
+    }
+  });
+
   /** What was moved last, for assistive software (the toast says that it was saved, this says where it went). */
   let moved = $state('');
 
@@ -140,7 +149,9 @@
     const field = open.group_by;
     const title = viewTasks.find((x) => x.id === id)?.title ?? id;
     if (!(await app.dropInView(id, grouping, from, to, copy, viewTasks))) return;
-    moved = t(copy ? 'views.copied' : 'views.moved', { title: markHidden(title), group: valueLabel(field, to) });
+    // Only a list of tags keeps the group it leaves: any other field moves, Ctrl or not.
+    const kept = keepsGroup(grouping, copy);
+    moved = t(kept ? 'views.copied' : 'views.moved', { title: markHidden(title), group: valueLabel(field, to) });
     await tick();
     const target = document.querySelector<HTMLElement>(`[data-group="${CSS.escape(to)}"] [data-view-item="${CSS.escape(id)}"]`);
     target?.focus();
@@ -255,8 +266,8 @@
       <p class="note">{t('views.none_yet')}</p>
     {/if}
   {:else}
-    <section class="open" aria-label={open.title}>
-      <h2>{open.title}</h2>
+    <section class="open" aria-label={open.title} aria-busy={app.saving}>
+      <h2 bind:this={heading} tabindex="-1">{open.title}</h2>
       <div class="head">
         <form class="rename" onsubmit={(e) => void rename(e, open)}>
           <label>
@@ -327,6 +338,7 @@
                   aria-current={task.id === app.selectedId ? 'true' : undefined}
                   onclick={() => app.select(task.id)}
                   onkeydown={(e) => onItemKey(e, task.id, group.value)}
+                  oncontextmenu={(e) => groupMenu(e, open, group.value)}
                 >
                   <span class="title">{markHidden(task.title)}</span>
                   <span class="id">{task.id}</span>
