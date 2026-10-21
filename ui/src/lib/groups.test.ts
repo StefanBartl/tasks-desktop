@@ -175,7 +175,7 @@ describe('a drop on a cell of a matrix', () => {
 
   it('refuses the whole drop when one of the fields cannot be written so, and the same cell', () => {
     expect(cellDropOps(one, STATE, STATUS, { row: 'ready', column: 'open' }, { row: 'waiting', column: 'doing' })).toEqual({ kind: 'refused', reason: 'read_only' });
-    expect(cellDropOps(one, AREA, STATUS, { row: 'a', column: 'open' }, { row: 'b', column: 'doing' })).toEqual({ kind: 'refused', reason: 'read_only' });
+    expect(cellDropOps(one, AREA, STATUS, { row: 'a', column: 'open' }, { row: 'b', column: 'doing' })).toEqual({ kind: 'refused', reason: 'area' });
     expect(cellDropOps(one, PRIO, STATUS, { row: '2', column: 'open' }, { row: '2', column: 'open' })).toEqual({ kind: 'refused', reason: 'same' });
   });
 

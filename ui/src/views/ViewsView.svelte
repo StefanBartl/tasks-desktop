@@ -275,6 +275,19 @@
     target?.focus();
   }
 
+  // A move to another area is confirmed in the dialog (`askDropMove`): once it is written, the view says where the card
+  // went and the focus follows it into its new group (the dialog gave it back to a card that is gone).
+  $effect(() => {
+    const done = app.areaMoved;
+    if (!done || open?.group_by !== 'area') return;
+    app.areaMoved = null;
+    const title = app.tasks.find((x) => x.id === done.id)?.title ?? done.id;
+    moved = t('views.moved', { title: markHidden(title), group: done.area });
+    void tick().then(() =>
+      document.querySelector<HTMLElement>(`[data-group="${CSS.escape(done.area)}"] [data-view-item="${CSS.escape(done.id)}"]`)?.focus(),
+    );
+  });
+
   /** Shift with h or l on a card: the group before or after, as the keys of the board. */
   function onItemKey(event: KeyboardEvent, id: string, from: string): void {
     if (!movable || !event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;

@@ -84,7 +84,7 @@ export type Drop =
   | { kind: 'ops'; ops: Op[] }
   /** The area: not an operation of the field but a move of the file, which the page asks the engine to preview first. */
   | { kind: 'move_area'; id: string; area: string }
-  | { kind: 'refused'; reason: 'read_only' | 'same' | 'required' | 'unknown' };
+  | { kind: 'refused'; reason: 'read_only' | 'same' | 'required' | 'unknown' | 'area' };
 
 /** A field of the file the page turns back to what the file has: a number as a number, the rest as it is. */
 function written(grouping: Grouping, value: string): string | number {
@@ -143,7 +143,8 @@ export function cellDropOps(task: TaskEntry, rows: Grouping, columns: Grouping, 
   if (parts.length === 0) return { kind: 'refused', reason: 'same' };
   const patch: Record<string, unknown> = {};
   for (const part of parts) {
-    if (part.kind === 'move_area') return { kind: 'refused', reason: 'read_only' };
+    // The area is a move of the file, asked of the engine first: a view grouped by area does that, a matrix does not.
+    if (part.kind === 'move_area') return { kind: 'refused', reason: 'area' };
     if (part.kind === 'refused') return part;
     for (const op of part.ops) if (op.op === 'set') Object.assign(patch, op.patch);
   }

@@ -677,15 +677,17 @@ test('a view by area: a card moved to another area is a question to the engine f
   await expect(dialog).toHaveCount(0);
   expect(existsSync(from)).toBe(true);
   expect(existsSync(moved)).toBe(false);
+  // The dialog gives the focus back to the card it was opened from.
+  await expect(card('lib.nvim')).toBeFocused();
 
-  // Again, and confirmed: the file is moved to the area, and the card is in its group.
-  await card('lib.nvim').focus();
+  // Again, and confirmed: the file is moved to the area, the card is in its group, with the focus and said.
   await page.keyboard.press('Shift+l');
   await expect(dialog).toBeVisible();
   await write(page, () => dialog.getByRole('button', { name: new RegExp(`${to.replace('.', '\\.')}/areaview-v001`) }).click());
   await expect.poll(() => existsSync(moved), { timeout: WRITE_BUDGET }).toBe(true);
   expect(existsSync(from)).toBe(false);
-  await expect(card(to)).toBeVisible();
+  await expect(card(to)).toBeFocused();
+  await expect(open.locator('p[aria-live="polite"]')).toHaveText(`Areaview v001: now in ${to}`);
 
   // Leave the vault as the other tests know it.
   const gone = nextAnswer(page);

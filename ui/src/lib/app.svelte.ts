@@ -1211,18 +1211,18 @@ export class App {
    * A task was dropped on an area: ask the engine what the move would do and show it. The same area is no move.
    * A later drop replaces an earlier one, and the answer of the earlier is not shown for it.
    */
-  async askDropMove(id: string, toArea: string): Promise<void> {
+  async askDropMove(id: string, toArea: string, among: readonly string[] = this.marks): Promise<void> {
     const task = this.tasks.find((x) => x.id === id);
     if (!task || task.area === toArea || !this.can('move_area') || this.saving) return;
     this.dropChoose = null;
     const seq = ++this.#dropAsks;
     // A marked task dropped with other marked ones takes them along: they are moved together, as in the list.
-    const count = this.marks.length > 1 && this.marks.includes(id) ? this.marks.length : 1;
+    const count = among.length > 1 && among.includes(id) ? among.length : 1;
     const etag = task.etag;
     this.dropMove = { id, toArea, count, ...(etag ? { etag } : {}), answer: null, checks: null };
     const still = (): boolean => seq === this.#dropAsks && this.dropMove?.id === id && this.dropMove.toArea === toArea;
     if (count > 1) {
-      const checks = await this.previewBulkMove(toArea);
+      const checks = await this.previewBulkMove(toArea, among);
       if (!still()) return;
       // The engine could not be asked (the reason was told): nothing is left to confirm.
       this.dropMove = checks === null ? null : { id, toArea, count, answer: null, checks };
@@ -1262,8 +1262,12 @@ export class App {
     // The version the person was shown, not the one the list has by now: a file that changed meanwhile is refused.
     this.#dropAsks++;
     this.dropMove = null;
-    await this.moveArea(asking.id, asking.toArea, asking.etag);
+    const newId = asking.answer.move.new_id;
+    if (await this.moveArea(asking.id, asking.toArea, asking.etag)) this.areaMoved = { id: newId, area: asking.toArea };
   }
+
+  /** The task the last move confirmed in the dialog went to (its new id and area): a view announces it and follows it. */
+  areaMoved = $state.raw<{ id: string; area: string } | null>(null);
 
   /**
    * Move `id` to `toArea`: the id changes, what named the old id names the new one, all or nothing (the engine).
@@ -1422,7 +1426,8 @@ export class App {
         this.say('error', 'views.refused.required');
         return false;
       }
-      await this.askDropMove(id, to);
+      // Only the marked tasks the view shows go with it, as for every other drop of a view.
+      await this.askDropMove(id, to, this.marks.filter((m) => inView.some((t) => t.id === m)));
       return false;
     }
     const tags: TagEdit | undefined = grouping.mode === 'tags' ? { add: to === NONE ? [] : [to], remove: copy ? [] : [from] } : undefined;
@@ -1496,8 +1501,8 @@ export class App {
    * reasons it cannot be made (a taken slug, an unknown area) and how many places follow. Nothing is written. Null when
    * nothing is to be moved or the engine could not be asked.
    */
-  async previewBulkMove(toArea: string): Promise<MoveCheck[] | null> {
-    const ops = bulkMoveOps(this.tasks, this.marks, toArea);
+  async previewBulkMove(toArea: string, ids: readonly string[] = this.marks): Promise<MoveCheck[] | null> {
+    const ops = bulkMoveOps(this.tasks, ids, toArea);
     if (ops.length === 0) return [];
     // Too many moves for one engine call: refused before anything is sent (see `MOVE_MAX`).
     if (ops.length > MOVE_MAX) {

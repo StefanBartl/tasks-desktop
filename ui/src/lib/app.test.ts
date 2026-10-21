@@ -4266,11 +4266,34 @@ describe('the saved views', () => {
       expect(m.hub.sent).toHaveLength(1);
       expect(m.hub.sent[0]?.dry_run).toBe(true);
       expect(m.app.dropMove?.answer?.kind).toBe('ok');
+      m.hub.next_ops = {
+        kind: 'tasks.result',
+        ok: true,
+        dry_run: false,
+        results: [{ n: 1, op: 'move_area', id: 'pub/a', ok: true, outcome: 'moved', new_id: 'other/a', changed_ids: ['pub/a', 'other/a'], inverse: { op: 'move_area', id: 'other/a', to_area: 'pub' } }],
+      } as unknown as Result;
       await m.app.confirmDropMove();
       expect(last(m)).toEqual([{ op: 'move_area', id: 'pub/a', to_area: 'other', if_match: 'ea' }]);
+      // Where it went, for the view to say and to follow.
+      expect(m.app.areaMoved).toEqual({ id: 'other/a', area: 'other' });
       // The group of none is no area.
       expect(await m.app.dropInView('pub/a', area, 'pub', '')).toBe(false);
       expect(m.app.toast).toMatchObject({ kind: 'error', text: translate(m.app.lang, 'views.refused.required') });
+      m.app.stop();
+    });
+
+    it('onto another area takes only the marked tasks the view shows', async () => {
+      const area: Grouping = { field: 'area', values: ['pub', 'other'], truncated: false, writable: true, value_type: 'string', mode: 'move_area' };
+      const m = made(['views', 'groupings', 'move_area', 'ops']);
+      m.hub.doc = snapshot(three());
+      await m.app.start(null);
+      for (const id of ['pub/a', 'pub/b', 'pub/c']) m.app.toggleMark(id);
+      const inView = m.app.tasks.filter((t) => t.id !== 'pub/c');
+      m.hub.next_ops = { kind: 'tasks.result', ok: true, dry_run: true, results: [] } as unknown as Result;
+      await m.app.dropInView('pub/a', area, 'pub', 'other', false, inView);
+      expect(m.hub.sent[0]?.dry_run).toBe(true);
+      expect(m.hub.sent[0]?.ops.map((o) => (o as { id: string }).id)).toEqual(['pub/a', 'pub/b']);
+      expect(m.app.dropMove?.count).toBe(2);
       m.app.stop();
     });
 
