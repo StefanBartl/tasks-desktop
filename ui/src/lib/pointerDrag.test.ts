@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { areaAt, boardTargetAt, createGrip, startsOnGrip, type PointerDragEvent } from './pointerDrag';
+import { areaAt, boardTargetAt, createGrip, farEnough, GRAB, placeAt, startsOnGrip, type PointerDragEvent } from './pointerDrag';
 
 /** An element that answers `closest` for the places to drop, as the document does. */
 function place(area: string | null, inside = false): Element {
@@ -17,6 +17,34 @@ describe('the place under a finger', () => {
 
   it('is none for an empty name', () => {
     expect(areaAt({ elementFromPoint: () => place('') }, 0, 0)).toBeNull();
+  });
+});
+
+describe('the place of a view under a finger', () => {
+  /** An element inside a place that carries `attribute` with `value` (null: no such place around it). */
+  const inside = (attribute: string, value: string | null): Element =>
+    ({
+      closest: (sel: string) => (sel === `[${attribute}]` && value !== null ? { getAttribute: (n: string) => (n === attribute ? value : null) } : null),
+    }) as unknown as Element;
+
+  it('is the value of the attribute of the place the point is in, the empty one too (the group of none)', () => {
+    expect(placeAt({ elementFromPoint: () => inside('data-group', 'doing') }, 0, 0, 'data-group')).toBe('doing');
+    expect(placeAt({ elementFromPoint: () => inside('data-group', '') }, 0, 0, 'data-group')).toBe('');
+    expect(placeAt({ elementFromPoint: () => inside('data-cell', '["1","open"]') }, 0, 0, 'data-cell')).toBe('["1","open"]');
+  });
+
+  it('is none off every place, and off the page', () => {
+    expect(placeAt({ elementFromPoint: () => inside('data-group', null) }, 0, 0, 'data-group')).toBeNull();
+    expect(placeAt({ elementFromPoint: () => null }, 0, 0, 'data-group')).toBeNull();
+  });
+});
+
+describe('how far a finger goes before a place counts', () => {
+  it('is GRAB from where it went down, in any direction; a wiggle is less', () => {
+    expect(farEnough({ x: 0, y: 0 }, { x: 6, y: 6 })).toBe(false);
+    expect(farEnough({ x: 10, y: 10 }, { x: 10 - GRAB, y: 10 })).toBe(true);
+    expect(farEnough({ x: 0, y: 0 }, { x: 0, y: GRAB - 1 })).toBe(false);
+    expect(farEnough({ x: 0, y: 0 }, { x: 17, y: 17 })).toBe(true);
   });
 });
 

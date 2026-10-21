@@ -9,7 +9,7 @@
   import { areaLabel } from '../lib/filter';
   import { translate, type Key } from '../lib/i18n';
   import CountGroup from './CountGroup.svelte';
-  import { areaAt, type PointerDragEvent } from '../lib/pointerDrag';
+  import { areaAt, farEnough, type PointerDragEvent } from '../lib/pointerDrag';
 
   let {
     app,
@@ -25,7 +25,6 @@
   let overArea = $state<string | null>(null);
   let from = { x: 0, y: 0 };
   /** How far a finger must go (px) before the places to drop on take it. */
-  const GRAB = 24;
   function pointerDrag(e: PointerDragEvent): void {
     if (e.phase === 'start') {
       dragging = e.id;
@@ -37,7 +36,7 @@
     if (e.phase === 'move') {
       // The places count only once the finger has gone a stretch from where it went down: the areas push the rows
       // down when the drag begins, and a place may then lie under a finger that has not moved at all.
-      const far = Math.hypot(e.x - from.x, e.y - from.y) >= GRAB;
+      const far = farEnough(from, e);
       overArea = far ? areaAt(document, e.x, e.y) : null;
       return;
     }

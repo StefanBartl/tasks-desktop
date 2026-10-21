@@ -6,6 +6,7 @@
   import type { Snippet } from 'svelte';
   import type { TaskEntry } from '../lib/contract';
   import { countOf, type Group } from '../lib/groups';
+  import { createGrip, farEnough, placeAt, type PointerDragEvent } from '../lib/pointerDrag';
 
   let {
     groups,
@@ -20,6 +21,7 @@
     columnsLabel,
     hint,
     onmenu,
+    gripHint = '',
   }: {
     groups: readonly Group<TaskEntry>[];
     mode: 'columns' | 'list';
@@ -42,6 +44,8 @@
     hint?: (value: string) => string;
     /** The context menu of a group's heading (a right click, the menu key, Shift+F10). */
     onmenu?: (event: MouseEvent, value: string) => void;
+    /** The explanation of the grip a finger drags a card by. */
+    gripHint?: string;
   } = $props();
 
   const MIME = 'application/x-tasks-group-item';
@@ -63,6 +67,34 @@
   function end(): void {
     dragging = null;
     over = null;
+  }
+
+  // A finger or a pen drags a card by its grip: the group under the finger takes it once the finger has gone a stretch
+  // from where it went down (a short wiggle is a tap). The key of a grip is the group and the task: a task of several
+  // tags stands in several groups.
+  let downAt = { x: 0, y: 0 };
+  const grip = createGrip(
+    () => (ondrop ? onFinger : undefined),
+    () => busy,
+  );
+  function onFinger(e: PointerDragEvent): void {
+    const [from = '', id = ''] = JSON.parse(e.id) as [string, string];
+    if (e.phase === 'start') {
+      dragging = { id, from };
+      downAt = { x: e.x, y: e.y };
+      over = null;
+      return;
+    }
+    if (dragging === null || dragging.id !== id) return;
+    if (e.phase === 'move') {
+      const far = farEnough(downAt, e);
+      const at = far ? placeAt(document, e.x, e.y, 'data-group') : null;
+      over = at !== null && canDrop(id, from, at) ? at : null;
+      return;
+    }
+    const to = e.phase === 'end' ? over : null;
+    end();
+    if (to !== null && ondrop && canDrop(id, from, to)) ondrop(id, from, to, false);
   }
 
   function enter(event: DragEvent, value: string): void {
@@ -109,6 +141,20 @@
               ondragstart={(e) => start(e, task.id, group.value)}
               ondragend={end}
             >
+              {#if ondrop !== undefined}
+                <!-- A finger drags by this grip (HTML5 drag does not start on a touch screen; the keys and a screen reader
+                     have the keys of the view). -->
+                <span
+                  class="grip"
+                  data-hint={gripHint}
+                  role="presentation"
+                  aria-hidden="true"
+                  onpointerdown={(e) => grip(e, JSON.stringify([group.value, task.id]), 'start')}
+                  onpointermove={(e) => grip(e, JSON.stringify([group.value, task.id]), 'move')}
+                  onpointerup={(e) => grip(e, JSON.stringify([group.value, task.id]), 'end')}
+                  onpointercancel={(e) => grip(e, JSON.stringify([group.value, task.id]), 'cancel')}>⠿</span
+                >
+              {/if}
               {@render item(task, group)}
             </li>
           {/each}
@@ -148,6 +194,20 @@
                 ondragstart={(e) => start(e, task.id, group.value)}
                 ondragend={end}
               >
+                {#if ondrop !== undefined}
+                  <!-- A finger drags by this grip (HTML5 drag does not start on a touch screen; the keys and a screen reader
+                       have the keys of the view). -->
+                  <span
+                    class="grip"
+                    data-hint={gripHint}
+                    role="presentation"
+                    aria-hidden="true"
+                    onpointerdown={(e) => grip(e, JSON.stringify([group.value, task.id]), 'start')}
+                    onpointermove={(e) => grip(e, JSON.stringify([group.value, task.id]), 'move')}
+                    onpointerup={(e) => grip(e, JSON.stringify([group.value, task.id]), 'end')}
+                    onpointercancel={(e) => grip(e, JSON.stringify([group.value, task.id]), 'cancel')}>⠿</span
+                  >
+                {/if}
                 {@render item(task, group)}
               </li>
             {/each}
@@ -216,8 +276,27 @@
     display: grid;
     gap: 0.35rem;
   }
+  li {
+    display: flex;
+    align-items: stretch;
+    gap: 0.3rem;
+  }
+  li > :global(:not(.grip)) {
+    flex: 1;
+    min-width: 0;
+  }
   li[draggable='true'] {
     cursor: grab;
+  }
+  .grip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.6rem;
+    color: var(--muted);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
   }
   li.dragging {
     opacity: 0.5;

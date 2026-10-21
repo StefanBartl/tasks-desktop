@@ -4469,6 +4469,77 @@ test.describe('a finger', () => {
     removeFile(from);
   });
 
+  test('drags a card of a view by its grip into another group, and a card of a matrix cell onto another cell', async ({ page }) => {
+    const tasks = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks');
+    const file = join(tasks, 'fingerview-v001.md');
+    writeFileSync(file, `---\ntitle: Fingerview v001\nstatus: open\nkind: task\n---\n\nTo be moved by a finger in a view.\n`);
+    await watchViolations(page);
+    await pair(page);
+    await showList(page);
+    await page.getByRole('searchbox', { name: /search/i }).first().fill('Fingerview v001');
+    await expect(page.locator('.rows .line')).toHaveCount(1);
+    const make = page.getByRole('button', { name: 'New view' });
+    await openViewsByKey(page, make);
+    await make.click();
+    const form = page.getByRole('form', { name: 'New view' });
+    await form.getByLabel('Name').fill('Fingerview view v001');
+    await form.getByLabel('Kept in area').selectOption('lib.nvim');
+    await form.getByLabel('Group by').selectOption({ label: 'Status' });
+    await write(page, () => form.getByRole('button', { name: 'Create view' }).click());
+    const open = page.getByRole('region', { name: 'Fingerview view v001', exact: true });
+    const card = (group: string) => open.locator(`section[data-group="${group}"] li[data-item="lib.nvim/fingerview-v001"]`);
+    await expect(card('open')).toBeVisible();
+
+    const cdp = await page.context().newCDPSession(page);
+    const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd' | 'touchCancel', at?: { x: number; y: number }) =>
+      cdp.send('Input.dispatchTouchEvent', { type, touchPoints: at ? [{ x: at.x, y: at.y }] : [] });
+    const centre = async (target: ReturnType<typeof page.locator>) => {
+      const box = (await target.boundingBox())!;
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    };
+
+    // A short drag drops nothing.
+    const grip = await centre(card('open').locator('.grip'));
+    await touch('touchStart', grip);
+    await touch('touchMove', { x: grip.x + 6, y: grip.y + 6 });
+    await touch('touchEnd');
+    await expect(card('open')).toBeVisible();
+    expect(readFileSync(file, 'utf8')).toContain('status: open');
+
+    // Down on the grip, a little aside, then over the group "doing" and up: the status is written.
+    const again = await centre(card('open').locator('.grip'));
+    await touch('touchStart', again);
+    await touch('touchMove', { x: again.x + 8, y: again.y + 8 });
+    const doing = open.locator('section[data-group="doing"]');
+    await touch('touchMove', await centre(doing.locator('h3')));
+    await expect(doing).toHaveClass(/target/);
+    await write(page, () => touch('touchEnd'));
+    await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toContain('status: doing');
+    await expect(card('doing')).toBeVisible();
+
+    // As a matrix (rows by priority): the card of the opened cell onto the cell of priority 1 - both fields are read.
+    await write(page, () => open.getByLabel('Show as').selectOption({ label: 'Matrix' }));
+    await write(page, () => open.getByLabel('Rows').selectOption({ label: 'Priority' }));
+    await open.getByRole('button', { name: 'not set · doing: 1 task, show it' }).click();
+    const item = open.locator('li:has([data-matrix-item="lib.nvim/fingerview-v001"])');
+    const down = await centre(item.locator('.grip'));
+    await touch('touchStart', down);
+    await touch('touchMove', { x: down.x + 8, y: down.y + 8 });
+    const target = open.locator(`td[data-cell='${JSON.stringify(['1', 'doing'])}']`);
+    await touch('touchMove', await centre(target));
+    await expect(target).toHaveClass(/target/);
+    await write(page, () => touch('touchEnd'));
+    await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toMatch(/^prio: 1$/m);
+    expect(readFileSync(file, 'utf8')).toContain('status: doing');
+    expect(await violations(page)).toEqual([]);
+
+    // Leave the vault as the other tests know it.
+    const gone = nextAnswer(page);
+    await page.getByRole('button', { name: 'Delete view' }).click();
+    await gone;
+    removeFile(file);
+  });
+
   test('drags a card of the board by its grip into another column: the status changes, a short drag drops nothing', async ({ page }) => {
     const slug = 'board-touch-e2e';
     const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}.md`);

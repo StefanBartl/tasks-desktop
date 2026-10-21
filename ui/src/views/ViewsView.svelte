@@ -12,6 +12,7 @@
   import { cleanTitle, emptySelect, formOf, selectOfFilter, type ViewForm } from '../lib/views';
   import { selectOfGroup } from '../lib/viewMenu';
   import { DRAFT_ID } from '../lib/state/views.svelte';
+  import { createGrip, farEnough, placeAt, type PointerDragEvent } from '../lib/pointerDrag';
   import Detail from './Detail.svelte';
   import Groups from './Groups.svelte';
   import GroupMatrix from './GroupMatrix.svelte';
@@ -197,6 +198,33 @@
     if (event.repeat) return;
     const to = neighbourCell(rowGroups, groups, from, move);
     if (to !== null) void moveInMatrix(id, from, to);
+  }
+
+  // A finger drags a card of the opened cell by its grip onto another cell: the cell under the finger takes it once the
+  // finger has gone a stretch from where it went down.
+  let fingerFrom = { x: 0, y: 0 };
+  let fingerCell = $state<string | null>(null);
+  const cellGrip = createGrip(
+    () => (matrixMovable ? onCellFinger : undefined),
+    () => app.saving,
+  );
+  function onCellFinger(e: PointerDragEvent): void {
+    if (e.phase === 'start') {
+      fingerFrom = { x: e.x, y: e.y };
+      fingerCell = null;
+      return;
+    }
+    if (e.phase === 'move') {
+      const far = farEnough(fingerFrom, e);
+      fingerCell = far ? placeAt(document, e.x, e.y, 'data-cell') : null;
+      return;
+    }
+    const at = e.phase === 'end' ? fingerCell : null;
+    fingerCell = null;
+    const from = openedCell;
+    if (at === null || from === null) return;
+    const [row = '', column = ''] = JSON.parse(at) as [string, string];
+    if (row !== from.row || column !== from.column) void moveInMatrix(e.id, from, { row, column });
   }
 
   /** The field of the rows when a view becomes a matrix: the one it had, or the first other field of the engine. */
@@ -435,6 +463,7 @@
               opened={openedCell}
               onopen={(cell) => (openedCell = cell)}
               dragging={cellDrag !== null}
+              fingerOver={fingerCell}
               ondropcell={(cell) => {
                 const drag = cellDrag;
                 cellDrag = null;
@@ -456,6 +485,19 @@
                       }}
                       ondragend={() => (cellDrag = null)}
                     >
+                      {#if matrixMovable}
+                        <!-- A finger drags by this grip (the keys and a screen reader have the keys of the matrix). -->
+                        <span
+                          class="grip"
+                          data-hint={t('hint.ui.board.grip')}
+                          role="presentation"
+                          aria-hidden="true"
+                          onpointerdown={(e) => cellGrip(e, task.id, 'start')}
+                          onpointermove={(e) => cellGrip(e, task.id, 'move')}
+                          onpointerup={(e) => cellGrip(e, task.id, 'end')}
+                          onpointercancel={(e) => cellGrip(e, task.id, 'cancel')}>⠿</span
+                        >
+                      {/if}
                       <button
                         type="button"
                         class="item"
@@ -489,6 +531,7 @@
               canDrop={(_id, from, to) => from !== to}
               columnsLabel={t('views.columns', { name: open.title })}
               onmenu={(e, value) => groupMenu(e, open, value)}
+              gripHint={t('hint.ui.board.grip')}
             >
               {#snippet item(task, group)}
                 <button
@@ -636,8 +679,26 @@
     display: grid;
     gap: 0.35rem;
   }
+  .cell li {
+    display: flex;
+    gap: 0.3rem;
+  }
+  .cell li > .item {
+    flex: 1;
+    min-width: 0;
+  }
   .cell li[draggable='true'] {
     cursor: grab;
+  }
+  .grip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.6rem;
+    color: var(--muted);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
   }
   .item.selected {
     box-shadow: inset 3px 0 0 var(--accent);

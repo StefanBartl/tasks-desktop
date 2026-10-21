@@ -4,7 +4,7 @@
   // never sorts: the order is the engine's, and a move asks the engine for the new one.
   import type { App } from '../lib/app.svelte';
   import { COLUMNS, COLUMN_FIRST, groupLabel, placeOf, runKey, stageOf, type Column } from '../lib/board';
-  import { boardTargetAt, createGrip, type BoardTarget, type PointerDragEvent } from '../lib/pointerDrag';
+  import { boardTargetAt, createGrip, farEnough, type BoardTarget, type PointerDragEvent } from '../lib/pointerDrag';
   import { hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import Info from 'appkit-ui/Info.svelte';
   import { marksLegend } from '../lib/legend';
@@ -108,7 +108,6 @@
 
   // A finger or a pen drags a card by its grip (HTML5 drag does not start on a touch screen). The places count only
   // once the finger has gone a stretch from where it went down, and the drop goes to the place it moved onto.
-  const GRAB = 24;
   let from = { x: 0, y: 0 };
   let fingerAt: BoardTarget | null = null;
   const grip = createGrip(
@@ -124,7 +123,7 @@
     }
     if (dragging !== e.id) return;
     if (e.phase === 'move') {
-      const far = Math.hypot(e.x - from.x, e.y - from.y) >= GRAB;
+      const far = farEnough(from, e);
       fingerAt = far ? boardTargetAt(document, e.x, e.y) : null;
       overDone = fingerAt?.kind === 'done';
       overColumn = fingerAt && fingerAt.kind !== 'done' ? (fingerAt.column as Column) : null;

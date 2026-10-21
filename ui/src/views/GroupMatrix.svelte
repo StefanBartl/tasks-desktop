@@ -17,6 +17,7 @@
     onopen,
     dragging = false,
     ondropcell,
+    fingerOver = null,
   }: {
     rows: readonly Group<unknown>[];
     columns: readonly Group<unknown>[];
@@ -36,6 +37,8 @@
     dragging?: boolean;
     /** A card was dropped on `cell`; `copy` is the Ctrl key. */
     ondropcell?: (cell: Cell, copy: boolean) => void;
+    /** The cell a finger that drags a card is over (the key of `data-cell`), lit as a drop with the mouse is. */
+    fingerOver?: string | null;
   } = $props();
 
   let over = $state<string | null>(null);
@@ -76,7 +79,7 @@
             {@const n = count(cell)}
             <td
               class="num"
-              class:target={over === keyOf(cell)}
+              class:target={over === keyOf(cell) || fingerOver === keyOf(cell)}
               class:opened={opened !== null && keyOf(opened) === keyOf(cell)}
               data-cell={keyOf(cell)}
               ondragenter={(e) => enter(e, cell)}
