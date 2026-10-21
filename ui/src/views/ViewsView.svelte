@@ -6,7 +6,7 @@
   import { tick, untrack } from 'svelte';
   import type { App } from '../lib/app.svelte';
   import type { GroupField, View, ViewSelect } from '../lib/contract';
-  import { groupsOf, keepsGroup, neighbourGroup, NONE, type Grouping } from '../lib/groups';
+  import { cellsOf, groupsOf, keepsGroup, neighbourCell, neighbourGroup, NONE, type Cell, type Grouping } from '../lib/groups';
   import { labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
   import { cleanTitle, emptySelect, formOf, selectOfFilter, type ViewForm } from '../lib/views';
@@ -14,6 +14,7 @@
   import { DRAFT_ID } from '../lib/state/views.svelte';
   import Detail from './Detail.svelte';
   import Groups from './Groups.svelte';
+  import GroupMatrix from './GroupMatrix.svelte';
 
   let { app }: { app: App } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
@@ -44,7 +45,8 @@
   let title = $state('');
   let area = $state('');
   let groupBy = $state<GroupField>('status');
-  let display = $state<'columns' | 'list'>('columns');
+  let display = $state<View['display']>('columns');
+  let groupBy2 = $state<GroupField | undefined>(undefined);
   let fromList = $state(true);
   /** The selection of the view being tried, when it is the one being saved (then not the filter of the list). */
   let draftSelect = $state.raw<ViewSelect | null>(null);
@@ -71,10 +73,12 @@
       return;
     }
     makeProblem = '';
+    const rows = display === 'matrix' ? (groupBy2 !== undefined && groupBy2 !== groupBy ? groupBy2 : fields.find((f) => f !== groupBy)) : undefined;
     const form: ViewForm = {
       title: clean,
-      display,
+      display: display === 'matrix' && rows === undefined ? 'columns' : display,
       group_by: groupBy,
+      ...(rows !== undefined ? { group_by2: rows } : {}),
       collapsed: [],
       select: draftSelect ?? (fromList ? fromFilter.select : emptySelect()),
     };
@@ -86,7 +90,8 @@
     startMaking();
     title = draft.title;
     groupBy = draft.group_by;
-    display = draft.display === 'list' ? 'list' : 'columns';
+    display = draft.display;
+    groupBy2 = draft.group_by2;
     draftSelect = draft.select;
   }
 
@@ -130,6 +135,71 @@
   const groups = $derived(grouping ? groupsOf(viewTasks, grouping) : []);
   /** A task is moved between groups only where the engine writes the field by a set or the list of tags (not the area). */
   const movable = $derived(grouping !== null && grouping.writable && (grouping.mode === 'set' || grouping.mode === 'tags'));
+
+  // ── the matrix: the rows are the second field (`group_by2`), the columns the first ──
+  const grouping2 = $derived<Grouping | null>(
+    open?.display === 'matrix' && open.group_by2 !== undefined ? (groupings?.fields.find((f) => f.field === open.group_by2) ?? null) : null,
+  );
+  const rowGroups = $derived(grouping2 ? groupsOf(viewTasks, grouping2) : []);
+  const cells = $derived(grouping && grouping2 ? cellsOf(viewTasks, grouping2, grouping) : []);
+  const cellOf = (cell: Cell) => cells.find((c) => c.row === cell.row && c.column === cell.column);
+  /** A card is moved between cells where at least one of the two fields can be written so (the other may stay). */
+  const movable2 = $derived(grouping2 !== null && grouping2.writable && (grouping2.mode === 'set' || grouping2.mode === 'tags'));
+  const matrixMovable = $derived(movable || movable2);
+  /** The cell whose tasks are listed under the matrix. */
+  let openedCell = $state<Cell | null>(null);
+  /** The card of the opened cell that is being dragged. */
+  let cellDrag = $state<{ id: string; from: Cell } | null>(null);
+  // Another view, or another field: the opened cell is no cell of it any more.
+  const matrixKey = $derived(open ? JSON.stringify([open.id, open.group_by, open.group_by2 ?? '']) : '');
+  $effect(() => {
+    void matrixKey;
+    openedCell = null;
+  });
+
+  const cellText = (cell: Cell): string =>
+    open ? `${valueLabel(open.group_by2 ?? '', cell.row)} · ${valueLabel(open.group_by, cell.column)}` : '';
+
+  /** Move `id` from the cell `from` onto `to` (both fields in one write); the opened cell follows it, and the focus. */
+  async function moveInMatrix(id: string, from: Cell, to: Cell): Promise<void> {
+    if (!grouping || !grouping2) return;
+    const title = viewTasks.find((x) => x.id === id)?.title ?? id;
+    if (!(await app.dropInMatrix(id, grouping2, grouping, from, to, viewTasks))) return;
+    moved = t('views.moved', { title: markHidden(title), group: cellText(to) });
+    openedCell = to;
+    await tick();
+    document.querySelector<HTMLElement>(`[data-matrix-item="${CSS.escape(id)}"]`)?.focus();
+  }
+
+  /** Shift with h, l (a column) or j, k (a row) on a card of the opened cell: the cell next to it. */
+  function onCellItemKey(event: KeyboardEvent, id: string, from: Cell): void {
+    if (!matrixMovable || !event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+    const moves = { h: 'left', l: 'right', j: 'down', k: 'up' } as const;
+    const move = moves[event.key.toLowerCase() as keyof typeof moves];
+    if (move === undefined) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.repeat) return;
+    const to = neighbourCell(rowGroups, groups, from, move);
+    if (to !== null) void moveInMatrix(id, from, to);
+  }
+
+  /** The field of the rows when a view becomes a matrix: the one it had, or the first other field of the engine. */
+  const rowsFieldFor = (view: View): GroupField | undefined =>
+    view.group_by2 !== undefined && view.group_by2 !== view.group_by ? view.group_by2 : fields.find((f) => f !== view.group_by);
+
+  function setDisplay(view: View, value: View['display']): void {
+    if (value === 'matrix') {
+      const rows = rowsFieldFor(view);
+      if (rows !== undefined) save(view, { display: 'matrix', group_by2: rows });
+    } else save(view, { display: value, group_by2: undefined });
+  }
+
+  function setGroupBy(view: View, field: GroupField): void {
+    // A matrix never has the same field down and across: the rows take another one.
+    const rows = view.display === 'matrix' && view.group_by2 === field ? fields.find((f) => f !== field) : view.group_by2;
+    save(view, { group_by: field, collapsed: [], ...(view.display === 'matrix' ? { group_by2: rows } : {}) });
+  }
 
   // A view opened from a context menu takes the focus on its heading: the menu and the element it was opened on are gone.
   let heading = $state<HTMLHeadingElement | null>(null);
@@ -242,8 +312,19 @@
         <select bind:value={display}>
           <option value="columns">{t('views.display.columns')}</option>
           <option value="list">{t('views.display.list')}</option>
+          <option value="matrix">{t('views.display.matrix')}</option>
         </select>
       </label>
+      {#if display === 'matrix'}
+        <label>
+          {t('views.form.rows')}
+          <select bind:value={groupBy2}>
+            {#each fields.filter((f) => f !== groupBy) as field (field)}
+              <option value={field}>{fieldLabel(field)}</option>
+            {/each}
+          </select>
+        </label>
+      {/if}
       {#if draftSelect === null}
         <label class="check">
           <input type="checkbox" bind:checked={fromList} />
@@ -281,7 +362,7 @@
           <select
             value={open.group_by}
             disabled={app.saving || fields.length === 0}
-            onchange={(e) => save(open, { group_by: e.currentTarget.value as GroupField, collapsed: [] })}
+            onchange={(e) => setGroupBy(open, e.currentTarget.value as GroupField)}
           >
             {#each fields.includes(open.group_by) ? fields : [open.group_by, ...fields] as field (field)}
               <option value={field}>{fieldLabel(field)}</option>
@@ -290,15 +371,22 @@
         </label>
         <label>
           {t('views.form.display')}
-          <select
-            value={open.display === 'list' ? 'list' : 'columns'}
-            disabled={app.saving}
-            onchange={(e) => save(open, { display: e.currentTarget.value as 'columns' | 'list' })}
-          >
+          <select value={open.display} disabled={app.saving} onchange={(e) => setDisplay(open, e.currentTarget.value as View['display'])}>
             <option value="columns">{t('views.display.columns')}</option>
             <option value="list">{t('views.display.list')}</option>
+            <option value="matrix" disabled={fields.length < 2}>{t('views.display.matrix')}</option>
           </select>
         </label>
+        {#if open.display === 'matrix'}
+          <label>
+            {t('views.form.rows')}
+            <select value={open.group_by2 ?? ''} disabled={app.saving} onchange={(e) => save(open, { group_by2: e.currentTarget.value as GroupField })}>
+              {#each fields.filter((f) => f !== open.group_by) as field (field)}
+                <option value={field}>{fieldLabel(field)}</option>
+              {/each}
+            </select>
+          </label>
+        {/if}
         {#if open.id === DRAFT_ID}
           <button type="button" disabled={app.saving || making} onclick={() => saveDraft(open)}>{t('views.save_draft')}</button>
           <button type="button" onclick={() => void saved.remove(open)}>{t('views.discard')}</button>
@@ -308,15 +396,69 @@
       </div>
       {#if open.id === DRAFT_ID}<p class="note">{t('views.draft')}</p>{/if}
       <p class="muted">{t('views.selection', { what: selectionText(open) })}{open.id === DRAFT_ID ? '' : ` · ${open.id}`}</p>
-      {#if open.display === 'matrix'}
-        <p class="note">{t('views.matrix_later')}</p>
-      {/if}
       {#if renameProblem}<p class="note" role="alert">{renameProblem}</p>{/if}
-      {#if movable}<p class="muted">{t('views.help')}</p>{/if}
+      {#if open.display === 'matrix'}
+        {#if matrixMovable}<p class="muted">{t('views.matrix_help')}</p>{/if}
+      {:else if movable}<p class="muted">{t('views.help')}</p>{/if}
       <p class="sr-only" aria-live="polite">{moved}</p>
       <div class="layout">
         <div class="main">
-          {#if grouping}
+          {#if open.display === 'matrix' && grouping && grouping2}
+            <GroupMatrix
+              rows={rowGroups}
+              columns={groups}
+              count={(cell) => cellOf(cell)?.items.length ?? 0}
+              rowLabel={(value) => valueLabel(open.group_by2 ?? '', value)}
+              columnLabel={(value) => valueLabel(open.group_by, value)}
+              label={t('views.matrix_label', { name: open.title })}
+              corner={t('views.matrix_corner', { rows: fieldLabel(open.group_by2 ?? ''), columns: fieldLabel(open.group_by) })}
+              cellLabel={(cell, n) => t(n === 1 ? 'views.cell_one' : 'views.cell', { cell: cellText(cell), n })}
+              opened={openedCell}
+              onopen={(cell) => (openedCell = cell)}
+              dragging={cellDrag !== null}
+              ondropcell={(cell) => {
+                const drag = cellDrag;
+                cellDrag = null;
+                if (drag) void moveInMatrix(drag.id, drag.from, cell);
+              }}
+            />
+            {#if openedCell}
+              {@const cell = openedCell}
+              <section class="cell" aria-label={cellText(cell)}>
+                <h3>{cellText(cell)} <span class="muted">({cellOf(cell)?.items.length ?? 0})</span></h3>
+                <ul>
+                  {#each cellOf(cell)?.items ?? [] as task (task.id)}
+                    <li
+                      draggable={matrixMovable && !app.saving}
+                      ondragstart={(e) => {
+                        if (!matrixMovable || app.saving) return e.preventDefault();
+                        cellDrag = { id: task.id, from: cell };
+                        e.dataTransfer?.setData('text/plain', task.id);
+                      }}
+                      ondragend={() => (cellDrag = null)}
+                    >
+                      <button
+                        type="button"
+                        class="item"
+                        data-matrix-item={task.id}
+                        class:selected={task.id === app.selectedId}
+                        aria-current={task.id === app.selectedId ? 'true' : undefined}
+                        onclick={() => app.select(task.id)}
+                        onkeydown={(e) => onCellItemKey(e, task.id, cell)}
+                      >
+                        <span class="title">{markHidden(task.title)}</span>
+                        <span class="id">{task.id}</span>
+                      </button>
+                    </li>
+                  {:else}
+                    <li class="muted">{t('board.empty')}</li>
+                  {/each}
+                </ul>
+              </section>
+            {/if}
+          {:else if open.display === 'matrix' && grouping && open.group_by2 === undefined}
+            <p class="note">{t('views.matrix_rows')}</p>
+          {:else if open.display !== 'matrix' && grouping}
             <Groups
               {groups}
               mode={open.display === 'list' ? 'list' : 'columns'}
@@ -346,7 +488,7 @@
               {/snippet}
             </Groups>
           {:else if groupings !== null}
-            <p class="note">{t('views.unknown_field', { field: open.group_by })}</p>
+            <p class="note">{t('views.unknown_field', { field: grouping ? (open.group_by2 ?? '') : open.group_by })}</p>
           {/if}
         </div>
         <Detail {app} />
@@ -456,6 +598,27 @@
     border-radius: var(--radius);
     padding: 0.4rem 0.5rem;
     cursor: pointer;
+  }
+  .cell {
+    margin-top: 0.6rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 0.4rem 0.5rem;
+  }
+  .cell h3 {
+    margin: 0 0 0.4rem;
+    font-size: 0.85rem;
+  }
+  .cell ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.35rem;
+  }
+  .cell li[draggable='true'] {
+    cursor: grab;
   }
   .item.selected {
     box-shadow: inset 3px 0 0 var(--accent);

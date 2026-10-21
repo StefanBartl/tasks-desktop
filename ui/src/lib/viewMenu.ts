@@ -11,6 +11,7 @@ export interface ViewMenuWords {
   open: string;
   columns: string;
   list: string;
+  matrix: string;
   /** The heading of the entries that group the selection by a field. */
   groupBy: string;
   field: (field: GroupField) => string;
@@ -34,10 +35,13 @@ export function viewMenuItems(
 ): MenuItem[] {
   const first = firstField(fields);
   if (first === undefined) return [];
-  const form = (display: ViewForm['display'], group_by: GroupField): ViewForm => ({
+  // A matrix needs a second field for its rows: the first other field of the engine.
+  const second = fields.find((f) => f !== first);
+  const form = (display: ViewForm['display'], group_by: GroupField, group_by2?: GroupField): ViewForm => ({
     title,
     display,
     group_by,
+    ...(group_by2 !== undefined ? { group_by2 } : {}),
     collapsed: [],
     select: { ...emptySelect(), ...select },
   });
@@ -45,6 +49,9 @@ export function viewMenuItems(
     { kind: 'section', label: words.open },
     { kind: 'action', label: words.columns, onselect: () => open(form('columns', first)) },
     { kind: 'action', label: words.list, onselect: () => open(form('list', first)) },
+    ...(second !== undefined
+      ? [{ kind: 'action' as const, label: words.matrix, onselect: () => open(form('matrix', first, second)) }]
+      : []),
     { kind: 'section', label: words.groupBy },
     ...fields.map((field): MenuItem => ({ kind: 'action', label: words.field(field), onselect: () => open(form('columns', field)) })),
   ];

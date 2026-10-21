@@ -49,7 +49,7 @@ import { ViewsState } from './state/views.svelte';
 import { emptySelect, filterOfSelect, type ViewForm } from './views';
 import { viewMenuItems } from './viewMenu';
 import type { MenuItem } from 'appkit-ui/menu';
-import { dropOps, NONE, type Grouping } from './groups';
+import { cellDropOps, dropOps, NONE, type Cell, type Drop, type Grouping } from './groups';
 import { TodayState } from './state/today.svelte';
 import { GraphState } from './state/graph.svelte';
 import type { DailyPrefs } from './daily';
@@ -595,6 +595,7 @@ export class App {
         open: t('views.menu.open'),
         columns: t('views.display.columns'),
         list: t('views.display.list'),
+        matrix: t('views.display.matrix'),
         groupBy: t('views.form.group_by'),
         field: (field) => t(`views.field.${field}` as Key),
       },
@@ -1412,6 +1413,36 @@ export class App {
     copy = false,
     inView: readonly TaskEntry[] = this.tasks,
   ): Promise<boolean> {
+    const tags: TagEdit | undefined = grouping.mode === 'tags' ? { add: to === NONE ? [] : [to], remove: copy ? [] : [from] } : undefined;
+    return this.dropTogether(id, inView, (one) => dropOps(one, grouping, from, to, copy), {
+      blocks: grouping.field === 'status' && to === 'blocked',
+      ...(tags ? { tags } : {}),
+    });
+  }
+
+  /**
+   * A task of a matrix dropped from the cell `from` onto the cell `to`: the row's field and the column's field in one
+   * `set` (`cellDropOps`), with the marked ones of the view, as `dropInView` does for one field.
+   */
+  async dropInMatrix(id: string, rows: Grouping, columns: Grouping, from: Cell, to: Cell, inView: readonly TaskEntry[] = this.tasks): Promise<boolean> {
+    const tagsOf = (g: Grouping, a: string, b: string): TagEdit | undefined =>
+      g.mode === 'tags' && a !== b ? { add: b === NONE ? [] : [b], remove: [a] } : undefined;
+    const tags = tagsOf(rows, from.row, to.row) ?? tagsOf(columns, from.column, to.column);
+    const blocks = (rows.field === 'status' && to.row === 'blocked' && from.row !== to.row) || (columns.field === 'status' && to.column === 'blocked' && from.column !== to.column);
+    return this.dropTogether(id, inView, (one) => cellDropOps(one, rows, columns, from, to), { blocks, ...(tags ? { tags } : {}) });
+  }
+
+  /**
+   * What a drop in a view comes to for `id` and, when it is marked, the other marked tasks of the view: one batch of the
+   * operations `dropFor` names, what it refuses said in words, blocked without a blocker asked for (one task) or refused
+   * (several). Says whether the engine took every operation.
+   */
+  private async dropTogether(
+    id: string,
+    inView: readonly TaskEntry[],
+    dropFor: (task: TaskEntry) => Drop,
+    opts: { blocks: boolean; tags?: TagEdit },
+  ): Promise<boolean> {
     if (this.refusedWhileSaving()) return false;
     const task = inView.find((t) => t.id === id);
     if (!task) return false;
@@ -1419,7 +1450,7 @@ export class App {
     const together = this.marks.includes(id) ? inView.filter((t) => this.marks.includes(t.id)) : [task];
     // Blocked with nothing that blocks it is a warning of the engine: one task is asked for its blocker (as on the
     // board); several are not blocked behind the person's back.
-    if (grouping.field === 'status' && to === 'blocked') {
+    if (opts.blocks) {
       const bare = together.filter((t) => t.blocked_by.length === 0);
       if (bare.length > 0 && together.length === 1) {
         if (this.phase === 'ready') this.blocking = { id };
@@ -1432,7 +1463,7 @@ export class App {
     }
     const ops: Op[] = [];
     for (const one of together) {
-      const drop = dropOps(one, grouping, from, to, copy);
+      const drop = dropFor(one);
       if (drop.kind === 'ops') ops.push(...drop.ops);
       // A task of the batch that already is where it goes is no refusal of the others.
       else if (drop.kind === 'refused' && drop.reason === 'same' && one.id !== id) continue;
@@ -1442,9 +1473,8 @@ export class App {
       }
     }
     if (ops.length === 0) return false;
-    const tags: TagEdit | undefined = grouping.mode === 'tags' ? { add: to === NONE ? [] : [to], remove: copy ? [] : [from] } : undefined;
     const batch = together.length > 1 ? { onAnswer: this.batchAnswer(ops as { id: string }[]) } : {};
-    const result = await this.write(ops, { ...(tags ? { tags } : {}), ...batch });
+    const result = await this.write(ops, { ...(opts.tags ? { tags: opts.tags } : {}), ...batch });
     // Moved only when the engine took every operation: a refusal is told by the toast, not announced as a move.
     return result !== null && result.results.every((r) => r.ok);
   }

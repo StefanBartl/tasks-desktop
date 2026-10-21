@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TaskEntry } from './contract';
-import { cellsOf, countOf, dropOps, groupsOf, keepsGroup, neighbourGroup, NONE, valuesOf, type Grouping } from './groups';
+import { cellDropOps, cellsOf, countOf, dropOps, groupsOf, keepsGroup, neighbourCell, neighbourGroup, NONE, valuesOf, type Grouping } from './groups';
 
 const task = (id: string, extra: Partial<TaskEntry> = {}) => ({ id, area: 'a', etag: `sha256:${id}`, ...extra }) as unknown as TaskEntry;
 const field = (name: Grouping['field'], values: string[], extra: Partial<Grouping> = {}): Grouping => ({
@@ -149,6 +149,45 @@ describe('a drop', () => {
   it('leaves the area to the move of the file, which is asked first', () => {
     expect(dropOps(task('a'), AREA, 'a', 'b')).toEqual({ kind: 'move_area', id: 'a', area: 'b' });
     expect(dropOps(task('a'), AREA, 'a', NONE)).toEqual({ kind: 'refused', reason: 'required' });
+  });
+});
+
+describe('a drop on a cell of a matrix', () => {
+  const one = task('a/one', { status: 'open', prio: 2, tags: ['ui'] });
+
+  it('writes the row and the column in one set, on the version shown', () => {
+    expect(cellDropOps(one, PRIO, STATUS, { row: '2', column: 'open' }, { row: '1', column: 'doing' })).toEqual({
+      kind: 'ops',
+      ops: [{ op: 'set', id: 'a/one', patch: { prio: 1, status: 'doing' }, if_match: 'sha256:a/one' }],
+    });
+  });
+
+  it('writes only the field that changes, and the tags as the whole list', () => {
+    expect(cellDropOps(one, PRIO, STATUS, { row: '2', column: 'open' }, { row: '2', column: 'doing' })).toEqual({
+      kind: 'ops',
+      ops: [{ op: 'set', id: 'a/one', patch: { status: 'doing' }, if_match: 'sha256:a/one' }],
+    });
+    expect(cellDropOps(one, TAGS, STATUS, { row: 'ui', column: 'open' }, { row: 'bug', column: 'open' })).toEqual({
+      kind: 'ops',
+      ops: [{ op: 'set', id: 'a/one', patch: { tags: ['bug'] }, if_match: 'sha256:a/one' }],
+    });
+  });
+
+  it('refuses the whole drop when one of the fields cannot be written so, and the same cell', () => {
+    expect(cellDropOps(one, STATE, STATUS, { row: 'ready', column: 'open' }, { row: 'waiting', column: 'doing' })).toEqual({ kind: 'refused', reason: 'read_only' });
+    expect(cellDropOps(one, AREA, STATUS, { row: 'a', column: 'open' }, { row: 'b', column: 'doing' })).toEqual({ kind: 'refused', reason: 'read_only' });
+    expect(cellDropOps(one, PRIO, STATUS, { row: '2', column: 'open' }, { row: '2', column: 'open' })).toEqual({ kind: 'refused', reason: 'same' });
+  });
+
+  it('names the cell next to it by row and by column, and none at the edge', () => {
+    const rows = groupsOf([one], PRIO);
+    const columns = groupsOf([one], STATUS);
+    expect(neighbourCell(rows, columns, { row: '2', column: 'open' }, 'up')).toEqual({ row: '1', column: 'open' });
+    expect(neighbourCell(rows, columns, { row: '2', column: 'open' }, 'down')).toEqual({ row: '3', column: 'open' });
+    expect(neighbourCell(rows, columns, { row: '2', column: 'open' }, 'left')).toEqual({ row: '2', column: 'doing' });
+    expect(neighbourCell(rows, columns, { row: '2', column: 'open' }, 'right')).toEqual({ row: '2', column: 'parked' });
+    expect(neighbourCell(rows, columns, { row: '1', column: 'doing' }, 'up')).toBeNull();
+    expect(neighbourCell(rows, columns, { row: '1', column: 'doing' }, 'left')).toBeNull();
   });
 });
 

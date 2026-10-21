@@ -4,16 +4,24 @@ import type { GroupField } from './contract';
 import { selectOfGroup, viewMenuItems } from './viewMenu';
 import { emptySelect, type ViewForm } from './views';
 
-const words = { open: 'Open', columns: 'Columns', list: 'List', groupBy: 'Group by', field: (f: GroupField) => `F:${f}` };
+const words = { open: 'Open', columns: 'Columns', list: 'List', matrix: 'Matrix', groupBy: 'Group by', field: (f: GroupField) => `F:${f}` };
 const labels = (items: MenuItem[]) => items.map((i) => (i.kind === 'section' || i.kind === 'action' ? `${i.kind}:${i.label}` : i.kind));
 
 describe('the context menu "open as a view"', () => {
   it('opens the selection as columns or a list by status, or grouped by each field the engine names', () => {
     const opened: ViewForm[] = [];
     const items = viewMenuItems('pub', { areas: ['pub'] } as never, ['prio', 'status', 'tags'], words, (f) => opened.push(f));
-    expect(labels(items)).toEqual(['section:Open', 'action:Columns', 'action:List', 'section:Group by', 'action:F:prio', 'action:F:status', 'action:F:tags']);
+    expect(labels(items)).toEqual(['section:Open', 'action:Columns', 'action:List', 'action:Matrix', 'section:Group by', 'action:F:prio', 'action:F:status', 'action:F:tags']);
     for (const item of items) if (item.kind === 'action') item.onselect();
-    expect(opened.map((f) => `${f.display}/${f.group_by}`)).toEqual(['columns/status', 'list/status', 'columns/prio', 'columns/status', 'columns/tags']);
+    expect(opened.map((f) => `${f.display}/${f.group_by}/${f.group_by2 ?? ''}`)).toEqual([
+      'columns/status/',
+      'list/status/',
+      // A matrix: the rows by the first other field of the engine.
+      'matrix/status/prio',
+      'columns/prio/',
+      'columns/status/',
+      'columns/tags/',
+    ]);
     // Every one carries the selection, made whole, and the name.
     expect(opened[0]).toEqual({ title: 'pub', display: 'columns', group_by: 'status', collapsed: [], select: { ...emptySelect(), areas: ['pub'] } });
   });
@@ -25,6 +33,8 @@ describe('the context menu "open as a view"', () => {
     if (columns?.kind === 'action') columns.onselect();
     expect(opened[0]?.group_by).toBe('kind');
     expect(viewMenuItems('x', emptySelect(), [], words, () => undefined)).toEqual([]);
+    // One field only: no matrix (it needs a second field for its rows).
+    expect(labels(viewMenuItems('x', emptySelect(), ['status'], words, () => undefined))).not.toContain('action:Matrix');
   });
 
   it('narrows the selection of a view to a group where a view can hold that, and not elsewhere', () => {

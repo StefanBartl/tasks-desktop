@@ -4237,6 +4237,19 @@ describe('the saved views', () => {
       m.app.stop();
     });
 
+    it('in a matrix writes both fields in one set, and blocked asks for the blocker as on the board', async () => {
+      const prio: Grouping = { field: 'prio', values: ['1', '2'], truncated: false, writable: true, value_type: 'number', mode: 'set' };
+      const m = await ready();
+      expect(await m.app.dropInMatrix('pub/a', prio, status, { row: '', column: 'open' }, { row: '1', column: 'doing' })).toBe(true);
+      expect(last(m)).toEqual([{ op: 'set', id: 'pub/a', patch: { prio: 1, status: 'doing' }, if_match: 'ea' }]);
+      // Into the column of blocked with nothing to wait for: the blocker is asked first, nothing is sent.
+      const sent = m.hub.sent.length;
+      expect(await m.app.dropInMatrix('pub/a', prio, status, { row: '', column: 'open' }, { row: '1', column: 'blocked' })).toBe(false);
+      expect(m.app.blocking).toEqual({ id: 'pub/a' });
+      expect(m.hub.sent).toHaveLength(sent);
+      m.app.stop();
+    });
+
     it('is no move when the engine refuses it (nothing to announce as moved)', async () => {
       const m = await ready();
       m.hub.next_ops = {
@@ -4359,10 +4372,11 @@ describe('the saved views', () => {
       expect(menu.items.filter((i) => i.kind === 'action').map((i) => (i as { label: string }).label)).toEqual([
         translate(m.app.lang, 'views.display.columns'),
         translate(m.app.lang, 'views.display.list'),
+        translate(m.app.lang, 'views.display.matrix'),
         translate(m.app.lang, 'views.field.status'),
         translate(m.app.lang, 'views.field.tags'),
       ]);
-      const byTags = menu.items.filter((i) => i.kind === 'action')[3] as { onselect: () => void };
+      const byTags = menu.items.filter((i) => i.kind === 'action')[4] as { onselect: () => void };
       byTags.onselect();
       expect(m.app.view).toBe('views');
       expect(m.app.viewsState.open).toMatchObject({ id: DRAFT_ID, title: 'pub', group_by: 'tags', select: { areas: ['pub'] } });

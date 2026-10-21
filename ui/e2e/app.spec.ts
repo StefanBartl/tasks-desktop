@@ -520,6 +520,72 @@ test('the context menu opens a selection as a view to try: by key from a row, Es
   await expect(choice).not.toBeFocused();
 });
 
+test('a view as a matrix: the count of a cell is its tasks, a click opens it, a card moves by key and by drag, both fields in one write', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  await capture(page, 'Viewgrid v001 one');
+  await capture(page, 'Viewgrid v001 two');
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Viewgrid v001');
+  await expect(page.locator('.rows .line')).toHaveCount(2);
+  const make = page.getByRole('button', { name: 'New view' });
+  await openViewsByKey(page, make);
+  await make.click();
+  const form = page.getByRole('form', { name: 'New view' });
+  await form.getByLabel('Name').fill('E2e matrix view v001');
+  await form.getByLabel('Kept in area').selectOption('lib.nvim');
+  await form.getByLabel('Group by').selectOption({ label: 'Status' });
+  await form.getByLabel('Show as').selectOption({ label: 'Matrix' });
+  await form.getByLabel('Rows').selectOption({ label: 'Priority' });
+  await write(page, () => form.getByRole('button', { name: 'Create view' }).click());
+  const file = viewFile('lib.nvim', 'E2e matrix view v001')!;
+  expect(readFileSync(file, 'utf8')).toMatch(/display: matrix/);
+  expect(readFileSync(file, 'utf8')).toMatch(/group_by2: prio/);
+  const open = page.getByRole('region', { name: 'E2e matrix view v001', exact: true });
+  const tasks = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks');
+  const one = join(tasks, 'viewgrid-v001-one.md');
+  const two = join(tasks, 'viewgrid-v001-two.md');
+
+  // The two new tasks are open and have no priority: their cell counts two, and the click shows them.
+  const cell = open.getByRole('button', { name: 'not set · open: 2 tasks, show them' });
+  await expect(cell).toBeVisible();
+  await cell.click();
+  const list = open.getByRole('region', { name: 'not set · open', exact: true });
+  await expect(list.locator('[data-matrix-item]')).toHaveCount(2);
+  await expectAccessible(page, 'a view as a matrix');
+
+  // The columns are the engine's open statuses: the one right of open is where Shift+l goes.
+  const headers = (await open.locator('thead th').allInnerTexts()).slice(1);
+  const right = headers[headers.indexOf('open') + 1]!;
+  expect(right).toBeTruthy();
+
+  // The keys first: Shift+k a row up (none is the last row, 3 the one above), Shift+l a column to the right.
+  await list.locator('[data-matrix-item="lib.nvim/viewgrid-v001-one"]').focus();
+  await write(page, () => page.keyboard.press('Shift+k'));
+  await expect.poll(() => readFileSync(one, 'utf8'), { timeout: WRITE_BUDGET }).toMatch(/^prio: 3$/m);
+  // The opened cell follows the card, and so does the focus.
+  await expect(open.locator('[data-matrix-item="lib.nvim/viewgrid-v001-one"]')).toBeFocused();
+  await write(page, () => page.keyboard.press('Shift+l'));
+  await expect.poll(() => readFileSync(one, 'utf8'), { timeout: WRITE_BUDGET }).toMatch(new RegExp(`^status: ${right}$`, 'm'));
+  expect(readFileSync(one, 'utf8')).toMatch(/^prio: 3$/m);
+
+  // One drag with the mouse: the other card onto the cell of priority 1 and the status right of open - both fields.
+  await open.getByRole('button', { name: 'not set · open: 1 task, show it' }).click();
+  await write(page, () =>
+    drag(
+      page,
+      open.locator('li:has([data-matrix-item="lib.nvim/viewgrid-v001-two"])'),
+      open.locator(`td[data-cell='${JSON.stringify(['1', right])}']`),
+    ),
+  );
+  await expect.poll(() => readFileSync(two, 'utf8'), { timeout: WRITE_BUDGET }).toMatch(/^prio: 1$/m);
+  expect(readFileSync(two, 'utf8')).toMatch(new RegExp(`^status: ${right}$`, 'm'));
+
+  // Leave the vault as the other tests know it: the view goes (the two tasks have names no other test uses).
+  const gone = nextAnswer(page);
+  await page.getByRole('button', { name: 'Delete view' }).click();
+  await gone;
+});
+
 test('the ranges of the fields are asked of the hub once, and the property form offers the ones the engine names', async ({ page }) => {
   const asked: string[] = [];
   page.on('request', (r) => {

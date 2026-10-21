@@ -125,6 +125,47 @@ export function dropOps(task: TaskEntry, grouping: Grouping, from: string, to: s
   return { kind: 'ops', ops: [{ op: 'set', id: task.id, patch: { [grouping.field]: written(grouping, to) }, ...guard }] };
 }
 
+/** A cell of a matrix: the value of its row and of its column. */
+export interface Cell {
+  row: string;
+  column: string;
+}
+
+/**
+ * The drop of `task` from the cell `from` onto the cell `to` of a matrix: what changes of the row and of the column, as
+ * ONE `set` (both fields on the version shown, so the file is never left with one of them written). A field that stays
+ * is not written; a field that cannot be written so (read only, the area) refuses the whole drop.
+ */
+export function cellDropOps(task: TaskEntry, rows: Grouping, columns: Grouping, from: Cell, to: Cell): Drop {
+  const parts: Drop[] = [];
+  if (from.row !== to.row) parts.push(dropOps(task, rows, from.row, to.row));
+  if (from.column !== to.column) parts.push(dropOps(task, columns, from.column, to.column));
+  if (parts.length === 0) return { kind: 'refused', reason: 'same' };
+  const patch: Record<string, unknown> = {};
+  for (const part of parts) {
+    if (part.kind === 'move_area') return { kind: 'refused', reason: 'read_only' };
+    if (part.kind === 'refused') return part;
+    for (const op of part.ops) if (op.op === 'set') Object.assign(patch, op.patch);
+  }
+  const guard = task.etag ? { if_match: task.etag } : {};
+  return { kind: 'ops', ops: [{ op: 'set', id: task.id, patch, ...guard }] };
+}
+
+/** The cell next to `at` in a matrix: a row up or down (`rows`), a column to the left or right, or null at the edge. */
+export function neighbourCell(
+  rows: readonly Group<unknown>[],
+  columns: readonly Group<unknown>[],
+  at: Cell,
+  move: 'up' | 'down' | 'left' | 'right',
+): Cell | null {
+  if (move === 'up' || move === 'down') {
+    const row = neighbourGroup(rows, at.row, move === 'down' ? 1 : -1);
+    return row === null ? null : { row, column: at.column };
+  }
+  const column = neighbourGroup(columns, at.column, move === 'right' ? 1 : -1);
+  return column === null ? null : { row: at.row, column };
+}
+
 /**
  * The two fields of a matrix: the cells of rows by columns, each with the tasks in both. Rows and columns are the groups
  * of the two groupings over all the tasks (so every row has the same columns, an empty cell included); the task of a list
