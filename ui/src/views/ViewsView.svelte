@@ -158,7 +158,8 @@
   );
   const rowGroups = $derived(grouping2 ? groupsOf(viewTasks, grouping2) : []);
   const cells = $derived(grouping && grouping2 ? cellsOf(viewTasks, grouping2, grouping) : []);
-  const cellOf = (cell: Cell) => cells.find((c) => c.row === cell.row && c.column === cell.column);
+  const cellIndex = $derived(new Map(cells.map((c) => [JSON.stringify([c.row, c.column]), c])));
+  const cellOf = (cell: Cell) => cellIndex.get(JSON.stringify([cell.row, cell.column]));
   /** A card is moved between cells where at least one of the two fields can be written so (the other may stay). */
   const movable2 = $derived(grouping2 !== null && grouping2.writable && (grouping2.mode === 'set' || grouping2.mode === 'tags'));
   const matrixMovable = $derived(movable || movable2);
@@ -318,16 +319,19 @@
     <button type="button" onclick={startMaking} disabled={making || app.saving || groupings === null}>{t('views.new')}</button>
   </div>
 
-  {#if saved.failed}
-    <p class="note" role="alert">{t('views.failed')}</p>
-  {/if}
-  {#if (saved.doc?.problems.length ?? 0) > 0}
-    <p class="note">{t('views.problems', { list: saved.doc!.problems.map((p) => `${p.id}: ${p.message}`).join('; ') })}</p>
-  {/if}
-  {#if saved.groupingsFailed && groupings === null}
-    <p class="note" role="alert">{t('views.groupings_failed')}</p>
-  {:else if groupings === null}
-    <p class="note">{t('views.loading')}</p>
+  <!-- The notes of the saved views are the views' own: the board does not show them. -->
+  {#if !board}
+    {#if saved.failed}
+      <p class="note" role="alert">{t('views.failed')}</p>
+    {/if}
+    {#if (saved.doc?.problems.length ?? 0) > 0}
+      <p class="note">{t('views.problems', { list: saved.doc!.problems.map((p) => `${p.id}: ${p.message}`).join('; ') })}</p>
+    {/if}
+    {#if saved.groupingsFailed && groupings === null}
+      <p class="note" role="alert">{t('views.groupings_failed')}</p>
+    {:else if groupings === null}
+      <p class="note">{t('views.loading')}</p>
+    {/if}
   {/if}
 
   {#if making}

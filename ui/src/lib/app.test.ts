@@ -4431,6 +4431,11 @@ describe('the saved views', () => {
     m.app.setView('board');
     expect(m.app.view).toBe('board');
     await vi.waitFor(() => expect(m.hub.groupingsCalls).toBe(1));
+    // A change of the vault on the board (every write there) asks nothing more: the next write would wait behind it.
+    m.hub.doc = snapshot(m.hub.doc.tasks, 'rev:2');
+    await m.app.refresh();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(m.hub.groupingsCalls).toBe(1);
     m.app.stop();
   });
 

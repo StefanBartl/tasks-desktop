@@ -2275,7 +2275,9 @@ export class App {
     // shown, when the vault changed (from outside, say). A change of a task does not change a view: reading them after
     // every write elsewhere would be one more engine call in front of the next write.
     if (this.#viewsRev === undefined || (this.view === 'views' && this.#viewsRev !== doc.rev)) this.readViews();
-    if (this.view === 'views' || (this.view === 'board' && this.can('views'))) void this.viewsState.loadGroupings();
+    // Not on the board: its bar needs the fields only for the form of a new view, asked when the board is opened (a
+    // question after every write there would stand in front of the next one).
+    if (this.view === 'views') void this.viewsState.loadGroupings();
     if (this.view === 'today') await this.loadNext();
   }
 

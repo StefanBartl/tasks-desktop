@@ -549,6 +549,9 @@ test('a view as a matrix: the count of a cell is its tasks, a click opens it, a 
   const cell = open.getByRole('button', { name: 'not set · open: 2 tasks, show them' });
   await expect(cell).toBeVisible();
   await cell.click();
+  // One name for the matrix: its box, not a second one on its table.
+  await expect(open.getByRole('region', { name: 'Matrix of E2e matrix view v001', exact: true })).toHaveCount(1);
+  expect(await open.locator('table').getAttribute('aria-label')).toBeNull();
   const list = open.getByRole('region', { name: 'not set · open', exact: true });
   await expect(list.locator('[data-matrix-item]')).toHaveCount(2);
   await expectAccessible(page, 'a view as a matrix');
@@ -587,8 +590,23 @@ test('a view as a matrix: the count of a cell is its tasks, a click opens it, a 
 });
 
 test('the board is the built-in view of the views: g b shows it in their bar, it has no delete, a view made there is shown, the choice goes back', async ({ page }) => {
+  // A file in the folder of the views that is no view: the views tab names it, the board does not.
+  const broken = join(state().vault, 'lib.nvim', 'ROADMAP', 'views', 'broken-e2e-builtin.md');
+  mkdirSync(join(state().vault, 'lib.nvim', 'ROADMAP', 'views'), { recursive: true });
+  writeFileSync(broken, 'no frontmatter, no view\n');
   await pair(page);
   const choice = page.getByRole('combobox', { name: 'Saved view', exact: true });
+  const problems = page.getByText(/Files that are no view/);
+
+  // No view saved yet: the choice says nothing is chosen, so the board is a choice that changes something.
+  const make = page.getByRole('button', { name: 'New view' });
+  await openViewsByKey(page, make);
+  await expect(problems).toBeVisible();
+  await expect(choice).toHaveValue('');
+  await choice.selectOption('@board');
+  await expect(page.getByRole('group', { name: 'Board' })).toBeVisible();
+  await expect(problems).toHaveCount(0);
+  removeFile(broken);
   // g b: the board, inside the bar of the views, chosen as the built-in view.
   await expect(async () => {
     await page.locator('main').focus();

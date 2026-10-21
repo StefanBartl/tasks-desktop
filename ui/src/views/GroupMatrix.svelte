@@ -61,7 +61,7 @@
 <!-- A wide matrix scrolls in its own box, which the keyboard can reach. -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div class="scroll" tabindex="0" role="region" aria-label={label}>
-  <table aria-label={label}>
+  <table>
     <thead>
       <tr>
         <th scope="col"><span class="corner">{corner}</span></th>
