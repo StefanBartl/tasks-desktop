@@ -80,10 +80,10 @@ test('the last menu opens inside the window, and a choice closes when the focus 
   await page.keyboard.press('Escape');
 
   await showList(page);
-  // The popup of the menu is gone before the choice is pressed (a popup that is still warm shows at once on the next
-  // control and, in a window this narrow, can land under the pointer: see the task about the popup under the pointer).
-  await page.mouse.move(0, 700);
-  await expect(page.locator('#hint-tip')).toBeHidden();
+  // The popup of the element before is still warm when the choice is pressed (the order that once put a popup under the
+  // pointer in a window this narrow; a press of the mouse shows no popup of its own since appkit v0.13.1).
+  await page.getByRole('menuitem', { name: 'Help', exact: true }).hover();
+  await expect(page.locator('#hint-tip')).toBeVisible();
   await page.getByRole('button', { name: 'Areas', exact: true }).click();
   const choice = page.getByRole('group', { name: 'Areas' });
   await expect(choice).toBeVisible();
