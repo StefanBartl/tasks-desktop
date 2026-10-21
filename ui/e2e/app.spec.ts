@@ -586,6 +586,44 @@ test('a view as a matrix: the count of a cell is its tasks, a click opens it, a 
   await gone;
 });
 
+test('the board is the built-in view of the views: g b shows it in their bar, it has no delete, a view made there is shown, the choice goes back', async ({ page }) => {
+  await pair(page);
+  const choice = page.getByRole('combobox', { name: 'Saved view', exact: true });
+  // g b: the board, inside the bar of the views, chosen as the built-in view.
+  await expect(async () => {
+    await page.locator('main').focus();
+    await page.keyboard.press('g');
+    await page.keyboard.press('b');
+    await expect(page.getByRole('group', { name: 'Board' })).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 10000 });
+  await expect(choice).toHaveValue('@board');
+  await expect(page.getByRole('button', { name: 'Delete view' })).toHaveCount(0);
+  await expectAccessible(page, 'the board in the bar of the views');
+
+  // A view made from there is shown (the board is left), and the choice brings the board back.
+  await page.getByRole('button', { name: 'New view' }).click();
+  const form = page.getByRole('form', { name: 'New view' });
+  await form.getByLabel('Name').fill('E2e builtin v001');
+  await form.getByLabel('Kept in area').selectOption('lib.nvim');
+  await write(page, () => form.getByRole('button', { name: 'Create view' }).click());
+  await expect(page.getByRole('region', { name: 'E2e builtin v001', exact: true })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Board' })).toHaveCount(0);
+  await choice.selectOption('@board');
+  await expect(page.getByRole('group', { name: 'Board' })).toBeVisible();
+  await expect(page.getByRole('menuitemradio', { name: 'Board', exact: true })).toHaveCount(0);
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await expect(page.getByRole('menuitemradio', { name: 'Board', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('Escape');
+
+  // Leave the vault as the other tests know it.
+  await choice.selectOption({ label: 'E2e builtin v001' });
+  await expect(page.getByRole('region', { name: 'E2e builtin v001', exact: true })).toBeVisible();
+  const gone = nextAnswer(page);
+  await page.getByRole('button', { name: 'Delete view' }).click();
+  await gone;
+  await expect.poll(() => viewFile('lib.nvim', 'E2e builtin v001'), { timeout: WRITE_BUDGET }).toBeNull();
+});
+
 test('the ranges of the fields are asked of the hub once, and the property form offers the ones the engine names', async ({ page }) => {
   const asked: string[] = [];
   page.on('request', (r) => {

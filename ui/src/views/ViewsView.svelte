@@ -15,8 +15,10 @@
   import Detail from './Detail.svelte';
   import Groups from './Groups.svelte';
   import GroupMatrix from './GroupMatrix.svelte';
+  import BoardView from './BoardView.svelte';
 
-  let { app }: { app: App } = $props();
+  /** `board`: the built-in view is shown, the board (columns by status, with its order, runs and finishing). */
+  let { app, board = false }: { app: App; board?: boolean } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
 
   const saved = $derived(app.viewsState);
@@ -38,6 +40,15 @@
     if (field === 'status' || field === 'actor' || field === 'state') return labelOf(app.lang, field, value);
     if (field === 'prio') return `P${value}`;
     return value;
+  }
+
+  /** The value of the built-in view in the choice of views (no saved view has it: an id names an area and a slug). */
+  const BOARD_ID = '@board';
+
+  /** A view chosen in the bar: the board, a saved one, or the one being tried (which is shown already). */
+  function choose(value: string): void {
+    if (value === BOARD_ID) app.setView('board');
+    else if (value !== DRAFT_ID) app.openView(value);
   }
 
   // ── the form of a new view ──
@@ -82,7 +93,11 @@
       collapsed: [],
       select: draftSelect ?? (fromList ? fromFilter.select : emptySelect()),
     };
-    if (await saved.create(area, form)) making = false;
+    if (await saved.create(area, form)) {
+      making = false;
+      // Made from the board: the new view is shown, not the board.
+      if (board) app.setView('views');
+    }
   }
 
   /** Save the view being tried: the form of a new view, with its name, field, form and selection. */
@@ -259,10 +274,12 @@
 
 <div class="wrap">
   <div class="bar" role="group" aria-label={t('views.bar')}>
-    {#if saved.list.length > 0 || saved.draft}
+    {#if saved.list.length > 0 || saved.draft || app.can('reorder')}
       <label>
         {t('views.choose')}
-        <select value={open?.id ?? ''} onchange={(e) => e.currentTarget.value !== DRAFT_ID && saved.choose(e.currentTarget.value)}>
+        <select value={board ? BOARD_ID : (open?.id ?? '')} onchange={(e) => choose(e.currentTarget.value)}>
+          <!-- The built-in view: the board. It is no file and cannot be deleted. -->
+          {#if app.can('reorder')}<option value={BOARD_ID}>{t('views.board_builtin')}</option>{/if}
           {#if saved.draft}<option value={DRAFT_ID}>{t('views.draft_option', { name: saved.draft.title })}</option>{/if}
           {#each saved.list as view (view.id)}
             <option value={view.id}>{view.title}</option>
@@ -342,7 +359,9 @@
     </form>
   {/if}
 
-  {#if open === null}
+  {#if board}
+    <BoardView {app} />
+  {:else if open === null}
     {#if saved.doc !== null && !making}
       <p class="note">{t('views.none_yet')}</p>
     {/if}

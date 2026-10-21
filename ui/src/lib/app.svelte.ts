@@ -2275,7 +2275,7 @@ export class App {
     // shown, when the vault changed (from outside, say). A change of a task does not change a view: reading them after
     // every write elsewhere would be one more engine call in front of the next write.
     if (this.#viewsRev === undefined || (this.view === 'views' && this.#viewsRev !== doc.rev)) this.readViews();
-    if (this.view === 'views') void this.viewsState.loadGroupings();
+    if (this.view === 'views' || (this.view === 'board' && this.can('views'))) void this.viewsState.loadGroupings();
     if (this.view === 'today') await this.loadNext();
   }
 
@@ -2441,6 +2441,8 @@ export class App {
     if (view === 'views' && !this.can('views')) return;
     this.view = view;
     if (view === 'inbox') this.ensureInboxSelection(true);
+    // The board is the built-in view of the tab: its bar makes views, which need the fields of the engine.
+    if (view === 'board' && this.phase === 'ready' && this.can('views')) void this.viewsState.loadGroupings();
     if (view === 'views' && this.phase === 'ready') {
       void this.viewsState.loadGroupings();
       // What changed while the tab was not shown is read now (once per state of the vault).

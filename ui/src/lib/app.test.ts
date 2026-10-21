@@ -4421,6 +4421,19 @@ describe('the saved views', () => {
     m.app.stop();
   });
 
+  it('the board is the built-in view: opening it asks for the fields its bar makes views with', async () => {
+    const m = made(['views', 'groupings', 'reorder']);
+    await m.app.start(null);
+    // The reads beside the list are done (they would see the board too, and ask themselves).
+    await vi.waitFor(() => expect(m.hub.viewsCalls).toBe(1));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(m.hub.groupingsCalls).toBe(0);
+    m.app.setView('board');
+    expect(m.app.view).toBe('board');
+    await vi.waitFor(() => expect(m.hub.groupingsCalls).toBe(1));
+    m.app.stop();
+  });
+
   it('the palette names every saved view and opens it', async () => {
     const m = made();
     m.hub.viewList = [view('pub/one'), view('pub/two', { title: 'Second' })];

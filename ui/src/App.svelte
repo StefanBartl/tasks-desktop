@@ -572,7 +572,8 @@
         {:else if app.view === 'plan'}
           <PlanView {app} />
         {:else if app.view === 'board'}
-          <BoardView {app} />
+          <!-- The board is the built-in view of the views; an engine that keeps no views shows it alone. -->
+          {#if app.can('views')}<ViewsView {app} board />{:else}<BoardView {app} />{/if}
         {:else if app.view === 'inbox'}
           <InboxView {app} />
         {:else if app.view === 'cross'}
