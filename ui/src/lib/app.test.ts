@@ -2,12 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { ApiError, type Hub, type HubArea, type OpsRequest, type VaultList } from './api';
 import { App, type Env } from './app.svelte';
 import type { CachedList, ListStore } from './cache';
-import type { DonePreview, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
+import type { DonePreview, Groupings, Result, Snapshot, TaskDocument, TaskEntry, View, Views } from './contract';
 import { task } from './fixtures';
 import { MOVE_MAX } from './bulk';
 import { translate } from './i18n';
 import { emptyForm } from './planwizard';
 import { paletteActions } from './paletteActions';
+import { emptySelect, formOf, type ViewForm } from './views';
 
 function snapshot(tasks: TaskEntry[], rev = 'rev:1'): Snapshot {
   return {
@@ -188,6 +189,35 @@ class FakeHub {
     this.areasCalls += 1;
     return { areas: this.areaList, unclassified: [], private: [] };
   }
+  /** The saved views the hub answers; `viewsHold` holds the answers back, one for each ask, in the order asked. */
+  viewList: View[] = [];
+  viewsCalls = 0;
+  viewsHold: Promise<void>[] = [];
+  async views(): Promise<Views> {
+    this.viewsCalls += 1;
+    const list = this.viewList;
+    const held = this.viewsHold.shift();
+    if (held) await held;
+    return { kind: 'tasks.views', rev: `views:${list.length}`, views: list, problems: [] } as unknown as Views;
+  }
+  /** The groupings answer the rev of the list unless this names another (an answer of a state gone by). */
+  groupingsRev: string | null = null;
+  groupingsCalls = 0;
+  groupingsHold: Promise<void>[] = [];
+  async groupings(): Promise<Groupings> {
+    this.groupingsCalls += 1;
+    const rev = this.groupingsRev ?? this.doc.rev;
+    const held = this.groupingsHold.shift();
+    if (held) await held;
+    return {
+      kind: 'tasks.groupings',
+      rev,
+      fields: [
+        { field: 'status', values: ['doing', 'open'], truncated: false, writable: true, value_type: 'string', mode: 'set' },
+        { field: 'tags', values: ['ui'], truncated: false, writable: true, value_type: 'string', mode: 'tags', multi: true },
+      ],
+    } as unknown as Groupings;
+  }
   enumsDoc: unknown = null;
   enumsCalls = 0;
   async enums() {
@@ -289,12 +319,36 @@ class FakeHub {
       results: request.ops.map((op, i) => ({
         n: i + 1,
         op: op.op,
-        id: op.op === 'new' ? 'pub/created' : op.op === 'plan_new' ? `${op.area}/made-plan` : op.id,
+        id:
+          op.op === 'new'
+            ? 'pub/created'
+            : op.op === 'plan_new'
+              ? `${op.area}/made-plan`
+              : op.op === 'view_save'
+                ? (op.id ?? `${op.area}/made-view`)
+                : op.id,
         ok: true,
-        outcome: op.op === 'new' || op.op === 'plan_new' ? (request.dry_run ? 'would_create' : 'created') : 'changed',
+        outcome:
+          op.op === 'new' || op.op === 'plan_new' || (op.op === 'view_save' && op.id === undefined)
+            ? request.dry_run
+              ? 'would_create'
+              : 'created'
+            : op.op === 'view_delete'
+              ? 'deleted'
+              : 'changed',
         changed_ids: [],
         ...(op.op === 'set'
           ? { inverse: { op: 'set', id: op.id, patch: { status: 'open' }, if_match: 'e2' } }
+          : {}),
+        // A view made is taken back by deleting it; a view changed or deleted by saving the old one (as the engine does).
+        ...(op.op === 'view_save' && op.id === undefined
+          ? { inverse: { op: 'view_delete', id: `${op.area}/made-view`, if_match: 'v-made' } }
+          : {}),
+        ...(op.op === 'view_save' && op.id !== undefined
+          ? { inverse: { op: 'view_save', id: op.id, view: { title: 'Before', display: 'list', group_by: 'status' }, if_match: 'v-after' } }
+          : {}),
+        ...(op.op === 'view_delete'
+          ? { inverse: { op: 'view_save', id: op.id, view: { title: 'Gone', display: 'columns', group_by: 'tags' } } }
           : {}),
       })),
     } as unknown as Result;
@@ -3904,5 +3958,214 @@ describe('the order of the list', () => {
       expect(paletteActions(m.app).some((a) => a.key.startsWith('list.'))).toBe(false);
       m.app.stop();
     });
+  });
+});
+
+describe('the saved views', () => {
+  const view = (id: string, extra: Partial<View> = {}): View =>
+    ({
+      id,
+      area: id.split('/')[0]!,
+      title: `View ${id}`,
+      display: 'columns',
+      group_by: 'status',
+      collapsed: [],
+      select: emptySelect(),
+      etag: `etag-${id}`,
+      ...extra,
+    }) as View;
+  const made = (caps: string[] = ['views', 'groupings'], prefs?: Map<string, string>) => {
+    const m = make({ token: 't', ...(prefs ? { prefs } : {}) });
+    m.hub.capabilities = [...m.hub.capabilities!, ...caps];
+    m.hub.doc = snapshot([task('pub/a', { status: 'open', etag: 'e1' }), task('pub/b', { status: 'doing', tags: ['ui'] })]);
+    return m;
+  };
+  const last = (m: ReturnType<typeof make>) => m.hub.sent.at(-1)!.ops;
+  const form = (): ViewForm => ({ title: 'Mine', display: 'columns', group_by: 'status', collapsed: [], select: emptySelect() });
+
+  it('are read at the start and again when the vault changed, not with every read of the same state', async () => {
+    const m = made();
+    m.hub.viewList = [view('pub/mine')];
+    await m.app.start(null);
+    await vi.waitFor(() => expect(m.app.viewsState.list.map((v) => v.id)).toEqual(['pub/mine']));
+    m.hub.doc = { ...m.hub.doc, digest: 'other digest' } as Snapshot;
+    await m.app.refresh();
+    await m.app.refresh();
+    expect(m.hub.viewsCalls).toBe(1);
+    m.hub.doc = snapshot(m.hub.doc.tasks, 'rev:2');
+    await m.app.refresh();
+    await vi.waitFor(() => expect(m.hub.viewsCalls).toBe(2));
+    m.app.stop();
+  });
+
+  it('are not asked of an engine that keeps none, and its tab is not there', async () => {
+    const m = made([]);
+    await m.app.start(null);
+    m.app.setView('views');
+    expect(m.app.view).not.toBe('views');
+    await m.app.refresh();
+    expect(m.hub.viewsCalls).toBe(0);
+    expect(paletteActions(m.app).some((a) => a.key === 'go.views')).toBe(false);
+    m.app.stop();
+  });
+
+  it('are drawn with the groupings of the state shown, asked once per state; an answer of a state gone by is not kept', async () => {
+    const m = made();
+    await m.app.start(null);
+    m.app.setView('views');
+    await vi.waitFor(() => expect(m.app.viewsState.groupingsNow?.rev).toBe('rev:1'));
+    m.app.setView('list');
+    m.app.setView('views');
+    expect(m.hub.groupingsCalls).toBe(1);
+    // The vault changed, and the engine answers for a state that is gone by already.
+    m.hub.groupingsRev = 'rev:old';
+    m.hub.doc = snapshot(m.hub.doc.tasks, 'rev:2');
+    await m.app.refresh();
+    await vi.waitFor(() => expect(m.hub.groupingsCalls).toBe(2));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(m.app.viewsState.groupings?.rev).toBe('rev:1');
+    expect(m.app.viewsState.groupingsNow).toBeNull();
+    m.app.stop();
+  });
+
+  it('ask for the groupings once while the answer is on its way', async () => {
+    const m = made();
+    await m.app.start(null);
+    let release!: () => void;
+    m.hub.groupingsHold = [new Promise<void>((r) => (release = r))];
+    m.app.setView('views');
+    m.app.setView('list');
+    m.app.setView('views');
+    expect(m.hub.groupingsCalls).toBe(1);
+    release();
+    await vi.waitFor(() => expect(m.app.viewsState.groupingsNow).not.toBeNull());
+    m.app.stop();
+  });
+
+  it('a view made goes to its area and is the one shown; undo deletes it on the version made', async () => {
+    const m = made();
+    await m.app.start(null);
+    await vi.waitFor(() => expect(m.app.hubAreas).toHaveLength(1));
+    const before = m.hub.viewsCalls;
+    m.hub.viewList = [view('pub/other'), view('pub/made-view')];
+    expect(await m.app.viewsState.create('pub', form())).toBe(true);
+    expect(last(m)).toEqual([{ op: 'view_save', area: 'pub', view: form() }]);
+    // Read again after the write: the snapshot does not hold the views.
+    expect(m.hub.viewsCalls).toBe(before + 1);
+    expect(m.app.viewsState.open?.id).toBe('pub/made-view');
+    expect(m.prefs.get('tasks-desktop.view-open')).toBe('pub/made-view');
+    await m.app.undo();
+    expect(last(m)).toEqual([{ op: 'view_delete', id: 'pub/made-view', if_match: 'v-made' }]);
+    m.app.stop();
+  });
+
+  it('a change is made on the version read, and undo saves the view as it was', async () => {
+    const m = made();
+    m.hub.viewList = [view('pub/mine')];
+    await m.app.start(null);
+    await vi.waitFor(() => expect(m.app.viewsState.open).not.toBeNull());
+    const open = m.app.viewsState.open!;
+    expect(await m.app.viewsState.save(open, { ...formOf(open), display: 'list' })).toBe(true);
+    expect(last(m)).toEqual([{ op: 'view_save', id: 'pub/mine', view: { ...formOf(open), display: 'list' }, if_match: 'etag-pub/mine' }]);
+    await m.app.undo();
+    expect(last(m)).toEqual([
+      { op: 'view_save', id: 'pub/mine', view: { title: 'Before', display: 'list', group_by: 'status' }, if_match: 'v-after' },
+    ]);
+    m.app.stop();
+  });
+
+  it('a view deleted on the version read comes back with undo', async () => {
+    const m = made();
+    m.hub.viewList = [view('pub/mine')];
+    await m.app.start(null);
+    await vi.waitFor(() => expect(m.app.viewsState.open).not.toBeNull());
+    expect(await m.app.viewsState.remove(m.app.viewsState.open!)).toBe(true);
+    expect(last(m)).toEqual([{ op: 'view_delete', id: 'pub/mine', if_match: 'etag-pub/mine' }]);
+    await m.app.undo();
+    expect(last(m)).toEqual([{ op: 'view_save', id: 'pub/mine', view: { title: 'Gone', display: 'columns', group_by: 'tags' } }]);
+    m.app.stop();
+  });
+
+  it('folding a group keeps the fold in the view, and opening it takes it out', async () => {
+    const m = made();
+    m.hub.viewList = [view('pub/mine', { collapsed: ['doing'] })];
+    await m.app.start(null);
+    await vi.waitFor(() => expect(m.app.viewsState.open).not.toBeNull());
+    const open = m.app.viewsState.open!;
+    await m.app.viewsState.toggle(open, formOf(open), 'open');
+    expect((last(m)[0] as { view: ViewForm }).view.collapsed).toEqual(['doing', 'open']);
+    await m.app.viewsState.toggle(open, formOf(open), 'doing');
+    expect((last(m)[0] as { view: ViewForm }).view.collapsed).toEqual([]);
+    m.app.stop();
+  });
+
+  it('a write under way refuses another change of a view', async () => {
+    const m = made();
+    m.hub.viewList = [view('pub/mine')];
+    await m.app.start(null);
+    await vi.waitFor(() => expect(m.app.viewsState.open).not.toBeNull());
+    m.app.saving = true;
+    expect(await m.app.viewsState.remove(m.app.viewsState.open!)).toBe(false);
+    expect(m.hub.sent).toHaveLength(0);
+    m.app.stop();
+  });
+
+  it('the open view is kept in the browser only for an area whose class may be kept there', async () => {
+    const m = made();
+    m.hub.areaList = [
+      { name: 'pub', data_class: 'public' },
+      { name: 'sec', data_class: 'private' },
+    ];
+    m.hub.viewList = [view('pub/one'), view('sec/two')];
+    await m.app.start(null);
+    await vi.waitFor(() => expect(m.app.hubAreas).toHaveLength(2));
+    m.app.openView('sec/two');
+    expect(m.app.view).toBe('views');
+    expect(m.app.viewsState.open?.id).toBe('sec/two');
+    expect(m.prefs.get('tasks-desktop.view-open')).toBe('');
+    m.app.openView('pub/one');
+    expect(m.prefs.get('tasks-desktop.view-open')).toBe('pub/one');
+    m.app.stop();
+  });
+
+  it('the page opens on the tab and the view it was left on', async () => {
+    const prefs = new Map([
+      ['tasks-desktop.view', 'views'],
+      ['tasks-desktop.view-open', 'pub/two'],
+    ]);
+    const m = made(['views', 'groupings'], prefs);
+    m.hub.viewList = [view('pub/one'), view('pub/two')];
+    expect(m.app.view).toBe('views');
+    await m.app.start(null);
+    await vi.waitFor(() => expect(m.app.viewsState.open?.id).toBe('pub/two'));
+    // A view that is gone gives way to the first.
+    m.app.viewsState.choose('pub/gone');
+    expect(m.app.viewsState.open?.id).toBe('pub/one');
+    m.app.stop();
+  });
+
+  it('show the tasks their selection names, found the way the list finds them', async () => {
+    const m = made();
+    await m.app.start(null);
+    const ids = (select: Partial<View['select']>) =>
+      m.app.tasksOfView(view('pub/x', { select: { ...emptySelect(), ...select } })).map((t) => t.id);
+    expect(ids({})).toEqual(['pub/a', 'pub/b']);
+    expect(ids({ statuses: ['doing'] })).toEqual(['pub/b']);
+    expect(ids({ tags: ['ui'] })).toEqual(['pub/b']);
+    expect(ids({ query: 'pub/a' })).toEqual(['pub/a']);
+    m.app.stop();
+  });
+
+  it('the palette names every saved view and opens it', async () => {
+    const m = made();
+    m.hub.viewList = [view('pub/one'), view('pub/two', { title: 'Second' })];
+    await m.app.start(null);
+    await vi.waitFor(() => expect(m.app.viewsState.list).toHaveLength(2));
+    const action = paletteActions(m.app).find((a) => a.key === 'view.pub/two');
+    expect(action?.label).toContain('Second');
+    await action!.run();
+    expect(m.app.view).toBe('views');
+    expect(m.app.viewsState.open?.id).toBe('pub/two');
+    m.app.stop();
   });
 });

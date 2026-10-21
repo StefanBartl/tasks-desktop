@@ -4,13 +4,14 @@
 import { defaultKeymap, withChord, type KeyPress } from 'appkit-ui/keymap';
 import type { View } from './app.svelte';
 
-/** `g h` is Today, `g l` the list, `g p` the plan, `g b` the board, `g i` the inbox. */
+/** `g h` is Today, `g l` the list, `g p` the plan, `g b` the board, `g i` the inbox, `g v` the saved views. */
 export const keymap = withChord(defaultKeymap, {
   h: 'today',
   l: 'list',
   p: 'plan',
   b: 'board',
   i: 'inbox',
+  v: 'views',
 } satisfies Record<string, View>);
 
 /** The press of a key as the kit reads it. */

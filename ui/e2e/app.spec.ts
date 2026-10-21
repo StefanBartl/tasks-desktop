@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
@@ -263,6 +263,72 @@ test('the browser enforces Trusted Types and no inline or eval script', async ({
   expect(
     await page.evaluate(() => (window as unknown as { __inline?: number }).__inline),
   ).toBeUndefined();
+});
+
+/** The file of the saved view titled `title` in `area` of the test vault, or null when there is none. */
+function viewFile(area: string, title: string): string | null {
+  const dir = join(state().vault, area, 'ROADMAP', 'views');
+  if (!existsSync(dir)) return null;
+  for (const name of readdirSync(dir)) {
+    const text = readFileSync(join(dir, name), 'utf8');
+    if (text.includes(`title: ${title}\n`) || text.includes(`title: "${title}"`)) return join(dir, name);
+  }
+  return null;
+}
+
+test('a saved view is made in the tab of the views, kept as a file of the vault, there after a reload; renamed, deleted and back with undo', async ({ page }) => {
+  await pair(page);
+  // `g v` opens the tab (the keys of the page, not a field).
+  await page.locator('main').focus();
+  await page.keyboard.press('g');
+  await page.keyboard.press('v');
+  const make = page.getByRole('button', { name: 'New view' });
+  await expect(make).toBeEnabled();
+  await make.click();
+  const form = page.getByRole('form', { name: 'New view' });
+  await form.getByLabel('Name').fill('E2e view v001');
+  await form.getByLabel('Kept in area').selectOption('lib.nvim');
+  await form.getByLabel('Group by').selectOption({ label: 'Priority' });
+  const made = nextAnswer(page);
+  await form.getByRole('button', { name: 'Create view' }).click();
+  await made;
+  // The file is the engine's: in the area chosen, grouped by the field chosen.
+  await expect.poll(() => viewFile('lib.nvim', 'E2e view v001'), { timeout: WRITE_BUDGET }).not.toBeNull();
+  const file = viewFile('lib.nvim', 'E2e view v001')!;
+  expect(readFileSync(file, 'utf8')).toContain('group_by: prio');
+  const open = page.getByRole('region', { name: 'E2e view v001' });
+  // The groups are the engine's values of the field: the tasks of the fixture have priority 2.
+  await expect(open.locator('section[data-group="2"]')).toBeVisible();
+  await expectAccessible(page, 'the tab of the views');
+
+  // Read again from the vault after a reload: the page opens on the tab and the view.
+  await page.reload();
+  await expect(page.getByRole('combobox', { name: 'Saved view', exact: true })).toHaveValue(/^lib\.nvim\//);
+  await expect(page.getByRole('region', { name: 'E2e view v001' })).toBeVisible();
+
+  // Renamed: the same file, the new title.
+  const renamed = nextAnswer(page);
+  await page.getByRole('region', { name: 'E2e view v001' }).getByLabel('Name').fill('E2e view v001 renamed');
+  await page.getByRole('button', { name: 'Rename' }).click();
+  await renamed;
+  await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toContain('E2e view v001 renamed');
+
+  // Deleted, and back with undo (the engine's inverse, the view as it was).
+  const gone = nextAnswer(page);
+  await page.getByRole('button', { name: 'Delete view' }).click();
+  await gone;
+  await expect.poll(() => existsSync(file), { timeout: WRITE_BUDGET }).toBe(false);
+  await expect(page.getByRole('region', { name: 'E2e view v001 renamed' })).toHaveCount(0);
+  const back = nextAnswer(page);
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await back;
+  await expect.poll(() => existsSync(file), { timeout: WRITE_BUDGET }).toBe(true);
+  await expect(page.getByRole('region', { name: 'E2e view v001 renamed' })).toBeVisible();
+  // Leave the vault as the other tests know it.
+  const cleaned = nextAnswer(page);
+  await page.getByRole('button', { name: 'Delete view' }).click();
+  await cleaned;
+  await expect.poll(() => existsSync(file), { timeout: WRITE_BUDGET }).toBe(false);
 });
 
 test('the ranges of the fields are asked of the hub once, and the property form offers the ones the engine names', async ({ page }) => {

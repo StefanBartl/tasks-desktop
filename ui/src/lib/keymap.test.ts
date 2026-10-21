@@ -9,7 +9,7 @@ const key = (init: Partial<KeyboardEvent> & { key: string }) =>
 describe('the keys of the page', () => {
   it('goes to the views with g and a letter, as the page always did', () => {
     expect(keymap.chord.prefix).toBe('g');
-    expect(keymap.chord.targets).toEqual({ h: 'today', l: 'list', p: 'plan', b: 'board', i: 'inbox' });
+    expect(keymap.chord.targets).toEqual({ h: 'today', l: 'list', p: 'plan', b: 'board', i: 'inbox', v: 'views' });
     expect(keymap.chord.timeoutMs).toBe(1500);
   });
 

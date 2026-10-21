@@ -10,6 +10,7 @@
   import InboxView from './views/InboxView.svelte';
   import CrossView from './views/CrossView.svelte';
   import FinishedView from './views/FinishedView.svelte';
+  import ViewsView from './views/ViewsView.svelte';
   import Matrix from './views/Matrix.svelte';
   import TaskDialog from './views/TaskDialog.svelte';
   import CheckDialog from './views/CheckDialog.svelte';
@@ -407,6 +408,16 @@
                 },
               ]
             : []),
+          ...(app.can('views')
+            ? [
+                {
+                  kind: 'radio' as const,
+                  label: t('nav.views'),
+                  checked: app.view === 'views',
+                  onselect: () => app.setView('views'),
+                },
+              ]
+            : []),
           { kind: 'section', label: t('menu.sec.tiles') },
           {
             kind: 'action',
@@ -551,7 +562,9 @@
                     ? t('nav.cross')
                     : app.view === 'done'
                       ? t('nav.done')
-                      : t('nav.list')}
+                      : app.view === 'views'
+                        ? t('nav.views')
+                        : t('nav.list')}
         </h1>
         {#if app.view === 'today'}
           <Today {app} />
@@ -565,6 +578,8 @@
           <CrossView {app} />
         {:else if app.view === 'done'}
           <FinishedView {app} />
+        {:else if app.view === 'views'}
+          <ViewsView {app} />
         {:else}
           <ListView {app} bind:searchBox />
         {/if}

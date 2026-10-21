@@ -1,6 +1,23 @@
 // The hub's routes, as typed calls. Only the shapes the UI needs.
 
-import type { Areas, Check, DonePreview, Estimate, Finished, Links, NamedLists, Next, Order, PlanFor, Result, Snapshot, TaskDocument } from './contract';
+import type {
+  Areas,
+  Check,
+  DonePreview,
+  Estimate,
+  Finished,
+  Groupings,
+  Links,
+  NamedLists,
+  Next,
+  Order,
+  PlanFor,
+  Result,
+  Snapshot,
+  TaskDocument,
+  Views,
+} from './contract';
+import type { ViewForm } from './views';
 import type { About } from './about';
 import { ApiError, failure, HubClient, textOf, type Hello, type SnapshotResult as KitSnapshotResult } from 'appkit-ui/client';
 
@@ -19,6 +36,9 @@ export type Op =
   | { op: 'append_note'; id: string; text: string; if_match?: string }
   | { op: 'set_body'; id: string; body: string; if_match?: string }
   | { op: 'move_area'; id: string; to_area: string; if_match?: string }
+  /** A saved view: `area` alone makes a new one, `id` replaces that one (on the version read). */
+  | { op: 'view_save'; id?: string; area?: string; view: ViewForm; if_match?: string }
+  | { op: 'view_delete'; id: string; if_match?: string }
   | {
       op: 'plan_new';
       area: string;
@@ -155,6 +175,16 @@ export class Hub extends HubClient<Snapshot> {
   /** The ranges of the fields as the engine names them (its `hello.enums`, passed on by the hub). */
   enums(): Promise<{ enums: unknown }> {
     return this.json<{ enums: unknown }>('/api/tasks/enums');
+  }
+
+  /** The fields the open tasks can be grouped by, with their values and how each is written (the engine's). */
+  groupings(): Promise<Groupings> {
+    return this.json<Groupings>('/api/tasks/groupings');
+  }
+
+  /** The saved views of the vault, each with the version of its file. */
+  views(): Promise<Views> {
+    return this.json<Views>('/api/tasks/views');
   }
 
   /** Remember a folder as a vault; the page has asked the person first. */

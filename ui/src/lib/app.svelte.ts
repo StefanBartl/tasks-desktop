@@ -19,7 +19,18 @@ import { planOp, type PlanForm, type PlanPreview } from './planwizard';
 import { columnsOf, isColumn, neighbourColumn, placeNear, stepInGroup, type Move } from './board';
 import { ApiError, type Hub, type HubArea, type HubAreas, type SearchResult, type VaultList } from './api';
 import { cacheableClass, cacheableList, type CachedList, type ListStore } from './cache';
-import type { DonePreview, Finished, Links, MovePlan, Next, Result, Snapshot, TaskDocument, TaskEntry } from './contract';
+import type {
+  DonePreview,
+  Finished,
+  Links,
+  MovePlan,
+  Next,
+  Result,
+  Snapshot,
+  TaskDocument,
+  TaskEntry,
+  View as SavedView,
+} from './contract';
 import type { Op } from './api';
 import { indexOfLinks, touchedAreas } from './cross';
 import { parsePrefs, type Prefs as FinishedPrefs } from './finished';
@@ -33,6 +44,8 @@ import { bumped, parseFrecency, type Frecency } from 'appkit-ui/palette';
 import { AboutState, type AboutDialog } from './state/about.svelte';
 import { ConflictsState } from './state/conflicts.svelte';
 import { VaultsState } from './state/vaults.svelte';
+import { ViewsState } from './state/views.svelte';
+import { filterOfSelect, type ViewForm } from './views';
 import { TodayState } from './state/today.svelte';
 import { GraphState } from './state/graph.svelte';
 import type { DailyPrefs } from './daily';
@@ -65,7 +78,7 @@ const NOTE_MAX = 1000;
 
 export type Phase = 'starting' | 'needs_pairing' | 'offline' | 'unavailable' | 'ready';
 export type Connection = 'live' | 'reconnecting' | 'offline';
-export type View = 'today' | 'list' | 'board' | 'plan' | 'inbox' | 'cross' | 'done';
+export type View = 'today' | 'list' | 'board' | 'plan' | 'inbox' | 'cross' | 'done' | 'views';
 export type Theme = 'auto' | 'light' | 'dark';
 /** The blocks of the Today view that a person may hide. */
 export { ORDERED_TILES, TILES, type OrderedTile, type Tile } from './tiles-list';
@@ -102,6 +115,8 @@ export interface Env {
 }
 
 const TOKEN_KEY = 'tasks-desktop.session';
+/** The saved view that was open last (its id). */
+const OPEN_VIEW_KEY = 'tasks-desktop.view-open';
 
 /** A promise that gives up after `ms` and says `null`. */
 function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
@@ -181,6 +196,10 @@ export class App {
   #hubVault: string | null | undefined = undefined;
   /** How the start page is laid out and what was chosen there (its own state: `state/today.svelte.ts`). */
   readonly todayState: TodayState;
+  /** The saved views of the vault and the groupings they are drawn with (its own state: `state/views.svelte.ts`). */
+  readonly viewsState: ViewsState;
+  /** The rev of the snapshot the views were last read at. */
+  #viewsRev: string | undefined = undefined;
   /** Blocks of the Today view the person put away. */
   get hiddenTiles(): Tile[] {
     return this.todayState.hidden;
@@ -422,6 +441,20 @@ export class App {
       getItem: (key) => safe(() => env.prefs.getItem(key)),
       setItem: (key, value) => void safe(() => env.prefs.setItem(key, value)),
     });
+    this.viewsState = new ViewsState({
+      can: (capability) => this.can(capability),
+      rev: () => this.snapshot?.rev,
+      views: () => env.hub.views(),
+      groupings: () => env.hub.groupings(),
+      write: (ops) => this.write(ops),
+      remembered: () => safe(() => env.prefs.getItem(OPEN_VIEW_KEY)) || null,
+      // The id names its area: it is kept only for an area whose class may be kept in the browser (as the cache).
+      remember: (id) => {
+        const area = id?.split('/')[0];
+        const keep = area !== undefined && cacheableClass(this.hubAreas.find((a) => a.name === area)?.data_class);
+        safe(() => env.prefs.setItem(OPEN_VIEW_KEY, keep ? (id ?? '') : ''));
+      },
+    });
     this.prefs = new Preferences<Lang>(
       env.prefs,
       { lang: 'tasks-desktop.lang', theme: 'tasks-desktop.theme', shortcuts: 'tasks-desktop.shortcuts' },
@@ -446,7 +479,8 @@ export class App {
       view === 'plan' ||
       view === 'inbox' ||
       view === 'cross' ||
-      view === 'done'
+      view === 'done' ||
+      view === 'views'
         ? view
         : 'today';
   }
@@ -481,6 +515,17 @@ export class App {
   get shown(): TaskEntry[] {
     const filtered = applyFilter(this.tasks, this.filter, this.today, this.crossIndex, this.quickWinSet);
     return this.sort === 'default' ? filtered : applyOrder(filtered, this.#order);
+  }
+
+  /** The open tasks a saved view shows: its selection found the way the list finds its filter. */
+  tasksOfView(view: SavedView): TaskEntry[] {
+    return applyFilter(this.tasks, filterOfSelect(view.select), this.today, this.crossIndex, this.quickWinSet);
+  }
+
+  /** Show the tab of the views with the view `id` open. */
+  openView(id: string): void {
+    this.viewsState.choose(id);
+    this.setView('views');
   }
 
   /** The named lists of the vault the hub reads. */
@@ -834,7 +879,7 @@ export class App {
         if (files > 1) this.say('ok', 'write.saved_many', { n: files }, undo);
         else this.say('ok', 'write.saved', {}, undo);
       }
-      await this.refresh();
+      await this.readAfter(ops);
       return result;
     } catch (error) {
       this.answering = false;
@@ -850,7 +895,7 @@ export class App {
           code: error instanceof ApiError ? error.code : 'offline',
         });
       }
-      await this.refresh();
+      await this.readAfter(ops);
       return null;
     } finally {
       this.saving = false;
@@ -865,6 +910,12 @@ export class App {
       }
       settle();
     }
+  }
+
+  /** The list after a write, and the views when the write was one of them (the snapshot does not hold the views). */
+  private async readAfter(ops: readonly Op[]): Promise<void> {
+    await this.refresh();
+    if (ops.some((op) => op.op === 'view_save' || op.op === 'view_delete')) await this.viewsState.load();
   }
 
   /** The operations that take back what `result` did (only when every entry has one). */
@@ -925,6 +976,21 @@ export class App {
       if (inv.op === 'set_body') {
         if (typeof inv.body !== 'string') return undefined;
         inverses.push({ op: 'set_body', id: inv.id, body: inv.body, ...(inv.if_match ? { if_match: inv.if_match } : {}) });
+        continue;
+      }
+      // A view: made is taken back by deleting it, changed or deleted by saving the view as it was (the engine's).
+      if (inv.op === 'view_delete') {
+        inverses.push({ op: 'view_delete', id: inv.id, ...(inv.if_match ? { if_match: inv.if_match } : {}) });
+        continue;
+      }
+      if (inv.op === 'view_save') {
+        if (typeof inv.view !== 'object' || inv.view === null) return undefined;
+        inverses.push({
+          op: 'view_save',
+          id: inv.id,
+          view: inv.view as ViewForm,
+          ...(inv.if_match ? { if_match: inv.if_match } : {}),
+        });
         continue;
       }
       if (inv.op !== 'set') return undefined;
@@ -2023,6 +2089,12 @@ export class App {
       // No classes, no cache: nothing is written.
     }
     void this.loadLinks();
+    // The views are files of their own: read at the start and when the vault changed (and after a write of one).
+    if (this.#viewsRev !== doc.rev) {
+      this.#viewsRev = doc.rev;
+      void this.viewsState.load();
+    }
+    if (this.view === 'views') void this.viewsState.loadGroupings();
     if (this.view === 'today') await this.loadNext();
   }
 
@@ -2184,8 +2256,11 @@ export class App {
   setView(view: View): void {
     // The board writes with `reorder`: an engine without it does not get one.
     if (view === 'board' && !this.can('reorder')) return;
+    // The views are the vault's: an engine that keeps none has no tab of them.
+    if (view === 'views' && !this.can('views')) return;
     this.view = view;
     if (view === 'inbox') this.ensureInboxSelection(true);
+    if (view === 'views' && this.phase === 'ready') void this.viewsState.loadGroupings();
     safe(() => this.env.prefs.setItem('tasks-desktop.view', view));
     if (view === 'today' && this.phase === 'ready') void this.loadNext();
   }
