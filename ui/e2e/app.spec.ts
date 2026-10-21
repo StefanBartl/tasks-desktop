@@ -440,6 +440,71 @@ test('a task moved between the groups of a view writes the field: by key first, 
   await gone;
 });
 
+test('the context menu opens a selection as a view to try: by key from a row, Escape gives the focus back, a group by the mouse, saved only when asked', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  const viewsDir = join(state().vault, 'lib.nvim', 'ROADMAP', 'views');
+  const files = () => (existsSync(viewsDir) ? readdirSync(viewsDir).length : 0);
+  const before = files();
+  const row = page.locator('button.row').filter({ has: page.locator('.id', { hasText: /^lib\.nvim\/alpha$/ }) });
+  const menu = page.getByRole('menu', { name: 'Open as a view' });
+
+  // By key: Shift+F10 on the row opens the menu with the focus on its first entry; Escape closes it and gives the
+  // focus back to the row.
+  await row.focus();
+  await page.keyboard.press('Shift+F10');
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Columns' })).toBeFocused();
+  await expectAccessible(page, 'the context menu');
+  await page.keyboard.press('ArrowDown');
+  await expect(menu.getByRole('menuitem', { name: 'List' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(row).toBeFocused();
+
+  // An entry by key: the area of the task as a list, a view to try - shown on the tab, no file written.
+  await page.keyboard.press('Shift+F10');
+  await expect(menu).toBeVisible();
+  await page.keyboard.press('l');
+  await expect(menu.getByRole('menuitem', { name: 'List' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  const tried = page.getByRole('region', { name: 'lib.nvim', exact: true });
+  await expect(tried).toBeVisible();
+  await expect(tried.getByText('Not saved')).toBeVisible();
+  await expect(tried.locator('[data-view-item="lib.nvim/alpha"]')).toBeVisible();
+  await expect(tried.locator('[data-view-item^="cascade.nvim/"]')).toHaveCount(0);
+  expect(files()).toBe(before);
+
+  // A group by the mouse: the right click on the heading of a group opens the same view narrowed to the group.
+  await tried.locator('section[data-group="open"] h3 button').click({ button: 'right' });
+  await expect(menu).toBeVisible();
+  await menu.getByRole('menuitem', { name: 'Columns' }).click();
+  const narrowed = page.getByRole('region', { name: 'lib.nvim: open', exact: true });
+  await expect(narrowed).toBeVisible();
+  await expect(narrowed.locator('section[data-group="open"]')).toBeVisible();
+  await expect(narrowed.locator('section[data-group="doing"] [data-view-item]')).toHaveCount(0);
+  expect(files()).toBe(before);
+
+  // Saved only when asked: the form of a new view takes its name, field and selection.
+  await narrowed.getByRole('button', { name: 'Save as view' }).click();
+  const form = page.getByRole('form', { name: 'New view' });
+  await expect(form.getByLabel('Name')).toHaveValue('lib.nvim: open');
+  await form.getByLabel('Kept in area').selectOption('lib.nvim');
+  const made = nextAnswer(page);
+  await form.getByRole('button', { name: 'Create view' }).click();
+  await made;
+  await expect.poll(files, { timeout: WRITE_BUDGET }).toBe(before + 1);
+  const file = viewFile('lib.nvim', 'lib.nvim: open')!;
+  expect(readFileSync(file, 'utf8')).toMatch(/sel_statuses: \[open\]/);
+  expect(readFileSync(file, 'utf8')).toMatch(/sel_areas: \[lib\.nvim\]/);
+  await expect(page.getByRole('region', { name: 'lib.nvim: open', exact: true }).getByText('Not saved')).toHaveCount(0);
+  // Leave the vault as the other tests know it.
+  const gone = nextAnswer(page);
+  await page.getByRole('button', { name: 'Delete view' }).click();
+  await gone;
+  await expect.poll(files, { timeout: WRITE_BUDGET }).toBe(before);
+});
+
 test('the ranges of the fields are asked of the hub once, and the property form offers the ones the engine names', async ({ page }) => {
   const asked: string[] = [];
   page.on('request', (r) => {

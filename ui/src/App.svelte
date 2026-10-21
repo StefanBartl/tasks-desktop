@@ -26,6 +26,7 @@
   import BlockDialog from './views/BlockDialog.svelte';
   import DropMoveDialog from './views/DropMoveDialog.svelte';
   import Palette from './views/Palette.svelte';
+  import ContextMenu from './views/ContextMenu.svelte';
   import ConflictCenter from './views/ConflictCenter.svelte';
   import VaultsDialog from './views/VaultsDialog.svelte';
   import AboutDialog from './views/AboutDialog.svelte';
@@ -599,6 +600,8 @@
         </section>
       {/snippet}
     </svelte:boundary>
+    <!-- The context menu belongs to the content it was opened on: inside the main landmark. -->
+    {#if app.phase === 'ready'}<ContextMenu {app} />{/if}
   </main>
   {#if app.phase === 'ready'}
     <Capture {app} />

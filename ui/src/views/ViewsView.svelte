@@ -5,11 +5,13 @@
   // says what came of it.
   import { tick, untrack } from 'svelte';
   import type { App } from '../lib/app.svelte';
-  import type { GroupField, View } from '../lib/contract';
+  import type { GroupField, View, ViewSelect } from '../lib/contract';
   import { groupsOf, neighbourGroup, NONE, type Grouping } from '../lib/groups';
   import { labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
   import { cleanTitle, emptySelect, formOf, selectOfFilter, type ViewForm } from '../lib/views';
+  import { selectOfGroup } from '../lib/viewMenu';
+  import { DRAFT_ID } from '../lib/state/views.svelte';
   import Detail from './Detail.svelte';
   import Groups from './Groups.svelte';
 
@@ -44,6 +46,8 @@
   let groupBy = $state<GroupField>('status');
   let display = $state<'columns' | 'list'>('columns');
   let fromList = $state(true);
+  /** The selection of the view being tried, when it is the one being saved (then not the filter of the list). */
+  let draftSelect = $state.raw<ViewSelect | null>(null);
   let makeProblem = $state('');
   let titleBox = $state<HTMLInputElement | null>(null);
 
@@ -52,6 +56,7 @@
   function startMaking(): void {
     making = true;
     title = '';
+    draftSelect = null;
     makeProblem = '';
     area = areas.includes(area) ? area : (app.filter.areas.length === 1 && areas.includes(app.filter.areas[0]!) ? app.filter.areas[0]! : (areas[0] ?? ''));
     groupBy = fields.includes(groupBy) ? groupBy : (fields[0] ?? 'status');
@@ -71,9 +76,24 @@
       display,
       group_by: groupBy,
       collapsed: [],
-      select: fromList ? fromFilter.select : emptySelect(),
+      select: draftSelect ?? (fromList ? fromFilter.select : emptySelect()),
     };
     if (await saved.create(area, form)) making = false;
+  }
+
+  /** Save the view being tried: the form of a new view, with its name, field, form and selection. */
+  function saveDraft(draft: View): void {
+    startMaking();
+    title = draft.title;
+    groupBy = draft.group_by;
+    display = draft.display === 'list' ? 'list' : 'columns';
+    draftSelect = draft.select;
+  }
+
+  /** The context menu of a group: the same view narrowed to the group, where a view can hold that. */
+  function groupMenu(event: MouseEvent, view: View, value: string): void {
+    const select = selectOfGroup(view.select, view.group_by, value);
+    if (select) void app.openViewMenu(event, `${view.title}: ${valueLabel(view.group_by, value)}`, select);
   }
 
   // ── the open view ──
@@ -158,10 +178,11 @@
 
 <div class="wrap">
   <div class="bar" role="group" aria-label={t('views.bar')}>
-    {#if saved.list.length > 0}
+    {#if saved.list.length > 0 || saved.draft}
       <label>
         {t('views.choose')}
-        <select value={open?.id ?? ''} onchange={(e) => saved.choose(e.currentTarget.value)}>
+        <select value={open?.id ?? ''} onchange={(e) => e.currentTarget.value !== DRAFT_ID && saved.choose(e.currentTarget.value)}>
+          {#if saved.draft}<option value={DRAFT_ID}>{t('views.draft_option', { name: saved.draft.title })}</option>{/if}
           {#each saved.list as view (view.id)}
             <option value={view.id}>{view.title}</option>
           {/each}
@@ -212,11 +233,13 @@
           <option value="list">{t('views.display.list')}</option>
         </select>
       </label>
-      <label class="check">
-        <input type="checkbox" bind:checked={fromList} />
-        {t('views.form.from_list')}
-      </label>
-      {#if fromList && fromFilter.dropped}
+      {#if draftSelect === null}
+        <label class="check">
+          <input type="checkbox" bind:checked={fromList} />
+          {t('views.form.from_list')}
+        </label>
+      {/if}
+      {#if draftSelect === null && fromList && fromFilter.dropped}
         <p class="note">{t('views.form.dropped')}</p>
       {/if}
       {#if makeProblem}<p class="note" role="alert">{makeProblem}</p>{/if}
@@ -265,9 +288,15 @@
             <option value="list">{t('views.display.list')}</option>
           </select>
         </label>
-        <button type="button" class="danger" disabled={app.saving} onclick={() => void saved.remove(open)}>{t('views.delete')}</button>
+        {#if open.id === DRAFT_ID}
+          <button type="button" disabled={app.saving || making} onclick={() => saveDraft(open)}>{t('views.save_draft')}</button>
+          <button type="button" onclick={() => void saved.remove(open)}>{t('views.discard')}</button>
+        {:else}
+          <button type="button" class="danger" disabled={app.saving} onclick={() => void saved.remove(open)}>{t('views.delete')}</button>
+        {/if}
       </div>
-      <p class="muted">{t('views.selection', { what: selectionText(open) })} · {open.id}</p>
+      {#if open.id === DRAFT_ID}<p class="note">{t('views.draft')}</p>{/if}
+      <p class="muted">{t('views.selection', { what: selectionText(open) })}{open.id === DRAFT_ID ? '' : ` · ${open.id}`}</p>
       {#if open.display === 'matrix'}
         <p class="note">{t('views.matrix_later')}</p>
       {/if}
@@ -287,6 +316,7 @@
               ondrop={movable ? (id, from, to, copy) => void move(id, from, to, copy) : undefined}
               canDrop={(_id, from, to) => from !== to}
               columnsLabel={t('views.columns', { name: open.title })}
+              onmenu={(e, value) => groupMenu(e, open, value)}
             >
               {#snippet item(task, group)}
                 <button

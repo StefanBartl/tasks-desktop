@@ -5,7 +5,10 @@
 
 import { ApiError, type Op } from '../api';
 import type { Groupings, Result, View, Views } from '../contract';
-import { createOp, deleteOp, saveOp, toggledGroup, type ViewForm } from '../views';
+import { createOp, deleteOp, emptySelect, saveOp, toggledGroup, type ViewForm } from '../views';
+
+/** The id of the view being tried (opened from a context menu and not saved yet): no file has it. */
+export const DRAFT_ID = '';
 
 /** What the views need of the page around them. */
 export interface ViewsHost {
@@ -30,6 +33,11 @@ export class ViewsState {
   groupingsFailed = $state(false);
   /** The id of the view that is open (null: the first one). */
   openId = $state<string | null>(null);
+  /**
+   * A view being tried: opened from a context menu, not saved. It is shown until a saved one is chosen; a change of it
+   * stays in the page (no file is written for a look), and saving it makes it a view of the vault.
+   */
+  draft = $state.raw<View | null>(null);
   private seq = 0;
   /** The rev the groupings are being asked for. */
   private groupingsAsked: string | null = null;
@@ -44,6 +52,7 @@ export class ViewsState {
 
   /** The view that is shown: the one chosen, or the first when that one is gone (or none was chosen). */
   get open(): View | null {
+    if (this.draft) return this.draft;
     const list = this.list;
     return list.find((v) => v.id === this.openId) ?? list[0] ?? null;
   }
@@ -63,6 +72,7 @@ export class ViewsState {
   }
 
   choose(id: string): void {
+    this.draft = null;
     this.openId = id;
     this.host.remember(id);
   }
@@ -123,8 +133,27 @@ export class ViewsState {
     return true;
   }
 
-  /** Change `view` to `form` (on the version that was read). */
+  /** Show `form` as a view being tried (nothing is written). */
+  try(form: ViewForm): void {
+    this.draft = {
+      id: DRAFT_ID,
+      area: '',
+      title: form.title,
+      display: form.display,
+      group_by: form.group_by,
+      ...(form.group_by2 !== undefined ? { group_by2: form.group_by2 } : {}),
+      collapsed: [...(form.collapsed ?? [])],
+      select: { ...emptySelect(), ...form.select },
+      etag: '',
+    };
+  }
+
+  /** Change `view` to `form` (on the version that was read); the view being tried changes in the page only. */
   async save(view: View, form: ViewForm): Promise<boolean> {
+    if (view.id === DRAFT_ID) {
+      this.try(form);
+      return true;
+    }
     const result = await this.host.write([saveOp(view, form)]);
     return result?.results[0]?.ok === true;
   }
@@ -135,6 +164,11 @@ export class ViewsState {
   }
 
   async remove(view: View): Promise<boolean> {
+    // The view being tried has no file: it is put away.
+    if (view.id === DRAFT_ID) {
+      this.draft = null;
+      return true;
+    }
     const result = await this.host.write([deleteOp(view)]);
     return result?.results[0]?.ok === true;
   }

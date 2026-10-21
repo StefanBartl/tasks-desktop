@@ -4,6 +4,7 @@
 import type { App } from './app.svelte';
 import { translate, type Key } from './i18n';
 import type { PaletteAction } from 'appkit-ui/palette';
+import { selectOfFilter } from './views';
 
 const STATUSES = ['doing', 'decision', 'blocked', 'open', 'parked'] as const;
 const PRIOS = [1, 2, 3] as const;
@@ -45,6 +46,19 @@ export function paletteActions(app: App): PaletteAction[] {
     add('go.views', t('palette.go', { view: t('nav.views') }), () => app.setView('views'));
     // Every saved view of the vault, by its name.
     for (const view of app.viewsState.list) add(`view.${view.id}`, t('palette.view', { name: view.title }), () => app.openView(view.id), view.id);
+    // The list as it is filtered, grouped by a field the engine names (a view to look with: nothing is saved).
+    for (const field of app.viewsState.groupingsShown?.fields ?? []) {
+      const name = t(`views.field.${field.field}` as Key);
+      add(`view.group.${field.field}`, t('palette.group_by', { field: name }), () =>
+        app.tryView({
+          title: t('views.list_by', { field: name }),
+          display: 'columns',
+          group_by: field.field,
+          collapsed: [],
+          select: selectOfFilter(app.filter).select,
+        }),
+      );
+    }
   }
   if (app.can('check')) add('check.open', t('check.open'), () => app.openChecks());
   if (app.can('estimate') && app.view === 'list') add('matrix.open', t('matrix.open'), () => app.openMatrix());

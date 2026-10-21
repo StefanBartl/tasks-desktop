@@ -30,6 +30,7 @@ import type {
   TaskDocument,
   TaskEntry,
   View as SavedView,
+  ViewSelect,
 } from './contract';
 import type { Op } from './api';
 import { indexOfLinks, touchedAreas } from './cross';
@@ -45,7 +46,9 @@ import { AboutState, type AboutDialog } from './state/about.svelte';
 import { ConflictsState } from './state/conflicts.svelte';
 import { VaultsState } from './state/vaults.svelte';
 import { ViewsState } from './state/views.svelte';
-import { filterOfSelect, type ViewForm } from './views';
+import { emptySelect, filterOfSelect, type ViewForm } from './views';
+import { viewMenuItems } from './viewMenu';
+import type { MenuItem } from 'appkit-ui/menu';
 import { dropOps, NONE, type Grouping } from './groups';
 import { TodayState } from './state/today.svelte';
 import { GraphState } from './state/graph.svelte';
@@ -84,6 +87,15 @@ export type Theme = 'auto' | 'light' | 'dark';
 /** The blocks of the Today view that a person may hide. */
 export { ORDERED_TILES, TILES, type OrderedTile, type Tile } from './tiles-list';
 import type { OrderedTile, Tile } from './tiles-list';
+
+/** A context menu that is open: at `x`/`y` of the window, its name, its entries, and where the focus goes back to. */
+export interface ContextMenuState {
+  x: number;
+  y: number;
+  label: string;
+  items: MenuItem[];
+  origin: HTMLElement | null;
+}
 
 /** What the last write did, in one line; `undo` is the way back, when there is one. */
 export interface Toast {
@@ -535,6 +547,59 @@ export class App {
   openView(id: string): void {
     this.viewsState.choose(id);
     this.setView('views');
+  }
+
+  /** Show the tab of the views with `form` as a view being tried (not saved: nothing is written). */
+  tryView(form: ViewForm): void {
+    if (!this.can('views')) return;
+    this.viewsState.try(form);
+    this.setView('views');
+  }
+
+  /** The context menu that is open: where, its name, its entries, and the element the focus goes back to. */
+  contextMenu = $state.raw<ContextMenuState | null>(null);
+
+  openContextMenu(menu: ContextMenuState): void {
+    this.contextMenu = menu;
+  }
+
+  closeContextMenu(): void {
+    this.contextMenu = null;
+  }
+
+  /**
+   * The context menu "open as a view" for `select` (named `title`), at the place of `event` - a right click, the menu
+   * key or Shift+F10. Without views (an older engine) or without the fields of the engine the menu of the browser stays.
+   */
+  async openViewMenu(event: MouseEvent, title: string, select: Partial<ViewSelect>): Promise<void> {
+    if (this.phase !== 'ready' || !this.can('views') || !this.can('groupings')) return;
+    event.preventDefault();
+    // The element the menu belongs to (by what it can do, not by its class: the page is also run without a DOM in tests).
+    const target = event.currentTarget as Partial<HTMLElement> | null;
+    const origin = target && typeof target.focus === 'function' && typeof target.getBoundingClientRect === 'function' ? (target as HTMLElement) : null;
+    // A key opens the menu with no pointer: it opens at the element instead.
+    const box = origin?.getBoundingClientRect();
+    const byKey = event.clientX === 0 && event.clientY === 0;
+    const x = byKey && box ? box.left : event.clientX;
+    const y = byKey && box ? box.bottom : event.clientY;
+    await this.viewsState.loadGroupings();
+    const fields = this.viewsState.groupingsShown?.fields.map((f) => f.field) ?? [];
+    const t = (key: Key) => translate(this.lang, key);
+    const items = viewMenuItems(
+      title,
+      { ...emptySelect(), ...select },
+      fields,
+      {
+        open: t('views.menu.open'),
+        columns: t('views.display.columns'),
+        list: t('views.display.list'),
+        groupBy: t('views.form.group_by'),
+        field: (field) => t(`views.field.${field}` as Key),
+      },
+      (form) => this.tryView(form),
+    );
+    if (items.length === 0) return;
+    this.contextMenu = { x, y, label: t('views.menu.label'), items, origin };
   }
 
   /** The named lists of the vault the hub reads. */

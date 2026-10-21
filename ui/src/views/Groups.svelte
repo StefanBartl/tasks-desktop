@@ -19,6 +19,7 @@
     busy = false,
     columnsLabel,
     hint,
+    onmenu,
   }: {
     groups: readonly Group<TaskEntry>[];
     mode: 'columns' | 'list';
@@ -39,6 +40,8 @@
     columnsLabel: string;
     /** The explanation of a group (the hover popup). */
     hint?: (value: string) => string;
+    /** The context menu of a group's heading (a right click, the menu key, Shift+F10). */
+    onmenu?: (event: MouseEvent, value: string) => void;
   } = $props();
 
   const MIME = 'application/x-tasks-group-item';
@@ -93,7 +96,7 @@
         ondragover={(e) => enter(e, group.value)}
         ondrop={(e) => drop(e, group.value)}
       >
-        <h3 data-hint={hint?.(group.value)}>
+        <h3 data-hint={hint?.(group.value)} oncontextmenu={(e) => onmenu?.(e, group.value)}>
           <span class="name">{label(group.value)}</span>
           <span class="count" data-count>{countOf(group)}</span>
         </h3>
@@ -128,7 +131,8 @@
         ondrop={(e) => drop(e, group.value)}
       >
         <h3 data-hint={hint?.(group.value)}>
-          <button type="button" aria-expanded={!folded} onclick={() => ontoggle?.(group.value)}>
+          <button
+            oncontextmenu={(e) => onmenu?.(e, group.value)} type="button" aria-expanded={!folded} onclick={() => ontoggle?.(group.value)}>
             <span class="caret" aria-hidden="true">{folded ? '▸' : '▾'}</span>
             <span class="name">{label(group.value)}</span>
             <span class="count" data-count>{countOf(group)}</span>

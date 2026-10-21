@@ -93,7 +93,14 @@
       </div>
       <div class="toolbar">
         {#if plans.length > 0}
-          <label class="plan-select" data-hint={t('hint.ui.plan.select')}>
+          <label
+            class="plan-select"
+            data-hint={t('hint.ui.plan.select')}
+            oncontextmenu={(e) => {
+              const plan = plans.find((p) => p.id === planId);
+              if (plan) void app.openViewMenu(e, plan.title, { plans: [plan.id] });
+            }}
+          >
             <span>{t('plan.which')}</span>
             <select bind:value={app.planChoice}>
               <option value="">{t('plan.all')}</option>

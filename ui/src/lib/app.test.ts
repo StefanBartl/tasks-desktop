@@ -10,6 +10,7 @@ import { emptyForm } from './planwizard';
 import { paletteActions } from './paletteActions';
 import { emptySelect, formOf, type ViewForm } from './views';
 import type { Grouping } from './groups';
+import { DRAFT_ID } from './state/views.svelte';
 
 function snapshot(tasks: TaskEntry[], rev = 'rev:1'): Snapshot {
   return {
@@ -4289,6 +4290,79 @@ describe('the saved views', () => {
       expect(await m.app.dropInView('pub/a', status, 'open', 'doing')).toBe(false);
       expect(m.app.toast).toMatchObject({ kind: 'error', text: translate(m.app.lang, 'write.busy') });
       expect(m.hub.sent).toHaveLength(0);
+      m.app.stop();
+    });
+  });
+
+  describe('a view being tried (from a context menu)', () => {
+    it('is shown on the tab, changes and goes away in the page only, and is no view kept in the browser', async () => {
+      const m = made();
+      m.hub.viewList = [view('pub/one')];
+      await m.app.start(null);
+      await vi.waitFor(() => expect(m.app.viewsState.list).toHaveLength(1));
+      m.app.tryView({ ...form(), title: 'Tried', select: { ...emptySelect(), areas: ['pub'] } });
+      expect(m.app.view).toBe('views');
+      const draft = m.app.viewsState.open!;
+      expect(draft).toMatchObject({ id: DRAFT_ID, title: 'Tried', select: { areas: ['pub'] } });
+      // Changed and folded: in the page, no write.
+      expect(await m.app.viewsState.save(draft, { ...formOf(draft), display: 'list' })).toBe(true);
+      expect(await m.app.viewsState.toggle(m.app.viewsState.open!, formOf(m.app.viewsState.open!), 'open')).toBe(true);
+      expect(m.app.viewsState.open).toMatchObject({ id: DRAFT_ID, display: 'list', collapsed: ['open'] });
+      expect(m.hub.sent).toHaveLength(0);
+      expect(m.prefs.get('tasks-desktop.view-open') ?? '').toBe('');
+      // Put away: the saved view is shown again, still nothing written.
+      expect(await m.app.viewsState.remove(m.app.viewsState.open!)).toBe(true);
+      expect(m.app.viewsState.open?.id).toBe('pub/one');
+      expect(m.hub.sent).toHaveLength(0);
+      m.app.stop();
+    });
+
+    it('saved, becomes a view of the vault with its selection, and is no longer tried', async () => {
+      const m = made();
+      await m.app.start(null);
+      await vi.waitFor(() => expect(m.app.hubAreas).toHaveLength(1));
+      m.app.tryView({ ...form(), title: 'Tried', select: { ...emptySelect(), tags: ['ui'] } });
+      m.hub.viewList = [view('pub/made-view')];
+      expect(await m.app.viewsState.create('pub', formOf(m.app.viewsState.open!))).toBe(true);
+      expect(last(m)).toEqual([
+        { op: 'view_save', area: 'pub', view: { title: 'Tried', display: 'columns', group_by: 'status', collapsed: [], select: { ...emptySelect(), tags: ['ui'] } } },
+      ]);
+      expect(m.app.viewsState.draft).toBeNull();
+      expect(m.app.viewsState.open?.id).toBe('pub/made-view');
+      m.app.stop();
+    });
+
+    it('the context menu offers the fields of the engine and opens the selection as a view being tried', async () => {
+      const m = made();
+      await m.app.start(null);
+      const target = { getBoundingClientRect: () => ({ left: 10, bottom: 20 }), focus: () => undefined } as unknown as HTMLElement;
+      let prevented = false;
+      const event = { clientX: 0, clientY: 0, currentTarget: target, preventDefault: () => (prevented = true) } as unknown as MouseEvent;
+      // Opened by a key (no pointer): under the element, and the focus goes back to it.
+      await m.app.openViewMenu(event, 'pub', { areas: ['pub'] });
+      expect(prevented).toBe(true);
+      const menu = m.app.contextMenu!;
+      expect(menu).toMatchObject({ x: 10, y: 20, origin: target });
+      expect(menu.items.filter((i) => i.kind === 'action').map((i) => (i as { label: string }).label)).toEqual([
+        translate(m.app.lang, 'views.display.columns'),
+        translate(m.app.lang, 'views.display.list'),
+        translate(m.app.lang, 'views.field.status'),
+        translate(m.app.lang, 'views.field.tags'),
+      ]);
+      const byTags = menu.items.filter((i) => i.kind === 'action')[3] as { onselect: () => void };
+      byTags.onselect();
+      expect(m.app.view).toBe('views');
+      expect(m.app.viewsState.open).toMatchObject({ id: DRAFT_ID, title: 'pub', group_by: 'tags', select: { areas: ['pub'] } });
+      m.app.stop();
+    });
+
+    it('an engine without views keeps the menu of the browser', async () => {
+      const m = made([]);
+      await m.app.start(null);
+      let prevented = false;
+      await m.app.openViewMenu({ clientX: 1, clientY: 1, currentTarget: null, preventDefault: () => (prevented = true) } as unknown as MouseEvent, 'pub', {});
+      expect(prevented).toBe(false);
+      expect(m.app.contextMenu).toBeNull();
       m.app.stop();
     });
   });

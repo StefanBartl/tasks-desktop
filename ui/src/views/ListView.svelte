@@ -617,6 +617,7 @@
           flagTitle={t('check.flag', { n: app.findingsFor(task.id).length })}
           crossAreas={app.crossAreas(task.id)}
           crossTitle={t('cross.mark', { n: app.crossAreas(task.id).length, areas: app.crossAreas(task.id).join(', ') })}
+          onmenu={(e) => void app.openViewMenu(e, task.area, { areas: [task.area] })}
         />
       {:else}
         <p class="empty">{t('list.none')}</p>

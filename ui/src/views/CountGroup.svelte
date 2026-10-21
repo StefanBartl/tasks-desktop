@@ -14,6 +14,7 @@
     open = true,
     ondragtask,
     onpointerdrag,
+    onmenu,
   }: {
     app: App;
     heading: string | null;
@@ -23,6 +24,8 @@
     ondragtask?: (id: string | null) => void;
     /** The grip of a row is dragged with a finger or a pen (see `lib/pointerDrag.ts`). */
     onpointerdrag?: (event: PointerDragEvent) => void;
+    /** The context menu of the heading (a right click, the menu key, Shift+F10), where the group has one. */
+    onmenu?: (event: MouseEvent) => void;
   } = $props();
 
   const grip = createGrip(
@@ -110,7 +113,7 @@
   {@render list()}
 {:else}
   <details {open}>
-    <summary>{markHidden(heading)} <span class="muted">({tasks.length})</span></summary>
+    <summary oncontextmenu={onmenu}>{markHidden(heading)} <span class="muted">({tasks.length})</span></summary>
     {@render list()}
   </details>
 {/if}

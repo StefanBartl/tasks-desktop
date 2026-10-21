@@ -17,6 +17,7 @@
     flagTitle = '',
     crossAreas = [],
     crossTitle = '',
+    onmenu,
   }: {
     task: TaskEntry;
     lang: Lang;
@@ -32,6 +33,8 @@
     /** The areas the task touches when that is more than its own (from the links). */
     crossAreas?: readonly string[];
     crossTitle?: string;
+    /** The context menu of the row (a right click, the menu key, Shift+F10). */
+    onmenu?: (event: MouseEvent) => void;
   } = $props();
 
   // A word this version does not know is shown as it is.
@@ -54,6 +57,7 @@
   class:selected
   aria-current={selected ? 'true' : undefined}
   onclick={() => onselect(task.id)}
+  oncontextmenu={onmenu}
 >
   <span class="id">{task.id}</span>
   <span class="title">{markHidden(task.title)}</span>

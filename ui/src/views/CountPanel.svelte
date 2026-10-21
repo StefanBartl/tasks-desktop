@@ -164,6 +164,7 @@
         open={openAll || i === 0}
         ondragtask={movable ? (id) => (dragging = id) : undefined}
         onpointerdrag={movable ? pointerDrag : undefined}
+        onmenu={view === 'area' ? (e) => void app.openViewMenu(e, group.key, { areas: [group.key] }) : undefined}
       />
     {/each}
   {/if}
