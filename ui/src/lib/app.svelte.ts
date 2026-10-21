@@ -1413,6 +1413,18 @@ export class App {
     copy = false,
     inView: readonly TaskEntry[] = this.tasks,
   ): Promise<boolean> {
+    // The area is no field of the file: the task moves (a new id, what names it is rewritten). As in the panel of the
+    // overview the engine is asked first (a dry run, shown in a dialog), and only the confirmation moves the file, on the
+    // version shown. Not moved yet, so nothing to announce here.
+    if (grouping.mode === 'move_area') {
+      if (this.refusedWhileSaving()) return false;
+      if (to === NONE) {
+        this.say('error', 'views.refused.required');
+        return false;
+      }
+      await this.askDropMove(id, to);
+      return false;
+    }
     const tags: TagEdit | undefined = grouping.mode === 'tags' ? { add: to === NONE ? [] : [to], remove: copy ? [] : [from] } : undefined;
     return this.dropTogether(id, inView, (one) => dropOps(one, grouping, from, to, copy), {
       blocks: grouping.field === 'status' && to === 'blocked',

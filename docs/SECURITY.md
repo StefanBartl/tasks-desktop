@@ -244,6 +244,15 @@ at all nothing is cached. The cache is shown first, also when the hub is
 not there, but only in a tab that holds a session; it is never used as an
 answer to "not modified", because it holds a part of the document.
 
+Saved views are files of the vault (`<area>/ROADMAP/views/<slug>.md`, read with
+`GET /api/tasks/views`, written only through `POST /api/tasks/ops` with
+`view_save` and `view_delete`); the browser keeps none of them. What it keeps of
+them is one id, the view that was open last (`tasks-desktop.view-open` in
+`localStorage`), and the choice of a view in the palette (its frecency) - both
+only for an area that is `public` or `internal`, as the cache: the id names its
+area. A view to try (opened from a context menu) lives in the page only and is
+written nowhere until it is saved.
+
 The folder of the interface is looked for in three places only (the
 setting, `ui/` next to the binary, the repository the binary was built
 in), because its scripts run where the session is. A file over 4 MiB or

@@ -321,6 +321,17 @@ for (const lang of ['en', 'de'] as const) {
         [lang, theme],
       );
       await pair(page);
+      /** No key of the dictionary as text, no sideways scroll, no finding of axe: on what the page shows now. */
+      const readsWell = async (name: string) => {
+        const bad = await page.evaluate(() => {
+          const text = document.body.innerText;
+          const keys = text.split(/\s+/).filter((w) => /^[a-z]+(\.[a-z0-9_-]+){1,}$/.test(w) && /^(today|plan|board|list|filter|hint|menu|check|graph|inbox|matrix|count|detail|nav|status|state|prop|vaults|views|remind|mark)\./.test(w));
+          return { keys, wide: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+        });
+        expect(bad.keys, `${lang} ${theme} ${name}: raw keys`).toEqual([]);
+        expect(bad.wide, `${lang} ${theme} ${name}: sideways scroll`).toBeLessThanOrEqual(1);
+        await expectAccessible(page, `${lang} ${theme} ${name}`);
+      };
       // The memory was read: the menu has the words of the language, the page has the colours of the theme.
       await expect(page.getByRole('menuitem', { name: lang === 'de' ? 'Ansicht' : 'View', exact: true })).toBeVisible();
       const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
@@ -338,15 +349,25 @@ for (const lang of ['en', 'de'] as const) {
         const name = (await radio.textContent())?.trim() ?? String(i);
         await radio.click();
         await page.waitForTimeout(400);
-        const bad = await page.evaluate(() => {
-          const text = document.body.innerText;
-          const keys = text.split(/\s+/).filter((w) => /^[a-z]+(\.[a-z0-9_-]+){1,}$/.test(w) && /^(today|plan|board|list|filter|hint|menu|check|graph|inbox|matrix|count|detail|nav|status|state|prop|vaults|remind|mark)\./.test(w));
-          return { keys, wide: document.documentElement.scrollWidth - document.documentElement.clientWidth };
-        });
-        expect(bad.keys, `${lang} ${theme} ${name}: raw keys`).toEqual([]);
-        expect(bad.wide, `${lang} ${theme} ${name}: sideways scroll`).toBeLessThanOrEqual(1);
-        await expectAccessible(page, `${lang} ${theme} ${name}`);
+        await readsWell(name);
       }
+
+      // The views beyond their tab: the context menu of a row, open, and a matrix (a view to try) with an open cell.
+      await viewMenu.click();
+      await page.getByRole('menuitemradio', { name: lang === 'de' ? 'Liste' : 'List', exact: true }).click();
+      const row = page.locator('button.row').first();
+      await expect(row).toBeVisible();
+      await row.focus();
+      await page.keyboard.press('Shift+F10');
+      const menu = page.getByRole('menu', { name: lang === 'de' ? 'Als Ansicht öffnen' : 'Open as a view' });
+      await expect(menu).toBeVisible();
+      await readsWell('the context menu');
+      await menu.getByRole('menuitem', { name: 'Matrix', exact: true }).click();
+      const matrix = page.locator('section.open table');
+      await expect(matrix).toBeVisible();
+      await page.locator('section.open td button').first().click();
+      await expect(page.locator('section.cell')).toBeVisible();
+      await readsWell('a matrix with an open cell');
     });
   }
 }

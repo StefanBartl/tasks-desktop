@@ -642,6 +642,58 @@ test('the board is the built-in view of the views: g b shows it in their bar, it
   await expect.poll(() => viewFile('lib.nvim', 'E2e builtin v001'), { timeout: WRITE_BUDGET }).toBeNull();
 });
 
+test('a view by area: a card moved to another area is a question to the engine first, giving up leaves the file, the confirmation moves it', async ({ page }) => {
+  const from = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', 'areaview-v001.md');
+  writeFileSync(from, `---\ntitle: Areaview v001\nstatus: open\nkind: task\n---\n\nTo be moved to another area in a view.\n`);
+  await pair(page);
+  await showList(page);
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Areaview v001');
+  await expect(page.locator('.rows .line')).toHaveCount(1);
+  const make = page.getByRole('button', { name: 'New view' });
+  await openViewsByKey(page, make);
+  await make.click();
+  const form = page.getByRole('form', { name: 'New view' });
+  await form.getByLabel('Name').fill('Areaview view v001');
+  await form.getByLabel('Kept in area').selectOption('lib.nvim');
+  await form.getByLabel('Group by').selectOption({ label: 'Area' });
+  await write(page, () => form.getByRole('button', { name: 'Create view' }).click());
+  const open = page.getByRole('region', { name: 'Areaview view v001', exact: true });
+  const card = (area: string) => open.locator(`section[data-group="${area}"] [data-view-item="${area}/areaview-v001"]`);
+  await expect(card('lib.nvim')).toBeVisible();
+  // The area to the right of lib.nvim, as the engine orders the areas.
+  const order = await open.locator('section[data-group]').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset['group'] ?? ''));
+  const to = order[order.indexOf('lib.nvim') + 1]!;
+  expect(to).toBeTruthy();
+  const moved = join(state().vault, to, 'ROADMAP', 'tasks', 'areaview-v001.md');
+  removeFile(moved);
+
+  // By key: Shift+l asks the engine (a dry run), the dialog says what the move does; giving up leaves the file.
+  await card('lib.nvim').focus();
+  await page.keyboard.press('Shift+l');
+  const dialog = page.getByRole('dialog', { name: `Move to ${to}?` });
+  await expect(dialog).toBeVisible();
+  await expectAccessible(page, 'the move of a card of a view to another area');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(existsSync(from)).toBe(true);
+  expect(existsSync(moved)).toBe(false);
+
+  // Again, and confirmed: the file is moved to the area, and the card is in its group.
+  await card('lib.nvim').focus();
+  await page.keyboard.press('Shift+l');
+  await expect(dialog).toBeVisible();
+  await write(page, () => dialog.getByRole('button', { name: new RegExp(`${to.replace('.', '\\.')}/areaview-v001`) }).click());
+  await expect.poll(() => existsSync(moved), { timeout: WRITE_BUDGET }).toBe(true);
+  expect(existsSync(from)).toBe(false);
+  await expect(card(to)).toBeVisible();
+
+  // Leave the vault as the other tests know it.
+  const gone = nextAnswer(page);
+  await page.getByRole('button', { name: 'Delete view' }).click();
+  await gone;
+  removeFile(moved);
+});
+
 test('the ranges of the fields are asked of the hub once, and the property form offers the ones the engine names', async ({ page }) => {
   const asked: string[] = [];
   page.on('request', (r) => {

@@ -4250,6 +4250,30 @@ describe('the saved views', () => {
       m.app.stop();
     });
 
+    it('onto another area asks the engine first and moves only when confirmed, on the version shown', async () => {
+      const area: Grouping = { field: 'area', values: ['pub', 'other'], truncated: false, writable: true, value_type: 'string', mode: 'move_area' };
+      const m = made(['views', 'groupings', 'move_area', 'ops']);
+      m.hub.doc = snapshot(three());
+      await m.app.start(null);
+      m.hub.next_ops = {
+        kind: 'tasks.result',
+        ok: true,
+        dry_run: true,
+        results: [{ n: 1, op: 'move_area', id: 'pub/a', ok: true, outcome: 'would_move', move: { from: 'pub/a', new_id: 'other/a', references: [], conflicts: [] } }],
+      } as unknown as Result;
+      // Not moved by the drop: it is a question first (a dry run, nothing written).
+      expect(await m.app.dropInView('pub/a', area, 'pub', 'other')).toBe(false);
+      expect(m.hub.sent).toHaveLength(1);
+      expect(m.hub.sent[0]?.dry_run).toBe(true);
+      expect(m.app.dropMove?.answer?.kind).toBe('ok');
+      await m.app.confirmDropMove();
+      expect(last(m)).toEqual([{ op: 'move_area', id: 'pub/a', to_area: 'other', if_match: 'ea' }]);
+      // The group of none is no area.
+      expect(await m.app.dropInView('pub/a', area, 'pub', '')).toBe(false);
+      expect(m.app.toast).toMatchObject({ kind: 'error', text: translate(m.app.lang, 'views.refused.required') });
+      m.app.stop();
+    });
+
     it('is no move when the engine refuses it (nothing to announce as moved)', async () => {
       const m = await ready();
       m.hub.next_ops = {

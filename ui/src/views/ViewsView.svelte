@@ -150,7 +150,11 @@
   const viewTasks = $derived(open ? app.tasksOfView(open) : []);
   const groups = $derived(grouping ? groupsOf(viewTasks, grouping) : []);
   /** A task is moved between groups only where the engine writes the field by a set or the list of tags (not the area). */
-  const movable = $derived(grouping !== null && grouping.writable && (grouping.mode === 'set' || grouping.mode === 'tags'));
+  const movable = $derived(
+    grouping !== null &&
+      grouping.writable &&
+      (grouping.mode === 'set' || grouping.mode === 'tags' || (grouping.mode === 'move_area' && app.can('move_area'))),
+  );
 
   // ── the matrix: the rows are the second field (`group_by2`), the columns the first ──
   const grouping2 = $derived<Grouping | null>(
