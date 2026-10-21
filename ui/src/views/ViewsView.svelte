@@ -3,6 +3,7 @@
   // file of the vault (the engine reads and writes it); the fields it can be grouped by and their values are the
   // engine's (`tasks.groupings`). Nothing here names a field's values or judges a view: a change is sent, and the engine
   // says what came of it.
+  import { untrack } from 'svelte';
   import type { App } from '../lib/app.svelte';
   import type { GroupField, View } from '../lib/contract';
   import { groupsOf, NONE, type Grouping } from '../lib/groups';
@@ -17,7 +18,7 @@
 
   const saved = $derived(app.viewsState);
   const open = $derived(saved.open);
-  const groupings = $derived(saved.groupingsNow);
+  const groupings = $derived(saved.groupingsShown);
   /** The fields a view can be grouped by, in the engine's order; the area the engine names as one of them. */
   const fields = $derived<GroupField[]>(groupings?.fields.map((f) => f.field) ?? []);
   const areas = $derived.by(() => {
@@ -43,7 +44,7 @@
   let groupBy = $state<GroupField>('status');
   let display = $state<'columns' | 'list'>('columns');
   let fromList = $state(true);
-  let problem = $state('');
+  let makeProblem = $state('');
   let titleBox = $state<HTMLInputElement | null>(null);
 
   const fromFilter = $derived(selectOfFilter(app.filter));
@@ -51,7 +52,7 @@
   function startMaking(): void {
     making = true;
     title = '';
-    problem = '';
+    makeProblem = '';
     area = areas.includes(area) ? area : (app.filter.areas.length === 1 && areas.includes(app.filter.areas[0]!) ? app.filter.areas[0]! : (areas[0] ?? ''));
     groupBy = fields.includes(groupBy) ? groupBy : (fields[0] ?? 'status');
     queueMicrotask(() => titleBox?.focus());
@@ -61,10 +62,10 @@
     event.preventDefault();
     const clean = cleanTitle(title);
     if (clean === null) {
-      problem = t('views.bad_title');
+      makeProblem = t('views.bad_title');
       return;
     }
-    problem = '';
+    makeProblem = '';
     const form: ViewForm = {
       title: clean,
       display,
@@ -77,8 +78,14 @@
 
   // ── the open view ──
   let renaming = $state('');
+  let renameProblem = $state('');
+  // The box takes the title of the view when another view is opened or its title changed, not with every read of the
+  // views (each read is a new object, and the text being typed would be lost).
+  const openTitle = $derived(open ? JSON.stringify([open.id, open.title]) : '');
   $effect(() => {
-    renaming = open?.title ?? '';
+    void openTitle;
+    renaming = untrack(() => open?.title ?? '');
+    renameProblem = '';
   });
 
   function save(view: View, change: Partial<ViewForm>): void {
@@ -89,10 +96,10 @@
     event.preventDefault();
     const clean = cleanTitle(renaming);
     if (clean === null) {
-      problem = t('views.bad_title');
+      renameProblem = t('views.bad_title');
       return;
     }
-    problem = '';
+    renameProblem = '';
     if (clean !== view.title) save(view, { title: clean });
   }
 
@@ -182,7 +189,7 @@
       {#if fromList && fromFilter.dropped}
         <p class="note">{t('views.form.dropped')}</p>
       {/if}
-      {#if problem}<p class="note" role="alert">{problem}</p>{/if}
+      {#if makeProblem}<p class="note" role="alert">{makeProblem}</p>{/if}
       <div class="actions">
         <button type="submit" disabled={app.saving || area === ''}>{t('views.create')}</button>
         <button type="button" onclick={() => (making = false)}>{t('views.cancel')}</button>
@@ -234,7 +241,7 @@
       {#if open.display === 'matrix'}
         <p class="note">{t('views.matrix_later')}</p>
       {/if}
-      {#if problem}<p class="note" role="alert">{problem}</p>{/if}
+      {#if renameProblem}<p class="note" role="alert">{renameProblem}</p>{/if}
       <div class="layout">
         <div class="main">
           {#if grouping}

@@ -54,6 +54,14 @@ export class ViewsState {
     return this.groupings !== null && rev !== undefined && this.groupings.rev === rev ? this.groupings : null;
   }
 
+  /**
+   * The groupings the tab draws with: those of the state shown, or - while the ones of a newer state are asked for -
+   * the last ones of this vault, so the groups do not vanish (and take the focus with them) after every change.
+   */
+  get groupingsShown(): Groupings | null {
+    return this.groupingsNow ?? this.groupings;
+  }
+
   choose(id: string): void {
     this.openId = id;
     this.host.remember(id);

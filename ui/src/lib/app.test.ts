@@ -4107,6 +4107,50 @@ describe('the saved views', () => {
     m.app.saving = true;
     expect(await m.app.viewsState.remove(m.app.viewsState.open!)).toBe(false);
     expect(m.hub.sent).toHaveLength(0);
+    // Said, as on the board: not dropped without a word.
+    expect(m.app.toast).toMatchObject({ kind: 'error', text: translate(m.app.lang, 'write.busy') });
+    m.app.stop();
+  });
+
+  it('a choice of a view in the palette is remembered only for an area whose class may be kept', async () => {
+    const m = made();
+    m.hub.areaList = [
+      { name: 'pub', data_class: 'public' },
+      { name: 'sec', data_class: 'private' },
+    ];
+    m.hub.viewList = [view('pub/one'), view('sec/two')];
+    await m.app.start(null);
+    await vi.waitFor(() => expect(m.app.hubAreas).toHaveLength(2));
+    m.app.chose('action:view.sec/two');
+    expect(m.prefs.get('tasks-desktop.frecency') ?? '').not.toContain('sec/two');
+    m.app.chose('action:view.pub/one');
+    expect(m.prefs.get('tasks-desktop.frecency')).toContain('pub/one');
+    m.app.stop();
+  });
+
+  it('a tab of the views left open falls back to Today when the engine keeps no views', async () => {
+    const m = made([], new Map([['tasks-desktop.view', 'views']]));
+    expect(m.app.view).toBe('views');
+    await m.app.start(null);
+    expect(m.app.view).toBe('today');
+    m.app.stop();
+  });
+
+  it('the groups stay drawn while the groupings of a newer state are asked for', async () => {
+    const m = made();
+    await m.app.start(null);
+    m.app.setView('views');
+    await vi.waitFor(() => expect(m.app.viewsState.groupingsShown?.rev).toBe('rev:1'));
+    let release!: () => void;
+    m.hub.groupingsHold = [new Promise<void>((r) => (release = r))];
+    m.hub.doc = snapshot(m.hub.doc.tasks, 'rev:2');
+    await m.app.refresh();
+    await vi.waitFor(() => expect(m.hub.groupingsCalls).toBe(2));
+    // The current ones are not there yet: the last ones stand in, never shown as those of the new state.
+    expect(m.app.viewsState.groupingsNow).toBeNull();
+    expect(m.app.viewsState.groupingsShown?.rev).toBe('rev:1');
+    release();
+    await vi.waitFor(() => expect(m.app.viewsState.groupingsShown?.rev).toBe('rev:2'));
     m.app.stop();
   });
 

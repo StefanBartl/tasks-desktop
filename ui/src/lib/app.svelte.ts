@@ -117,6 +117,14 @@ export interface Env {
 const TOKEN_KEY = 'tasks-desktop.session';
 /** The saved view that was open last (its id). */
 const OPEN_VIEW_KEY = 'tasks-desktop.view-open';
+/** The key the palette remembers a choice of a saved view under (`view.<id>` of `paletteActions`, as an action). */
+const VIEW_ACTION = 'action:view.';
+
+/** The area of an id `<area>/<slug>`, or undefined when it has none. */
+function areaOfId(id: string): string | undefined {
+  const at = id.indexOf('/');
+  return at > 0 ? id.slice(0, at) : undefined;
+}
 
 /** A promise that gives up after `ms` and says `null`. */
 function within<T>(work: Promise<T>, ms: number): Promise<T | null> {
@@ -446,13 +454,13 @@ export class App {
       rev: () => this.snapshot?.rev,
       views: () => env.hub.views(),
       groupings: () => env.hub.groupings(),
-      write: (ops) => this.write(ops),
+      // A change while a write is on its way is refused with a word, as on the board (not dropped without one).
+      write: (ops) => (this.refusedWhileSaving() ? Promise.resolve(null) : this.write(ops)),
       remembered: () => safe(() => env.prefs.getItem(OPEN_VIEW_KEY)) || null,
       // The id names its area: it is kept only for an area whose class may be kept in the browser (as the cache).
       remember: (id) => {
-        const area = id?.split('/')[0];
-        const keep = area !== undefined && cacheableClass(this.hubAreas.find((a) => a.name === area)?.data_class);
-        safe(() => env.prefs.setItem(OPEN_VIEW_KEY, keep ? (id ?? '') : ''));
+        const keep = id !== null && this.mayRememberArea(areaOfId(id));
+        safe(() => env.prefs.setItem(OPEN_VIEW_KEY, keep ? id : ''));
       },
     });
     this.prefs = new Preferences<Lang>(
@@ -733,7 +741,12 @@ export class App {
   private mayRemember(id: string): boolean {
     const task = this.tasks.find((t) => t.id === id);
     if (!task) return false;
-    return cacheableClass(this.hubAreas.find((a) => a.name === task.area)?.data_class);
+    return this.mayRememberArea(task.area);
+  }
+
+  /** May a name of this area (an id under it) be kept in the browser? Its class decides, as for the cache. */
+  private mayRememberArea(area: string | undefined): boolean {
+    return area !== undefined && cacheableClass(this.hubAreas.find((a) => a.name === area)?.data_class);
   }
 
   openConflicts(): void {
@@ -787,6 +800,8 @@ export class App {
    */
   chose(key: string, taskId?: string): void {
     if (taskId !== undefined && !this.mayRemember(taskId)) return;
+    // An action of a saved view names the view's id, and so its area: kept only for an area that may be kept.
+    if (key.startsWith(VIEW_ACTION) && !this.mayRememberArea(areaOfId(key.slice(VIEW_ACTION.length)))) return;
     this.frecency = bumped(this.frecency, key, Date.now());
     safe(() => this.env.prefs.setItem('tasks-desktop.frecency', JSON.stringify(this.frecency)));
   }
@@ -1893,6 +1908,7 @@ export class App {
         // A board left open by an older engine would offer what it refuses.
         if (this.view === 'board' && !this.can('reorder')) this.view = 'today';
         if (this.view === 'done' && !this.can('finished')) this.view = 'today';
+        if (this.view === 'views' && !this.can('views')) this.view = 'today';
         break;
       } catch {
         this.connection = 'offline';

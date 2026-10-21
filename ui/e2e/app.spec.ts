@@ -306,6 +306,23 @@ test('a saved view is made in the tab of the views, kept as a file of the vault,
   await expect(page.getByRole('combobox', { name: 'Saved view', exact: true })).toHaveValue(/^lib\.nvim\//);
   await expect(page.getByRole('region', { name: 'E2e view v001' })).toBeVisible();
 
+  // A name being typed is kept when the views are read again (here after another change of the view).
+  const region = page.getByRole('region', { name: 'E2e view v001' });
+  await region.getByLabel('Name').fill('E2e view v001 typed');
+  const shown = nextAnswer(page);
+  await region.getByLabel('Show as').selectOption({ label: 'List' });
+  await shown;
+  await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toContain('display: list');
+  await expect(region.getByRole('button', { name: /^P2/ })).toBeVisible();
+  await expect(region.getByLabel('Name')).toHaveValue('E2e view v001 typed');
+
+  // A name that is empty is refused where it was typed, not also in the form of a new view.
+  await page.getByRole('button', { name: 'New view' }).click();
+  await region.getByLabel('Name').fill('   ');
+  await page.getByRole('button', { name: 'Rename' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'The name may not be empty.' })).toHaveCount(1);
+  await page.getByRole('button', { name: 'Cancel' }).click();
+
   // Renamed: the same file, the new title.
   const renamed = nextAnswer(page);
   await page.getByRole('region', { name: 'E2e view v001' }).getByLabel('Name').fill('E2e view v001 renamed');

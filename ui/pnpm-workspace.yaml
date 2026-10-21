@@ -15,7 +15,8 @@ trustPolicyExclude:
 # with. Waiting the seven days would keep the known flaw. It needs argparse
 # 3.0.3 (2026-10-15, the same maintainers, nodeca), which markdown-it uses only
 # for its command line, not in the page. Both versions are named exactly: a
-# later one waits as every other package does.
+# later one waits as every other package does. Spent from 2026-10-23 (both are
+# seven days old then): take the two lines out after that date.
 minimumReleaseAgeExclude:
   - markdown-it@15.0.3
   - argparse@3.0.3
