@@ -3,10 +3,10 @@
   // file of the vault (the engine reads and writes it); the fields it can be grouped by and their values are the
   // engine's (`tasks.groupings`). Nothing here names a field's values or judges a view: a change is sent, and the engine
   // says what came of it.
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import type { App } from '../lib/app.svelte';
   import type { GroupField, View } from '../lib/contract';
-  import { groupsOf, NONE, type Grouping } from '../lib/groups';
+  import { groupsOf, neighbourGroup, NONE, type Grouping } from '../lib/groups';
   import { labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
   import { cleanTitle, emptySelect, formOf, selectOfFilter, type ViewForm } from '../lib/views';
@@ -106,7 +106,37 @@
   const grouping = $derived<Grouping | null>(
     open ? (groupings?.fields.find((f) => f.field === open.group_by) ?? null) : null,
   );
-  const groups = $derived(open && grouping ? groupsOf(app.tasksOfView(open), grouping) : []);
+  const viewTasks = $derived(open ? app.tasksOfView(open) : []);
+  const groups = $derived(grouping ? groupsOf(viewTasks, grouping) : []);
+  /** A task is moved between groups only where the engine writes the field by a set or the list of tags (not the area). */
+  const movable = $derived(grouping !== null && grouping.writable && (grouping.mode === 'set' || grouping.mode === 'tags'));
+
+  /** What was moved last, for assistive software (the toast says that it was saved, this says where it went). */
+  let moved = $state('');
+
+  /** Move `id` from the group `from` onto `to`; the focus follows the card into its new group. */
+  async function move(id: string, from: string, to: string, copy: boolean): Promise<void> {
+    if (!grouping || !open) return;
+    const field = open.group_by;
+    const title = viewTasks.find((x) => x.id === id)?.title ?? id;
+    if (!(await app.dropInView(id, grouping, from, to, copy, viewTasks))) return;
+    moved = t(copy ? 'views.copied' : 'views.moved', { title: markHidden(title), group: valueLabel(field, to) });
+    await tick();
+    const target = document.querySelector<HTMLElement>(`[data-group="${CSS.escape(to)}"] [data-view-item="${CSS.escape(id)}"]`);
+    target?.focus();
+  }
+
+  /** Shift with h or l on a card: the group before or after, as the keys of the board. */
+  function onItemKey(event: KeyboardEvent, id: string, from: string): void {
+    if (!movable || !event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+    const key = event.key.toLowerCase();
+    if (key !== 'h' && key !== 'l') return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.repeat) return;
+    const to = neighbourGroup(groups, from, key === 'l' ? 1 : -1);
+    if (to !== null) void move(id, from, to, false);
+  }
 
   /** What the view selects, in words. */
   function selectionText(view: View): string {
@@ -242,6 +272,8 @@
         <p class="note">{t('views.matrix_later')}</p>
       {/if}
       {#if renameProblem}<p class="note" role="alert">{renameProblem}</p>{/if}
+      {#if movable}<p class="muted">{t('views.help')}</p>{/if}
+      <p class="sr-only" aria-live="polite">{moved}</p>
       <div class="layout">
         <div class="main">
           {#if grouping}
@@ -252,15 +284,19 @@
               collapsed={open.collapsed}
               ontoggle={(value) => void saved.toggle(open, formOf(open), value)}
               busy={app.saving}
+              ondrop={movable ? (id, from, to, copy) => void move(id, from, to, copy) : undefined}
+              canDrop={(_id, from, to) => from !== to}
               columnsLabel={t('views.columns', { name: open.title })}
             >
-              {#snippet item(task)}
+              {#snippet item(task, group)}
                 <button
                   type="button"
                   class="item"
+                  data-view-item={task.id}
                   class:selected={task.id === app.selectedId}
                   aria-current={task.id === app.selectedId ? 'true' : undefined}
                   onclick={() => app.select(task.id)}
+                  onkeydown={(e) => onItemKey(e, task.id, group.value)}
                 >
                   <span class="title">{markHidden(task.title)}</span>
                   <span class="id">{task.id}</span>

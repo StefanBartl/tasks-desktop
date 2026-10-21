@@ -9,6 +9,7 @@ import { translate } from './i18n';
 import { emptyForm } from './planwizard';
 import { paletteActions } from './paletteActions';
 import { emptySelect, formOf, type ViewForm } from './views';
+import type { Grouping } from './groups';
 
 function snapshot(tasks: TaskEntry[], rev = 'rev:1'): Snapshot {
   return {
@@ -3983,7 +3984,7 @@ describe('the saved views', () => {
   const last = (m: ReturnType<typeof make>) => m.hub.sent.at(-1)!.ops;
   const form = (): ViewForm => ({ title: 'Mine', display: 'columns', group_by: 'status', collapsed: [], select: emptySelect() });
 
-  it('are read at the start and again when the vault changed, not with every read of the same state', async () => {
+  it('are read at the start, not again for a change of the tasks elsewhere, and on the tab when the vault changed', async () => {
     const m = made();
     m.hub.viewList = [view('pub/mine')];
     await m.app.start(null);
@@ -3992,9 +3993,20 @@ describe('the saved views', () => {
     await m.app.refresh();
     await m.app.refresh();
     expect(m.hub.viewsCalls).toBe(1);
+    // A change of the tasks while another tab is shown: no read in front of the next write.
     m.hub.doc = snapshot(m.hub.doc.tasks, 'rev:2');
     await m.app.refresh();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(m.hub.viewsCalls).toBe(1);
+    // Entering the tab reads what changed meanwhile; on the tab a change of the vault reads them again.
+    m.app.setView('views');
     await vi.waitFor(() => expect(m.hub.viewsCalls).toBe(2));
+    m.app.setView('list');
+    m.app.setView('views');
+    expect(m.hub.viewsCalls).toBe(2);
+    m.hub.doc = snapshot(m.hub.doc.tasks, 'rev:3');
+    await m.app.refresh();
+    await vi.waitFor(() => expect(m.hub.viewsCalls).toBe(3));
     m.app.stop();
   });
 
@@ -4198,6 +4210,87 @@ describe('the saved views', () => {
     expect(ids({ tags: ['ui'] })).toEqual(['pub/b']);
     expect(ids({ query: 'pub/a' })).toEqual(['pub/a']);
     m.app.stop();
+  });
+
+  describe('a task moved between the groups of a view', () => {
+    const status: Grouping = { field: 'status', values: ['doing', 'blocked', 'open'], truncated: false, writable: true, value_type: 'string', mode: 'set' };
+    const tags: Grouping = { field: 'tags', values: ['api', 'ui'], truncated: false, writable: true, value_type: 'string', mode: 'tags', multi: true };
+    const state: Grouping = { field: 'state', values: ['ready', 'waiting'], truncated: false, writable: false, value_type: 'string' };
+    const three = () => [
+      task('pub/a', { status: 'open', etag: 'ea' }),
+      task('pub/b', { status: 'open', etag: 'eb', tags: ['ui'] }),
+      task('pub/c', { status: 'open', etag: 'ec' }),
+    ];
+    const ready = async () => {
+      const m = made();
+      m.hub.doc = snapshot(three());
+      await m.app.start(null);
+      return m;
+    };
+
+    it('writes the field the engine names, on the version shown, and can be taken back', async () => {
+      const m = await ready();
+      expect(await m.app.dropInView('pub/a', status, 'open', 'doing')).toBe(true);
+      expect(last(m)).toEqual([{ op: 'set', id: 'pub/a', patch: { status: 'doing' }, if_match: 'ea' }]);
+      expect(m.app.toast?.undo).toEqual([{ op: 'set', id: 'pub/a', patch: { status: 'open' }, if_match: 'e2' }]);
+      m.app.stop();
+    });
+
+    it('takes the tag it leaves away and sets the one it enters; with Ctrl it keeps the one it leaves', async () => {
+      const m = await ready();
+      await m.app.dropInView('pub/b', tags, 'ui', 'api');
+      expect(last(m)).toEqual([{ op: 'set', id: 'pub/b', patch: { tags: ['api'] }, if_match: 'eb' }]);
+      await m.app.dropInView('pub/b', tags, 'ui', 'api', true);
+      expect(last(m)).toEqual([{ op: 'set', id: 'pub/b', patch: { tags: ['ui', 'api'] }, if_match: 'eb' }]);
+      m.app.stop();
+    });
+
+    it('a marked task takes the other marked ones the view shows with it, as one batch whose failures are told', async () => {
+      const m = await ready();
+      for (const id of ['pub/a', 'pub/b', 'pub/c']) m.app.toggleMark(id);
+      const inView = m.app.tasks.filter((t) => t.id !== 'pub/c');
+      m.hub.next_ops = {
+        kind: 'tasks.result',
+        ok: false,
+        dry_run: false,
+        results: [
+          { n: 1, op: 'set', id: 'pub/a', ok: true, outcome: 'changed', changed_ids: ['pub/a'], inverse: { op: 'set', id: 'pub/a', patch: { status: 'open' } } },
+          { n: 2, op: 'set', id: 'pub/b', ok: false, outcome: 'failed', changed_ids: [], error: { code: 'conflict', message: 'changed', retryable: false } },
+        ],
+      } as unknown as Result;
+      await m.app.dropInView('pub/a', status, 'open', 'doing', false, inView);
+      // The mark the view does not show is not moved from here.
+      expect(last(m).map((o) => (o as { id: string }).id)).toEqual(['pub/a', 'pub/b']);
+      expect(m.app.toast).toMatchObject({ kind: 'error', text: translate(m.app.lang, 'bulk.partial', { done: 1, failed: 1 }) });
+      // What failed stays marked, what went through is taken off.
+      expect(m.app.marks).toEqual(['pub/b', 'pub/c']);
+      m.app.stop();
+    });
+
+    it('blocked with nothing to wait for asks for the blocker of one task, and refuses it for several', async () => {
+      const m = await ready();
+      expect(await m.app.dropInView('pub/a', status, 'open', 'blocked')).toBe(false);
+      expect(m.app.blocking).toEqual({ id: 'pub/a' });
+      m.app.cancelBlock();
+      m.app.toggleMark('pub/a');
+      m.app.toggleMark('pub/b');
+      expect(await m.app.dropInView('pub/a', status, 'open', 'blocked')).toBe(false);
+      expect(m.app.blocking).toBeNull();
+      expect(m.app.toast).toMatchObject({ kind: 'error', text: translate(m.app.lang, 'views.blocked_batch', { n: 2 }) });
+      expect(m.hub.sent).toHaveLength(0);
+      m.app.stop();
+    });
+
+    it('a field the engine does not write is refused in words, and nothing is sent while a write is on its way', async () => {
+      const m = await ready();
+      expect(await m.app.dropInView('pub/a', state, 'ready', 'waiting')).toBe(false);
+      expect(m.app.toast).toMatchObject({ kind: 'error', text: translate(m.app.lang, 'views.refused.read_only') });
+      m.app.saving = true;
+      expect(await m.app.dropInView('pub/a', status, 'open', 'doing')).toBe(false);
+      expect(m.app.toast).toMatchObject({ kind: 'error', text: translate(m.app.lang, 'write.busy') });
+      expect(m.hub.sent).toHaveLength(0);
+      m.app.stop();
+    });
   });
 
   it('the palette names every saved view and opens it', async () => {

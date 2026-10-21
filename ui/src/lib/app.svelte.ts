@@ -46,6 +46,7 @@ import { ConflictsState } from './state/conflicts.svelte';
 import { VaultsState } from './state/vaults.svelte';
 import { ViewsState } from './state/views.svelte';
 import { filterOfSelect, type ViewForm } from './views';
+import { dropOps, NONE, type Grouping } from './groups';
 import { TodayState } from './state/today.svelte';
 import { GraphState } from './state/graph.svelte';
 import type { DailyPrefs } from './daily';
@@ -927,6 +928,12 @@ export class App {
     }
   }
 
+  /** Read the saved views, noting the state of the vault they were read at. */
+  private readViews(): void {
+    this.#viewsRev = this.snapshot?.rev;
+    void this.viewsState.load();
+  }
+
   /** The list after a write, and the views when the write was one of them (the snapshot does not hold the views). */
   private async readAfter(ops: readonly Op[]): Promise<void> {
     await this.refresh();
@@ -1287,9 +1294,17 @@ export class App {
       this.say('ok', 'bulk.nothing');
       return;
     }
+    await this.write(ops, { ...(tags ? { tags } : {}), onAnswer: this.batchAnswer(ops) });
+  }
+
+  /**
+   * What a batch of `set` on marked tasks says when its answer is there: how many went through, how many failed (each
+   * failed one stays marked, the others are taken off), with the way back of those that went through.
+   */
+  private batchAnswer(ops: readonly { id: string }[]): (result: Result) => boolean {
     const sent = new Set(ops.map((o) => o.id));
     // Said as soon as the answer is there: the re-read of the list that follows takes as long as the engine does.
-    const onAnswer = (result: Result): boolean => {
+    return (result: Result): boolean => {
       // A failed entry names its operation (`n`), not always the task: the position in the batch says which one.
       const failedIds = new Set<string>();
       for (const r of result.results) {
@@ -1310,7 +1325,56 @@ export class App {
       }
       return true;
     };
-    await this.write(ops, { ...(tags ? { tags } : {}), onAnswer });
+  }
+
+  /**
+   * A task of a saved view dropped from the group `from` onto the group `to` of `grouping` (`copy`: the Ctrl key, a
+   * list of tags keeps the group it leaves). A marked task takes the other marked ones of the view with it, as one batch.
+   * The operation is the one the engine names for the field (`dropOps`); what it cannot be is said, not sent. Says
+   * whether it was sent.
+   */
+  async dropInView(
+    id: string,
+    grouping: Grouping,
+    from: string,
+    to: string,
+    copy = false,
+    inView: readonly TaskEntry[] = this.tasks,
+  ): Promise<boolean> {
+    if (this.refusedWhileSaving()) return false;
+    const task = inView.find((t) => t.id === id);
+    if (!task) return false;
+    // Only the marked tasks the view shows go with it: a mark the person cannot see here is not moved from here.
+    const together = this.marks.includes(id) ? inView.filter((t) => this.marks.includes(t.id)) : [task];
+    // Blocked with nothing that blocks it is a warning of the engine: one task is asked for its blocker (as on the
+    // board); several are not blocked behind the person's back.
+    if (grouping.field === 'status' && to === 'blocked') {
+      const bare = together.filter((t) => t.blocked_by.length === 0);
+      if (bare.length > 0 && together.length === 1) {
+        if (this.phase === 'ready') this.blocking = { id };
+        return false;
+      }
+      if (bare.length > 0) {
+        this.say('error', 'views.blocked_batch', { n: bare.length });
+        return false;
+      }
+    }
+    const ops: Op[] = [];
+    for (const one of together) {
+      const drop = dropOps(one, grouping, from, to, copy);
+      if (drop.kind === 'ops') ops.push(...drop.ops);
+      // A task of the batch that already is where it goes is no refusal of the others.
+      else if (drop.kind === 'refused' && drop.reason === 'same' && one.id !== id) continue;
+      else {
+        this.say('error', `views.refused.${drop.kind === 'refused' ? drop.reason : 'read_only'}` as Key);
+        return false;
+      }
+    }
+    if (ops.length === 0) return false;
+    const tags: TagEdit | undefined = grouping.mode === 'tags' ? { add: to === NONE ? [] : [to], remove: copy ? [] : [from] } : undefined;
+    const batch = together.length > 1 ? { onAnswer: this.batchAnswer(ops as { id: string }[]) } : {};
+    const result = await this.write(ops, { ...(tags ? { tags } : {}), ...batch });
+    return result !== null;
   }
 
   /**
@@ -2105,11 +2169,10 @@ export class App {
       // No classes, no cache: nothing is written.
     }
     void this.loadLinks();
-    // The views are files of their own: read at the start and when the vault changed (and after a write of one).
-    if (this.#viewsRev !== doc.rev) {
-      this.#viewsRev = doc.rev;
-      void this.viewsState.load();
-    }
+    // The views are files of their own: read at the start, after a write of one, when the tab is entered and, while it is
+    // shown, when the vault changed (from outside, say). A change of a task does not change a view: reading them after
+    // every write elsewhere would be one more engine call in front of the next write.
+    if (this.#viewsRev === undefined || (this.view === 'views' && this.#viewsRev !== doc.rev)) this.readViews();
     if (this.view === 'views') void this.viewsState.loadGroupings();
     if (this.view === 'today') await this.loadNext();
   }
@@ -2276,7 +2339,11 @@ export class App {
     if (view === 'views' && !this.can('views')) return;
     this.view = view;
     if (view === 'inbox') this.ensureInboxSelection(true);
-    if (view === 'views' && this.phase === 'ready') void this.viewsState.loadGroupings();
+    if (view === 'views' && this.phase === 'ready') {
+      void this.viewsState.loadGroupings();
+      // What changed while the tab was not shown is read now (once per state of the vault).
+      if (this.#viewsRev !== this.snapshot?.rev) this.readViews();
+    }
     safe(() => this.env.prefs.setItem('tasks-desktop.view', view));
     if (view === 'today' && this.phase === 'ready') void this.loadNext();
   }

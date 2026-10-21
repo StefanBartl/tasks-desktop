@@ -265,6 +265,21 @@ test('the browser enforces Trusted Types and no inline or eval script', async ({
   ).toBeUndefined();
 });
 
+/**
+ * `g v` opens the tab of the views; pressed again until it is there (right after the pairing the page may not take
+ * the keys yet, as `capture` knows).
+ */
+async function openViewsByKey(page: Page, ready: Locator): Promise<void> {
+  await expect(async () => {
+    if (!(await ready.isVisible())) {
+      await page.locator('main').focus();
+      await page.keyboard.press('g');
+      await page.keyboard.press('v');
+    }
+    await expect(ready).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 10000 });
+}
+
 /** The file of the saved view titled `title` in `area` of the test vault, or null when there is none. */
 function viewFile(area: string, title: string): string | null {
   const dir = join(state().vault, area, 'ROADMAP', 'views');
@@ -279,10 +294,8 @@ function viewFile(area: string, title: string): string | null {
 test('a saved view is made in the tab of the views, kept as a file of the vault, there after a reload; renamed, deleted and back with undo', async ({ page }) => {
   await pair(page);
   // `g v` opens the tab (the keys of the page, not a field).
-  await page.locator('main').focus();
-  await page.keyboard.press('g');
-  await page.keyboard.press('v');
   const make = page.getByRole('button', { name: 'New view' });
+  await openViewsByKey(page, make);
   await expect(make).toBeEnabled();
   await make.click();
   const form = page.getByRole('form', { name: 'New view' });
@@ -346,6 +359,85 @@ test('a saved view is made in the tab of the views, kept as a file of the vault,
   await page.getByRole('button', { name: 'Delete view' }).click();
   await cleaned;
   await expect.poll(() => existsSync(file), { timeout: WRITE_BUDGET }).toBe(false);
+});
+
+test('a task moved between the groups of a view writes the field: by key first, a refused one leaves the file, one drag with the mouse', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  await capture(page, 'E2e drag v001 one');
+  await capture(page, 'E2e drag v001 two');
+  // The view takes the filter of the list: just these two tasks.
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('E2e drag v001');
+  await expect(page.locator('.rows .line')).toHaveCount(2);
+  const make = page.getByRole('button', { name: 'New view' });
+  await openViewsByKey(page, make);
+  await expect(make).toBeEnabled();
+  await make.click();
+  const form = page.getByRole('form', { name: 'New view' });
+  await form.getByLabel('Name').fill('E2e drag view v001');
+  await form.getByLabel('Kept in area').selectOption('lib.nvim');
+  await form.getByLabel('Group by').selectOption({ label: 'Tags' });
+  const made = nextAnswer(page);
+  await form.getByRole('button', { name: 'Create view' }).click();
+  await made;
+  const open = page.getByRole('region', { name: 'E2e drag view v001' });
+  const tasks = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks');
+  const one = join(tasks, 'e2e-drag-v001-one.md');
+  const two = join(tasks, 'e2e-drag-v001-two.md');
+  const card = (group: string, id: string) => open.locator(`section[data-group="${group}"] [data-view-item="lib.nvim/${id}"]`);
+  // Nothing is on its way when the button of a new view can be pressed again.
+  const idle = () => expect(make).toBeEnabled({ timeout: WRITE_BUDGET });
+
+  // The groups are the engine's tags of the open tasks (other tests add some), the group of none last: read their order.
+  const order = await open.locator('section[data-group]').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset['group'] ?? ''));
+  expect(order.at(-1)).toBe('');
+  expect(order.length).toBeGreaterThanOrEqual(4);
+  const [first, second] = [order.at(-2)!, order.at(-3)!];
+
+  // The keys first: Shift+h moves the card to the group before.
+  await card('', 'e2e-drag-v001-one').focus();
+  let answer = nextAnswer(page);
+  await page.keyboard.press('Shift+h');
+  await answer;
+  await expect.poll(() => readFileSync(one, 'utf8'), { timeout: WRITE_BUDGET }).toContain(`tags: [${first}]`);
+  await expect(card(first, 'e2e-drag-v001-one')).toBeFocused();
+  await expect(page.locator('p[aria-live="polite"]', { hasText: `E2e drag v001 one: now in ${first}` })).toBeAttached();
+  await idle();
+
+  // From one tag to another: the tag it leaves goes, the one it enters comes.
+  answer = nextAnswer(page);
+  await page.keyboard.press('Shift+h');
+  await answer;
+  await expect.poll(() => readFileSync(one, 'utf8'), { timeout: WRITE_BUDGET }).toContain(`tags: [${second}]`);
+  await idle();
+
+  // Refused: the file changes after the page showed it, so the engine refuses the move and the file keeps its tag.
+  await page.route('**/api/tasks/ops', async (route) => {
+    writeFileSync(one, readFileSync(one, 'utf8') + '\nChanged by someone else.\n');
+    await route.continue();
+  });
+  await card(second, 'e2e-drag-v001-one').focus();
+  answer = nextAnswer(page);
+  await page.keyboard.press('Shift+h');
+  await answer;
+  await page.unroute('**/api/tasks/ops');
+  await expect(page.getByRole('alert').getByText(/changed/i)).toBeVisible();
+  expect(readFileSync(one, 'utf8')).toContain(`tags: [${second}]`);
+  expect(readFileSync(one, 'utf8')).toContain('Changed by someone else.');
+  await idle();
+
+  // One drag with the mouse: the second task onto the group next to the group of none.
+  answer = nextAnswer(page);
+  await drag(page, open.locator('section[data-group=""] li[data-item="lib.nvim/e2e-drag-v001-two"]'), open.locator(`section[data-group="${first}"]`));
+  await answer;
+  await expect.poll(() => readFileSync(two, 'utf8'), { timeout: WRITE_BUDGET }).toContain(`tags: [${first}]`);
+  await idle();
+  await expectAccessible(page, 'a view grouped by tags');
+
+  // Leave the vault as the other tests know it: the view goes (the two tasks have names no other test uses).
+  const gone = nextAnswer(page);
+  await page.getByRole('button', { name: 'Delete view' }).click();
+  await gone;
 });
 
 test('the ranges of the fields are asked of the hub once, and the property form offers the ones the engine names', async ({ page }) => {
@@ -1317,14 +1409,19 @@ test('the inbox sorts tasks with single keys and nothing else', async ({ page })
     const row = inbox.locator('.row', { hasText: `lib.nvim/inbox-e2e-${n}` });
     await row.click();
     await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/inbox-e2e-${n}`);
-    // Priority, effort and who, each with one key; the row loses a chip after each, and leaves with the last.
+    // Priority, effort and who, each with one key; the row loses a chip after each, and leaves with the last. The hub's
+    // event can show a change before the answer of its write is there: the next key waits until no write is on its way
+    // (a key pressed meanwhile is refused with "Still saving", and the "Saved" of the step before would still be seen).
     await page.keyboard.press('2');
     await expect(toast.getByText('Saved')).toBeVisible();
     await expect(row).not.toContainText('no priority');
+    await settled(page);
     await page.keyboard.press(n === 3 ? 'Shift+f' : 's');
     await expect(row).not.toContainText('no effort');
+    await settled(page);
     await page.keyboard.press(n === 2 ? 'p' : 'm');
     await expect(row).toHaveCount(0);
+    await settled(page);
   }
   // What the keys wrote is in the files.
   const text = (n: number) => readFileSync(join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `inbox-e2e-${n}.md`), 'utf8');
