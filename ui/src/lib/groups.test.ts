@@ -191,6 +191,26 @@ describe('a drop on a cell of a matrix', () => {
   });
 });
 
+describe('a derived field another document holds', () => {
+  const CROSS = field('cross', ['several', 'one'], { mode: undefined, writable: false });
+  const derived = (t: TaskEntry, f: Grouping['field']) => (f === 'cross' ? [t.id === 'a/one' ? 'several' : 'one'] : undefined);
+
+  it('takes its values from the reader the caller gives, and the other fields from the entry', () => {
+    expect(valuesOf(task('a/one'), CROSS, derived)).toEqual(['several']);
+    expect(valuesOf(task('a/two', { status: 'open' }), STATUS, derived)).toEqual(['open']);
+    const groups = groupsOf([task('a/one'), task('a/two')], CROSS, derived);
+    expect(groups.map((g) => [g.value, g.items.map((i) => i.id)])).toEqual([
+      ['several', ['a/one']],
+      ['one', ['a/two']],
+    ]);
+    // In a matrix too.
+    const cells = cellsOf([task('a/one', { status: 'open' })], CROSS, STATUS, derived);
+    expect(cells.find((c) => c.items.length > 0)).toMatchObject({ row: 'several', column: 'open' });
+    // Read only: nothing is written by moving.
+    expect(dropOps(task('a/one'), CROSS, 'several', 'one')).toEqual({ kind: 'refused', reason: 'read_only' });
+  });
+});
+
 describe('a drop with Ctrl', () => {
   it('keeps the group it leaves only for a list of tags; any other field moves', () => {
     expect(keepsGroup(TAGS, true)).toBe(true);

@@ -19,11 +19,19 @@ export interface Group<T> {
 }
 
 /**
- * The values a task has for a grouping, as the words of `grouping.values`: one, several for a list (tags), or none.
- * The field names the engine gives are the names of the entry, except `state` (the readiness) - this reads, it does
- * not judge.
+ * The values of a derived field another document of the engine holds (not the task entry): the caller reads them there
+ * (`cross` from `tasks.links`). Undefined: the field is read from the entry.
  */
-export function valuesOf(task: TaskEntry, grouping: Grouping): string[] {
+export type Derived = (task: TaskEntry, field: Grouping['field']) => string[] | undefined;
+
+/**
+ * The values a task has for a grouping, as the words of `grouping.values`: one, several for a list (tags), or none.
+ * The field names the engine gives are the names of the entry, except `state` (the readiness) and what `derived` reads
+ * - this reads, it does not judge.
+ */
+export function valuesOf(task: TaskEntry, grouping: Grouping, derived?: Derived): string[] {
+  const read = derived?.(task, grouping.field);
+  if (read !== undefined) return read;
   const entry = task as unknown as Record<string, unknown>;
   const raw = grouping.field === 'state' ? task.readiness?.state : entry[grouping.field];
   if (Array.isArray(raw)) return raw.filter((v): v is string => typeof v === 'string' && v !== '').map(String);
@@ -36,13 +44,13 @@ export function valuesOf(task: TaskEntry, grouping: Grouping): string[] {
  * drop), a value the engine did not name after them in the order it is met, and the tasks that have none last. A task
  * with several values (tags) stands in each of their groups; the group of none shows only when some task has none.
  */
-export function groupsOf<T extends TaskEntry>(items: readonly T[], grouping: Grouping): Group<T>[] {
+export function groupsOf<T extends TaskEntry>(items: readonly T[], grouping: Grouping, derived?: Derived): Group<T>[] {
   const groups = new Map<string, T[]>();
   for (const value of grouping.values) groups.set(value, []);
   const unnamed: string[] = [];
   const none: T[] = [];
   for (const item of items) {
-    const values = valuesOf(item, grouping);
+    const values = valuesOf(item, grouping, derived);
     if (values.length === 0) {
       none.push(item);
       continue;
@@ -176,10 +184,11 @@ export function cellsOf<T extends TaskEntry>(
   items: readonly T[],
   rows: Grouping,
   columns: Grouping,
+  derived?: Derived,
 ): { row: string; column: string; items: T[] }[] {
-  const columnGroups = groupsOf(items, columns).map((g) => ({ value: g.value, ids: new Set(g.items.map((i) => i.id)) }));
+  const columnGroups = groupsOf(items, columns, derived).map((g) => ({ value: g.value, ids: new Set(g.items.map((i) => i.id)) }));
   const out: { row: string; column: string; items: T[] }[] = [];
-  for (const row of groupsOf(items, rows)) {
+  for (const row of groupsOf(items, rows, derived)) {
     for (const column of columnGroups) {
       out.push({ row: row.value, column: column.value, items: row.items.filter((i) => column.ids.has(i.id)) });
     }

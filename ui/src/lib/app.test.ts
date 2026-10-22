@@ -4510,6 +4510,18 @@ describe('the saved views', () => {
     m.app.stop();
   });
 
+  it('a task connects areas when the links of the engine name it among those that touch two or more', async () => {
+    const m = made(['views', 'groupings', 'links']);
+    await m.app.start(null);
+    await vi.waitFor(() => expect(m.app.linksNow).not.toBeNull());
+    const [a, b] = [m.app.tasks.find((t) => t.id === 'pub/a')!, m.app.tasks.find((t) => t.id === 'pub/b')!];
+    expect(m.app.derivedValues(a, 'cross')).toEqual(['several']);
+    expect(m.app.derivedValues(b, 'cross')).toEqual(['one']);
+    // Every other field is the entry's own.
+    expect(m.app.derivedValues(a, 'status')).toBeUndefined();
+    m.app.stop();
+  });
+
   it('the board is the built-in view: opening it asks for the fields its bar makes views with', async () => {
     const m = made(['views', 'groupings', 'reorder']);
     await m.app.start(null);

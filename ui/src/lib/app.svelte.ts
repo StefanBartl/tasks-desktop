@@ -49,7 +49,7 @@ import { ViewsState } from './state/views.svelte';
 import { emptySelect, filterOfSelect, type ViewForm } from './views';
 import { viewMenuItems } from './viewMenu';
 import type { MenuItem } from 'appkit-ui/menu';
-import { cellDropOps, dropOps, NONE, type Cell, type Drop, type Grouping } from './groups';
+import { cellDropOps, dropOps, NONE, type Cell, type Derived, type Drop, type Grouping } from './groups';
 import { TodayState } from './state/today.svelte';
 import { GraphState } from './state/graph.svelte';
 import type { DailyPrefs } from './daily';
@@ -544,6 +544,13 @@ export class App {
   tasksOfView(view: SavedView): TaskEntry[] {
     return applyFilter(this.tasks, filterOfSelect(view.select), this.today, this.crossIndex, this.quickWinSet);
   }
+
+  /**
+   * The values of the derived fields of a grouping that the task entry does not hold: `cross` (whether the task connects
+   * areas) is the engine's `tasks.links` - `several` for a task it names among those that touch two or more areas.
+   */
+  readonly derivedValues: Derived = (task, field) =>
+    field === 'cross' ? [this.crossAreas(task.id).length >= 2 ? 'several' : 'one'] : undefined;
 
   /** Show the tab of the views with the view `id` open. */
   openView(id: string): void {

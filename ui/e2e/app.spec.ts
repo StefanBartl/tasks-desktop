@@ -2280,6 +2280,53 @@ test('connections: the links between areas, narrowed to the chosen areas, and th
   expect(await violations(page)).toEqual([]);
 });
 
+test('connections: the net of the areas beside the matrix, its lines by key, the number on each line', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await chooseView(page, 'View', 'Connections');
+  const net = page.getByRole('group', { name: 'The net of the areas: a line per pair, its number of links on it' });
+  await expect(net).toBeVisible();
+  // The line of the pair says what the cell of the matrix says, and carries the number (not colour alone).
+  const line = net.getByRole('button', { name: 'Line cascade.nvim to lib.nvim: 2 links, open the list' });
+  await expect(line).toBeVisible();
+  await expect(line.locator('text')).toHaveText('2');
+  await expectAccessible(page, 'the net of the areas');
+  // By key: the line takes the focus, Enter opens the pair and the focus goes to it.
+  const row = page.locator('.pairs > li', { hasText: 'cascade.nvim ↔ lib.nvim' });
+  await line.focus();
+  await page.keyboard.press('Enter');
+  await expect(row.getByText('waits for')).toBeVisible();
+  await expect(row.locator('summary')).toBeFocused();
+  expect(await violations(page)).toEqual([]);
+});
+
+test('a view grouped by whether a task connects areas: the engine takes it, the tasks the links name are in their group', async ({ page }) => {
+  await pair(page);
+  const make = page.getByRole('button', { name: 'New view' });
+  await openViewsByKey(page, make);
+  await make.click();
+  const form = page.getByRole('form', { name: 'New view' });
+  await form.getByLabel('Name').fill('E2e cross v001');
+  await form.getByLabel('Kept in area').selectOption('lib.nvim');
+  await form.getByLabel('Group by').selectOption({ label: 'Connects areas' });
+  await form.getByLabel('Take the filter of the list').uncheck();
+  await write(page, () => form.getByRole('button', { name: 'Create view' }).click());
+  const file = viewFile('lib.nvim', 'E2e cross v001')!;
+  expect(readFileSync(file, 'utf8')).toContain('group_by: cross');
+  const open = page.getByRole('region', { name: 'E2e cross v001', exact: true });
+  // cascade.nvim/theta names lib.nvim in a ref: it touches two areas; lib.nvim/beta touches only its own.
+  await expect(open.locator('section[data-group="several"] [data-view-item="cascade.nvim/theta"]')).toBeVisible();
+  await expect(open.locator('section[data-group="one"] [data-view-item="lib.nvim/beta"]')).toBeVisible();
+  await expect(open.locator('section[data-group="several"] h3')).toContainText('touches several areas');
+  // Read only: no grip, no keys that write.
+  await expect(open.locator('section[data-group="one"] .grip')).toHaveCount(0);
+  await expectAccessible(page, 'a view grouped by connection');
+  // Leave the vault as the other tests know it.
+  const gone = nextAnswer(page);
+  await page.getByRole('button', { name: 'Delete view' }).click();
+  await gone;
+});
+
 test('finished: the figures of a period come from the engine, a click on an area or a month narrows them', async ({
   page,
 }) => {

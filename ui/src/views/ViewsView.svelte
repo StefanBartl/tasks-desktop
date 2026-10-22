@@ -38,7 +38,7 @@
   /** The words for a value of the field `field`: the page's word where it has one, else the value as it is. */
   function valueLabel(field: string, value: string): string {
     if (value === NONE) return t('views.none');
-    if (field === 'status' || field === 'actor' || field === 'state') return labelOf(app.lang, field, value);
+    if (field === 'status' || field === 'actor' || field === 'state' || field === 'cross') return labelOf(app.lang, field, value);
     if (field === 'prio') return `P${value}`;
     return value;
   }
@@ -148,7 +148,7 @@
     open ? (groupings?.fields.find((f) => f.field === open.group_by) ?? null) : null,
   );
   const viewTasks = $derived(open ? app.tasksOfView(open) : []);
-  const groups = $derived(grouping ? groupsOf(viewTasks, grouping) : []);
+  const groups = $derived(grouping ? groupsOf(viewTasks, grouping, app.derivedValues) : []);
   /** A task is moved between groups only where the engine writes the field by a set or the list of tags (not the area). */
   const movable = $derived(
     grouping !== null &&
@@ -160,8 +160,8 @@
   const grouping2 = $derived<Grouping | null>(
     open?.display === 'matrix' && open.group_by2 !== undefined ? (groupings?.fields.find((f) => f.field === open.group_by2) ?? null) : null,
   );
-  const rowGroups = $derived(grouping2 ? groupsOf(viewTasks, grouping2) : []);
-  const cells = $derived(grouping && grouping2 ? cellsOf(viewTasks, grouping2, grouping) : []);
+  const rowGroups = $derived(grouping2 ? groupsOf(viewTasks, grouping2, app.derivedValues) : []);
+  const cells = $derived(grouping && grouping2 ? cellsOf(viewTasks, grouping2, grouping, app.derivedValues) : []);
   const cellIndex = $derived(new Map(cells.map((c) => [JSON.stringify([c.row, c.column]), c])));
   const cellOf = (cell: Cell) => cellIndex.get(JSON.stringify([cell.row, cell.column]));
   /** A card is moved between cells where at least one of the two fields can be written so (the other may stay). */

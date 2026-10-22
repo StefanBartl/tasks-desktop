@@ -8,6 +8,7 @@
   import { markHidden } from '../lib/text';
   import Info from 'appkit-ui/Info.svelte';
   import MultiSelect from 'appkit-ui/MultiSelect.svelte';
+  import AreaNet from './AreaNet.svelte';
 
   let { app }: { app: App } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
@@ -108,6 +109,7 @@
     {#if matrixAreas.length >= 2}
       <section class="card" aria-labelledby="cross-matrix-title">
         <h3 id="cross-matrix-title" class="eyebrow">{t('cross.matrix')}</h3>
+        <div class="side">
         <!-- A wide matrix scrolls in its own box, which the keyboard can reach. -->
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <div class="scroll" tabindex="0">
@@ -151,6 +153,16 @@
             {/each}
           </tbody>
         </table>
+        </div>
+        <!-- The same pairs as a net: the matrix is the table of its numbers. -->
+        <AreaNet
+          {pairs}
+          areas={matrixAreas}
+          {nameOf}
+          label={t('cross.net')}
+          edgeLabel={(a, b, n) => t(n === 1 ? 'cross.net_edge_one' : 'cross.net_edge', { a: nameOf(a), b: nameOf(b), n })}
+          onopen={openPair}
+        />
         </div>
       </section>
     {/if}
@@ -263,6 +275,12 @@
   }
   .scroll {
     overflow-x: auto;
+  }
+  .side {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    align-items: center;
   }
   table {
     border-collapse: collapse;
