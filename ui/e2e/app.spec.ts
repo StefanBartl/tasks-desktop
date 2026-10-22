@@ -696,6 +696,22 @@ test('a view by area: a card moved to another area is a question to the engine f
   removeFile(moved);
 });
 
+test('the board says why it cannot make a view when the engine names no fields', async ({ page }) => {
+  // The engine does not answer the fields: the button of a new view stays greyed out, and the board says why.
+  await page.route('**/api/tasks/groupings', (route) =>
+    route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ code: 'engine_busy', message: 'busy' }) }),
+  );
+  await pair(page);
+  await expect(async () => {
+    await page.locator('main').focus();
+    await page.keyboard.press('g');
+    await page.keyboard.press('b');
+    await expect(page.getByRole('group', { name: 'Board' })).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 10000 });
+  await expect(page.getByRole('button', { name: 'New view' })).toBeDisabled();
+  await expect(page.getByRole('alert').filter({ hasText: 'The engine did not name the fields to group by.' })).toBeVisible();
+});
+
 test('the ranges of the fields are asked of the hub once, and the property form offers the ones the engine names', async ({ page }) => {
   const asked: string[] = [];
   page.on('request', (r) => {

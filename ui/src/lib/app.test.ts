@@ -4282,6 +4282,48 @@ describe('the saved views', () => {
       m.app.stop();
     });
 
+    it('a move from the overview is not told to a view; several marked moved from a view tell where the dragged one went', async () => {
+      const area: Grouping = { field: 'area', values: ['pub', 'other'], truncated: false, writable: true, value_type: 'string', mode: 'move_area' };
+      const would = (n: number, id: string) => ({
+        n,
+        op: 'move_area',
+        id,
+        ok: true,
+        outcome: 'would_move',
+        move: { from: id, new_id: id.replace('pub/', 'other/'), references: [], conflicts: [] },
+      });
+      const moved = (n: number, id: string) => ({
+        n,
+        op: 'move_area',
+        id,
+        ok: true,
+        outcome: 'moved',
+        new_id: id.replace('pub/', 'other/'),
+        changed_ids: [id],
+        inverse: { op: 'move_area', id: id.replace('pub/', 'other/'), to_area: 'pub' },
+      });
+      const m = made(['views', 'groupings', 'move_area', 'ops']);
+      m.hub.doc = snapshot(three());
+      await m.app.start(null);
+      // From the overview (no view): moved, and nothing for a view to say later.
+      m.hub.next_ops = { kind: 'tasks.result', ok: true, dry_run: true, results: [would(1, 'pub/c')] } as unknown as Result;
+      await m.app.askDropMove('pub/c', 'other');
+      m.hub.next_ops = { kind: 'tasks.result', ok: true, dry_run: false, results: [moved(1, 'pub/c')] } as unknown as Result;
+      await m.app.confirmDropMove();
+      expect(m.hub.sent.at(-1)?.ops).toEqual([{ op: 'move_area', id: 'pub/c', to_area: 'other', if_match: 'ec' }]);
+      expect(m.app.areaMoved).toBeNull();
+      // Two marked cards of a view, one dragged: where the dragged one went.
+      m.app.toggleMark('pub/a');
+      m.app.toggleMark('pub/b');
+      m.hub.next_ops = { kind: 'tasks.result', ok: true, dry_run: true, results: [would(1, 'pub/a'), would(2, 'pub/b')] } as unknown as Result;
+      await m.app.dropInView('pub/a', area, 'pub', 'other', false, m.app.tasks);
+      expect(m.app.dropMove?.count).toBe(2);
+      m.hub.next_ops = { kind: 'tasks.result', ok: true, dry_run: false, results: [moved(1, 'pub/a'), moved(2, 'pub/b')] } as unknown as Result;
+      await m.app.confirmDropMove();
+      expect(m.app.areaMoved).toEqual({ id: 'other/a', area: 'other' });
+      m.app.stop();
+    });
+
     it('onto another area takes only the marked tasks the view shows', async () => {
       const area: Grouping = { field: 'area', values: ['pub', 'other'], truncated: false, writable: true, value_type: 'string', mode: 'move_area' };
       const m = made(['views', 'groupings', 'move_area', 'ops']);

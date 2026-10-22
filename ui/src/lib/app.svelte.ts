@@ -288,6 +288,8 @@ export class App {
     answer: Awaited<ReturnType<App['previewMove']>> | null;
     /** The dry run of the marked tasks (`count` > 1), per task. */
     checks: MoveCheck[] | null;
+    /** Asked from a view: once written, the view says where the card went and follows it (`areaMoved`). */
+    fromView?: boolean;
   } | null>(null);
   /** A task whose area the person wants to choose (no drag: the key or the button of the row), until it is chosen. */
   dropChoose = $state<string | null>(null);
@@ -1211,7 +1213,7 @@ export class App {
    * A task was dropped on an area: ask the engine what the move would do and show it. The same area is no move.
    * A later drop replaces an earlier one, and the answer of the earlier is not shown for it.
    */
-  async askDropMove(id: string, toArea: string, among: readonly string[] = this.marks): Promise<void> {
+  async askDropMove(id: string, toArea: string, among: readonly string[] = this.marks, fromView = false): Promise<void> {
     const task = this.tasks.find((x) => x.id === id);
     if (!task || task.area === toArea || !this.can('move_area') || this.saving) return;
     this.dropChoose = null;
@@ -1219,17 +1221,18 @@ export class App {
     // A marked task dropped with other marked ones takes them along: they are moved together, as in the list.
     const count = among.length > 1 && among.includes(id) ? among.length : 1;
     const etag = task.etag;
-    this.dropMove = { id, toArea, count, ...(etag ? { etag } : {}), answer: null, checks: null };
+    const from = fromView ? { fromView } : {};
+    this.dropMove = { id, toArea, count, ...(etag ? { etag } : {}), answer: null, checks: null, ...from };
     const still = (): boolean => seq === this.#dropAsks && this.dropMove?.id === id && this.dropMove.toArea === toArea;
     if (count > 1) {
       const checks = await this.previewBulkMove(toArea, among);
       if (!still()) return;
       // The engine could not be asked (the reason was told): nothing is left to confirm.
-      this.dropMove = checks === null ? null : { id, toArea, count, answer: null, checks };
+      this.dropMove = checks === null ? null : { id, toArea, count, answer: null, checks, ...from };
       return;
     }
     const answer = await this.previewMove(id, toArea);
-    if (still()) this.dropMove = { id, toArea, count, ...(etag ? { etag } : {}), answer, checks: null };
+    if (still()) this.dropMove = { id, toArea, count, ...(etag ? { etag } : {}), answer, checks: null, ...from };
   }
 
   cancelDropMove(): void {
@@ -1255,7 +1258,10 @@ export class App {
       if (!checks.some((c) => c.reasons.length === 0 && c.newId !== '')) return;
       this.#dropAsks++;
       this.dropMove = null;
-      await this.bulkMove(asking.toArea, checks);
+      const moved = await this.bulkMove(asking.toArea, checks);
+      // The card that was dragged in a view: where it went (when its own move was one that could be made).
+      const own = checks.find((c) => c.id === asking.id && c.reasons.length === 0 && c.newId !== '');
+      if (asking.fromView && moved > 0 && own) this.areaMoved = { id: own.newId, area: asking.toArea };
       return;
     }
     if (!asking || asking.answer?.kind !== 'ok' || asking.answer.move.conflicts.length > 0) return;
@@ -1263,7 +1269,9 @@ export class App {
     this.#dropAsks++;
     this.dropMove = null;
     const newId = asking.answer.move.new_id;
-    if (await this.moveArea(asking.id, asking.toArea, asking.etag)) this.areaMoved = { id: newId, area: asking.toArea };
+    const done = await this.moveArea(asking.id, asking.toArea, asking.etag);
+    // Only a move asked from a view is told to it: one from the overview or the dialog's choice is not that view's.
+    if (done && asking.fromView) this.areaMoved = { id: newId, area: asking.toArea };
   }
 
   /** The task the last move confirmed in the dialog went to (its new id and area): a view announces it and follows it. */
@@ -1427,7 +1435,7 @@ export class App {
         return false;
       }
       // Only the marked tasks the view shows go with it, as for every other drop of a view.
-      await this.askDropMove(id, to, this.marks.filter((m) => inView.some((t) => t.id === m)));
+      await this.askDropMove(id, to, this.marks.filter((m) => inView.some((t) => t.id === m)), true);
       return false;
     }
     const tags: TagEdit | undefined = grouping.mode === 'tags' ? { add: to === NONE ? [] : [to], remove: copy ? [] : [from] } : undefined;

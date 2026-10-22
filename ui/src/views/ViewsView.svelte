@@ -344,11 +344,12 @@
     {#if (saved.doc?.problems.length ?? 0) > 0}
       <p class="note">{t('views.problems', { list: saved.doc!.problems.map((p) => `${p.id}: ${p.message}`).join('; ') })}</p>
     {/if}
-    {#if saved.groupingsFailed && groupings === null}
-      <p class="note" role="alert">{t('views.groupings_failed')}</p>
-    {:else if groupings === null}
-      <p class="note">{t('views.loading')}</p>
-    {/if}
+  {/if}
+  <!-- Why the button of a new view is greyed out: also on the board, whose bar has that button. -->
+  {#if saved.groupingsFailed && groupings === null}
+    <p class="note" role="alert">{t('views.groupings_failed')}</p>
+  {:else if groupings === null && !board}
+    <p class="note">{t('views.loading')}</p>
   {/if}
 
   {#if making}
