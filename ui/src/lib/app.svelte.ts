@@ -2343,8 +2343,8 @@ export class App {
     }
     void this.loadLinks();
     // The views are files of their own: read at the start, after a write of one, when the tab is entered and, while it is
-    // shown, when the vault changed (from outside, say). A change of a task does not change a view: reading them after
-    // every write elsewhere would be one more engine call in front of the next write.
+    // shown, when they changed (the snapshot's `views_rev`, from outside say). A change of a task does not change a view:
+    // reading them after every write elsewhere would be one more engine call in front of the next write.
     if (this.#viewsRev === undefined || (this.view === 'views' && this.viewsBehind(doc))) void this.readViews();
     // Not on the board: its bar needs the fields only for the form of a new view, asked when the board is opened (a
     // question after every write there would stand in front of the next one).
