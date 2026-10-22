@@ -193,14 +193,22 @@ class FakeHub {
   }
   /** The saved views the hub answers; `viewsHold` holds the answers back, one for each ask, in the order asked. */
   viewList: View[] = [];
+  /** The rev the views answer (the `views_rev` of the snapshot, when a test names it). */
+  viewsRev: string | null = null;
   viewsCalls = 0;
   viewsHold: Promise<void>[] = [];
+  /** How many of the next reads of the views the engine refuses (busy). */
+  viewsFail = 0;
   async views(): Promise<Views> {
     this.viewsCalls += 1;
+    if (this.viewsFail > 0) {
+      this.viewsFail -= 1;
+      throw new ApiError(503, 'engine_busy', 'x');
+    }
     const list = this.viewList;
     const held = this.viewsHold.shift();
     if (held) await held;
-    return { kind: 'tasks.views', rev: `views:${list.length}`, views: list, problems: [] } as unknown as Views;
+    return { kind: 'tasks.views', rev: this.viewsRev ?? `views:${list.length}`, views: list, problems: [] } as unknown as Views;
   }
   /** The groupings answer the rev of the list unless this names another (an answer of a state gone by). */
   groupingsRev: string | null = null;
@@ -4085,6 +4093,86 @@ describe('the saved views', () => {
     expect(m.prefs.get('tasks-desktop.view-open')).toBe('pub/made-view');
     await m.app.undo();
     expect(last(m)).toEqual([{ op: 'view_delete', id: 'pub/made-view', if_match: 'v-made' }]);
+    m.app.stop();
+  });
+
+  it('a view written here is read once after the write, and no other document is asked again (views_rev, not rev)', async () => {
+    const m = made(['views', 'groupings', 'links']);
+    m.hub.doc = { ...snapshot(m.hub.doc.tasks), views_rev: 'rev:aaaaa1', digest: 'd1' } as Snapshot;
+    await m.app.start(null);
+    m.app.setView('views');
+    await vi.waitFor(() => expect(m.app.viewsState.groupingsNow).not.toBeNull());
+    await vi.waitFor(() => expect(m.app.linksNow).not.toBeNull());
+    const [views, links, groupings] = [m.hub.viewsCalls, m.hub.linksCalls, m.hub.groupingsCalls];
+    // The engine writes the file: the snapshot after it has a new views_rev and digest, the same rev.
+    const ops = m.hub.ops.bind(m.hub);
+    m.hub.ops = async (request) => {
+      m.hub.doc = { ...m.hub.doc, views_rev: 'rev:aaaaa2', digest: 'd2' } as Snapshot;
+      return ops(request);
+    };
+    m.hub.viewList = [view('pub/made-view')];
+    expect(await m.app.viewsState.create('pub', form())).toBe(true);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(m.hub.viewsCalls).toBe(views + 1);
+    expect([m.hub.linksCalls, m.hub.groupingsCalls]).toEqual([links, groupings]);
+    m.app.stop();
+  });
+
+  it('a view written here is read after the write even when the snapshot does not show it yet, and not again on its event', async () => {
+    const m = made(['views', 'groupings', 'links']);
+    m.hub.doc = { ...snapshot(m.hub.doc.tasks), views_rev: 'rev:ccccc1', digest: 'd1' } as Snapshot;
+    m.hub.viewsRev = 'rev:ccccc1';
+    await m.app.start(null);
+    m.app.setView('views');
+    await vi.waitFor(() => expect(m.app.viewsState.groupingsNow).not.toBeNull());
+    const views = m.hub.viewsCalls;
+    // The engine wrote the file; the hub reads the vault again only on the event, after the answer.
+    m.hub.viewList = [view('pub/made-view')];
+    m.hub.viewsRev = 'rev:ccccc2';
+    expect(await m.app.viewsState.create('pub', form())).toBe(true);
+    expect(m.hub.viewsCalls).toBe(views + 1);
+    expect(m.app.viewsState.list.map((v) => v.id)).toEqual(['pub/made-view']);
+    // The event: the snapshot now names the views_rev the views were read at.
+    m.hub.doc = { ...m.hub.doc, views_rev: 'rev:ccccc2', digest: 'd2' } as Snapshot;
+    await m.app.refresh();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(m.hub.viewsCalls).toBe(views + 1);
+    m.app.stop();
+  });
+
+  it('a read of the views that failed (a busy engine) is asked again on the next read of the list', async () => {
+    const m = made(['views', 'groupings']);
+    m.hub.doc = { ...snapshot(m.hub.doc.tasks), views_rev: 'rev:ddddd1', digest: 'd1' } as Snapshot;
+    m.hub.viewsFail = 1;
+    // The start reads the views once (for the palette and the menu), and the engine is busy.
+    await m.app.start(null);
+    await vi.waitFor(() => expect(m.app.viewsState.failed).toBe(true));
+    const views = m.hub.viewsCalls;
+    m.hub.viewList = [view('pub/after-busy')];
+    await m.app.refresh();
+    await vi.waitFor(() => expect(m.app.viewsState.list.map((v) => v.id)).toEqual(['pub/after-busy']));
+    expect(m.hub.viewsCalls).toBe(views + 1);
+    m.app.stop();
+  });
+
+  it('a view changed outside (a new views_rev, the same rev) is read again while the views are shown, nothing else', async () => {
+    const m = made(['views', 'groupings', 'links']);
+    m.hub.doc = { ...snapshot(m.hub.doc.tasks), views_rev: 'rev:bbbbb1', digest: 'd1' } as Snapshot;
+    await m.app.start(null);
+    m.app.setView('views');
+    await vi.waitFor(() => expect(m.app.viewsState.groupingsNow).not.toBeNull());
+    await vi.waitFor(() => expect(m.app.linksNow).not.toBeNull());
+    const [views, links, groupings] = [m.hub.viewsCalls, m.hub.linksCalls, m.hub.groupingsCalls];
+    m.hub.viewList = [view('pub/pulled')];
+    m.hub.doc = { ...m.hub.doc, views_rev: 'rev:bbbbb2', digest: 'd2' } as Snapshot;
+    await m.app.refresh();
+    await vi.waitFor(() => expect(m.app.viewsState.list.map((v) => v.id)).toEqual(['pub/pulled']));
+    expect(m.hub.viewsCalls).toBe(views + 1);
+    expect([m.hub.linksCalls, m.hub.groupingsCalls]).toEqual([links, groupings]);
+    // A read of the list with nothing changed asks no view again.
+    await m.app.refresh();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(m.hub.viewsCalls).toBe(views + 1);
     m.app.stop();
   });
 

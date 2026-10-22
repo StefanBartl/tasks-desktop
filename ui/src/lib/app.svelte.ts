@@ -219,8 +219,27 @@ export class App {
   readonly todayState: TodayState;
   /** The saved views of the vault and the groupings they are drawn with (its own state: `state/views.svelte.ts`). */
   readonly viewsState: ViewsState;
-  /** The rev of the snapshot the views were last read at. */
+  /** The state of the views (`viewsKey`) they were last asked at. */
   #viewsRev: string | undefined = undefined;
+
+  /**
+   * What the saved views stand on: the snapshot's `views_rev` (a view written here or changed outside, a pull say, changes
+   * it without a new `rev`), or its `rev` for an engine that does not name it.
+   */
+  private get viewsKey(): string | undefined {
+    return this.snapshot ? (this.snapshot.views_rev ?? this.snapshot.rev) : undefined;
+  }
+
+  /**
+   * Whether the views read are behind the state of the vault: neither asked at it nor read at it. `views_rev` is the `rev`
+   * of `tasks.views`, so views read after a write are not read again when the event of that write comes later.
+   */
+  private viewsBehind(doc: Snapshot | null = this.snapshot): boolean {
+    if (!doc) return false;
+    const key = doc.views_rev ?? doc.rev;
+    if (key === this.#viewsRev) return false;
+    return doc.views_rev === undefined || doc.views_rev !== this.viewsState.doc?.rev;
+  }
   /** Blocks of the Today view the person put away. */
   get hiddenTiles(): Tile[] {
     return this.todayState.hidden;
@@ -878,7 +897,7 @@ export class App {
     this.palette = true;
     // The palette names the saved views: read them again when the vault changed since (they are read on a new state
     // only while their tab is shown).
-    if (this.can('views') && this.#viewsRev !== this.snapshot?.rev) this.readViews();
+    if (this.can('views') && this.viewsBehind()) void this.readViews();
   }
 
   closePalette(): void {
@@ -1019,16 +1038,24 @@ export class App {
     }
   }
 
-  /** Read the saved views, noting the state of the vault they were read at. */
-  private readViews(): void {
-    this.#viewsRev = this.snapshot?.rev;
-    void this.viewsState.load();
+  /** Read the saved views, noting the state of the views they were read at. */
+  private readViews(): Promise<void> {
+    const key = this.viewsKey;
+    this.#viewsRev = key;
+    return this.viewsState.load().then(() => {
+      // A read that failed (a busy engine) is not a read: the next read of the list asks again.
+      if (this.viewsState.failed && this.#viewsRev === key) this.#viewsRev = undefined;
+    });
   }
 
-  /** The list after a write, and the views when the write was one of them (the snapshot does not hold the views). */
+  /**
+   * The list after a write, and the views when the write was one of them (the snapshot does not hold the views). They are
+   * read in any case: the snapshot read here may not show the write's `views_rev` yet (the hub reads the vault again on
+   * the event of the write, which can come later); `viewsBehind` then does not read them a second time.
+   */
   private async readAfter(ops: readonly Op[]): Promise<void> {
     await this.refresh();
-    if (ops.some((op) => op.op === 'view_save' || op.op === 'view_delete')) await this.viewsState.load();
+    if (ops.some((op) => op.op === 'view_save' || op.op === 'view_delete')) await this.readViews();
   }
 
   /** The operations that take back what `result` did (only when every entry has one). */
@@ -2318,7 +2345,7 @@ export class App {
     // The views are files of their own: read at the start, after a write of one, when the tab is entered and, while it is
     // shown, when the vault changed (from outside, say). A change of a task does not change a view: reading them after
     // every write elsewhere would be one more engine call in front of the next write.
-    if (this.#viewsRev === undefined || (this.view === 'views' && this.#viewsRev !== doc.rev)) this.readViews();
+    if (this.#viewsRev === undefined || (this.view === 'views' && this.viewsBehind(doc))) void this.readViews();
     // Not on the board: its bar needs the fields only for the form of a new view, asked when the board is opened (a
     // question after every write there would stand in front of the next one).
     if (this.view === 'views') void this.viewsState.loadGroupings();
@@ -2492,7 +2519,7 @@ export class App {
     if (view === 'views' && this.phase === 'ready') {
       void this.viewsState.loadGroupings();
       // What changed while the tab was not shown is read now (once per state of the vault).
-      if (this.#viewsRev !== this.snapshot?.rev) this.readViews();
+      if (this.viewsBehind()) void this.readViews();
     }
     safe(() => this.env.prefs.setItem('tasks-desktop.view', view));
     if (view === 'today' && this.phase === 'ready') void this.loadNext();

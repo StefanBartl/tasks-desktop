@@ -71,6 +71,10 @@ export type Digest = string;
 export type Snapshot = Head & {
   kind: "tasks.snapshot";
   rev: Rev;
+  /**
+   * What the saved views looked like: the `rev` of `tasks.views` (`rev:` and 6 hex digits, from every file of a view by id and etag). A view changed outside changes it (and the digest), not `rev`: a reader that shows the views reads them again when it differs from the one it read.
+   */
+  views_rev?: string;
   digest: Digest;
   counts: {
     listed: number;
