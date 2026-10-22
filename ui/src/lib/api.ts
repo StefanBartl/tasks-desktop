@@ -38,7 +38,8 @@ export type Op =
   | { op: 'move_area'; id: string; to_area: string; if_match?: string }
   /** A saved view: `area` alone makes a new one, `id` replaces that one (on the version read). */
   | { op: 'view_save'; id?: string; area?: string; view: ViewForm; if_match?: string }
-  | { op: 'view_delete'; id: string; if_match?: string }
+  /** Only on the version read: the engine refuses a delete without it. */
+  | { op: 'view_delete'; id: string; if_match: string }
   | {
       op: 'plan_new';
       area: string;

@@ -4041,6 +4041,22 @@ describe('the saved views', () => {
     m.app.stop();
   });
 
+  it('the first groupings are kept even for a state gone by: the board has the fields of its bar (not the current ones)', async () => {
+    const m = made(['views', 'groupings', 'reorder']);
+    await m.app.start(null);
+    // The vault changes while the board asks (a view written elsewhere): the answer is for the state before.
+    m.hub.groupingsRev = 'rev:old';
+    m.app.setView('board');
+    await vi.waitFor(() => expect(m.hub.groupingsCalls).toBe(1));
+    await vi.waitFor(() => expect(m.app.viewsState.groupingsShown?.rev).toBe('rev:old'));
+    expect(m.app.viewsState.groupingsNow).toBeNull();
+    // The tab of the views asks again and takes the answer of the state shown.
+    m.hub.groupingsRev = null;
+    m.app.setView('views');
+    await vi.waitFor(() => expect(m.app.viewsState.groupingsNow?.rev).toBe('rev:1'));
+    m.app.stop();
+  });
+
   it('ask for the groupings once while the answer is on its way', async () => {
     const m = made();
     await m.app.start(null);
@@ -4069,6 +4085,27 @@ describe('the saved views', () => {
     expect(m.prefs.get('tasks-desktop.view-open')).toBe('pub/made-view');
     await m.app.undo();
     expect(last(m)).toEqual([{ op: 'view_delete', id: 'pub/made-view', if_match: 'v-made' }]);
+    m.app.stop();
+  });
+
+  it('an inverse delete of a view without the version it deletes offers no undo (the engine would refuse it)', async () => {
+    const m = made();
+    await m.app.start(null);
+    await vi.waitFor(() => expect(m.app.hubAreas).toHaveLength(1));
+    m.hub.viewList = [view('pub/made-view')];
+    m.hub.next_ops = {
+      kind: 'tasks.result',
+      ok: true,
+      dry_run: false,
+      results: [
+        { n: 1, op: 'view_save', id: 'pub/made-view', ok: true, outcome: 'created', changed_ids: [], inverse: { op: 'view_delete', id: 'pub/made-view' } },
+      ],
+    } as never;
+    expect(await m.app.viewsState.create('pub', form())).toBe(true);
+    expect(m.app.toast?.undo).toBeUndefined();
+    const sent = m.hub.sent.length;
+    await m.app.undo();
+    expect(m.hub.sent.length).toBe(sent);
     m.app.stop();
   });
 

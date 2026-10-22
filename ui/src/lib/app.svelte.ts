@@ -1093,7 +1093,9 @@ export class App {
       }
       // A view: made is taken back by deleting it, changed or deleted by saving the view as it was (the engine's).
       if (inv.op === 'view_delete') {
-        inverses.push({ op: 'view_delete', id: inv.id, ...(inv.if_match ? { if_match: inv.if_match } : {}) });
+        // The engine deletes a view only on the version read: without it there is no way back to offer.
+        if (!inv.if_match) return undefined;
+        inverses.push({ op: 'view_delete', id: inv.id, if_match: inv.if_match });
         continue;
       }
       if (inv.op === 'view_save') {

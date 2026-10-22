@@ -248,7 +248,9 @@ answer to "not modified", because it holds a part of the document.
 
 Saved views are files of the vault (`<area>/ROADMAP/views/<slug>.md`, read with
 `GET /api/tasks/views`, written only through `POST /api/tasks/ops` with
-`view_save` and `view_delete`); the browser keeps none of them. What it keeps of
+`view_save` and `view_delete`, both on the version read: the engine replaces or
+deletes a view only with `if_match`, so a change made on another machine is not
+taken away unseen); the browser keeps none of them. What it keeps of
 them is one id, the view that was open last (`tasks-desktop.view-open` in
 `localStorage`), and the choice of a view in the palette (its frecency) - both
 only for an area that is `public` or `internal`, as the cache: the id names its

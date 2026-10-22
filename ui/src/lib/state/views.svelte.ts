@@ -106,8 +106,10 @@ export class ViewsState {
     this.groupingsAsked = rev;
     try {
       const doc = await this.host.groupings();
-      // An answer for a state that has gone by meanwhile is not kept; the next read asks again.
-      if (this.host.rev() === doc.rev) {
+      // An answer for a state that has gone by meanwhile is not kept; the next read asks again. Unless none is held yet:
+      // it is what `groupingsShown` draws with until the newer one comes (the board asks only when it is opened, and its
+      // bar would else stay without fields after a change of the vault during the question); `groupingsNow` stays null.
+      if (this.host.rev() === doc.rev || this.groupings === null) {
         this.groupings = doc;
         this.groupingsFailed = false;
       }
