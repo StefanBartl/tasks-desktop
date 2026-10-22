@@ -3,7 +3,8 @@
 //!
 //! The folders are those the Neovim dashboard watches (`<area>/ROADMAP/tasks` with folder tasks,
 //! `plans`, `Backlog/FEATURES` and `Backlog/TASKS`) plus the vault root, which the dashboard does
-//! not see: a new area appears there.
+//! not see: a new area appears there; and `ROADMAP/views`, the saved views, which the engine counts
+//! in the `rev` of the vault (a view changed by a pull reaches the page by the next event).
 //!
 //! A folder task is moved or renamed as a whole (`done`, `move_area`). The system then reports
 //! the folder and not the files in it, so an entry that sits directly in one of those folders
@@ -65,8 +66,10 @@ pub fn relevant(relative: &Path, entry: impl FnOnce() -> Entry) -> bool {
         // The structure of an area: its two folders and the folders of the
         // tasks and plans. A folder only.
         [_, "ROADMAP" | "Backlog"]
-        | [_, "ROADMAP", "tasks" | "plans"]
+        | [_, "ROADMAP", "tasks" | "plans" | "views"]
         | [_, "Backlog", "FEATURES" | "TASKS"] => entry() != Entry::File,
+        // A saved view is one file, directly in its folder; nothing deeper is read.
+        [_, "ROADMAP", "views", name] => is_markdown(name) && !ignored_name(name),
         // What sits directly in them: a task file, or the folder of a folder
         // task (which is moved, renamed and removed as a whole).
         [_, "ROADMAP", "tasks" | "plans", name] | [_, "Backlog", "FEATURES" | "TASKS", name] => {
@@ -135,6 +138,36 @@ mod tests {
         ] {
             assert!(file(yes), "{yes}");
         }
+    }
+
+    #[test]
+    fn the_saved_views_matter() {
+        for yes in [
+            "lib.nvim/ROADMAP/views/by-status.md",
+            "lib.nvim/ROADMAP/views/UPPER.MD",
+        ] {
+            assert!(file(yes), "{yes}");
+            assert!(gone(yes), "{yes}");
+        }
+        // The folder itself, made or removed (the first view of an area, a pull that brings it).
+        assert!(folder("lib.nvim/ROADMAP/views"));
+        assert!(gone("lib.nvim/ROADMAP/views"));
+        for no in [
+            "lib.nvim/ROADMAP/views/notes.txt",
+            "lib.nvim/ROADMAP/views/by-status.tasks-tmp.1.md",
+            "lib.nvim/ROADMAP/views/by-status.md~",
+            "lib.nvim/ROADMAP/views/deeper/x.md",
+            "lib.nvim/Backlog/views/x.md",
+        ] {
+            assert!(!file(no), "{no}");
+            assert!(!folder(no), "{no}");
+            assert!(!gone(no), "{no}");
+        }
+        assert!(!file("lib.nvim/ROADMAP/views"));
+        // A view file costs no system call either.
+        let _ = relevant(Path::new("lib.nvim/ROADMAP/views/by-status.md"), || {
+            panic!("asked for a view file")
+        });
     }
 
     #[test]

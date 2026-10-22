@@ -122,8 +122,10 @@ thing, the data class of an area.
 A file watcher (`notify`, the stable 8.x line) watches the vault and says
 only "something that matters changed"; what matters is decided by path:
 `.md` files in `ROADMAP/tasks` (folder tasks too), `ROADMAP/plans`,
-`Backlog/FEATURES` and `Backlog/TASKS`, and the entries of the vault root
-that are folders and not hidden (a new area). A folder task is moved and
+`Backlog/FEATURES` and `Backlog/TASKS`, the saved views (`.md` files directly
+in `ROADMAP/views`, which the engine counts in the `rev` of the vault, so a
+view changed by a pull reaches an open page by the next event), and the
+entries of the vault root that are folders and not hidden (a new area). A folder task is moved and
 renamed as a whole (`done`, `move_area`), and the system then reports the
 folder and not the files in it: so an entry directly in those folders counts
 when it is a folder, or when it is gone. Leftovers of tools

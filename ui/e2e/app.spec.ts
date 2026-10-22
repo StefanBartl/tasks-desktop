@@ -2336,6 +2336,29 @@ test('a view grouped by whether a task connects areas: the engine takes it, the 
   await gone;
 });
 
+test('a view file that comes from outside (a pull) is in the views without a reload, changed and gone again', async ({ page }) => {
+  await pair(page);
+  const make = page.getByRole('button', { name: 'New view' });
+  await openViewsByKey(page, make);
+  const choose = page.getByRole('combobox', { name: /^Saved view/ });
+  await expect(choose).toBeVisible();
+  const dir = join(state().vault, 'lib.nvim', 'ROADMAP', 'views');
+  const file = join(dir, 'e2e-pulled-v001.md');
+  const text = (title: string) => `---\ntitle: ${title}\ndisplay: columns\ngroup_by: status\n---\n`;
+  mkdirSync(dir, { recursive: true });
+  try {
+    // The hub reads the vault by itself only every 45 s: what comes sooner came by the watcher and the event.
+    writeFileSync(file, text('E2e pulled v001'));
+    await expect(choose.locator('option', { hasText: 'E2e pulled v001' })).toHaveCount(1, { timeout: WRITE_BUDGET });
+    writeFileSync(file, text('E2e pulled v001 renamed'));
+    await expect(choose.locator('option', { hasText: 'E2e pulled v001 renamed' })).toHaveCount(1, { timeout: WRITE_BUDGET });
+    removeFile(file);
+    await expect(choose.locator('option', { hasText: 'E2e pulled v001' })).toHaveCount(0, { timeout: WRITE_BUDGET });
+  } finally {
+    removeFile(file);
+  }
+});
+
 test('finished: the figures of a period come from the engine, a click on an area or a month narrows them', async ({
   page,
 }) => {
