@@ -549,8 +549,18 @@ export class App {
    * The values of the derived fields of a grouping that the task entry does not hold: `cross` (whether the task connects
    * areas) is the engine's `tasks.links` - `several` for a task it names among those that touch two or more areas.
    */
-  readonly derivedValues: Derived = (task, field) =>
-    field === 'cross' ? [this.crossAreas(task.id).length >= 2 ? 'several' : 'one'] : undefined;
+  readonly derivedValues: Derived = (task, field) => {
+    if (field !== 'cross') return undefined;
+    const touched = this.groupCrossIndex.get(task.id);
+    return [touched && touched.size >= 2 ? 'several' : 'one'];
+  };
+
+  /**
+   * The areas of the tasks for the groups of a view: while the links of a new state are on their way (after every write),
+   * those of the last state stand in, so that a task does not jump to `one` and back; the connections themselves show
+   * no older state as the current one (`crossIndex`).
+   */
+  private groupCrossIndex = $derived.by(() => (this.linksPending && this.links !== null ? indexOfLinks(this.links) : this.crossIndex));
 
   /** Show the tab of the views with the view `id` open. */
   openView(id: string): void {

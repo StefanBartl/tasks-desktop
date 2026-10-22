@@ -2290,6 +2290,15 @@ test('connections: the net of the areas beside the matrix, its lines by key, the
   const line = net.getByRole('button', { name: 'Line cascade.nvim to lib.nvim: 2 links, open the list' });
   await expect(line).toBeVisible();
   await expect(line.locator('text')).toHaveText('2');
+  // The names of the areas stand inside the drawing, not over the matrix beside it.
+  const matrix = (await page.locator('#cross-matrix-title ~ .side .scroll').boundingBox())!;
+  await expect
+    .poll(async () => {
+      const svg = (await net.boundingBox())!;
+      const names = await net.locator('.node text').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON() as DOMRect));
+      return names.every((n) => n.left >= svg.x - 0.5 && n.right <= svg.x + svg.width + 0.5 && (n.left >= matrix.x + matrix.width || n.right <= matrix.x));
+    })
+    .toBe(true);
   await expectAccessible(page, 'the net of the areas');
   // By key: the line takes the focus, Enter opens the pair and the focus goes to it.
   const row = page.locator('.pairs > li', { hasText: 'cascade.nvim ↔ lib.nvim' });

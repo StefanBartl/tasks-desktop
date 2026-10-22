@@ -4519,6 +4519,16 @@ describe('the saved views', () => {
     expect(m.app.derivedValues(b, 'cross')).toEqual(['one']);
     // Every other field is the entry's own.
     expect(m.app.derivedValues(a, 'status')).toBeUndefined();
+    // A new state (a write): while its links are on their way, the task keeps its group instead of jumping to `one`.
+    let release: () => void = () => {};
+    m.hub.linksHold = new Promise<void>((resolve) => (release = resolve));
+    m.hub.doc = snapshot(m.hub.doc.tasks, 'rev:2');
+    await m.app.refresh();
+    expect(m.app.linksPending).toBe(true);
+    expect(m.app.derivedValues(a, 'cross')).toEqual(['several']);
+    release();
+    await vi.waitFor(() => expect(m.app.linksNow?.rev).toBe('rev:2'));
+    expect(m.app.derivedValues(a, 'cross')).toEqual(['several']);
     m.app.stop();
   });
 

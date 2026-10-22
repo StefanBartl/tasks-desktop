@@ -3,7 +3,7 @@
   // (the keys reach it, Enter or Space opens the pair as a cell of the matrix does); its number stands on it, so neither
   // colour nor thickness alone says how many links there are. The matrix next to it is the table of these numbers.
   import type { Pair } from '../lib/cross';
-  import { netLayout } from '../lib/net';
+  import { BADGE_RADIUS, MAX_WIDTH, netLayout } from '../lib/net';
   import { markHidden } from '../lib/text';
 
   let {
@@ -28,6 +28,20 @@
   const MARGIN = 70;
   const net = $derived(netLayout(areas, pairs, SIZE, MARGIN));
 
+  // The box of the drawing is what it draws, the names of the areas included: a long name would else stand outside it,
+  // over the matrix beside it. The square of the layout until the browser has measured.
+  let svg: SVGSVGElement | undefined = $state();
+  let viewBox = $state(`0 0 ${SIZE} ${SIZE}`);
+  $effect(() => {
+    void net;
+    void areas.map(nameOf);
+    if (!svg || typeof svg.getBBox !== 'function') return;
+    const b = svg.getBBox();
+    if (b.width === 0 || b.height === 0) return;
+    const pad = MAX_WIDTH;
+    viewBox = [b.x - pad, b.y - pad, b.width + 2 * pad, b.height + 2 * pad].map((n) => Math.round(n)).join(' ');
+  });
+
   function onKey(event: KeyboardEvent, a: string, b: string): void {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
@@ -40,7 +54,7 @@
   const dy = (y: number, x: number): number => (Math.abs(x - SIZE / 2) <= 1 ? (y < SIZE / 2 ? -12 : 20) : 4);
 </script>
 
-<svg class="net" viewBox="0 0 {SIZE} {SIZE}" role="group" aria-label={label}>
+<svg class="net" bind:this={svg} {viewBox} role="group" aria-label={label}>
   {#each net.edges as edge (`${edge.a}|${edge.b}`)}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
     <g
@@ -54,7 +68,7 @@
       <!-- A wide line that cannot be seen makes the thin ones easy to hit. -->
       <line class="hit" x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} />
       <line class="line" x1={edge.x1} y1={edge.y1} x2={edge.x2} y2={edge.y2} stroke-width={edge.width} />
-      <circle class="badge" cx={edge.mx} cy={edge.my} r="11" />
+      <circle class="badge" cx={edge.mx} cy={edge.my} r={BADGE_RADIUS} />
       <text class="count" x={edge.mx} y={edge.my} dy="4" text-anchor="middle" aria-hidden="true">{edge.count}</text>
     </g>
   {/each}
@@ -71,7 +85,6 @@
     width: 100%;
     max-width: 24rem;
     height: auto;
-    overflow: visible;
   }
   .line {
     stroke: var(--muted);
