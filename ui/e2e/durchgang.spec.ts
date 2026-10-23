@@ -98,6 +98,13 @@ test('the last menu opens inside the window, and a choice closes when the focus 
   await expect(choice).toHaveCount(0);
 });
 
+/** What the kit's popup counts as a control (`CONTROL` of appkit-ui/tooltip.ts; Playwright loads no TypeScript of a package). */
+const CONTROL =
+  'a[href], button, input, select, textarea, summary, label, [contenteditable]:not([contenteditable="false"]), ' +
+  '[role="button"], [role="link"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], ' +
+  '[role="checkbox"], [role="radio"], [role="switch"], [role="option"], [role="tab"], [role="combobox"], ' +
+  '[role="slider"], [role="treeitem"]';
+
 test('a hint goes where it covers no other control: the one of Help in a wide window', async ({ page }) => {
   // Below Help the popup would lie on the filters; above, beside or below - it takes a place that is free.
   await page.setViewportSize({ width: 1200, height: 800 });
@@ -107,24 +114,31 @@ test('a hint goes where it covers no other control: the one of Help in a wide wi
   const help = (await page.getByRole('menuitem', { name: 'Help', exact: true }).boundingBox())!;
   await page.mouse.move(help.x + help.width / 2, help.y + help.height / 2);
   await expect(page.locator('#hint-tip')).toBeVisible();
-  const covered = await page.evaluate(() => {
+  // The popup that is shown is the one of Help (not a warm one of another element), and it stands beside Help.
+  await expect(page.locator('[aria-describedby~="hint-tip"]')).toHaveText('Help');
+  // Every control of the page whose rectangle meets the popup and that is there in the middle of the overlap: none.
+  const covered = await page.evaluate((controls) => {
     const tip = document.getElementById('hint-tip')!;
+    const host = tip.parentElement!;
     const r = tip.getBoundingClientRect();
-    const anchor = document.querySelector('[aria-describedby~="hint-tip"]');
-    const controls = 'a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"]), [role="menuitem"], [role="checkbox"]';
+    const anchor = document.querySelector('[aria-describedby~="hint-tip"]')!;
     const found: string[] = [];
-    for (const fy of [0.05, 0.5, 0.95]) {
-      for (const fx of [0.05, 0.5, 0.95]) {
-        const under = document.elementsFromPoint(r.x + r.width * fx, r.y + r.height * fy).find((e) => !tip.parentElement!.contains(e));
-        const control = under?.closest(controls);
-        if (control && anchor && control !== anchor && !control.contains(anchor) && !anchor.contains(control)) {
-          found.push(control.textContent?.trim().slice(0, 30) ?? control.tagName);
-        }
-      }
+    for (const control of document.querySelectorAll(controls)) {
+      if (control === anchor || anchor.contains(control) || host.contains(control)) continue;
+      const c = control.getBoundingClientRect();
+      const x0 = Math.max(r.x, c.x);
+      const y0 = Math.max(r.y, c.y);
+      const x1 = Math.min(r.right, c.right);
+      const y1 = Math.min(r.bottom, c.bottom);
+      if (x1 <= x0 || y1 <= y0) continue;
+      const top = document.elementsFromPoint((x0 + x1) / 2, (y0 + y1) / 2).find((e) => !host.contains(e));
+      if (top?.closest(controls) === control) found.push(control.textContent?.trim().slice(0, 30) || control.tagName);
     }
-    return found;
-  });
-  expect(covered).toEqual([]);
+    const a = anchor.getBoundingClientRect();
+    const beside = Math.abs(r.top - a.bottom) < 12 || Math.abs(a.top - r.bottom) < 12 || Math.abs(r.left - a.right) < 12 || Math.abs(a.left - r.right) < 12;
+    return { found, beside };
+  }, CONTROL);
+  expect(covered).toEqual({ found: [], beside: true });
 });
 
 test('a hint that lies on the next control goes with the first press, and the second press reaches the control', async ({ page }) => {
