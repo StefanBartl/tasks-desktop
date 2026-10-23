@@ -1,6 +1,17 @@
 // The words of the filter: what a value is called and what the chip of a switched-on filter says.
 
-import { areaLabel, DATE_KEYS, NONE, RANGE_KEYS, type ActiveFilter, type DateKey, type Filter, type FieldKey, type RangeKey } from './filter';
+import {
+  areaLabel,
+  DATE_KEYS,
+  NONE,
+  RANGE_KEYS,
+  wantsAll,
+  type ActiveFilter,
+  type DateKey,
+  type Filter,
+  type FieldKey,
+  type RangeKey,
+} from './filter';
 import { labelOf, translate, type Key, type Lang } from './i18n';
 import { markHidden } from './text';
 
@@ -57,7 +68,11 @@ export function chipLabel(
       const b = d?.to ?? '';
       return t(a && b ? 'filter.chip.span' : a ? 'filter.chip.from' : 'filter.chip.until', { field, a, b });
     }
-    default:
-      return `${t(`filter.field.${item.kind}` as Key)}: ${valueLabel(lang, item.kind, item.value)}`;
+    default: {
+      // A value of a field whose chosen values must all be on the task says so: "Tag (all): ui".
+      const field = t(`filter.field.${item.kind}` as Key);
+      const name = wantsAll(filter, item.kind) ? `${field} (${t('filter.match.all_short')})` : field;
+      return `${name}: ${valueLabel(lang, item.kind, item.value)}`;
+    }
   }
 }

@@ -11,6 +11,8 @@
   import FilterNote from './FilterNote.svelte';
   import GraphPanel from './GraphPanel.svelte';
   import PlanFinished from './PlanFinished.svelte';
+  import FoldButton from './FoldButton.svelte';
+  import { allButtonFold, foldOf, withAll, withFold } from '../lib/fold';
 
   let { app }: { app: App } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) =>
@@ -32,6 +34,10 @@
   const limit = $derived(grown.plan === planId ? grown.n : FIRST);
   const total = $derived(stages.reduce((n, s) => n + s.tasks.length, 0));
   const drawn = $derived(firstTasks(stages, limit));
+  // A stage is remembered by its number; the tasks of a cycle have none.
+  const stageKey = (n: number | null): string => (n === null ? 'cycle' : String(n));
+  const stageKeys = $derived(drawn.map((s) => stageKey(s.stage)));
+  const allFold = $derived(allButtonFold(app.folds.plan, stageKeys));
   $effect(() => {
     if (limit >= total) return;
     const plan = planId;
@@ -156,11 +162,14 @@
     {/if}
 
     {#if warnings.length > 0 || cycles.length > 0 || sameFile.length > 0}
-      <section class="card warn" aria-label={t('plan.warnings')} role="note">
-        <div class="headline">
-          <h2 class="eyebrow">{t('plan.warnings')}</h2>
-          <Info hint={t('hint.warnings')} label={t('hint.about', { what: t('plan.warnings') })} />
-        </div>
+      <!-- Folded when the page opens: the warnings are there to look at, not to stand over the plan. -->
+      <details class="card warn" aria-label={t('plan.warnings')}>
+        <summary class="headline">
+          <h2 class="eyebrow">
+            {t('plan.warnings')} ({warnings.length + cycles.length + sameFile.length})
+          </h2>
+        </summary>
+        <p class="about"><Info hint={t('hint.warnings')} label={t('hint.about', { what: t('plan.warnings') })} /></p>
         <ul class="plain">
           {#each cycles as cycle, i (i)}
             <li>{t('plan.cycle')}: <code>{markHidden(cycle.join(' → '))}</code></li>
@@ -177,7 +186,7 @@
             <li><code>{markHidden(w.code)}</code> {markHidden(w.msg)}</li>
           {/each}
         </ul>
-      </section>
+      </details>
     {/if}
 
     <GraphPanel {app} />
@@ -185,14 +194,33 @@
     <PlanFinished {app} {planId} />
 
     <section class="stages" tabindex="-1" aria-label={t('plan.stages')}>
-      <p class="legend"><Info hint={stagesLegend(app.lang)} label={t('hint.about', { what: t('plan.legend.what') })} /></p>
+      <p class="legend">
+        <Info hint={stagesLegend(app.lang)} label={t('hint.about', { what: t('plan.legend.what') })} />
+        {#if drawn.length > 1}
+          <FoldButton
+            lang={app.lang}
+            fold={allFold}
+            what={t('fold.all_stages')}
+            onfold={(next) => app.setFolds('plan', withAll(app.folds.plan, stageKeys, next))}
+          />
+        {/if}
+      </p>
       {#each drawn as stage (stage.stage ?? 'cycle')}
-        <div class="stage card">
-          <h2 class="eyebrow">
-            {stage.stage === null ? t('plan.no_stage') : t('plan.stage', { n: stage.stage })}
-            ({stage.total})
-          </h2>
-          <ul class="plain">
+        {@const key = stageKey(stage.stage)}
+        {@const fold = foldOf(app.folds.plan, key)}
+        {@const name = stage.stage === null ? t('plan.no_stage') : t('plan.stage', { n: stage.stage })}
+        <div class="stage card" class:folded={fold !== 'open'} class:narrow={fold === 'narrow'} data-stage={key}>
+          <div class="stage-head">
+            <FoldButton
+              lang={app.lang}
+              {fold}
+              what={name}
+              onfold={(next) => app.setFolds('plan', withFold(app.folds.plan, key, next))}
+            />
+            <h2 class="eyebrow">{name} ({stage.total})</h2>
+          </div>
+          {#if fold === 'open'}
+          <ul class="plain stage-list">
             {#each stage.tasks as task (task.id)}
               <li class:critical={critical.has(task.id)} data-id={task.id}>
                 <button
@@ -217,6 +245,7 @@
               </li>
             {/each}
           </ul>
+          {/if}
         </div>
       {:else}
         <p class="muted">{t(planEmptyKey(narrows(app.filter), stagesOf(app.tasks, planId === '' ? null : planId).length))}</p>
@@ -238,6 +267,28 @@
   }
   .card.warn {
     border-color: var(--warn);
+  }
+  /* A summary laid out as flex loses the browser's triangle: the page draws its own. */
+  details.warn > summary {
+    cursor: pointer;
+    margin-bottom: 0;
+    list-style: none;
+  }
+  details.warn > summary::-webkit-details-marker {
+    display: none;
+  }
+  details.warn > summary::before {
+    content: '▸';
+    color: var(--muted);
+  }
+  details.warn[open] > summary::before {
+    content: '▾';
+  }
+  details.warn[open] > summary {
+    margin-bottom: 0.5em;
+  }
+  .about {
+    margin: 0 0 0.3rem;
   }
   /* The plan and its button are one row: the label belongs to the choice, the button comes after it. */
   .toolbar {
@@ -318,11 +369,53 @@
     margin: 0;
     padding-left: 1.4rem;
   }
+  /* The stages wrap like words: an open one is about 21rem wide, a narrow one only as wide as its head on its side, so
+     folded stages make room for the ones beside them. */
   .stages {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr));
+    display: flex;
+    flex-wrap: wrap;
     gap: 1rem;
-    align-items: start;
+    align-items: flex-start;
+  }
+  .legend {
+    flex: 1 0 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+  }
+  .stage {
+    flex: 1 1 21rem;
+    max-width: 32rem;
+    min-width: 0;
+  }
+  .stage.folded {
+    flex-grow: 0;
+  }
+  .stage.narrow {
+    flex: 0 0 auto;
+    padding: 0.6rem 0.3rem;
+  }
+  .stage-head {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .stage-head .eyebrow {
+    margin: 0;
+  }
+  .stage.narrow .stage-head {
+    flex-direction: column;
+  }
+  .stage.narrow .stage-head .eyebrow {
+    writing-mode: vertical-rl;
+    white-space: nowrap;
+  }
+  /* A stage with many tasks scrolls in itself: the stages of the next row stay in reach. */
+  .stage-list {
+    margin-top: 0.5em;
+    max-height: min(50vh, 28rem);
+    overflow: auto;
   }
   .plain {
     list-style: none;

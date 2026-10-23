@@ -11,12 +11,20 @@
   import { markHidden } from '../lib/text';
   import Detail from './Detail.svelte';
   import FilterNote from './FilterNote.svelte';
+  import FoldButton from './FoldButton.svelte';
+  import { allButtonFold, foldOf, withAll, withFold } from '../lib/fold';
 
   let { app }: { app: App } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) =>
     translate(app.lang, key, params);
 
   const board = $derived(app.board);
+
+  const allFold = $derived(allButtonFold(app.folds.board, [...COLUMNS]));
+  // A narrow column takes only the width of its head; the others share the rest as before.
+  const columnsTemplate = $derived(
+    COLUMNS.map((c) => (foldOf(app.folds.board, c) === 'narrow' ? 'auto' : 'minmax(14rem, 1fr)')).join(' '),
+  );
 
   // How many cards each column draws: a long column shows its first cards and "show more".
   let limits = $state<Record<string, number>>({});
@@ -207,22 +215,40 @@
       >
         {t('board.done')}
       </div>
+    <div class="foldall">
+      <FoldButton
+        lang={app.lang}
+        fold={allFold}
+        what={t('fold.all_columns')}
+        onfold={(next) => app.setFolds('board', withAll(app.folds.board, [...COLUMNS], next))}
+      />
+    </div>
     <!-- A board that scrolls and holds no card (a filter hid them all) has nothing to focus: it takes the focus itself. -->
     <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-    <div class="board" role="group" aria-label={t('nav.board')} tabindex={COLUMNS.every((c) => visible(c).length === 0) ? 0 : undefined}>
+    <div class="board" role="group" aria-label={t('nav.board')} style:grid-template-columns={columnsTemplate} tabindex={COLUMNS.every((c) => visible(c).length === 0) ? 0 : undefined}>
       {#each COLUMNS as column (column)}
+        {@const fold = foldOf(app.folds.board, column)}
         <section
           class="column"
           data-column={column}
           class:target={overColumn === column && dragging !== null}
+          class:folded={fold !== 'open'}
+          class:narrow={fold === 'narrow'}
           aria-label={labelOf(app.lang, 'status', column)}
           ondragover={(e) => onColumnOver(e, column)}
           ondrop={(e) => void onColumnDrop(e, column)}
         >
           <h2>
-            <span data-hint={hintOf(app.lang, 'hint.status', column)}>{labelOf(app.lang, 'status', column)}</span>
+            <FoldButton
+              lang={app.lang}
+              {fold}
+              what={labelOf(app.lang, 'status', column)}
+              onfold={(next) => app.setFolds('board', withFold(app.folds.board, column, next))}
+            />
+            <span class="name" data-hint={hintOf(app.lang, 'hint.status', column)}>{labelOf(app.lang, 'status', column)}</span>
             <span class="n" data-hint={t('hint.board.count')}>{board[column].length}</span>
           </h2>
+          {#if fold === 'open'}
           <div class="cards">
             {#each visible(column) as card, i (card.file)}
               {@const cards = visible(column)}
@@ -282,6 +308,7 @@
               </button>
             {/if}
           </div>
+          {/if}
         </section>
       {/each}
     </div>
@@ -363,7 +390,30 @@
     font-size: 0.9rem;
     border-bottom: 1px solid var(--border);
     display: flex;
-    justify-content: space-between;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  h2 .name {
+    flex: 1;
+  }
+  .foldall {
+    display: flex;
+    justify-content: flex-end;
+  }
+  /* A folded column is its head only; a narrow one stands its head on its side. */
+  .column.folded {
+    align-self: start;
+  }
+  .column.folded h2 {
+    border-bottom: 0;
+  }
+  .column.narrow h2 {
+    flex-direction: column;
+    padding: 0.4rem 0.2rem;
+  }
+  .column.narrow h2 .name {
+    writing-mode: vertical-rl;
+    white-space: nowrap;
   }
   .n {
     color: var(--muted);

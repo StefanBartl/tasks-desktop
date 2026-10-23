@@ -87,6 +87,21 @@ for (const n of [600, 2000]) {
   });
 }
 
+test('a stage with many tasks scrolls in itself, so the stages after it stay in reach', async ({ page }) => {
+  await bigSnapshot(page, 600);
+  await openPlan(page);
+  await page.getByRole('menuitemradio', { name: 'Plan', exact: true }).click();
+  await expect(page.locator('.stages li')).toHaveCount(600);
+  const list = page.locator('.stage').first().locator('.stage-list');
+  const { client, scroll } = await list.evaluate((el) => ({ client: el.clientHeight, scroll: el.scrollHeight }));
+  expect(scroll).toBeGreaterThan(client * 2);
+  // No higher than half the window or 28rem.
+  expect(client).toBeLessThanOrEqual(Math.min((page.viewportSize()?.height ?? 0) / 2, 28 * 16) + 1);
+  // The last stage starts within the first window and a half, not after the 167 rows of each stage before it.
+  const last = (await page.locator('.stage').last().boundingBox())!;
+  expect(last.y).toBeLessThan((page.viewportSize()?.height ?? 0) * 1.5);
+});
+
 test('another plan starts from the first tasks again, not from the number the last one had grown to', async ({
   page,
 }) => {

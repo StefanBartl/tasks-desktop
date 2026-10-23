@@ -10,11 +10,20 @@
   import CountPanel from './CountPanel.svelte';
   import DailyTile from './DailyTile.svelte';
   import FilterNote from './FilterNote.svelte';
+  import SizeToggle from './SizeToggle.svelte';
+  import { sizeable } from '../lib/sizeable';
 
   let { app }: { app: App } = $props();
 
   const t = (key: Key, params: Record<string, string | number> = {}) =>
     translate(app.lang, key, params);
+
+  /** The size a block was given, whether its grip is shown, and where a dragged size goes. */
+  const sizeParams = (key: string) => ({
+    size: app.tileSizes[key] ?? null,
+    active: app.sizing === key,
+    onsize: (size: { w: number; h: number }) => app.setTileSize(key, size),
+  });
 
   const next = $derived(app.next);
   const snapshot = $derived(app.snapshot);
@@ -148,13 +157,26 @@
     }}
     onkeydown={(e) => handleKey(e, tile)}>⠿</button
   >
+  {@render sizer(tile, name)}
+{/snippet}
+
+{#snippet sizer(key: string, name: string)}
+  <SizeToggle
+    lang={app.lang}
+    what={name}
+    active={app.sizing === key}
+    sized={app.tileSizes[key] !== undefined}
+    ontoggle={() => app.toggleSizing(key)}
+    onreset={() => app.setTileSize(key, null)}
+  />
 {/snippet}
 
 <div class="today" class:solo={!showOverview}>
   {#if showOverview}
-    <aside class="card overview" aria-label={t('today.overview')}>
+    <aside use:sizeable={sizeParams('counts')} class="card overview" aria-label={t('today.overview')}>
       <header>
         <h2 class="eyebrow" data-hint={t('hint.ui.today.overview')}>{t('today.overview')}</h2>
+        <span class="tools">{@render sizer('counts', t('today.overview'))}</span>
         <button
           type="button"
           class="hide"
@@ -205,7 +227,7 @@
       </p>
     {/if}
     {#if shown('next')}
-      <section data-tile="next" style:order={rank('next')} class:drop={over === 'next'} ondragover={(e) => dragOver(e, 'next')} ondragleave={() => (over = null)} ondrop={(e) => drop(e, 'next')} class="card next" aria-label={t('today.next')}>
+      <section use:sizeable={sizeParams('next')} data-tile="next" style:order={rank('next')} class:drop={over === 'next'} ondragover={(e) => dragOver(e, 'next')} ondragleave={() => (over = null)} ondrop={(e) => drop(e, 'next')} class="card next" aria-label={t('today.next')}>
         <header>
           <h2 class="eyebrow" data-hint={t('hint.ui.today.next')}>{t('today.next')}</h2>
           {@render handle('next')}
@@ -263,7 +285,7 @@
     {/if}
 
     {#if shown('waiting')}
-      <section data-tile="waiting" style:order={rank('waiting')} class:drop={over === 'waiting'} ondragover={(e) => dragOver(e, 'waiting')} ondragleave={() => (over = null)} ondrop={(e) => drop(e, 'waiting')} class="card" aria-label={t('today.waiting')}>
+      <section use:sizeable={sizeParams('waiting')} data-tile="waiting" style:order={rank('waiting')} class:drop={over === 'waiting'} ondragover={(e) => dragOver(e, 'waiting')} ondragleave={() => (over = null)} ondrop={(e) => drop(e, 'waiting')} class="card" aria-label={t('today.waiting')}>
         <header>
           <h2 class="eyebrow" data-hint={t('hint.ui.today.waiting')}>{t('today.waiting')} ({waiting.length})</h2>
           {@render handle('waiting')}
@@ -289,7 +311,7 @@
     {/if}
 
     {#if shown('remind') && reminders.length > 0}
-      <section data-tile="remind" style:order={rank('remind')} class:drop={over === 'remind'} ondragover={(e) => dragOver(e, 'remind')} ondragleave={() => (over = null)} ondrop={(e) => drop(e, 'remind')} class="card" aria-label={t('remind.title')}>
+      <section use:sizeable={sizeParams('remind')} data-tile="remind" style:order={rank('remind')} class:drop={over === 'remind'} ondragover={(e) => dragOver(e, 'remind')} ondragleave={() => (over = null)} ondrop={(e) => drop(e, 'remind')} class="card" aria-label={t('remind.title')}>
         <header>
           <h2 class="eyebrow" data-hint={t('hint.ui.today.remind')}>{t('remind.title')} ({reminders.length})</h2>
           {@render handle('remind')}
@@ -338,7 +360,7 @@
     {/if}
 
     {#if shown('cdx') && cdx.length > 0}
-      <section data-tile="cdx" style:order={rank('cdx')} class:drop={over === 'cdx'} ondragover={(e) => dragOver(e, 'cdx')} ondragleave={() => (over = null)} ondrop={(e) => drop(e, 'cdx')} class="card" aria-label={t('today.cdx')}>
+      <section use:sizeable={sizeParams('cdx')} data-tile="cdx" style:order={rank('cdx')} class:drop={over === 'cdx'} ondragover={(e) => dragOver(e, 'cdx')} ondragleave={() => (over = null)} ondrop={(e) => drop(e, 'cdx')} class="card" aria-label={t('today.cdx')}>
         <header>
           <h2 class="eyebrow" data-hint={t('hint.ui.today.cdx')}>{t('today.cdx')} ({cdx.length})</h2>
           {@render handle('cdx')}
@@ -382,6 +404,10 @@
   }
   .restore {
     margin: 0;
+  }
+  .tools {
+    margin-left: auto;
+    display: inline-flex;
   }
   .overview {
     grid-area: overview;

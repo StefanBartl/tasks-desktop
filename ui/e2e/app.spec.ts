@@ -896,6 +896,203 @@ test('a word that is only in the text of a task finds the task, with the place',
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('a choice of several areas says how they combine and does not move under the pointer', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  const areas = page.getByRole('button', { name: /^Areas/ });
+  await areas.click();
+  const popup = page.getByRole('group', { name: 'Areas' });
+  await expect(popup.getByText(/any of the ones chosen \(OR\)/)).toBeVisible();
+  const before = await areas.boundingBox();
+  const popupBefore = await popup.boundingBox();
+  // The label grows ("Areas: cascade.nvim") and shrinks ("Areas: 2"): the button and the popup stay where they were.
+  await popup.getByRole('checkbox', { name: 'cascade.nvim' }).check();
+  await popup.getByRole('checkbox', { name: 'lib.nvim' }).check();
+  expect(await areas.boundingBox()).toEqual(before);
+  // The popup grows downwards (the button that clears the choice comes in) but stays where it was.
+  const popupAfter = await popup.boundingBox();
+  expect({ x: popupAfter?.x, y: popupAfter?.y, width: popupAfter?.width }).toEqual({
+    x: popupBefore?.x,
+    y: popupBefore?.y,
+    width: popupBefore?.width,
+  });
+  await expect(popup).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(areas).toHaveText(/Areas: 2/);
+  // Tags: a task holds several, so the choice offers "all of them" and the chip says so.
+  await page.getByText('More filters', { exact: false }).first().click();
+  await page.getByRole('button', { name: /^Tag/ }).click();
+  const tags = page.getByRole('group', { name: 'Tag' });
+  await tags.getByRole('checkbox', { name: /^ui/ }).check();
+  await tags.getByRole('radio', { name: 'all of them (AND)' }).check();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: /Tag \(all\): ui/ })).toBeVisible();
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('the columns of the list take the width they are dragged to, and a cut text shows whole on the pointer', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  const edge = page.getByRole('separator', { name: 'Width of the column ID' });
+  const firstId = page.locator('button.row .id').first();
+  const before = (await firstId.boundingBox())!.width;
+  const box = (await edge.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2, { steps: 5 });
+  await page.mouse.up();
+  const after = (await firstId.boundingBox())!.width;
+  expect(after).toBeGreaterThan(before + 60);
+  // Remembered: a reload keeps the width.
+  await page.reload();
+  await expect(page.locator('button.row').first()).toBeVisible();
+  expect(Math.abs((await page.locator('button.row .id').first().boundingBox())!.width - after)).toBeLessThan(2);
+  // The keyboard moves the edge too, and Enter gives the default back.
+  const again = page.getByRole('separator', { name: 'Width of the column ID' });
+  await again.focus();
+  await page.keyboard.press('Enter');
+  expect(Math.abs((await page.locator('button.row .id').first().boundingBox())!.width - before)).toBeLessThan(2);
+  // The marks on the right: dragged narrow, the title gets the room.
+  const title = page.locator('button.row .title').first();
+  const titleBefore = (await title.boundingBox())!.width;
+  const marks = page.getByRole('separator', { name: 'Width of the column Marks' });
+  await marks.focus();
+  for (let i = 0; i < 4; i += 1) await page.keyboard.press('ArrowRight');
+  expect((await title.boundingBox())!.width).toBeGreaterThan(titleBefore);
+  // A title that is cut shows all of it in the hint popup.
+  await page.getByRole('separator', { name: 'Width of the column ID' }).focus();
+  for (let i = 0; i < 30; i += 1) await page.keyboard.press('ArrowRight');
+  const cut = page.locator('button.row .title').filter({ hasText: /.{20,}/ }).first();
+  await cut.hover();
+  const full = (await cut.textContent()) ?? '';
+  await expect(page.locator('#hint-tip')).toHaveText(full);
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('the warnings of the plan are folded when the page opens, and the stages fold one step at a time and stay so', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await chooseView(page, 'View', 'Plan');
+  // The warnings: their head with the count, the list only on a press.
+  const warnings = page.getByRole('group', { name: 'Warnings of the plan' });
+  await expect(warnings.locator('summary')).toHaveText(/Warnings of the plan \(\d+\)/);
+  const cycle = warnings.getByText('lib.nvim/cyc-a', { exact: false }).first();
+  await expect(cycle).toBeHidden();
+  await warnings.locator('summary').click();
+  await expect(cycle).toBeVisible();
+
+  const stages = page.getByRole('region', { name: 'Stages' });
+  const first = stages.locator('.stage').first();
+  const key = await first.getAttribute('data-stage');
+  const name = key === 'cycle' ? 'Without a stage' : `Stage ${key}`;
+  const tasks = first.locator('li');
+  const height = (await first.boundingBox())!.height;
+  await expect(tasks.first()).toBeVisible();
+  // Open, then its head only, then a narrow strip, then open again.
+  await first.getByRole('button', { name: `Fold ${name}`, exact: true }).click();
+  await expect(tasks).toHaveCount(0);
+  expect((await first.boundingBox())!.height).toBeLessThan(height);
+  const width = (await first.boundingBox())!.width;
+  await first.getByRole('button', { name: `Fold ${name} to a narrow strip` }).click();
+  expect((await first.boundingBox())!.width).toBeLessThan(width / 2);
+  expect(await violations(page)).toEqual([]);
+  // Kept over a reload.
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'Stages' }).locator('.stage').first()).toBeVisible();
+  await expect(page.locator(`.stage[data-stage="${key}"]`)).toHaveClass(/narrow/);
+  await page.locator(`.stage[data-stage="${key}"]`).getByRole('button', { name: `Open ${name}` }).click();
+  await expect(page.locator(`.stage[data-stage="${key}"] li`).first()).toBeVisible();
+  // The button for all of them folds every stage, and the next press makes them narrow strips.
+  await page.getByRole('button', { name: 'Fold all stages', exact: true }).click();
+  await expect(page.locator('.stages li')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Fold all stages to a narrow strip' }).click();
+  await expect(page.locator('.stage:not(.narrow)')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open all stages' }).click();
+  await expect(page.locator('.stage.folded')).toHaveCount(0);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('a column of the board folds to its head and to a narrow strip, the others take its room, and it stays so', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await chooseView(page, 'View', 'Board');
+  const column = (name: string) => page.getByRole('region', { name, exact: true });
+  const open = column('open');
+  await expect(open.locator('.card').first()).toBeVisible();
+  const parkedX = (await column('parked').boundingBox())!.x;
+  await open.getByRole('button', { name: 'Fold open', exact: true }).click();
+  await expect(open.locator('.card')).toHaveCount(0);
+  await open.getByRole('button', { name: 'Fold open to a narrow strip' }).click();
+  // The narrow column gives its width to the others: the column after it moves up beside it.
+  expect((await open.boundingBox())!.width).toBeLessThan(80);
+  expect((await column('parked').boundingBox())!.x).toBeLessThan(parkedX - 100);
+  expect(await violations(page)).toEqual([]);
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'open', exact: true })).toHaveClass(/narrow/);
+  await page.getByRole('region', { name: 'open', exact: true }).getByRole('button', { name: 'Open open' }).click();
+  await expect(page.getByRole('region', { name: 'open', exact: true }).locator('.card').first()).toBeVisible();
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('a tile of today and the list take the size their grip is dragged to, keep it, and give it back', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await chooseView(page, 'View', 'Today');
+  const tile = page.getByRole('region', { name: 'Waits for you' });
+  await expect(tile).toBeVisible();
+  const toggle = tile.getByRole('button', { name: 'Change the size of Waits for you' });
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  // The grip is the browser's, in the lower right corner.
+  const before = (await tile.boundingBox())!;
+  await page.mouse.move(before.x + before.width - 3, before.y + before.height - 3);
+  await page.mouse.down();
+  await page.mouse.move(before.x + before.width + 60, before.y + before.height + 90, { steps: 6 });
+  await page.mouse.up();
+  const after = (await tile.boundingBox())!;
+  expect(after.height).toBeGreaterThan(before.height + 60);
+  expect(await violations(page)).toEqual([]);
+  // Kept over a reload, without the grip.
+  await page.reload();
+  const again = page.getByRole('region', { name: 'Waits for you' });
+  await expect(again).toBeVisible();
+  expect(Math.abs((await again.boundingBox())!.height - after.height)).toBeLessThan(2);
+  const toggleAgain = again.getByRole('button', { name: 'Change the size of Waits for you' });
+  await expect(toggleAgain).toHaveAttribute('aria-pressed', 'false');
+  // The size of the layout back.
+  await toggleAgain.click();
+  await again.getByRole('button', { name: 'Give Waits for you the size of the layout back' }).click();
+  expect(Math.abs((await again.boundingBox())!.height - before.height)).toBeLessThan(2);
+
+  // The list: made lower, it scrolls in itself.
+  await showList(page);
+  const sizeList = page.getByRole('button', { name: 'Change the size of the list' });
+  await sizeList.click();
+  const list = page.locator('.sizing').first();
+  // The grip is at the lower end of the list, below the fold of the window.
+  await list.evaluate((el) => el.scrollIntoView({ block: 'end' }));
+  const box = (await list.boundingBox())!;
+  await page.mouse.move(box.x + box.width - 3, box.y + box.height - 3);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 3, box.y + box.height - 200, { steps: 6 });
+  await page.mouse.up();
+  expect((await list.boundingBox())!.height).toBeLessThan(box.height - 40);
+  await page.reload();
+  await expect(page.locator('button.row').first()).toBeVisible();
+  const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('tasks-desktop.sizes') ?? '{}') as object);
+  expect(Object.keys(kept)).toContain('list');
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
 test('a change in the vault arrives and the selection stays', async ({ page }) => {
   await pair(page);
   await showList(page);
@@ -3028,7 +3225,7 @@ test('the plan view shows the stages and the critical path, and opens a task', a
   expect(await violations(page)).toEqual([]);
 
   // A task of a stage opens in a popup over the plan, not in the list: the plan stays where it is.
-  const first = page.getByRole('region', { name: 'Stages' }).locator('.stage').getByRole('button').first();
+  const first = page.getByRole('region', { name: 'Stages' }).locator('.stage li').getByRole('button').first();
   const title = (await first.innerText()).trim();
   await first.click();
   const popup = page.getByRole('dialog', { name: 'Task' });
@@ -3056,8 +3253,9 @@ test('the plan view narrows to the chosen plan and keeps the choice', async ({ p
   const hint = page.getByText(/the phase counts are those of the chosen plan/);
   const select = page.getByRole('combobox', { name: 'Plan' });
 
-  // Every task: the cycle of two tasks outside any plan is warned of, and no hint.
+  // Every task: the cycle of two tasks outside any plan is warned of, and no hint. The warnings are folded at first.
   await expect(select).toHaveValue('');
+  await page.getByRole('group', { name: 'Warnings of the plan' }).locator('summary').click();
   await expect(cycle.first()).toBeVisible();
   await expect(stages.getByRole('button', { name: 'Cycle A' })).toBeVisible();
   await expect(hint).toHaveCount(0);

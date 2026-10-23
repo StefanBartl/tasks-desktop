@@ -466,7 +466,7 @@ test('Back closes the popup of a task and Forward opens it again; closing it by 
   await pair(page);
   await page.getByRole('menuitem', { name: 'View', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'Plan', exact: true }).click();
-  const first = page.getByRole('region', { name: 'Stages' }).locator('.stage').getByRole('button').first();
+  const first = page.getByRole('region', { name: 'Stages' }).locator('.stage li').getByRole('button').first();
   const title = (await first.innerText()).trim();
   await first.click();
   const popup = page.getByRole('dialog', { name: 'Task' });

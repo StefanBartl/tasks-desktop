@@ -41,6 +41,17 @@
   const status = $derived(labelOf(lang, 'status', task.status));
   const state = $derived(task.readiness ? labelOf(lang, 'state', task.readiness.state) : null);
   const due = $derived(isDue(task.remind, today));
+
+  /**
+   * A cell whose text is cut shows all of it in the hint popup. The kit reads `data-hint` when the pointer comes over
+   * the element (on the document); this runs first, on the element, so the hint is there only while the text is cut.
+   */
+  function hintWhenCut(event: MouseEvent): void {
+    const el = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>('.id, .title') : null;
+    if (el === null) return;
+    if (el.scrollWidth > el.clientWidth) el.setAttribute('data-hint', el.textContent ?? '');
+    else el.removeAttribute('data-hint');
+  }
 </script>
 
 <div class="line" class:marked>
@@ -51,6 +62,8 @@
   aria-label={markLabel}
   onchange={(e) => (e.currentTarget.checked = onmark(task.id))}
 />
+<!-- The mouseover only puts the whole text of a cut cell into its hint; the keyboard reaches the row as before. -->
+<!-- svelte-ignore a11y_mouse_events_have_key_events -->
 <button
   type="button"
   class="row"
@@ -58,6 +71,7 @@
   aria-current={selected ? 'true' : undefined}
   onclick={() => onselect(task.id)}
   oncontextmenu={onmenu}
+  onmouseover={hintWhenCut}
 >
   <span class="id">{task.id}</span>
   <span class="title">{markHidden(task.title)}</span>
@@ -95,8 +109,9 @@
     flex: 1;
     min-width: 0;
     display: grid;
-    /* The title keeps a width of its own: the tags wrap before they push it to nothing. */
-    grid-template-columns: minmax(8rem, 14rem) minmax(6rem, 1fr) auto;
+    /* The title keeps a width of its own: the tags wrap before they push it to nothing. The id and the marks take
+       the widths the head of the list was dragged to (--col-id, --col-meta), else these defaults. */
+    grid-template-columns: var(--col-id, minmax(8rem, 14rem)) minmax(6rem, 1fr) var(--col-meta, auto);
     gap: 0.75rem;
     align-items: baseline;
     width: 100%;
@@ -142,7 +157,8 @@
     justify-content: flex-end;
     gap: 0.3rem;
     /* Wider than this the tags take from the title; a row with many of them grows in height instead. */
-    max-width: 18rem;
+    max-width: var(--col-meta, 18rem);
+    min-width: 0;
   }
   .tag {
     white-space: nowrap;

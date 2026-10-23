@@ -91,6 +91,8 @@ export function selectOfFilter(filter: Filter): { select: ViewSelect; dropped: b
   for (const [key, values] of Object.entries(filter.fields)) {
     if (!kept.has(key) && (values?.length ?? 0) > 0) dropped = true;
   }
+  // A view selects a task by any of its tags; "all of these tags" has no place in it.
+  if (filter.matchAll.includes('tag') && select.tags.length > 1) dropped = true;
   if (
     Object.keys(filter.ranges).length > 0 ||
     Object.keys(filter.dates).length > 0 ||

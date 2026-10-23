@@ -16,11 +16,15 @@
     RANGE_KEYS,
     REMINDER_CHOICES,
     UPDATED_WINDOWS,
+    APP_AREA_LABEL,
     activeFilters,
     areaLabel,
     boundOptions,
     extraCount,
     fieldOptions,
+    isMultiKey,
+    wantsAll,
+    withMatch,
     without,
     withSelected,
     type ActiveFilter,
@@ -32,6 +36,10 @@
     type UpdatedWindow,
   } from '../lib/filter';
   import { boundLabel, chipLabel as chipText, valueLabel as valueText } from '../lib/filter-chips';
+  import { columnStyle } from '../lib/columns';
+  import ListColumnsHead from './ListColumnsHead.svelte';
+  import SizeToggle from './SizeToggle.svelte';
+  import { sizeable } from '../lib/sizeable';
   import { tick, untrack } from 'svelte';
   import { badTag, parseTags } from '../lib/fields';
   import { classChange, isApplyKey, marksKeyOf, type MoveCheck } from '../lib/bulk';
@@ -134,11 +142,15 @@
   const extraOn = $derived(extraCount(app.filter));
   const areaOptions = $derived(
     app.areaNames
-      .map((name) => ({
-        value: name,
-        label: app.shortAreas ? areaLabel(name, app.allAreaNames) : name,
-        title: name,
-      }))
+      .map((name) => {
+        // The search of the choice reads the title: the area of tasks.nvim is found as tasks-desktop too.
+        const appArea = areaLabel(name, app.allAreaNames) === APP_AREA_LABEL;
+        return {
+          value: name,
+          label: app.shortAreas ? areaLabel(name, app.allAreaNames) : name,
+          title: appArea ? `${name} · ${t('filter.area.app')}` : name,
+        };
+      })
       .sort((x, y) => x.label.localeCompare(y.label)),
   );
   const shown = $derived(app.shown);
@@ -290,7 +302,15 @@
 </script>
 
 <div class="split">
-  <section class="list" aria-label={t('nav.list')}>
+  <section
+    class="list"
+    aria-label={t('nav.list')}
+    use:sizeable={{
+      size: app.tileSizes['list'] ?? null,
+      active: app.sizing === 'list',
+      onsize: (size) => app.setTileSize('list', size),
+    }}
+  >
     <div class="filters">
       <input
         bind:this={searchBox}
@@ -304,6 +324,7 @@
       <MultiSelect
         label={t('nav.areas')}
         hint={t('hint.ui.list.areas')}
+        note={t('multi.note.areas')}
         options={areaOptions}
         selected={app.filter.areas}
         onchange={(areas) => (app.filter = { ...app.filter, areas })}
@@ -313,6 +334,7 @@
       <MultiSelect
         label={t('list.filter.status')}
         hint={t('hint.ui.list.status')}
+        note={t('multi.note.any_one')}
         options={statuses.map((s) => ({ value: s, label: labelOf(app.lang, 'status', s) }))}
         selected={app.filter.statuses}
         onchange={(statuses) => (app.filter = { ...app.filter, statuses })}
@@ -322,6 +344,7 @@
       <MultiSelect
         label={t('list.filter.actor')}
         hint={t('hint.ui.list.actor')}
+        note={t('multi.note.any_one')}
         options={actors.map((a) => ({
           value: a,
           label: labelOf(app.lang, 'actor', a),
@@ -338,6 +361,14 @@
           {#each SORTS as word (word)}<option value={word}>{t(`sort.${word}` as Key)}</option>{/each}
         </select>
       </label>
+      <SizeToggle
+        lang={app.lang}
+        what={t('size.list')}
+        active={app.sizing === 'list'}
+        sized={app.tileSizes['list'] !== undefined}
+        ontoggle={() => app.toggleSizing('list')}
+        onreset={() => app.setTileSize('list', null)}
+      />
       <label class="pick lists" data-hint={t('hint.ui.list.lists')}>
         <span>{t('lists.label')}</span>
         <select
@@ -408,6 +439,17 @@
             options={f.options}
             selected={app.filter.fields[f.key] ?? []}
             onchange={(next) => (app.filter = { ...app.filter, fields: { ...app.filter.fields, [f.key]: next } })}
+            note={isMultiKey(f.key) ? '' : t('multi.note.any_one')}
+            match={isMultiKey(f.key)
+              ? {
+                  value: wantsAll(app.filter, f.key) ? 'all' : 'any',
+                  anyLabel: t('filter.match.any'),
+                  allLabel: t('filter.match.all'),
+                  onchange: (value) => {
+                    if (isMultiKey(f.key)) app.filter = withMatch(app.filter, f.key, value);
+                  },
+                }
+              : undefined}
             resetLabel={t('multi.reset')}
             searchLabel={t('multi.search')}
           />
@@ -616,6 +658,13 @@
       </div>
     {/if}
     <TextHits {app} />
+    <div class="table" style={columnStyle(app.listColumns)}>
+    <ListColumnsHead
+      lang={app.lang}
+      columns={app.listColumns}
+      onlive={(columns) => (app.listColumns = columns)}
+      oncommit={(columns) => app.setListColumns(columns)}
+    />
     <div class="rows">
       {#each visible as task (task.file)}
         <TaskRow
@@ -639,6 +688,7 @@
       {#if app.showFinished && app.can('finished')}
         <FinishedList {app} />
       {/if}
+    </div>
     </div>
   </section>
   <Detail {app} />
@@ -844,6 +894,13 @@
   .show-finished {
     display: block;
     padding: 0 0.75rem 0.5rem;
+  }
+  /* The head of the columns and the rows: the widths of the columns hold for both. */
+  .table {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
   }
   .rows {
     overflow: auto;

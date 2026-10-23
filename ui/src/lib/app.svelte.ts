@@ -76,6 +76,9 @@ import {
   type NamedList,
 } from './lists';
 import { localToday } from './remind';
+import { defaultColumns, parseColumns, serializeColumns, type ListColumns } from './columns';
+import { emptyFolds, parseFolds, serializeFolds, type FoldMemory, type Folds, type FoldView } from './fold';
+import { parseSizes, serializeSizes, withSize, type Size, type Sizes } from './sizes';
 
 /** The longest line of the notes the engine takes (`append_note`), in characters. */
 const NOTE_MAX = 1000;
@@ -266,6 +269,14 @@ export class App {
   }
   /** Area names without the prefix `wkdbook-` where that is unambiguous. */
   shortAreas = $state(true);
+  /** The widths the columns of the list were dragged to (`null`: the default). */
+  listColumns = $state<ListColumns>(defaultColumns());
+  /** How far each stage of the plan and each column of the board is folded. */
+  folds = $state<FoldMemory>(emptyFolds());
+  /** The sizes the person dragged the blocks of the page to (the tiles of today, the list). */
+  tileSizes = $state<Sizes>({});
+  /** The block whose grip is shown, if any (one at a time). */
+  sizing = $state<string | null>(null);
   /** The day of the reader, `YYYY-MM-DD`; renewed when the window is looked at again. */
   today = $state(localToday());
   /** Where the areas hang together, from the engine (null while it has not said, or when it cannot). */
@@ -510,6 +521,9 @@ export class App {
       'en',
     );
     this.shortAreas = safe(() => env.prefs.getItem('tasks-desktop.short-areas')) !== 'off';
+    this.listColumns = parseColumns(safe(() => env.prefs.getItem('tasks-desktop.list-columns')));
+    this.folds = parseFolds(safe(() => env.prefs.getItem('tasks-desktop.folds')));
+    this.tileSizes = parseSizes(safe(() => env.prefs.getItem('tasks-desktop.sizes')));
     this.sort = parseSort(safe(() => env.prefs.getItem('tasks-desktop.sort')));
     this.listMemory = parseListMemory(safe(() => env.prefs.getItem('tasks-desktop.lists')));
     const remembered = safe(() => env.prefs.getItem('tasks-desktop.filter'));
@@ -2034,6 +2048,29 @@ export class App {
   /** Bring a finished task back (the reminder of a finished task offers it). */
   async reopen(id: string): Promise<void> {
     await this.write([{ op: 'reopen', id }], { undoable: false });
+  }
+
+  /** Remember the widths of the columns of the list (on every change: a drag ends with the last one). */
+  setListColumns(columns: ListColumns): void {
+    this.listColumns = columns;
+    safe(() => this.env.prefs.setItem('tasks-desktop.list-columns', serializeColumns(columns)));
+  }
+
+  /** Set the folds of the blocks of one view, and remember them. */
+  setFolds(view: FoldView, folds: Folds): void {
+    this.folds = { ...this.folds, [view]: folds };
+    safe(() => this.env.prefs.setItem('tasks-desktop.folds', serializeFolds(this.folds)));
+  }
+
+  /** Give a block a size of its own, or the size of the layout back with `null`, and remember it. */
+  setTileSize(key: string, size: Size | null): void {
+    this.tileSizes = withSize(this.tileSizes, key, size);
+    safe(() => this.env.prefs.setItem('tasks-desktop.sizes', serializeSizes(this.tileSizes)));
+  }
+
+  /** Show the grip of one block, or take it away again (a second press on the same block). */
+  toggleSizing(key: string): void {
+    this.sizing = this.sizing === key ? null : key;
   }
 
   setShortAreas(on: boolean): void {

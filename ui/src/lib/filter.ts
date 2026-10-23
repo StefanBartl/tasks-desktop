@@ -20,6 +20,21 @@ export const FIELD_KEYS = [
 ] as const;
 export type FieldKey = (typeof FIELD_KEYS)[number];
 
+/**
+ * The fields a task can hold several values of. Only for these can "all of the chosen values" differ from "any of
+ * them"; a task has one area, one status, one kind, so there every choice of several values means "any of them".
+ */
+export const MULTI_KEYS = ['tag', 'category'] as const;
+export type MultiKey = (typeof MULTI_KEYS)[number];
+export const isMultiKey = (key: string): key is MultiKey => (MULTI_KEYS as readonly string[]).includes(key);
+
+/**
+ * The area of the desktop app's own tasks. tasks-desktop is the app of tasks.nvim, and a vault keeps the tasks of
+ * the two in one area, the one of tasks.nvim; a person who looks for "tasks-desktop" among the areas finds it.
+ */
+export const APP_AREA_LABEL = 'tasks.nvim';
+export const APP_NAME = 'tasks-desktop';
+
 /** How long ago a task was last changed: within 7, 30 or 90 days, or longer ago. */
 export type UpdatedWindow = '' | '7' | '30' | '90' | 'older';
 export const UPDATED_WINDOWS: readonly UpdatedWindow[] = ['7', '30', '90', 'older'];
@@ -49,6 +64,8 @@ export interface Filter {
   query: string;
   /** Per field: any of these values; no entry or an empty list means every value. `none` is "not written". */
   fields: Partial<Record<FieldKey, string[]>>;
+  /** The fields of `MULTI_KEYS` whose chosen values a task must all hold (else any one of them is enough). */
+  matchAll: MultiKey[];
   updated: UpdatedWindow;
   reminder: ReminderChoice;
   /** Per ordered field: at least `min`, at most `max`; a task without the field is not in a range that is on. */
@@ -67,6 +84,7 @@ export const emptyFilter: Filter = {
   actors: [],
   query: '',
   fields: {},
+  matchAll: [],
   updated: '',
   reminder: '',
   ranges: {},
@@ -77,7 +95,18 @@ export const emptyFilter: Filter = {
 
 /** A filter with nothing on, sharing no list or record with another (a state that is changed by copying, never in place). */
 export function freshFilter(): Filter {
-  return { ...emptyFilter, areas: [], statuses: [], actors: [], fields: {}, ranges: {}, dates: {} };
+  return { ...emptyFilter, areas: [], statuses: [], actors: [], fields: {}, matchAll: [], ranges: {}, dates: {} };
+}
+
+/** Whether the chosen values of `key` must all be on a task. */
+export function wantsAll(filter: Filter, key: FieldKey): boolean {
+  return isMultiKey(key) && filter.matchAll.includes(key);
+}
+
+/** The filter with `key` set to "all of the chosen values" or back to "any of them". */
+export function withMatch(filter: Filter, key: MultiKey, value: 'any' | 'all'): Filter {
+  const rest = filter.matchAll.filter((k) => k !== key);
+  return { ...filter, matchAll: value === 'all' ? [...rest, key] : rest };
 }
 
 /** A task with no `actor` is chosen by this word. */
@@ -224,7 +253,11 @@ export function matches(
   if (filter.actors.length > 0 && !filter.actors.includes(task.actor ?? NO_ACTOR)) return false;
   for (const key of FIELD_KEYS) {
     const chosen = filter.fields[key];
-    if (chosen && chosen.length > 0 && !fieldValues(task, key).some((v) => chosen.includes(v))) return false;
+    if (chosen && chosen.length > 0) {
+      const has = fieldValues(task, key);
+      const hit = wantsAll(filter, key) ? chosen.every((v) => has.includes(v)) : has.some((v) => chosen.includes(v));
+      if (!hit) return false;
+    }
   }
   for (const key of RANGE_KEYS) {
     const range = filter.ranges[key];
@@ -432,6 +465,7 @@ export function parseFilter(text: string | null): Filter {
       if (list.length > 0) out.fields[key] = list;
     }
   }
+  out.matchAll = [...new Set(strings(o.matchAll).filter(isMultiKey))];
   const bound = (v: unknown): Bound | undefined => {
     if (typeof v !== 'object' || v === null) return undefined;
     const b = v as Record<string, unknown>;
