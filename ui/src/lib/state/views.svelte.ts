@@ -41,6 +41,8 @@ export class ViewsState {
   /** The tab takes the focus once, onto the view that was opened from a menu (the menu and its element are gone). */
   wantsFocus = $state(false);
   private seq = 0;
+  /** Counts the times what was read was forgotten: an answer to a question asked before is dropped. */
+  private generation = 0;
   /** The rev the groupings are being asked for. */
   private groupingsAsked: string | null = null;
 
@@ -104,8 +106,10 @@ export class ViewsState {
     // One question per state: a read that arrives while the answer is on its way does not ask again.
     if (this.groupingsAsked === rev) return;
     this.groupingsAsked = rev;
+    const generation = this.generation;
     try {
       const doc = await this.host.groupings();
+      if (generation !== this.generation) return;
       // An answer for a state that has gone by meanwhile is not kept; the next read asks again. Unless none is held yet:
       // it is what `groupingsShown` draws with until the newer one comes (the board asks only when it is opened, and its
       // bar would else stay without fields after a change of the vault during the question); `groupingsNow` stays null.
@@ -114,17 +118,20 @@ export class ViewsState {
         this.groupingsFailed = false;
       }
     } catch {
-      this.groupingsFailed = true;
+      if (generation === this.generation) this.groupingsFailed = true;
     } finally {
       if (this.groupingsAsked === rev) this.groupingsAsked = null;
     }
   }
 
-  /** What was asked is not valid any more (another vault): the answers on their way are dropped, and what was read. */
+  /** The session is gone: the answers on their way are dropped, and what was read (it is read again after pairing). */
   forget(): void {
     this.seq += 1;
+    this.generation += 1;
     this.doc = null;
+    this.failed = false;
     this.groupings = null;
+    this.groupingsFailed = false;
     this.groupingsAsked = null;
   }
 

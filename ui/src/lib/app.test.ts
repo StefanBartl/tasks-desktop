@@ -3993,6 +3993,16 @@ describe('the saved views', () => {
   const last = (m: ReturnType<typeof make>) => m.hub.sent.at(-1)!.ops;
   const form = (): ViewForm => ({ title: 'Mine', display: 'columns', group_by: 'status', collapsed: [], select: emptySelect() });
 
+  it('are forgotten when the session is lost', async () => {
+    const m = made();
+    m.hub.viewList = [view('pub/mine')];
+    await m.app.start(null);
+    await vi.waitFor(() => expect(m.app.viewsState.list.map((v) => v.id)).toEqual(['pub/mine']));
+    m.hub.onUnauthorized();
+    expect(m.app.viewsState.doc).toBeNull();
+    expect(m.app.viewsState.groupings).toBeNull();
+  });
+
   it('are read at the start, not again for a change of the tasks elsewhere, and on the tab when the vault changed', async () => {
     const m = made();
     m.hub.viewList = [view('pub/mine')];

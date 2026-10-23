@@ -7,6 +7,8 @@ import { AboutState } from './about.svelte';
 import { ConflictsState } from './conflicts.svelte';
 import { TodayState } from './today.svelte';
 import { VaultsState } from './vaults.svelte';
+import { ViewsState, type ViewsHost } from './views.svelte';
+import type { Groupings, Views } from '../contract';
 
 const conflict = (key: string): Conflict => ({ key, id: `a/${key}`, op: { op: 'set', id: `a/${key}`, patch: {} }, code: 'conflict', at: 1 });
 
@@ -241,5 +243,61 @@ describe('the start page layout', () => {
     expect(state.countOpen).toBeNull();
     state.setDaily({ mode: 'week', metrics: ['finished'] });
     expect(new TodayState(p.host).daily).toEqual({ mode: 'week', metrics: ['finished'] });
+  });
+});
+
+describe('the views', () => {
+  /** A host whose answers come when the test lets them (`answer`), each for the question it was asked for. */
+  function pending() {
+    const views: ((doc: Views) => void)[] = [];
+    const groupings: ((doc: Groupings) => void)[] = [];
+    let rev: string | undefined = 'rev:1';
+    const host: ViewsHost = {
+      can: () => true,
+      rev: () => rev,
+      views: () => new Promise<Views>((resolve) => views.push(resolve)),
+      groupings: () => new Promise<Groupings>((resolve) => groupings.push(resolve)),
+      write: async () => null,
+      remembered: () => null,
+      remember: () => undefined,
+    };
+    return { host, views, groupings, setRev: (r: string | undefined) => void (rev = r) };
+  }
+  const viewsDoc = { rev: 'v:1', views: [{ id: 'pub/a' }] } as unknown as Views;
+  const groupingsDoc = { rev: 'rev:1', fields: [] } as unknown as Groupings;
+
+  it('takes no answer to a question asked before it forgot (the session was lost meanwhile)', async () => {
+    const p = pending();
+    const state = new ViewsState(p.host);
+    const loading = state.load();
+    const grouping = state.loadGroupings();
+    state.forget();
+    // The page has no snapshot any more: `loadGroupings` would keep an answer for any state while none is held.
+    p.setRev(undefined);
+    p.views[0]!(viewsDoc);
+    p.groupings[0]!(groupingsDoc);
+    await Promise.all([loading, grouping]);
+    expect(state.doc).toBeNull();
+    expect(state.groupings).toBeNull();
+  });
+
+  it('forgets what was read and asks again afterwards', async () => {
+    const p = pending();
+    const state = new ViewsState(p.host);
+    const loading = state.load();
+    p.views[0]!(viewsDoc);
+    await loading;
+    const grouping = state.loadGroupings();
+    p.groupings[0]!(groupingsDoc);
+    await grouping;
+    expect(state.groupingsNow?.rev).toBe('rev:1');
+    state.forget();
+    expect([state.doc, state.groupings]).toEqual([null, null]);
+    // The same state is asked again (the groupings held were forgotten), and its answer is kept.
+    const again = state.loadGroupings();
+    expect(p.groupings).toHaveLength(2);
+    p.groupings[1]!(groupingsDoc);
+    await again;
+    expect(state.groupingsNow?.rev).toBe('rev:1');
   });
 });

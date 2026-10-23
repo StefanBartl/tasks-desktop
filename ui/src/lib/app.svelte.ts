@@ -2227,6 +2227,9 @@ export class App {
     this.closeMatrix();
     this.closeChecks();
     this.checkState.forget();
+    // The views and groupings were read with the session: they are read again once the tab is paired again.
+    this.viewsState.forget();
+    this.#viewsRev = undefined;
     safe(() => this.env.session.removeItem(TOKEN_KEY));
     this.env.hub.setToken(null);
     this.stream.cut();
