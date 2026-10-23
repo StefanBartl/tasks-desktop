@@ -902,6 +902,53 @@ describe('App, reading one task at a time', () => {
     app.stop();
   });
 
+  it('reads a task asked for again while its read is under way once more when the answer is older, without dropping it', async () => {
+    const { app, hub } = make({ token: 't' });
+    hub.doc = snapshot([task('pub/a', { etag: 'e1' }), task('pub/b')], 'rev:1');
+    await app.start(null);
+    const answers: (() => void)[] = [];
+    // The hub reads the file when the request comes: the answer has the etag of that moment.
+    hub.task = async (id: string, signal?: AbortSignal) => {
+      if (signal) hub.taskSignals.push(signal);
+      const entry = hub.doc.tasks.find((t) => t.id === id);
+      await new Promise<void>((resolve) => answers.push(resolve));
+      return { task: entry, body: `read at ${entry?.etag}`, steps: [] } as never;
+    };
+    const shown = () => (app.detail.state === 'ok' ? app.detail.doc.body : app.detail.state);
+    app.select('pub/a');
+    // A write changes the file while it is read; it and its event ask for the task twice meanwhile.
+    hub.doc = snapshot([task('pub/a', { etag: 'e2' }), task('pub/b')], 'rev:2');
+    await app.refresh();
+    app.select('pub/a');
+    app.select('pub/a');
+    expect(answers).toHaveLength(1);
+    answers[0]!();
+    // The answer is older than the list: one read more (not two), and nothing was dropped.
+    await vi.waitFor(() => expect(answers).toHaveLength(2));
+    answers[1]!();
+    await vi.waitFor(() => expect(shown()).toBe('read at e2'));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(answers).toHaveLength(2);
+    expect(hub.taskSignals.map((signal) => signal.aborted)).toEqual([false, false]);
+    // An ask while the read is on its way whose answer is already the state of the list reads nothing more.
+    app.select('pub/a');
+    app.select('pub/a');
+    expect(answers).toHaveLength(3);
+    answers[2]!();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(answers).toHaveLength(3);
+    // Another task is still read at once, and the read under way is dropped (j j j).
+    app.select('pub/a');
+    app.select('pub/b');
+    expect(hub.taskSignals.map((signal) => signal.aborted)).toEqual([false, false, false, true, false]);
+    // A task chosen again after the selection was cleared is read again, not taken for the dropped read.
+    app.select(null);
+    app.select('pub/b');
+    expect(hub.taskSignals).toHaveLength(6);
+    answers.forEach((answer) => answer());
+    app.stop();
+  });
+
   it('is not a failure when a read was dropped', async () => {
     const { app, hub } = make({ token: 't' });
     hub.doc = snapshot([task('pub/a'), task('pub/b')], 'rev:1');

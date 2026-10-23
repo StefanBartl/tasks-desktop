@@ -1728,8 +1728,9 @@ test('ten tasks are sorted in the inbox with the keyboard alone, from the search
   const inbox = page.locator('section.inbox');
   await expect(inbox.locator('.row')).toHaveCount(10, { timeout: WRITE_BUDGET });
   await expectAccessible(page, 'the inbox narrowed by the search');
-  // The inbox selects its first row; j and k move.
-  await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/${slugs[0]}`);
+  // The inbox selects its first row; j and k move. Its first read of a task may wait behind the engine on a busy
+  // machine (seen locally under load: more than the 5 s of an expect).
+  await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/${slugs[0]}`, { timeout: WRITE_BUDGET });
   await page.keyboard.press('j');
   await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/${slugs[1]}`);
   await page.keyboard.press('k');

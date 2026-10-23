@@ -2496,6 +2496,8 @@ export class App {
   private searchTimer: ReturnType<typeof setTimeout> | undefined;
   private searchAbort: AbortController | null = null;
   private detailAbort: AbortController | null = null;
+  /** The read of the detail under way: the task, and whether it was asked for again meanwhile. */
+  private detailRead: { id: string; again: boolean } | null = null;
   private areasRead: Promise<HubAreas> | null = null;
 
   /** The next task, read when the list it belongs to is not the one held. */
@@ -2584,6 +2586,7 @@ export class App {
     this.selectedId = id;
     if (id === null) {
       this.detailAbort?.abort();
+      this.detailRead = null;
       this.detail = { state: 'none' };
       return;
     }
@@ -2644,18 +2647,37 @@ export class App {
     if (!(this.detail.state === 'ok' && this.detail.id === id)) {
       this.detail = { state: 'loading', id };
     }
+    // The same task is being read (a write and its event each ask again): its request is not dropped. Its answer is
+    // read once more only when it is older than the list read meanwhile (another etag). A dropped request costs its
+    // connection, and a write asked for the detail twice (CI: ERR_NO_BUFFER_SPACE on the Windows runner).
+    const reading = this.detailRead;
+    if (reading?.id === id) {
+      reading.again = true;
+      return;
+    }
     // Each task is a Neovim process of the hub. A task that was passed on the
     // way (j j j j) is not read: its request is dropped, and so is its read.
     this.detailAbort?.abort();
     const abort = new AbortController();
     this.detailAbort = abort;
+    const read = { id, again: false };
+    this.detailRead = read;
     try {
-      const doc = await this.env.hub.task(id, abort.signal);
-      if (this.selectedId === id) this.detail = { state: 'ok', id, doc };
-    } catch {
-      if (!abort.signal.aborted && this.selectedId === id) {
-        this.detail = { state: 'failed', id };
-      }
+      do {
+        read.again = false;
+        try {
+          const doc = await this.env.hub.task(id, abort.signal);
+          if (this.selectedId === id) this.detail = { state: 'ok', id, doc };
+          if (read.again && this.tasks.find((t) => t.id === id)?.etag === doc.task.etag) read.again = false;
+        } catch {
+          if (!abort.signal.aborted && this.selectedId === id) {
+            this.detail = { state: 'failed', id };
+          }
+        }
+      } while (read.again && !abort.signal.aborted && this.selectedId === id);
+    } finally {
+      if (this.detailRead === read) this.detailRead = null;
+      if (this.detailAbort === abort) this.detailAbort = null;
     }
   }
 
