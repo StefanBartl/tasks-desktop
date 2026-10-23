@@ -8,6 +8,7 @@
   import TaskRow from './TaskRow.svelte';
   import MultiSelect from 'appkit-ui/MultiSelect.svelte';
   import Info from 'appkit-ui/Info.svelte';
+  import { TIP_ID } from 'appkit-ui/tooltip';
   import { marksLegend } from '../lib/legend';
   import {
     DATE_KEYS,
@@ -144,7 +145,10 @@
     await tick();
     moreSummary?.focus();
   }
-  /** Empty the search words only; the focus goes back to the field (the button that had it is gone). */
+  /**
+   * Empty the search words only; the focus goes back to the field (the button that had it is gone). A press of the
+   * mouse on the button leaves the focus in the field, so that focusing it again shows no hint.
+   */
   function clearQuery(): void {
     app.setQuery('');
     searchBox?.focus();
@@ -332,8 +336,10 @@
           value={app.filter.query}
           oninput={(e) => app.setQuery(e.currentTarget.value)}
           onkeydown={(e) => {
-            // Escape empties the words first (Firefox would not); an empty field leaves Escape to the browser.
-            if (e.key === 'Escape' && app.filter.query !== '') {
+            // Escape empties the words (Firefox would not); an empty field leaves Escape to the browser. An open hint
+            // of the field takes this Escape alone (the kit closes it, on the document), and so does a composition.
+            const hintOpen = (e.currentTarget.getAttribute('aria-describedby') ?? '').split(' ').includes(TIP_ID);
+            if (e.key === 'Escape' && !e.isComposing && !hintOpen && app.filter.query !== '') {
               e.preventDefault();
               clearQuery();
             }
@@ -345,6 +351,7 @@
             class="search-clear"
             aria-label={t('list.search_clear')}
             title={t('list.search_clear')}
+            onmousedown={(e) => e.preventDefault()}
             onclick={clearQuery}>×</button
           >
         {/if}
@@ -552,9 +559,10 @@
         {/each}
       </div>
     </details>
-    <!-- Words alone are no chip, but they narrow the list as much: reset is offered for them too. -->
+    <!-- Words alone are no chip, but they narrow the list as much: reset is offered for them too (in a list that does
+         not then call itself the filters that are on). -->
     {#if narrows(app.filter)}
-      <ul class="active" aria-label={t('filter.active')} bind:this={chipList}>
+      <ul class="active" aria-label={chips.length > 0 ? t('filter.active') : undefined} bind:this={chipList}>
         {#each chips as c, index (c.item.kind + ':' + c.item.value)}
           <li>
             {#if c.join}<span class="join">{t(`filter.join.${c.join}`)}</span>{/if}
@@ -773,6 +781,7 @@
     top: 50%;
     transform: translateY(-50%);
     min-width: 1.5rem;
+    min-height: 1.5rem;
     padding: 0 0.3rem;
     border: none;
     background: transparent;

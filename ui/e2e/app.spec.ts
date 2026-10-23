@@ -921,8 +921,9 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(reset).toBeVisible();
     await expectAccessible(page, `the list with words in the search (${scheme})`);
 
-    // The keyboard reaches the button from the field; Enter empties it and the focus is back in the field.
-    const scrolled = await page.evaluate(() => window.scrollY);
+    // The keyboard reaches the button from the field; Enter empties it and the focus is back in the field (whose hint
+    // the focus from the keyboard shows).
+    const tip = page.locator('#hint-tip');
     await search.focus();
     await page.keyboard.press('Tab');
     await expect(clear).toBeFocused();
@@ -932,21 +933,40 @@ for (const scheme of ['light', 'dark'] as const) {
     await expect(count).toHaveText(all!);
     await expect(clear).toHaveCount(0);
     await expect(reset).toHaveCount(0);
-    expect(await page.evaluate(() => window.scrollY)).toBe(scrolled);
+    await expect(tip).toBeVisible();
 
-    // Escape in the field empties it too, and stays in the field.
+    // With the hint open the first Escape closes the hint only and the words stay; the second empties the field.
     await search.fill('lib.nvim/alpha');
     await expect(clear).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(tip).toBeHidden();
+    await expect(search).toHaveValue('lib.nvim/alpha');
     await page.keyboard.press('Escape');
     await expect(search).toHaveValue('');
     await expect(search).toBeFocused();
     await expect(count).toHaveText(all!);
 
-    // A click on the button: the same.
+    // Chrome empties a search box on Escape by itself, Firefox does not: an Escape made by the page has no action of
+    // the browser, so only the page's own handling empties the field here. One within a composition leaves it.
     await search.fill('lib.nvim/alpha');
+    const escape = (composing: boolean): Promise<boolean> =>
+      search.evaluate((el, isComposing) => {
+        const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, isComposing });
+        el.dispatchEvent(e);
+        return e.defaultPrevented;
+      }, composing);
+    expect(await escape(true)).toBe(false);
+    await expect(search).toHaveValue('lib.nvim/alpha');
+    expect(await escape(false)).toBe(true);
+    await expect(search).toHaveValue('');
+
+    // A click on the button: the same, and the focus that stays in the field shows no hint.
+    await search.fill('lib.nvim/alpha');
+    await expect(tip).toBeHidden();
     await clear.click();
     await expect(search).toHaveValue('');
     await expect(search).toBeFocused();
+    await expect(tip).toBeHidden();
 
     // The reset of all filters takes the words away together with a chosen area.
     await search.fill('lib.nvim/alpha');
