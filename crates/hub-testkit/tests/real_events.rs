@@ -9,6 +9,13 @@
 //! a plain rename of the folder. The hub's own write route refreshes the
 //! snapshot before it answers, so a test through it proves the route, not the
 //! watcher; it is here for that (the event and the snapshot follow a write).
+//!
+//! The two seconds are those of an idle machine. Most of the time to an event is the engine's read of the vault (a
+//! Neovim process, after the debounce of 300 ms), and on a busy machine only that part grows (measured 2026-10-23: the
+//! event in 0.6 to 0.75 s and one read in 0.45 to 0.5 s alone; with the five tests at once 1 to 2.4 s and 0.85 to 2.3 s).
+//! So the bound is two seconds plus what the engine is slower than idle, as measured beside the change: the hub's own
+//! part keeps its bound, and a busy machine does not make the test red by chance. A write through the route is bound
+//! from its answer (the time before it is the engine's write and read).
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -24,6 +31,8 @@ use tasks_hub::discovery::{discover, SetupProblem};
 use tasks_hub::engine::{probe, Calls, CliEngine, Engine};
 use tasks_hub::server::{start, HubStatus, Limits, RunningServer, ServerConfig, WatchConfig};
 use tasks_hub::store::RefreshOptions;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 mod common;
 use common::Sse;
@@ -39,6 +48,22 @@ fn copy_dir(from: &Path, to: &Path) {
             std::fs::copy(entry.path(), target).unwrap();
         }
     }
+}
+
+/// How long one read of the vault by the engine takes on an idle machine (the fixture: about 0.5 s, 2026-10-23).
+const ENGINE_IDLE: Duration = Duration::from_millis(500);
+
+/// The bound of the concept (two seconds from the change to the event) when one read of the engine takes `engine` now:
+/// what it is slower than idle is added (the hub reads the vault once between the change and the event).
+fn bound(engine: Duration) -> Duration {
+    Duration::from_secs(2) + engine.saturating_sub(ENGINE_IDLE)
+}
+
+#[test]
+fn the_bound_grows_only_by_what_the_engine_is_slower_than_idle() {
+    assert_eq!(bound(Duration::from_millis(300)), Duration::from_secs(2));
+    assert_eq!(bound(ENGINE_IDLE), Duration::from_secs(2));
+    assert_eq!(bound(Duration::from_millis(1500)), Duration::from_secs(3));
 }
 
 fn fixture() -> PathBuf {
@@ -201,24 +226,32 @@ impl Rig {
             .unwrap()
     }
 
+    /// A write through the hub's route. Not with `client::request`: its 5 s are those of the hub's own programs (hello,
+    /// a pairing code), and a write is two Neovim processes, which a busy machine makes longer than that.
     async fn post_ops(&self, body: &str) -> Value {
-        let auth = format!("Bearer {}", self.token);
-        let origin = format!("http://127.0.0.1:{}", self.server.addr().port());
-        let reply = client::request(
-            self.server.addr().port(),
-            "POST",
-            "/api/tasks/ops",
-            &[
-                ("Content-Type", "application/json"),
-                ("Origin", &origin),
-                ("Authorization", &auth),
-            ],
-            body,
-        )
-        .await
-        .unwrap();
-        assert_eq!(reply.status, 200, "{}", reply.body);
-        serde_json::from_str(&reply.body).unwrap()
+        let port = self.server.addr().port();
+        let request = format!(
+            "POST /api/tasks/ops HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nOrigin: http://127.0.0.1:{port}\r\n\
+             Authorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\
+             Connection: close\r\n\r\n{body}",
+            self.token,
+            body.len()
+        );
+        let exchange = async {
+            let mut stream = TcpStream::connect(self.server.addr()).await?;
+            stream.write_all(request.as_bytes()).await?;
+            let mut reply = Vec::new();
+            stream.read_to_end(&mut reply).await?;
+            Ok::<_, std::io::Error>(reply)
+        };
+        let reply = tokio::time::timeout(Duration::from_secs(30), exchange)
+            .await
+            .expect("the hub answers the write within 30 s")
+            .expect("the write is sent and its answer read");
+        let reply = String::from_utf8(reply).expect("the answer is text");
+        let (head, body) = reply.split_once("\r\n\r\n").expect("a head and a body");
+        assert!(head.starts_with("HTTP/1.1 200 "), "{head}\n{body}");
+        serde_json::from_str(body).unwrap()
     }
 
     /// A request to the engine beside the hub (not through its write route): the document of the answer.
@@ -229,6 +262,21 @@ impl Rig {
             .await
             .expect("the engine answers");
         serde_json::from_str(&reply.text).unwrap()
+    }
+
+    /// How long one read of the whole vault by the engine takes now, under the load the change is made in.
+    async fn engine_read(&self) -> Duration {
+        let started = Instant::now();
+        self.engine
+            .call(Calls::Snapshot, None)
+            .await
+            .expect("the engine reads the vault");
+        started.elapsed()
+    }
+
+    /// The bound for an event: by the slower of a read of the engine before the change (`before`) and one now.
+    async fn bound(&self, before: Duration) -> Duration {
+        bound(before.max(self.engine_read().await))
     }
 
     /// The ids of the open tasks the hub's snapshot holds now.
@@ -293,6 +341,7 @@ async fn an_edit_of_a_task_file_reaches_the_stream_within_two_seconds() {
     let text = std::fs::read_to_string(&path).unwrap();
     let edited = text.replacen("status: open", "status: doing", 1);
     assert_ne!(text, edited, "the fixture task has no status: open");
+    let engine = r.engine_read().await;
     let started = Instant::now();
     std::fs::write(&path, edited).unwrap();
 
@@ -311,7 +360,8 @@ async fn an_edit_of_a_task_file_reaches_the_stream_within_two_seconds() {
         "{change}"
     );
     assert_eq!(change["cause"], "fs");
-    assert!(took < Duration::from_secs(2), "took {took:?}");
+    let limit = r.bound(engine).await;
+    assert!(took < limit, "took {took:?}, bound {limit:?}");
 
     // The ETag moved, and a client that sends the old one gets the new document.
     let after = r
@@ -332,12 +382,16 @@ async fn a_folder_task_moved_through_the_write_route_is_in_the_event_and_the_sna
     let new = format!("cascade.nvim/{slug}");
     assert!(r.ids().await.contains(&old), "the hub sees the folder task");
 
-    let started = Instant::now();
     let doc = r
         .post_ops(&format!(
             r#"{{"ops":[{{"op":"move_area","id":"{old}","to_area":"cascade.nvim"}}]}}"#
         ))
         .await;
+    // The time to the answer is the engine's (it writes, then the route reads the vault again: two Neovim processes, as
+    // slow as the machine). What the route promises is what holds at the answer: the snapshot and the event.
+    let ids = r.ids().await;
+    assert!(ids.contains(&new), "{ids:?}");
+    assert!(!ids.contains(&old), "{ids:?}");
     assert_eq!(doc["results"][0]["outcome"], "moved", "{doc}");
     assert_eq!(doc["results"][0]["new_id"], new.as_str(), "{doc}");
     let moved = r
@@ -354,7 +408,7 @@ async fn a_folder_task_moved_through_the_write_route_is_in_the_event_and_the_sna
 
     // The route refreshes the snapshot itself before it answers: the event is there already. Which of the two scans
     // gets to say its cause first is a race (the watcher of Linux is quick): "ops" from the route, or "fs".
-    let (change, _) = r
+    let (change, after) = r
         .change_naming(&new, Duration::from_secs(10))
         .await
         .expect("an event that names the new id");
@@ -362,14 +416,11 @@ async fn a_folder_task_moved_through_the_write_route_is_in_the_event_and_the_sna
         matches!(change["cause"].as_str(), Some("ops" | "fs")),
         "{change}"
     );
+    // Sent before the answer: it is read at once, not after a scan of the watcher.
     assert!(
-        started.elapsed() < Duration::from_secs(2),
-        "took {:?}",
-        started.elapsed()
+        after < Duration::from_secs(1),
+        "the event came {after:?} after the answer"
     );
-    let ids = r.ids().await;
-    assert!(ids.contains(&new), "{ids:?}");
-    assert!(!ids.contains(&old), "{ids:?}");
 }
 
 #[tokio::test]
@@ -391,17 +442,16 @@ async fn a_folder_task_moved_by_the_engine_beside_the_hub_reaches_the_stream_thr
         )
         .await;
     assert_eq!(doc["results"][0]["outcome"], "moved", "{doc}");
+    let engine = r.engine_read().await;
     let started = Instant::now();
     let (change, _) = r
         .change_naming(&new, Duration::from_secs(10))
         .await
         .expect("an event that names the new id");
     assert_eq!(change["cause"], "fs", "{change}");
-    assert!(
-        started.elapsed() < Duration::from_secs(2),
-        "took {:?}",
-        started.elapsed()
-    );
+    let took = started.elapsed();
+    let limit = r.bound(engine).await;
+    assert!(took < limit, "took {took:?}, bound {limit:?}");
     let ids = r.ids().await;
     assert!(ids.contains(&new), "{ids:?}");
     assert!(!ids.contains(&old), "the old id is gone: {ids:?}");
@@ -432,17 +482,16 @@ async fn a_folder_task_finished_by_the_engine_beside_the_hub_reaches_the_stream_
         )
         .await;
     assert_eq!(doc["results"][0]["outcome"], "done", "{doc}");
+    let engine = r.engine_read().await;
     let started = Instant::now();
     let (change, _) = r
         .change_naming(&id, Duration::from_secs(10))
         .await
         .expect("an event that names the finished id");
     assert_eq!(change["cause"], "fs", "{change}");
-    assert!(
-        started.elapsed() < Duration::from_secs(2),
-        "took {:?}",
-        started.elapsed()
-    );
+    let took = started.elapsed();
+    let limit = r.bound(engine).await;
+    assert!(took < limit, "took {took:?}, bound {limit:?}");
     let ids = r.ids().await;
     assert!(!ids.contains(&id), "the open id is gone: {ids:?}");
 }
@@ -472,6 +521,7 @@ async fn a_folder_task_renamed_from_outside_reaches_the_stream_as_a_whole_within
         .join("ROADMAP")
         .join("tasks")
         .join(slug);
+    let engine = r.engine_read().await;
     let started = Instant::now();
     std::fs::rename(&from, &to).unwrap();
 
@@ -481,7 +531,8 @@ async fn a_folder_task_renamed_from_outside_reaches_the_stream_as_a_whole_within
         .expect("an event that names the new id");
     let took = started.elapsed();
     assert_eq!(change["cause"], "fs", "{change}");
-    assert!(took < Duration::from_secs(2), "took {took:?}");
+    let limit = r.bound(engine).await;
+    assert!(took < limit, "took {took:?}, bound {limit:?}");
     let ids = r.ids().await;
     assert!(ids.contains(&new), "{ids:?}");
     assert!(!ids.contains(&old), "the old id is gone: {ids:?}");
