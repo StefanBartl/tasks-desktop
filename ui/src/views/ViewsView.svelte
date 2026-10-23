@@ -288,16 +288,21 @@
     );
   });
 
-  /** Shift with h or l on a card: the group before or after, as the keys of the board. */
+  /**
+   * Shift with h or l on a card: the group before or after, as the keys of the board. With Alt as well it is the copy of
+   * Ctrl and drag (a tag stays in the group it leaves; any other field moves). Alt changes the letter on some keyboards
+   * (macOS), so the key is read by its place there.
+   */
   function onItemKey(event: KeyboardEvent, id: string, from: string): void {
-    if (!movable || !event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
-    const key = event.key.toLowerCase();
+    if (!movable || !event.shiftKey || event.ctrlKey || event.metaKey) return;
+    const copy = event.altKey;
+    const key = copy ? ({ KeyH: 'h', KeyL: 'l' } as Record<string, string>)[event.code] : event.key.toLowerCase();
     if (key !== 'h' && key !== 'l') return;
     event.preventDefault();
     event.stopPropagation();
     if (event.repeat) return;
     const to = neighbourGroup(groups, from, key === 'l' ? 1 : -1);
-    if (to !== null) void move(id, from, to, false);
+    if (to !== null) void move(id, from, to, copy);
   }
 
   /** What the view selects, in words. */

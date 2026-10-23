@@ -425,6 +425,19 @@ test('a task moved between the groups of a view writes the field: by key first, 
   await expect.poll(() => readFileSync(two, 'utf8'), { timeout: WRITE_BUDGET }).toContain(`tags: [${first}]`);
   await expectAccessible(page, 'a view grouped by tags');
 
+  // A copy by key, the keyboard's Ctrl and drag (WCAG 2.5.7): Shift+Alt+h adds the tag of the group before and keeps the
+  // one it leaves; the card is then in both groups, and undo takes the copy back.
+  await card(first, 'e2e-drag-v001-two').focus();
+  await write(page, () => page.keyboard.press('Shift+Alt+h'));
+  const tagsOfTwo = () => (readFileSync(two, 'utf8').match(/^tags: \[(.*)\]$/m)?.[1] ?? '').split(', ').sort();
+  await expect.poll(tagsOfTwo, { timeout: WRITE_BUDGET }).toEqual([first, second].sort());
+  await expect(live).toHaveText(`E2e drag v001 two: also in ${second}`);
+  await expect(card(second, 'e2e-drag-v001-two')).toBeFocused();
+  await expect(card(first, 'e2e-drag-v001-two')).toBeVisible();
+  await expectAccessible(page, 'a tag copied by key in a view');
+  await write(page, () => page.getByRole('button', { name: 'Undo' }).click());
+  await expect.poll(tagsOfTwo, { timeout: WRITE_BUDGET }).toEqual([first]);
+
   // The menu of a group by key: Shift+F10 on a card opens the menu of its group (the heading of a column takes no focus).
   await card(first, 'e2e-drag-v001-two').focus();
   await page.keyboard.press('Shift+F10');
