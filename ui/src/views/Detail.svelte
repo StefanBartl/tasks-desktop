@@ -6,6 +6,7 @@
   import { editableBody, hasHidden, markHidden, MAX_BODY_EDIT } from '../lib/text';
   import { REMIND_CHOICES } from '../lib/remind';
   import { classChange as classChangeOf } from '../lib/bulk';
+  import { copyText } from '../lib/exportDom';
   import {
     badTag,
     listEditable,
@@ -57,6 +58,12 @@
   let note = $state('');
   // The reason for dropping the task: kept like the note, emptied only when the engine wrote it.
   let reason = $state('');
+
+  /** The link of the attached screenshot on the clipboard (the page may write it, never read it). */
+  async function copyLink(link: string): Promise<void> {
+    const ok = await copyText(navigator.clipboard, link);
+    app.tell(ok ? 'ok' : 'error', ok ? 'attach.copied' : 'attach.copy_failed');
+  }
   // The area the task is to move to and what the engine said a move there would do (a dry run, nothing written).
   let moveTo = $state('');
   let movePreview = $state<Awaited<ReturnType<App['previewMove']>> | null>(null);
@@ -585,7 +592,26 @@
       {#if app.can('plan_for')}
         <button type="button" class="open-editor" data-hint={t('hint.ui.detail.graph')} onclick={() => app.openGraph(task.id)}>{t('graph.button')}</button>
       {/if}
+      {#if app.can('attach')}
+        <button
+          type="button"
+          class="open-editor"
+          data-hint={t('hint.ui.detail.attach')}
+          disabled={app.saving}
+          onclick={() => void app.attachScreenshot(task.id)}>{t('attach.button')}</button
+        >
+      {/if}
     </p>
+    {#if app.attached && app.attached.id === task.id}
+      {@const link = app.attached.link}
+      <p class="attached">
+        <label>
+          <span>{t('attach.link')}</span>
+          <input type="text" readonly value={link} onfocus={(e) => e.currentTarget.select()} />
+        </label>
+        <button type="button" class="open-editor" onclick={() => void copyLink(link)}>{t('attach.copy')}</button>
+      </p>
+    {/if}
   {/if}
 </aside>
 
@@ -617,6 +643,17 @@
     margin: 0 0 0.6rem;
     padding-left: 1.1rem;
     font-size: 0.85rem;
+  }
+  .attached {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: end;
+  }
+  .attached label {
+    display: grid;
+    gap: 0.2rem;
+    flex: 1 1 14rem;
   }
   .open-editor {
     background: var(--surface-2);

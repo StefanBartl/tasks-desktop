@@ -40,6 +40,8 @@ export type Op =
   | { op: 'view_save'; id?: string; area?: string; view: ViewForm; if_match?: string }
   /** Only on the version read: the engine refuses a delete without it. */
   | { op: 'view_delete'; id: string; if_match: string }
+  /** The image on the clipboard of the hub's machine, or its newest screenshot, becomes an asset of the task. */
+  | { op: 'attach'; id: string; from: 'clipboard' | 'latest'; name?: string }
   | {
       op: 'plan_new';
       area: string;

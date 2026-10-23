@@ -1908,12 +1908,13 @@ export class App {
     if (target) this.select(target.id);
   }
 
+  /** The task made, or null. */
   async createTask(
     area: string,
     title: string,
     fields: Record<string, unknown> = {},
     body = '',
-  ): Promise<void> {
+  ): Promise<string | null> {
     const text = body.trim();
     const result = await this.write(
       [
@@ -1933,6 +1934,45 @@ export class App {
     if (created) {
       this.reveal(created);
     }
+    return created ?? null;
+  }
+
+  /** The link of the screenshot attached last, to put into the text of its task (shown in its detail). */
+  attached = $state<{ id: string; link: string } | null>(null);
+
+  /**
+   * Attach the image on the clipboard of the hub's machine to `id`, else its newest screenshot: the engine's `attach`,
+   * as `:Tasks attach` does in the editor. Nothing is attached when there is neither (the engine refuses each with
+   * `invalid_argument`); there is nothing to take back (the engine gives no inverse). True when one was attached.
+   */
+  async attachScreenshot(id: string): Promise<boolean> {
+    for (const from of ['clipboard', 'latest'] as const) {
+      let none = false;
+      const result = await this.write([{ op: 'attach', id, from }], {
+        undoable: false,
+        onAnswer: (answer) => {
+          const entry = answer.results[0];
+          if (entry?.ok) {
+            this.say('ok', 'attach.done', { asset: entry.asset ?? '' });
+            return true;
+          }
+          // No image there: the next place is asked, and only the last refusal is told.
+          if (entry?.error?.code === 'invalid_argument') {
+            none = true;
+            return true;
+          }
+          return false;
+        },
+      });
+      const entry = result?.results[0];
+      if (entry?.ok) {
+        this.attached = entry.link ? { id: entry.id ?? id, link: entry.link } : null;
+        return true;
+      }
+      if (!none) return false;
+    }
+    this.say('error', 'attach.none');
+    return false;
   }
 
   async startFinish(id: string): Promise<void> {

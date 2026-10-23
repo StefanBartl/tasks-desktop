@@ -257,6 +257,19 @@ only for an area that is `public` or `internal`, as the cache: the id names its
 area. A view to try (opened from a context menu) lives in the page only and is
 written nowhere until it is saved.
 
+A screenshot is attached with `attach` through `POST /api/tasks/ops` (a button
+in the detail, a box in the new-task form): the engine takes the image on the
+clipboard of the machine the hub runs on, else the newest image of the
+screenshot folders of its own configuration (`attach.screenshot_dirs`, only one
+younger than `attach.max_age_s`), and writes it below the folder of the task.
+The request names no path and no file, only `from` (`clipboard` or `latest`);
+the answer holds the path below the task and the Markdown link, never the
+image, and the page reads neither the clipboard of the browser nor the file.
+A paired page can make the hub's clipboard a file of the vault this way, so it
+is a write like any other: a session, the limit of the writes, the class of the
+area. There is no way back (the engine gives no inverse): the file is removed
+by hand.
+
 The folder of the interface is looked for in three places only (the
 setting, `ui/` next to the binary, the repository the binary was built
 in), because its scripts run where the session is. A file over 4 MiB or

@@ -315,10 +315,12 @@ class FakeHub {
   sent: OpsRequest[] = [];
   /** What the next write answers (an error to throw, or a result). */
   next_ops: Result | ApiError | null = null;
+  /** What the writes after `next_ops` answer, one each. */
+  ops_queue: (Result | ApiError)[] = [];
   previews = new Map<string, Partial<DonePreview>>();
   async ops(request: OpsRequest): Promise<Result> {
     this.sent.push(request);
-    const answer = this.next_ops;
+    const answer = this.next_ops ?? this.ops_queue.shift() ?? null;
     this.next_ops = null;
     if (answer instanceof ApiError) throw answer;
     if (answer) return answer;
@@ -4743,5 +4745,82 @@ describe('the saved views', () => {
     expect(m.app.view).toBe('views');
     expect(m.app.viewsState.open?.id).toBe('pub/two');
     m.app.stop();
+  });
+});
+
+describe('App, attaching a screenshot', () => {
+  const attached = (id: string, asset: string): Result =>
+    ({
+      kind: 'tasks.result',
+      ok: true,
+      dry_run: false,
+      results: [{ n: 1, op: 'attach', id, ok: true, outcome: 'changed', changed_ids: [id], asset, link: `![shot](${asset})` }],
+    }) as unknown as Result;
+  const nothing = (id: string, message: string): Result =>
+    ({
+      kind: 'tasks.result',
+      ok: false,
+      dry_run: false,
+      results: [{ n: 1, op: 'attach', id, ok: false, outcome: 'failed', changed_ids: [], error: { code: 'invalid_argument', message, retryable: false } }],
+    }) as unknown as Result;
+  async function started() {
+    const m = make({ token: 't' });
+    m.hub.doc = snapshot([task('pub/a', { etag: 'e1' })]);
+    await m.app.start(null);
+    m.app.stop();
+    return m;
+  }
+  const asked = (m: Awaited<ReturnType<typeof started>>) => m.hub.sent.map((r) => r.ops[0]);
+
+  it('takes the image on the clipboard and shows its link in the detail', async () => {
+    const m = await started();
+    m.hub.next_ops = attached('pub/a', 'assets/a-shot.png');
+    expect(await m.app.attachScreenshot('pub/a')).toBe(true);
+    expect(asked(m)).toEqual([{ op: 'attach', id: 'pub/a', from: 'clipboard' }]);
+    expect(m.app.attached).toEqual({ id: 'pub/a', link: '![shot](assets/a-shot.png)' });
+    expect(m.app.toast?.kind).toBe('ok');
+    expect(m.app.toast?.text).toBe(translate(m.app.lang, 'attach.done', { asset: 'assets/a-shot.png' }));
+    // There is no way back: the engine gives no inverse.
+    expect(m.app.toast?.undo).toBeUndefined();
+  });
+
+  it('takes the newest screenshot when the clipboard holds no image', async () => {
+    const m = await started();
+    m.hub.ops_queue = [nothing('pub/a', 'no image on the clipboard'), attached('pub/a', 'assets/newest.png')];
+    expect(await m.app.attachScreenshot('pub/a')).toBe(true);
+    expect(asked(m).map((op) => (op as { from: string }).from)).toEqual(['clipboard', 'latest']);
+    expect(m.app.attached?.link).toBe('![shot](assets/newest.png)');
+    expect(m.app.toast?.kind).toBe('ok');
+  });
+
+  it('says once that there was nothing to attach, and attaches nothing', async () => {
+    const m = await started();
+    m.hub.ops_queue = [nothing('pub/a', 'no image on the clipboard'), nothing('pub/a', 'no new screenshot')];
+    expect(await m.app.attachScreenshot('pub/a')).toBe(false);
+    expect(asked(m)).toHaveLength(2);
+    expect(m.app.attached).toBeNull();
+    expect(m.app.toast?.kind).toBe('error');
+    expect(m.app.toast?.text).toBe(translate(m.app.lang, 'attach.none'));
+  });
+
+  it('asks no second place when the engine refused for another reason', async () => {
+    const m = await started();
+    m.hub.next_ops = {
+      kind: 'tasks.result',
+      ok: false,
+      dry_run: false,
+      results: [{ n: 1, op: 'attach', id: 'pub/a', ok: false, outcome: 'failed', changed_ids: [], error: { code: 'not_found', message: 'no such task', retryable: false } }],
+    } as unknown as Result;
+    expect(await m.app.attachScreenshot('pub/a')).toBe(false);
+    expect(asked(m)).toHaveLength(1);
+    expect(m.app.toast?.text).toBe(translate(m.app.lang, 'write.not_found'));
+  });
+
+  it('a new task tells its id, so the capture can attach to it', async () => {
+    const m = await started();
+    expect(await m.app.createTask('pub', 'With a shot')).toBe('pub/created');
+    m.hub.next_ops = attached('pub/created', 'assets/created.png');
+    expect(await m.app.attachScreenshot('pub/created')).toBe(true);
+    expect(m.app.attached?.id).toBe('pub/created');
   });
 });

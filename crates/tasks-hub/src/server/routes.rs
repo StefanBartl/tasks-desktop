@@ -281,7 +281,10 @@ pub(super) async fn search_route(
 /// run of `plan_new` names the plan without making it. `tick_step`, `append_note` and `set_body` change the text of one open task
 /// (a step, a line of the notes, the text); the engine checks the version and the text. `view_save` and `view_delete` make,
 /// replace and delete a saved view (a small file of the vault, not a task); the engine checks the view and its version.
-pub(super) const OPS_ALLOWED: [&str; 12] = [
+/// `attach` makes the image on the clipboard of this machine, or its newest screenshot, an asset of a task: the request
+/// names no path (the folders are the engine's configuration), and the answer holds the path below the task and its
+/// link, never the image.
+pub(super) const OPS_ALLOWED: [&str; 13] = [
     "set",
     "new",
     "reorder",
@@ -294,6 +297,7 @@ pub(super) const OPS_ALLOWED: [&str; 12] = [
     "set_body",
     "view_save",
     "view_delete",
+    "attach",
 ];
 /// The fields of a request of `ops` (the engine checks the rest, strictly).
 pub(super) const OPS_FIELDS: [&str; 4] = ["schema", "client_op_id", "dry_run", "ops"];

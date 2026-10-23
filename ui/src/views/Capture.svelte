@@ -14,6 +14,7 @@
   let area = $state('');
   let prio = $state('');
   let text = $state('');
+  let attach = $state(false);
   let busy = $state(false);
 
   const areas = $derived(
@@ -31,6 +32,7 @@
       title = '';
       prio = '';
       text = '';
+      attach = false;
       dialog.showModal();
     }
     if (!app.capturing && dialog.open) dialog.close();
@@ -43,7 +45,9 @@
     try {
       const fields: Record<string, unknown> = {};
       if (prio !== '') fields['prio'] = Number(prio);
-      await app.createTask(area, title.trim(), fields, text);
+      const created = await app.createTask(area, title.trim(), fields, text);
+      // After the task is made: a plain task becomes the folder of its asset.
+      if (created && attach) await app.attachScreenshot(created);
     } finally {
       busy = false;
     }
@@ -79,6 +83,12 @@
       <span>{t('capture.body')} <small>({t('capture.body_hint')})</small></span>
       <textarea bind:value={text} rows="5" maxlength="20000"></textarea>
     </label>
+    {#if app.can('attach')}
+      <label class="check">
+        <input type="checkbox" bind:checked={attach} />
+        <span>{t('capture.attach')}</span>
+      </label>
+    {/if}
     <div class="actions">
       <button type="button" onclick={() => app.closeCapture()}>{t('dialog.cancel')}</button>
       <button type="submit" class="primary" disabled={busy || title.trim() === ''}
@@ -108,6 +118,11 @@
     display: grid;
     gap: 0.2rem;
     margin-bottom: 0.7rem;
+  }
+  label.check {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
   }
   input,
   textarea,
