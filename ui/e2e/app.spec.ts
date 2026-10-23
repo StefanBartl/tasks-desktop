@@ -931,6 +931,32 @@ test('a choice of several areas says how they combine and does not move under th
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('the chips of the filter say how they combine: or within a field, and between fields, in the list and the strip', async ({
+  page,
+}) => {
+  await pair(page);
+  await showList(page);
+  await page.getByRole('button', { name: /^Areas/ }).click();
+  const areas = page.getByRole('group', { name: 'Areas' });
+  await areas.getByRole('checkbox', { name: 'cascade.nvim' }).check();
+  await areas.getByRole('checkbox', { name: 'lib.nvim' }).check();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /^Status/ }).first().click();
+  await page.getByRole('group', { name: 'Status' }).getByRole('checkbox', { name: 'open', exact: true }).check();
+  await page.keyboard.press('Escape');
+  // The words are text of the chips: a screen reader hears them with the value.
+  const words = (list: Locator) => list.locator('li').evaluateAll((lis) => lis.map((li) => li.querySelector('.join')?.textContent ?? ''));
+  const listChips = page.getByRole('list', { name: 'Filters that are on' }).first();
+  await expect.poll(() => words(listChips)).toEqual(['', 'or', 'and', '']);
+  await expect(listChips.locator('li').nth(1)).toHaveText(/^or\s*Area/);
+  // The strip over the other views says the same.
+  await chooseView(page, 'View', 'Board');
+  const strip = page.getByTestId('filter-note').getByRole('list');
+  await expect.poll(() => words(strip)).toEqual(['', 'or', 'and', '', '']);
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
 test('the columns of the list take the width they are dragged to, and a cut text shows whole on the pointer', async ({ page }) => {
   await pair(page);
   await showList(page);

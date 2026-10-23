@@ -3,19 +3,23 @@
   // on, and switches a single filter off or all of them. The filter itself is changed in the list.
   import type { App } from '../lib/app.svelte';
   import { activeFilters, narrows, without, type ActiveFilter } from '../lib/filter';
-  import { chipLabel } from '../lib/filter-chips';
+  import { chipJoins, chipLabel } from '../lib/filter-chips';
   import { translate, type Key } from '../lib/i18n';
   import { tick } from 'svelte';
 
   let { app, plan = false }: { app: App; plan?: boolean } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
 
-  const chips = $derived(
-    activeFilters(app.filter).map((item) => ({
+  // Each chip names how it goes with the one before it (or within a field, and between fields), for the eye and the
+  // screen reader alike; the search words come first and hold together with the chips.
+  const chips = $derived.by(() => {
+    const joins = chipJoins(app.filter, app.filter.query.trim() !== '');
+    return activeFilters(app.filter).map((item, i) => ({
       item,
+      join: joins[i] ?? null,
       label: chipLabel(app.lang, app.filter, item, { short: app.shortAreas, all: app.allAreaNames }),
-    })),
-  );
+    }));
+  });
   let list: HTMLUListElement | undefined = $state();
   /** After a change the focus must not fall to the page: it goes to the next chip, else to the view's main area. */
   async function keepFocus(change: () => void, index: number): Promise<void> {
@@ -45,6 +49,7 @@
       {/if}
       {#each chips as c, index (c.item.kind + ':' + c.item.value)}
         <li>
+          {#if c.join}<span class="join">{t(`filter.join.${c.join}`)}</span>{/if}
           <span>{c.label}</span>
           <button type="button" aria-label={t('filter.remove', { what: c.label })} onclick={() => void keepFocus(() => (app.filter = without(app.filter, c.item)), index + (app.filter.query.trim() !== '' ? 1 : 0))}>×</button>
         </li>
@@ -87,6 +92,13 @@
     color: var(--muted);
     cursor: pointer;
     padding: 0 0.2rem;
+  }
+  /* The word that joins a chip to the one before it: part of the chip's text, quieter than its value. */
+  .join {
+    color: var(--muted);
+    font-size: 0.85em;
+    padding-right: 0.25rem;
+    border-right: 1px solid var(--border);
   }
   button.linkish {
     color: var(--accent);

@@ -35,7 +35,7 @@
     type ReminderChoice,
     type UpdatedWindow,
   } from '../lib/filter';
-  import { boundLabel, chipLabel as chipText, valueLabel as valueText } from '../lib/filter-chips';
+  import { boundLabel, chipJoins, chipLabel as chipText, valueLabel as valueText } from '../lib/filter-chips';
   import { columnStyle } from '../lib/columns';
   import ListColumnsHead from './ListColumnsHead.svelte';
   import SizeToggle from './SizeToggle.svelte';
@@ -124,7 +124,11 @@
   );
   const chipLabel = (item: ActiveFilter): string =>
     chipText(app.lang, app.filter, item, { short: app.shortAreas, all: app.allAreaNames });
-  const chips = $derived(activeFilters(app.filter).map((item) => ({ item, label: chipLabel(item) })));
+  // Each chip names how it goes with the one before it: or within a field, and between fields.
+  const chips = $derived.by(() => {
+    const joins = chipJoins(app.filter);
+    return activeFilters(app.filter).map((item, i) => ({ item, join: joins[i] ?? null, label: chipLabel(item) }));
+  });
   let chipList: HTMLUListElement | undefined = $state();
   let moreSummary: HTMLElement | undefined = $state();
   /** Switch one filter off and keep the focus where it was: on the chip that took its place, else on the fold. */
@@ -528,6 +532,7 @@
       <ul class="active" aria-label={t('filter.active')} bind:this={chipList}>
         {#each chips as c, index (c.item.kind + ':' + c.item.value)}
           <li>
+            {#if c.join}<span class="join">{t(`filter.join.${c.join}`)}</span>{/if}
             <span>{c.label}</span>
             <button
               type="button"
@@ -811,6 +816,13 @@
     border-radius: 999px;
     padding: 0.05rem 0.2rem 0.05rem 0.6rem;
     font-size: 0.8rem;
+  }
+  /* The word that joins a chip to the one before it: part of the chip's text, quieter than its value. */
+  .active .join {
+    color: var(--muted);
+    font-size: 0.85em;
+    padding-right: 0.25rem;
+    border-right: 1px solid var(--border);
   }
   .active li:last-child {
     background: none;

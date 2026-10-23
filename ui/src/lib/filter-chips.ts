@@ -1,6 +1,7 @@
 // The words of the filter: what a value is called and what the chip of a switched-on filter says.
 
 import {
+  activeFilters,
   areaLabel,
   DATE_KEYS,
   NONE,
@@ -75,4 +76,24 @@ export function chipLabel(
       return `${name}: ${valueLabel(lang, item.kind, item.value)}`;
     }
   }
+}
+
+/** How a chip goes with the one before it: `or` within one field, `and` between fields; null for the first chip. */
+export type ChipJoin = 'and' | 'or' | null;
+
+/**
+ * The word before each chip of `activeFilters(filter)`. The values of one field are any of them (all of them for the
+ * tags or categories set to "all"), and the fields hold together: a task is shown when every field lets it through.
+ * A span of an ordered field and a span of days are each a field of their own. With `afterQuery` the first chip
+ * follows the search words, which hold together with it as well.
+ */
+export function chipJoins(filter: Filter, afterQuery = false): ChipJoin[] {
+  const group = (a: ActiveFilter): string => (a.kind === 'range' || a.kind === 'date' ? `${a.kind}:${a.value}` : a.kind);
+  const items = activeFilters(filter);
+  return items.map((item, i) => {
+    const prev = items[i - 1];
+    if (prev === undefined) return afterQuery ? 'and' : null;
+    if (group(prev) !== group(item)) return 'and';
+    return wantsAll(filter, item.kind as FieldKey) ? 'and' : 'or';
+  });
 }

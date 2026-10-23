@@ -12,7 +12,7 @@ import {
   withMatch,
   type Filter,
 } from './filter';
-import { chipLabel } from './filter-chips';
+import { chipJoins, chipLabel } from './filter-chips';
 import { task } from './fixtures';
 import { selectOfFilter } from './views';
 
@@ -71,5 +71,34 @@ describe('any or all of the chosen tags', () => {
     expect(selectOfFilter({ ...two, matchAll: ['tag'] }).dropped).toBe(true);
     // With one tag "all" and "any" are the same, so nothing is lost.
     expect(selectOfFilter({ ...two, fields: { tag: ['ui'] }, matchAll: ['tag'] }).dropped).toBe(false);
+  });
+});
+
+describe('the word between the chips', () => {
+  const f = (over: Partial<Filter>): Filter => ({ ...freshFilter(), ...over });
+
+  it('is or within one field and and between fields, none before the first chip', () => {
+    expect(chipJoins(f({ areas: ['a', 'b'], statuses: ['open'], fields: { tag: ['ui'] } }))).toEqual([null, 'or', 'and', 'and']);
+  });
+
+  it('is and within the tags when all of them are wanted', () => {
+    expect(chipJoins(f({ fields: { tag: ['ui', 'menu'], category: ['bug', 'docs'] }, matchAll: ['tag'] }))).toEqual([
+      null,
+      'and',
+      'and',
+      'or',
+    ]);
+  });
+
+  it('takes each span of a field and of days as a field of its own', () => {
+    const bound = { label: '1', n: 1 };
+    expect(
+      chipJoins(f({ ranges: { prio: { min: bound }, value: { max: bound } }, dates: { created: { from: '2026-01-01' } } })),
+    ).toEqual([null, 'and', 'and']);
+  });
+
+  it('joins the first chip to the search words with and', () => {
+    expect(chipJoins(f({ statuses: ['open'] }), true)).toEqual(['and']);
+    expect(chipJoins(f({}), true)).toEqual([]);
   });
 });
