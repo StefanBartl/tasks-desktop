@@ -1672,28 +1672,25 @@ test('the inbox sorts tasks with single keys and nothing else', async ({ page })
   await watchViolations(page);
   await pair(page);
   await showList(page);
-  for (const n of [1, 2, 3]) {
-    await page.keyboard.press('c');
-    const capture = page.getByRole('dialog', { name: 'New task' });
-    await capture.getByLabel('Title').fill(`Inbox e2e ${n}`);
-    await capture.locator('select').first().selectOption('lib.nvim');
-    await capture.getByRole('button', { name: 'Create' }).click();
-    await expect(capture).toHaveCount(0);
-  }
+  // A name of its own for each repeat (--repeat-each with the one worker shares the vault), of a fixed width: no
+  // repeat's id is a part of another's.
+  const tag = `r${String(test.info().repeatEachIndex).padStart(3, '0')}`;
+  const slug = `inbox-e2e-${tag}`;
+  for (const n of [1, 2, 3]) await capture(page, `Inbox e2e ${tag} ${n}`);
   // g i opens the inbox: the new tasks lack everything.
   await page.keyboard.press('g');
   await page.keyboard.press('i');
   const inbox = page.locator('section.inbox');
   await expect(inbox).toBeVisible();
   for (const n of [1, 2, 3]) {
-    await expect(inbox.locator('.row', { hasText: `inbox-e2e-${n}` })).toContainText(/no priority.*no effort.*no who/);
+    await expect(inbox.locator('.row', { hasText: `${slug}-${n}` })).toContainText(/no priority.*no effort.*no who/);
   }
   await expectAccessible(page, 'inbox');
   const toast = page.getByRole('status');
   for (const n of [1, 2, 3]) {
-    const row = inbox.locator('.row', { hasText: `lib.nvim/inbox-e2e-${n}` });
+    const row = inbox.locator('.row', { hasText: `lib.nvim/${slug}-${n}` });
     await row.click();
-    await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/inbox-e2e-${n}`);
+    await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/${slug}-${n}`);
     // Priority, effort and who, each with one key; the row loses a chip after each, and leaves with the last. The hub's
     // event can show a change before the answer of its write is there: the next key waits until no write is on its way
     // (a key pressed meanwhile is refused with "Still saving", and the "Saved" of the step before would still be seen).
@@ -1709,14 +1706,14 @@ test('the inbox sorts tasks with single keys and nothing else', async ({ page })
     await settled(page);
   }
   // What the keys wrote is in the files.
-  const text = (n: number) => readFileSync(join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `inbox-e2e-${n}.md`), 'utf8');
+  const text = (n: number) => readFileSync(join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}-${n}.md`), 'utf8');
   expect(text(1)).toMatch(/prio: 2[\s\S]*effort: S[\s\S]*actor: me/);
   expect(text(2)).toMatch(/actor: pair/);
   expect(text(3)).toMatch(/effort: XL/);
   // u takes the last one back: the task is in the inbox again, without a who.
   await page.keyboard.press('u');
   await expect(toast.getByText('Undone.')).toBeVisible();
-  await expect(inbox.locator('.row', { hasText: 'lib.nvim/inbox-e2e-3' })).toContainText('no who');
+  await expect(inbox.locator('.row', { hasText: `lib.nvim/${slug}-3` })).toContainText('no who');
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
@@ -1937,14 +1934,9 @@ test('the keys of the inbox stay out of fields and dialogs, ignore a held key an
   await watchViolations(page);
   await pair(page);
   await showList(page);
-  for (const n of [1, 2]) {
-    await page.keyboard.press('c');
-    const capture = page.getByRole('dialog', { name: 'New task' });
-    await capture.getByLabel('Title').fill(`Inbox keys ${n}`);
-    await capture.locator('select').first().selectOption('lib.nvim');
-    await capture.getByRole('button', { name: 'Create' }).click();
-    await expect(capture).toHaveCount(0);
-  }
+  // A name of its own for each repeat, of a fixed width (as in the test of the single keys).
+  const tag = `r${String(test.info().repeatEachIndex).padStart(3, '0')}`;
+  for (const n of [1, 2]) await capture(page, `Inbox keys ${tag} ${n}`);
   await page.keyboard.press('g');
   await page.keyboard.press('i');
   const inbox = page.locator('section.inbox');
@@ -1953,9 +1945,9 @@ test('the keys of the inbox stay out of fields and dialogs, ignore a held key an
   page.on('request', (r) => {
     if (r.url().includes('/api/tasks/ops') && r.method() === 'POST') writes.push(r.url());
   });
-  const row = inbox.locator('.row', { hasText: 'lib.nvim/inbox-keys-1' });
+  const row = inbox.locator('.row', { hasText: `lib.nvim/inbox-keys-${tag}-1` });
   await row.click();
-  await expect(page.locator('aside.detail .id')).toHaveText('lib.nvim/inbox-keys-1');
+  await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/inbox-keys-${tag}-1`);
   // Typing in a field of the detail writes nothing to the task: m, s and 1 are letters there.
   const tags = page.locator('aside.detail').getByLabel('Tags');
   await tags.focus();
