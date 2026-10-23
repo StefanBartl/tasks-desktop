@@ -282,8 +282,8 @@ pub(super) async fn search_route(
 /// (a step, a line of the notes, the text); the engine checks the version and the text. `view_save` and `view_delete` make,
 /// replace and delete a saved view (a small file of the vault, not a task); the engine checks the view and its version.
 /// `attach` makes the image on the clipboard of this machine, or its newest screenshot, an asset of a task: the request
-/// names no path (the folders are the engine's configuration), and the answer holds the path below the task and its
-/// link, never the image.
+/// names no path (the folders are the hub's settings, `attach_dirs`, added by `with_attach_dirs`), and the answer holds
+/// the path below the task and its link, never the image.
 pub(super) const OPS_ALLOWED: [&str; 13] = [
     "set",
     "new",

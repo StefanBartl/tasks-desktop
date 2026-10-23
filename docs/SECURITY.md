@@ -267,7 +267,10 @@ engine with the request (`attach_dirs` of `tasks-ops/1`), because it runs the
 engine without the person's Neovim configuration and the engine would else look
 into the folders of the system (`~/Pictures`, on macOS the Desktop). Without
 `attach_dirs` the hub refuses `from: latest` itself (`attach_no_folders`, the
-engine is not asked): only the clipboard is read. The page asks for the newest
+engine is not asked): only the clipboard is read. The hub reads `attach_dirs`
+when it starts: a folder taken out of the file is read until the hub starts
+again. A failed `latest` names no folder and no file to the page (the paths hold
+the user name). The page asks for the newest
 image only when the engine said the clipboard holds none, and the message says
 which of the two was taken. One request holds at most one `attach` (the door
 refuses more): each reads the clipboard, which takes seconds on Windows.
