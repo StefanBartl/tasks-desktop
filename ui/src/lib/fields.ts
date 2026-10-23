@@ -47,13 +47,14 @@ const MOST = 50;
 function words(list: unknown, keep: (word: string) => boolean = () => true): string[] | null {
   if (!Array.isArray(list) || list.length > MOST) return null;
   if (!list.every((w) => typeof w === 'string' && w !== '' && w.length <= 40)) return null;
-  const out = (list as string[]).filter(keep);
+  // Each once: a word named twice would be two choices of one value (and two keys of one row).
+  const out = [...new Set((list as string[]).filter(keep))];
   return out.length > 0 ? out : null;
 }
 
 function numbers(list: unknown): number[] | null {
   if (!Array.isArray(list) || list.length === 0 || list.length > MOST) return null;
-  return list.every((n) => Number.isInteger(n) && n >= 0 && n < 1000) ? (list as number[]) : null;
+  return list.every((n) => Number.isInteger(n) && n >= 0 && n < 1000) ? [...new Set(list as number[])] : null;
 }
 
 /**

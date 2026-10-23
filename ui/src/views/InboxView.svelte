@@ -27,12 +27,22 @@
   });
   // The view was restored on page load (no click, no key): the selection starts on a row.
   onMount(() => app.ensureInboxSelection(true));
-  // The selected row stays in view while the keys move it.
+  // The selected row stays in view while the keys move it. Only a change of the selection scrolls (as in the list):
+  // rows that come or go (a filter emptied, a task sorted away) must not pull the page to the selected row.
+  let scrollTo = $state<string | null>(null);
   $effect(() => {
-    if (app.selectedId === null) return;
+    scrollTo = app.selectedId;
+  });
+  $effect(() => {
+    if (scrollTo === null) return;
     void rows.length;
+    const id = scrollTo;
     const frame = requestAnimationFrame(() => {
-      document.querySelector('.inbox [aria-current="true"]')?.scrollIntoView({ block: 'nearest' });
+      const row = document.querySelector('.inbox [aria-current="true"]');
+      if (row) {
+        row.scrollIntoView({ block: 'nearest' });
+        scrollTo = null;
+      } else if (!rows.some((t) => t.id === id) && app.tasks.some((t) => t.id === id)) scrollTo = null;
     });
     return () => cancelAnimationFrame(frame);
   });

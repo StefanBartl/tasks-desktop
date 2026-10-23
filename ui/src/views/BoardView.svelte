@@ -147,12 +147,22 @@
     else void app.dropNear(id, { id: target.id, place });
   }
 
-  // The selected card stays in view when the keys move it.
+  // The selected card stays in view when the keys move it. Only a change of the selection scrolls: the board is drawn
+  // again for every change of the vault, and that must not pull the page to the selected card.
+  let scrollTo = $state<string | null>(null);
   $effect(() => {
-    if (app.selectedId === null) return;
+    scrollTo = app.selectedId;
+  });
+  $effect(() => {
+    if (scrollTo === null) return;
     void board;
+    const id = scrollTo;
     const frame = requestAnimationFrame(() => {
-      document.querySelector('.board [aria-current="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      const card = document.querySelector('.board [aria-current="true"]');
+      if (card) {
+        card.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        scrollTo = null;
+      } else if (app.tasks.some((t) => t.id === id)) scrollTo = null;
     });
     return () => cancelAnimationFrame(frame);
   });

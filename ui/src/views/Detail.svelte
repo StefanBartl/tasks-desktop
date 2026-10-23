@@ -205,6 +205,9 @@
             )}
         >
           <option value="">{t('field.none')}</option>
+          {#if task.prio !== undefined && !app.ranges.prios.includes(task.prio)}
+            <option value={String(task.prio)}>{task.prio}</option>
+          {/if}
           {#each app.ranges.prios as p (p)}
             <option value={String(p)}>{p}</option>
           {/each}
@@ -219,6 +222,9 @@
             void app.setField(task.id, 'actor', e.currentTarget.value === '' ? null : e.currentTarget.value)}
         >
           <option value="">{t('field.none')}</option>
+          {#if task.actor && !app.ranges.actors.includes(task.actor)}
+            <option value={task.actor}>{labelOf(app.lang, 'actor', task.actor)}</option>
+          {/if}
           {#each app.ranges.actors as a (a)}
             <option value={a}>{labelOf(app.lang, 'actor', a)}</option>
           {/each}

@@ -1680,7 +1680,7 @@ test('the inbox sorts tasks with single keys and nothing else', async ({ page })
   await showList(page);
   // A name of its own for each repeat (--repeat-each with the one worker shares the vault), of a fixed width: no
   // repeat's id is a part of another's.
-  const tag = `r${String(test.info().repeatEachIndex).padStart(3, '0')}`;
+  const tag = `r${String(test.info().repeatEachIndex).padStart(3, '0')}t${test.info().retry}`;
   const slug = `inbox-e2e-${tag}`;
   for (const n of [1, 2, 3]) await capture(page, `Inbox e2e ${tag} ${n}`);
   // g i opens the inbox: the new tasks lack everything.
@@ -1941,7 +1941,7 @@ test('the keys of the inbox stay out of fields and dialogs, ignore a held key an
   await pair(page);
   await showList(page);
   // A name of its own for each repeat, of a fixed width (as in the test of the single keys).
-  const tag = `r${String(test.info().repeatEachIndex).padStart(3, '0')}`;
+  const tag = `r${String(test.info().repeatEachIndex).padStart(3, '0')}t${test.info().retry}`;
   for (const n of [1, 2]) await capture(page, `Inbox keys ${tag} ${n}`);
   await page.keyboard.press('g');
   await page.keyboard.press('i');
@@ -3561,7 +3561,7 @@ test('the marked tasks are moved to another area in one batch: a dry run first, 
   await showList(page);
   // A name of its own for each repeat (--repeat-each with the one worker shares the vault), of a fixed width: no
   // repeat's word is a part of another's.
-  const tag = `r${String(test.info().repeatEachIndex).padStart(3, '0')}`;
+  const tag = `r${String(test.info().repeatEachIndex).padStart(3, '0')}t${test.info().retry}`;
   const title = `Bulk move e2e ${tag}`;
   const slug = `bulk-move-e2e-${tag}`;
   for (const n of [1, 2, 3]) await capture(page, `${title} ${n}`);
@@ -4077,12 +4077,18 @@ test('a note that is being typed survives a change of the vault that arrives mea
 });
 
 test('a filter that is emptied leaves the page where it was: the selected row far down does not pull it away', async ({ page }) => {
-  // More than three hundred tasks, of a name of its own for each repeat; they go again at the end (other tests count).
-  const tag = `r${String(test.info().repeatEachIndex).padStart(3, '0')}`;
+  // 320 files, the engine's scan of them and axe over the whole list: more than the 30 s of a test on a busy runner.
+  test.slow();
+  // More than three hundred tasks, of a name of its own for each repeat and retry; they go again at the end (other
+  // tests count). One of them has a word in its text only, for the hits of the text search.
+  const info = test.info();
+  const tag = `r${String(info.repeatEachIndex).padStart(3, '0')}t${info.retry}`;
+  const word = `zebrajump${tag}`;
   const files = Array.from({ length: 320 }, (_, i) => {
     const n = String(i).padStart(3, '0');
     const path = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `jump-e2e-${tag}-${n}.md`);
-    writeFileSync(path, `---\ntitle: Jump e2e ${tag} ${n}\nstatus: open\nkind: task\n---\n\nText.\n`);
+    const text = n === '250' ? `Text with ${word}.` : 'Text.';
+    writeFileSync(path, `---\ntitle: Jump e2e ${tag} ${n}\nstatus: open\nkind: task\n---\n\n${text}\n`);
     return path;
   });
   try {
@@ -4117,8 +4123,76 @@ test('a filter that is emptied leaves the page where it was: the selected row fa
     await expect(page.locator('button.row[aria-current="true"]')).toBeInViewport();
     expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
     await expectAccessible(page, 'the full list after a filter was emptied');
+
+    // A hit of the text search is no row of the list: chosen there, it must not pull the page down once the search is
+    // emptied and its row is drawn far below.
+    await expect(async () => {
+      await box.fill(word);
+      await expect(page.locator('button.hit', { hasText: `jump-e2e-${tag}-250` })).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: WRITE_BUDGET });
+    await page.locator('button.hit', { hasText: `jump-e2e-${tag}-250` }).click();
+    await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/jump-e2e-${tag}-250`);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await box.focus();
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Backspace');
+    await expect(page.locator('.rows .line').nth(320)).toBeAttached();
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await expect(box).toBeInViewport();
+
+    // The inbox the same way: the 320 lack everything, so emptying the search brings them all back into it.
+    await box.fill(`Jump e2e ${tag} 310`);
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('g');
+    await page.keyboard.press('i');
+    const inbox = page.locator('section.inbox');
+    await expect(inbox.locator('.row')).toHaveCount(1);
+    await inbox.locator('.row', { hasText: `jump-e2e-${tag}-310` }).click();
+    await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/jump-e2e-${tag}-310`);
+    // The inbox has no search box: the search is switched off with its chip, by the keyboard, and the focus stays on
+    // the chips.
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const chip = page.getByRole('button', { name: `Switch off: Search: Jump e2e ${tag} 310` });
+    await chip.focus();
+    await page.keyboard.press('Enter');
+    await expect(inbox.locator('.row').nth(100)).toBeAttached();
+    await page.waitForTimeout(500);
+    // The note goes with its last chip and the focus with it to the main region (a shift of a line or two); the row of
+    // the selected task far down is not brought into view.
+    expect(await page.evaluate(() => window.scrollY)).toBeLessThan(200);
+    await expect(inbox.locator('.row', { hasText: `jump-e2e-${tag}-310` })).not.toBeInViewport();
+
+    // The board is drawn again for every change of the vault: a card chosen far down stays where it is when a file
+    // changes elsewhere, and the page stays at the top.
+    await page.keyboard.press('g');
+    await page.keyboard.press('b');
+    const cards = page.locator('.board [data-column="open"] .card');
+    await expect(cards.nth(40)).toBeAttached();
+    await cards.nth(40).click();
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect(page.locator('.board [aria-current="true"]')).not.toBeInViewport();
+    const events = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/tasks/snapshot', { timeout: WRITE_BUDGET });
+    writeFileSync(files[0]!, readFileSync(files[0]!, 'utf8').replace('Text.', 'Text, changed elsewhere.'));
+    await events;
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
   } finally {
     for (const file of files) removeFile(file);
+    // The hub has let them go before the next test counts its rows (not asked when the test ended by its timeout:
+    // the page is gone then, and the error of the test is the one to see).
+    if (!page.isClosed()) await expect
+      .poll(
+        () =>
+          page.evaluate(async (prefix) => {
+            const token = sessionStorage.getItem('tasks-desktop.session');
+            const r = await fetch('/api/tasks/snapshot', { headers: { authorization: `Bearer ${token}` } });
+            const doc = (await r.json()) as { tasks: { id: string }[] };
+            return doc.tasks.filter((t) => t.id.startsWith(prefix)).length;
+          }, `lib.nvim/jump-e2e-${tag}-`),
+        { timeout: WRITE_BUDGET },
+      )
+      .toBe(0);
   }
 });
 

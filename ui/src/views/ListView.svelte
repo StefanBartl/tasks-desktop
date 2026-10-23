@@ -46,7 +46,8 @@
 
   // The engine names the values (`hello.enums`); a word this version has no text for is shown as it is.
   const statuses = $derived(app.ranges.statuses);
-  const actors = $derived([...app.ranges.actors, 'none']);
+  // `none` is the page's word for a task without a who: an engine that named a who `none` would be the same chip.
+  const actors = $derived([...app.ranges.actors.filter((a) => a !== 'none'), 'none']);
 
   // A name for the filter and the order shown now: kept in this browser, for the vault that is read.
   let saveListOpen = $state(false);
@@ -271,11 +272,17 @@
   $effect(() => {
     if (scrollTo === null) return;
     void visible.length;
+    const id = scrollTo;
     const frame = requestAnimationFrame(() => {
       const row = document.querySelector('.rows [aria-current="true"]');
-      if (!row) return;
-      row.scrollIntoView({ block: 'nearest' });
-      scrollTo = null;
+      if (row) {
+        row.scrollIntoView({ block: 'nearest' });
+        scrollTo = null;
+        return;
+      }
+      // Waited for only while the row can still come: in the list beyond what is drawn, or a task the list has not
+      // read yet (a new one). A selection the list does not show (a hit in the text) would else jump later.
+      if (!shown.some((t) => t.id === id) && app.tasks.some((t) => t.id === id)) scrollTo = null;
     });
     return () => cancelAnimationFrame(frame);
   });

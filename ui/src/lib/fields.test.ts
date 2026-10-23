@@ -28,6 +28,8 @@ describe('the ranges of the engine', () => {
     expect(ranges.categories).toEqual(['docs', 'legal']);
     expect(ranges.severities).toEqual(['low', 'blocker']);
     // A field that is not a list of words or numbers keeps the default, the others do not change it.
+    // A word or a number named twice is one choice.
+    expect(rangesOf({ status: ['open', 'open', 'doing'], prio: [1, 1, 2] })).toMatchObject({ statuses: ['open', 'doing'], prios: [1, 2] });
     const bad = rangesOf({ status: 'open', prio: ['1'], actor: [''], category: [7], severity: [] });
     expect(bad).toEqual(DEFAULT_RANGES);
   });
