@@ -896,6 +896,72 @@ test('a word that is only in the text of a task finds the task, with the place',
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+for (const scheme of ['light', 'dark'] as const) {
+  test(`the search clears with one press: its own button, Escape and the reset of all filters (${scheme})`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await pair(page);
+    await showList(page);
+    const search = page.getByRole('searchbox', { name: 'Search id and title' });
+    const clear = page.getByRole('button', { name: 'Clear the search' });
+    const reset = page.getByRole('button', { name: 'Clear all filters' });
+    const count = page.locator('p.count [role="status"]');
+    await expect(count).not.toHaveText('');
+    const all = await count.textContent();
+    // Nothing to clear: neither button is there.
+    await expect(clear).toHaveCount(0);
+    await expect(reset).toHaveCount(0);
+
+    // Words alone narrow the list: the button in the field and the reset of all filters come with them.
+    await search.fill('lib.nvim/alpha');
+    await expect(count).not.toHaveText(all!);
+    await expect(clear).toBeVisible();
+    await expect(clear).toHaveAttribute('title', 'Clear the search');
+    await expect(reset).toBeVisible();
+    await expectAccessible(page, `the list with words in the search (${scheme})`);
+
+    // The keyboard reaches the button from the field; Enter empties it and the focus is back in the field.
+    const scrolled = await page.evaluate(() => window.scrollY);
+    await search.focus();
+    await page.keyboard.press('Tab');
+    await expect(clear).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(search).toHaveValue('');
+    await expect(search).toBeFocused();
+    await expect(count).toHaveText(all!);
+    await expect(clear).toHaveCount(0);
+    await expect(reset).toHaveCount(0);
+    expect(await page.evaluate(() => window.scrollY)).toBe(scrolled);
+
+    // Escape in the field empties it too, and stays in the field.
+    await search.fill('lib.nvim/alpha');
+    await expect(clear).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(search).toHaveValue('');
+    await expect(search).toBeFocused();
+    await expect(count).toHaveText(all!);
+
+    // A click on the button: the same.
+    await search.fill('lib.nvim/alpha');
+    await clear.click();
+    await expect(search).toHaveValue('');
+    await expect(search).toBeFocused();
+
+    // The reset of all filters takes the words away together with a chosen area.
+    await search.fill('lib.nvim/alpha');
+    await page.getByRole('button', { name: /^Areas/ }).click();
+    await page.getByRole('group', { name: 'Areas' }).getByRole('checkbox', { name: 'lib.nvim', exact: true }).check();
+    await page.keyboard.press('Escape');
+    await reset.click();
+    await expect(search).toHaveValue('');
+    await expect(page.locator('ul.active')).toHaveCount(0);
+    await expect(count).toHaveText(all!);
+    expect(await violations(page)).toEqual([]);
+    expect(consoleProblems.get(page)).toEqual([]);
+  });
+}
+
 test('a choice of several areas says how they combine and does not move under the pointer', async ({ page }) => {
   await pair(page);
   await showList(page);

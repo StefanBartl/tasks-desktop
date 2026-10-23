@@ -23,6 +23,7 @@
     extraCount,
     fieldOptions,
     isMultiKey,
+    narrows,
     wantsAll,
     withMatch,
     without,
@@ -142,6 +143,11 @@
     app.resetFilter();
     await tick();
     moreSummary?.focus();
+  }
+  /** Empty the search words only; the focus goes back to the field (the button that had it is gone). */
+  function clearQuery(): void {
+    app.setQuery('');
+    searchBox?.focus();
   }
   const extraOn = $derived(extraCount(app.filter));
   const areaOptions = $derived(
@@ -316,15 +322,33 @@
     }}
   >
     <div class="filters">
-      <input
-        bind:this={searchBox}
-        type="search"
-        data-hint={t('hint.ui.list.search')}
-        placeholder={t('list.search')}
-        aria-label={t('list.search')}
-        value={app.filter.query}
-        oninput={(e) => app.setQuery(e.currentTarget.value)}
-      />
+      <span class="search">
+        <input
+          bind:this={searchBox}
+          type="search"
+          data-hint={t('hint.ui.list.search')}
+          placeholder={t('list.search')}
+          aria-label={t('list.search')}
+          value={app.filter.query}
+          oninput={(e) => app.setQuery(e.currentTarget.value)}
+          onkeydown={(e) => {
+            // Escape empties the words first (Firefox would not); an empty field leaves Escape to the browser.
+            if (e.key === 'Escape' && app.filter.query !== '') {
+              e.preventDefault();
+              clearQuery();
+            }
+          }}
+        />
+        {#if app.filter.query !== ''}
+          <button
+            type="button"
+            class="search-clear"
+            aria-label={t('list.search_clear')}
+            title={t('list.search_clear')}
+            onclick={clearQuery}>×</button
+          >
+        {/if}
+      </span>
       <MultiSelect
         label={t('nav.areas')}
         hint={t('hint.ui.list.areas')}
@@ -528,7 +552,8 @@
         {/each}
       </div>
     </details>
-    {#if chips.length > 0}
+    <!-- Words alone are no chip, but they narrow the list as much: reset is offered for them too. -->
+    {#if narrows(app.filter)}
       <ul class="active" aria-label={t('filter.active')} bind:this={chipList}>
         {#each chips as c, index (c.item.kind + ':' + c.item.value)}
           <li>
@@ -727,9 +752,36 @@
     border-bottom: 1px solid var(--border);
     flex-wrap: wrap;
   }
-  .filters input[type='search'] {
+  .search {
+    position: relative;
+    display: flex;
     flex: 1;
     min-width: 10rem;
+  }
+  .filters input[type='search'] {
+    flex: 1;
+    min-width: 0;
+    padding-right: 1.8rem;
+  }
+  /* Our own button clears, with a name; the browser's unnamed one would stand beside it. */
+  .filters input[type='search']::-webkit-search-cancel-button {
+    appearance: none;
+  }
+  .search-clear {
+    position: absolute;
+    right: 0.2rem;
+    top: 50%;
+    transform: translateY(-50%);
+    min-width: 1.5rem;
+    padding: 0 0.3rem;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+  .search-clear:hover,
+  .search-clear:focus-visible {
+    color: var(--text);
   }
   .more {
     padding: 0.25rem 0.6rem;
