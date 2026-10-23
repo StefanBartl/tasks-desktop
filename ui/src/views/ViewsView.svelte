@@ -296,7 +296,9 @@
   function onItemKey(event: KeyboardEvent, id: string, from: string): void {
     if (!movable || !event.shiftKey || event.ctrlKey || event.metaKey) return;
     const copy = event.altKey;
-    const key = copy ? ({ KeyH: 'h', KeyL: 'l' } as Record<string, string>)[event.code] : event.key.toLowerCase();
+    // The letter as the layout has it; only when Alt made it another character (macOS) the place of the key.
+    const letter = event.key.toLowerCase();
+    const key = copy && letter !== 'h' && letter !== 'l' ? ({ KeyH: 'h', KeyL: 'l' } as Record<string, string>)[event.code] : letter;
     if (key !== 'h' && key !== 'l') return;
     event.preventDefault();
     event.stopPropagation();

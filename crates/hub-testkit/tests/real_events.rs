@@ -435,15 +435,17 @@ async fn a_folder_task_moved_by_the_engine_beside_the_hub_reaches_the_stream_thr
     let new = format!("cascade.nvim/{slug}");
     assert!(r.ids().await.contains(&old), "the hub sees the folder task");
 
+    // Measured before the change: a read after it would run beside the hub's own read of the change and slow both.
+    let engine = r.engine_read().await;
     let doc = r
         .outside(
             Calls::Ops,
             &serde_json::json!({ "ops": [{ "op": "move_area", "id": old, "to_area": "cascade.nvim" }] }),
         )
         .await;
-    assert_eq!(doc["results"][0]["outcome"], "moved", "{doc}");
-    let engine = r.engine_read().await;
+    // The clock starts when the engine has moved the folder: the watcher may see it from then on.
     let started = Instant::now();
+    assert_eq!(doc["results"][0]["outcome"], "moved", "{doc}");
     let (change, _) = r
         .change_naming(&new, Duration::from_secs(10))
         .await
@@ -475,15 +477,15 @@ async fn a_folder_task_finished_by_the_engine_beside_the_hub_reaches_the_stream_
         .as_str()
         .expect("a confirm token")
         .to_owned();
+    let engine = r.engine_read().await;
     let doc = r
         .outside(
             Calls::Ops,
             &serde_json::json!({ "ops": [{ "op": "done", "id": id, "confirm": confirm }] }),
         )
         .await;
-    assert_eq!(doc["results"][0]["outcome"], "done", "{doc}");
-    let engine = r.engine_read().await;
     let started = Instant::now();
+    assert_eq!(doc["results"][0]["outcome"], "done", "{doc}");
     let (change, _) = r
         .change_naming(&id, Duration::from_secs(10))
         .await

@@ -951,6 +951,38 @@ describe('App, reading one task at a time', () => {
     app.stop();
   });
 
+  it('reads a task once more when the list changed during its first read, and only once', async () => {
+    const { app, hub } = make({ token: 't' });
+    hub.doc = snapshot([task('pub/a', { etag: 'e1' })], 'rev:1');
+    await app.start(null);
+    const answers: (() => void)[] = [];
+    hub.task = async (id: string, signal?: AbortSignal) => {
+      if (signal) hub.taskSignals.push(signal);
+      const entry = hub.doc.tasks.find((t) => t.id === id);
+      await new Promise<void>((resolve) => answers.push(resolve));
+      return { task: entry, body: `read at ${entry?.etag}`, steps: [] } as never;
+    };
+    app.select('pub/a');
+    // The list changes while the detail is still loading: keepSelection asks nothing for a detail that is loading.
+    hub.doc = snapshot([task('pub/a', { etag: 'e2' })], 'rev:2');
+    await app.refresh();
+    answers[0]!();
+    await vi.waitFor(() => expect(answers).toHaveLength(2));
+    answers[1]!();
+    await vi.waitFor(() => expect(app.detail.state === 'ok' && app.detail.doc.body).toBe('read at e2'));
+    // A list older than the answer (the read was quicker than the scan) costs one read more at most, never a loop.
+    hub.doc = snapshot([task('pub/a', { etag: 'e3' })], 'rev:3');
+    app.select(null);
+    app.select('pub/a');
+    hub.doc = snapshot([task('pub/a', { etag: 'e2' })], 'rev:2');
+    answers[2]!();
+    await vi.waitFor(() => expect(answers).toHaveLength(4));
+    answers[3]!();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(answers).toHaveLength(4);
+    app.stop();
+  });
+
   it('is not a failure when a read was dropped', async () => {
     const { app, hub } = make({ token: 't' });
     hub.doc = snapshot([task('pub/a'), task('pub/b')], 'rev:1');
@@ -4807,16 +4839,33 @@ describe('App, attaching a screenshot', () => {
 
   it('takes the newest screenshot when the clipboard holds no image', async () => {
     const m = await started();
-    m.hub.ops_queue = [nothing('pub/a', 'no image on the clipboard'), attached('pub/a', 'assets/newest.png')];
+    m.hub.ops_queue = [nothing('pub/a', 'no image in the clipboard'), attached('pub/a', 'assets/newest.png')];
     expect(await m.app.attachScreenshot('pub/a')).toBe(true);
     expect(asked(m).map((op) => (op as { from: string }).from)).toEqual(['clipboard', 'latest']);
     expect(m.app.attached?.link).toBe('![shot](assets/newest.png)');
-    expect(m.app.toast?.kind).toBe('ok');
+    expect(m.app.toast?.text).toBe(translate(m.app.lang, 'attach.done_latest', { asset: 'assets/newest.png' }));
+  });
+
+  it('takes no other image when the clipboard could not be read: the reason is told', async () => {
+    const m = await started();
+    m.hub.next_ops = nothing('pub/a', 'powershell.exe failed (exit 1): the clipboard is in use');
+    expect(await m.app.attachScreenshot('pub/a')).toBe(false);
+    expect(asked(m)).toHaveLength(1);
+    expect(m.app.toast?.text).toBe(translate(m.app.lang, 'write.invalid', { message: 'powershell.exe failed (exit 1): the clipboard is in use' }));
+  });
+
+  it('forgets the link of the screenshot when the session is lost', async () => {
+    const m = await started();
+    m.hub.next_ops = attached('pub/a', 'assets/a-shot.png');
+    await m.app.attachScreenshot('pub/a');
+    expect(m.app.attached).not.toBeNull();
+    m.hub.onUnauthorized();
+    expect(m.app.attached).toBeNull();
   });
 
   it('says once that there was nothing to attach, and attaches nothing', async () => {
     const m = await started();
-    m.hub.ops_queue = [nothing('pub/a', 'no image on the clipboard'), nothing('pub/a', 'no new screenshot')];
+    m.hub.ops_queue = [nothing('pub/a', 'no image in the clipboard'), nothing('pub/a', 'no new screenshot')];
     expect(await m.app.attachScreenshot('pub/a')).toBe(false);
     expect(asked(m)).toHaveLength(2);
     expect(m.app.attached).toBeNull();

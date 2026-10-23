@@ -259,16 +259,27 @@ written nowhere until it is saved.
 
 A screenshot is attached with `attach` through `POST /api/tasks/ops` (a button
 in the detail, a box in the new-task form): the engine takes the image on the
-clipboard of the machine the hub runs on, else the newest image of the
-screenshot folders of its own configuration (`attach.screenshot_dirs`, only one
-younger than `attach.max_age_s`), and writes it below the folder of the task.
+clipboard of the machine the hub runs on, else the newest image younger than
+`attach.max_age_s` (300 s) in the screenshot folders, and writes it below the
+folder of the task. The hub starts the engine without the person's Neovim
+configuration (`-u NONE`), so `attach.screenshot_dirs` is empty there and the
+engine looks into the usual folders of the system: on Windows
+`~/Pictures/Screenshots`, `~/OneDrive/Pictures/Screenshots` and `~/Pictures`, on
+macOS `~/Desktop` and `~/Pictures/Screenshots`, on Linux
+`~/Pictures/Screenshots` and `~/Pictures`. Any image saved there in the last
+five minutes can be taken, not only a screenshot. The page asks for the newest
+image only when the engine said the clipboard holds none, and the message says
+which of the two was taken.
 The request names no path and no file, only `from` (`clipboard` or `latest`);
 the answer holds the path below the task and the Markdown link, never the
 image, and the page reads neither the clipboard of the browser nor the file.
-A paired page can make the hub's clipboard a file of the vault this way, so it
-is a write like any other: a session, the limit of the writes, the class of the
-area. There is no way back (the engine gives no inverse): the file is removed
-by hand.
+A paired page can make the hub's clipboard a file of the vault this way: it
+needs a session and counts against the limit of the writes, like any write. The
+hub does not check the data class of the area for it (no write does; the
+classes say what may leave the hub, and an asset is not sent anywhere by the
+hub), so an image can land in an area that is `public` or `internal` and from
+there in a pushed vault. There is no way back (the engine gives no inverse):
+the file is removed by hand.
 
 The folder of the interface is looked for in three places only (the
 setting, `ui/` next to the binary, the repository the binary was built

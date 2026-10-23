@@ -168,6 +168,11 @@ function safe<T>(work: () => T): T | null {
 /** How many reads that began after a batch of moves may still bring the list of before the move (see `#arriving`). */
 const LATE_READS = 3;
 
+/** The words of lib.nvim for a clipboard without an image (the engine has no code of its own for it). */
+export function clipboardHoldsNoImage(message: string): boolean {
+  return /no image in the clipboard|holds no png image/i.test(message);
+}
+
 export class App {
   phase = $state<Phase>('starting');
   /** The last pairing code was refused (spent or older than its minute): the page says so and what to do. */
@@ -1942,8 +1947,10 @@ export class App {
 
   /**
    * Attach the image on the clipboard of the hub's machine to `id`, else its newest screenshot: the engine's `attach`,
-   * as `:Tasks attach` does in the editor. Nothing is attached when there is neither (the engine refuses each with
-   * `invalid_argument`); there is nothing to take back (the engine gives no inverse). True when one was attached.
+   * as `:Tasks attach` does in the editor. Only a clipboard without an image asks for the screenshot (the engine says
+   * `invalid_argument` for any failure, a tool that is missing or a clipboard that is locked too: those are told, and
+   * no other image is taken in their place). There is nothing to take back (the engine gives no inverse). True when
+   * one was attached.
    */
   async attachScreenshot(id: string): Promise<boolean> {
     for (const from of ['clipboard', 'latest'] as const) {
@@ -1953,11 +1960,10 @@ export class App {
         onAnswer: (answer) => {
           const entry = answer.results[0];
           if (entry?.ok) {
-            this.say('ok', 'attach.done', { asset: entry.asset ?? '' });
+            this.say('ok', from === 'clipboard' ? 'attach.done' : 'attach.done_latest', { asset: entry.asset ?? '' });
             return true;
           }
-          // No image there: the next place is asked, and only the last refusal is told.
-          if (entry?.error?.code === 'invalid_argument') {
+          if (entry?.error?.code === 'invalid_argument' && (from === 'latest' || clipboardHoldsNoImage(entry.error.message))) {
             none = true;
             return true;
           }
@@ -2267,6 +2273,7 @@ export class App {
     this.closeMatrix();
     this.closeChecks();
     this.checkState.forget();
+    this.attached = null;
     // The views and groupings were read with the session: they are read again once the tab is paired again.
     this.viewsState.forget();
     this.#viewsRev = undefined;
@@ -2702,13 +2709,21 @@ export class App {
     this.detailAbort = abort;
     const read = { id, again: false };
     this.detailRead = read;
+    let extra = false;
     try {
       do {
         read.again = false;
         try {
           const doc = await this.env.hub.task(id, abort.signal);
           if (this.selectedId === id) this.detail = { state: 'ok', id, doc };
-          if (read.again && this.tasks.find((t) => t.id === id)?.etag === doc.task.etag) read.again = false;
+          const listed = this.tasks.find((t) => t.id === id)?.etag;
+          if (read.again && listed === doc.task.etag) read.again = false;
+          // The list changed while the first read was on its way (nobody asks again for a detail that is still
+          // loading): one read more, not a loop (the list may also be the older of the two).
+          else if (!read.again && !extra && listed !== undefined && listed !== doc.task.etag) {
+            read.again = true;
+            extra = true;
+          }
         } catch {
           if (!abort.signal.aborted && this.selectedId === id) {
             this.detail = { state: 'failed', id };
