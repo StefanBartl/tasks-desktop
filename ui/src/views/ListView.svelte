@@ -260,14 +260,22 @@
 
   // The row that j and k moved to stays in view. The rows come in frames:
   // a selected row that is not drawn yet is scrolled to when it is (the
-  // count of the rows that are drawn is read here for that).
+  // count of the rows that are drawn is read here for that). Only a change of
+  // the selection scrolls: a filter that is emptied draws the whole list again,
+  // and the selected row far down in it must not pull the page away from the
+  // field the person is in.
+  let scrollTo = $state<string | null>(null);
   $effect(() => {
-    if (app.selectedId === null) return;
+    scrollTo = app.selectedId;
+  });
+  $effect(() => {
+    if (scrollTo === null) return;
     void visible.length;
     const frame = requestAnimationFrame(() => {
-      document
-        .querySelector('.rows [aria-current="true"]')
-        ?.scrollIntoView({ block: 'nearest' });
+      const row = document.querySelector('.rows [aria-current="true"]');
+      if (!row) return;
+      row.scrollIntoView({ block: 'nearest' });
+      scrollTo = null;
     });
     return () => cancelAnimationFrame(frame);
   });

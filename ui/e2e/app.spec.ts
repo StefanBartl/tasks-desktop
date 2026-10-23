@@ -4070,6 +4070,52 @@ test('a note that is being typed survives a change of the vault that arrives mea
   writeFileSync(file, text);
 });
 
+test('a filter that is emptied leaves the page where it was: the selected row far down does not pull it away', async ({ page }) => {
+  // More than three hundred tasks, of a name of its own for each repeat; they go again at the end (other tests count).
+  const tag = `r${String(test.info().repeatEachIndex).padStart(3, '0')}`;
+  const files = Array.from({ length: 320 }, (_, i) => {
+    const n = String(i).padStart(3, '0');
+    const path = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `jump-e2e-${tag}-${n}.md`);
+    writeFileSync(path, `---\ntitle: Jump e2e ${tag} ${n}\nstatus: open\nkind: task\n---\n\nText.\n`);
+    return path;
+  });
+  try {
+    await watchViolations(page);
+    await pair(page);
+    await showList(page);
+    const box = page.getByRole('searchbox', { name: /search/i }).first();
+    await expect(async () => {
+      await box.fill(`Jump e2e ${tag}`);
+      await expect(page.locator('.rows .line')).toHaveCount(320, { timeout: 2000 });
+    }).toPass({ timeout: WRITE_BUDGET });
+    // One task far down the list, chosen in the narrowed list; then the search is emptied by the keyboard.
+    await box.fill(`Jump e2e ${tag} 300`);
+    await expect(page.locator('.rows .line')).toHaveCount(1);
+    await page.locator('button.row', { hasText: `jump-e2e-${tag}-300` }).click();
+    await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/jump-e2e-${tag}-300`);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await box.focus();
+    await page.keyboard.press('Control+a');
+    await page.keyboard.press('Backspace');
+    await expect(page.locator('.rows .line').nth(320)).toBeAttached();
+    // Frames in which the rows are drawn: the page did not move, the field keeps the focus and is in view.
+    await page.waitForTimeout(500);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await expect(box).toBeFocused();
+    await expect(box).toBeInViewport();
+    // The selection is kept, and j still brings its row into view.
+    await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/jump-e2e-${tag}-300`);
+    await page.locator('button.row[aria-current="true"]').focus();
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.keyboard.press('j');
+    await expect(page.locator('button.row[aria-current="true"]')).toBeInViewport();
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    await expectAccessible(page, 'the full list after a filter was emptied');
+  } finally {
+    for (const file of files) removeFile(file);
+  }
+});
+
 test('the inbox draws a page of rows, shows more on request and keeps the selected row drawn', async ({ page }) => {
   await watchViolations(page);
   const dir = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks');
