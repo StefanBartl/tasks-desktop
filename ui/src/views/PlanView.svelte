@@ -34,9 +34,10 @@
   const limit = $derived(grown.plan === planId ? grown.n : FIRST);
   const total = $derived(stages.reduce((n, s) => n + s.tasks.length, 0));
   const drawn = $derived(firstTasks(stages, limit));
-  // A stage is remembered by its number; the tasks of a cycle have none.
+  // A stage is remembered by its number; the tasks of a cycle have none. The button for all of them takes every stage
+  // of the plan, also the ones the next frames are still to draw.
   const stageKey = (n: number | null): string => (n === null ? 'cycle' : String(n));
-  const stageKeys = $derived(drawn.map((s) => stageKey(s.stage)));
+  const stageKeys = $derived(stages.map((s) => stageKey(s.stage)));
   const allFold = $derived(allButtonFold(app.folds.plan, stageKeys));
   $effect(() => {
     if (limit >= total) return;
@@ -196,7 +197,7 @@
     <section class="stages" tabindex="-1" aria-label={t('plan.stages')}>
       <p class="legend">
         <Info hint={stagesLegend(app.lang)} label={t('hint.about', { what: t('plan.legend.what') })} />
-        {#if drawn.length > 1}
+        {#if stages.length > 1}
           <FoldButton
             lang={app.lang}
             fold={allFold}

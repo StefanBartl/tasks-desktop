@@ -953,8 +953,26 @@ test('the columns of the list take the width they are dragged to, and a cut text
   await again.focus();
   await page.keyboard.press('Enter');
   expect(Math.abs((await page.locator('button.row .id').first().boundingBox())!.width - before)).toBeLessThan(2);
-  // The marks on the right: dragged narrow, the title gets the room.
-  const title = page.locator('button.row .title').first();
+  // The marks start from the width of the marks of the rows, not from the width of their name in the head: one press
+  // narrows them by one step.
+  const metaWidths = () =>
+    page.locator('button.row .meta').evaluateAll((els) => Math.max(...els.map((e) => e.getBoundingClientRect().width)));
+  const widest = await metaWidths();
+  expect(widest).toBeGreaterThan(100);
+  const marksEdge = page.getByRole('separator', { name: 'Width of the column Marks' });
+  await marksEdge.focus();
+  expect(Math.abs(Number(await marksEdge.getAttribute('aria-valuenow')) - widest)).toBeLessThan(2);
+  await page.keyboard.press('ArrowRight');
+  expect(Math.abs((await metaWidths()) - (widest - 16))).toBeLessThan(3);
+  await page.keyboard.press('Enter');
+  // The marks on the right: dragged narrow, the title of the row with the widest marks gets the room.
+  const widestRow = await page
+    .locator('button.row .meta')
+    .evaluateAll((els) => {
+      const widths = els.map((e) => e.getBoundingClientRect().width);
+      return widths.indexOf(Math.max(...widths));
+    });
+  const title = page.locator('button.row .title').nth(widestRow);
   const titleBefore = (await title.boundingBox())!.width;
   const marks = page.getByRole('separator', { name: 'Width of the column Marks' });
   await marks.focus();
@@ -1040,6 +1058,22 @@ test('a column of the board folds to its head and to a narrow strip, the others 
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('h and l on the board pass a folded column: the selection never lands on a card that is not drawn', async ({ page }) => {
+  await pair(page);
+  await chooseView(page, 'View', 'Board');
+  const column = (name: string) => page.getByRole('region', { name, exact: true });
+  await expect(column('blocked').locator('.card').first()).toBeVisible();
+  await column('decision').getByRole('button', { name: 'Fold decision', exact: true }).click();
+  await expect(column('decision').locator('.card')).toHaveCount(0);
+  await column('doing').locator('.card').first().click();
+  await expect(column('doing').locator('[aria-current="true"]')).toHaveCount(1);
+  await page.keyboard.press('l');
+  // Past the folded column to the next one that shows its cards.
+  await expect(column('blocked').locator('[aria-current="true"]')).toHaveCount(1);
+  await page.keyboard.press('h');
+  await expect(column('doing').locator('[aria-current="true"]')).toHaveCount(1);
+});
+
 test('a tile of today and the list take the size their grip is dragged to, keep it, and give it back', async ({
   page,
 }) => {
@@ -1072,6 +1106,26 @@ test('a tile of today and the list take the size their grip is dragged to, keep 
   await toggleAgain.click();
   await again.getByRole('button', { name: 'Give Waits for you the size of the layout back' }).click();
   expect(Math.abs((await again.boundingBox())!.height - before.height)).toBeLessThan(2);
+
+  // The keyboard: the arrow keys on the size button move the lower right corner, one step per press.
+  await toggleAgain.focus();
+  const keyed = (await again.boundingBox())!;
+  for (let i = 0; i < 3; i += 1) await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(async () => Math.round((await again.boundingBox())!.height - keyed.height)).toBe(48);
+  expect(Math.round((await again.boundingBox())!.width - keyed.width)).toBe(-16);
+  // The grip stops at the smallest size a block is kept at: it does not shrink further and jump back on release.
+  const small = (await again.boundingBox())!;
+  await page.mouse.move(small.x + small.width - 3, small.y + small.height - 3);
+  await page.mouse.down();
+  await page.mouse.move(small.x - 400, small.y - 400, { steps: 6 });
+  const held = (await again.boundingBox())!;
+  await page.mouse.up();
+  expect(held.width).toBeGreaterThanOrEqual(160 - 1);
+  expect(held.height).toBeGreaterThanOrEqual(80 - 1);
+  const released = (await again.boundingBox())!;
+  expect(Math.abs(released.height - held.height)).toBeLessThan(2);
+  expect(Math.abs(released.width - held.width)).toBeLessThan(2);
 
   // The list: made lower, it scrolls in itself.
   await showList(page);

@@ -917,7 +917,7 @@ const en = {
   'size.reset': 'Give {what} the size of the layout back',
   'size.list': 'the list',
   'hint.size':
-    'Shows a grip in the lower right corner of the block: drag it to make the block wider, narrower, taller or shorter. The size is kept. Press again to hide the grip.',
+    'Shows a grip in the lower right corner of the block: drag it to make the block wider, narrower, taller or shorter (or press the arrow keys on this button). The size is kept. Press again to hide the grip.',
   'fold.to.open': 'Open {what}',
   'fold.to.folded': 'Fold {what}',
   'fold.to.narrow': 'Fold {what} to a narrow strip',
@@ -1909,7 +1909,7 @@ const de: Record<Key, string> = {
   'size.reset': '{what} wieder die Größe des Layouts geben',
   'size.list': 'der Liste',
   'hint.size':
-    'Zeigt einen Griff in der rechten unteren Ecke des Blocks: ziehen macht ihn breiter, schmaler, höher oder niedriger. Die Größe bleibt erhalten. Erneut klicken blendet den Griff aus.',
+    'Zeigt einen Griff in der rechten unteren Ecke des Blocks: ziehen macht ihn breiter, schmaler, höher oder niedriger (oder die Pfeiltasten auf diesem Knopf). Die Größe bleibt erhalten. Erneut klicken blendet den Griff aus.',
   'fold.to.open': '{what} aufklappen',
   'fold.to.folded': '{what} einklappen',
   'fold.to.narrow': '{what} zu einem schmalen Streifen einklappen',

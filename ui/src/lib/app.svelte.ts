@@ -16,7 +16,7 @@ import {
   toggleMark,
 } from './bulk';
 import { planOp, type PlanForm, type PlanPreview } from './planwizard';
-import { columnsOf, isColumn, neighbourColumn, placeNear, stepInGroup, type Move } from './board';
+import { COLUMNS, columnsOf, isColumn, neighbourColumn, placeNear, stepInGroup, type Column, type Move } from './board';
 import { ApiError, type Hub, type HubArea, type HubAreas, type SearchResult, type VaultList } from './api';
 import { cacheableClass, cacheableList, type CachedList, type ListStore } from './cache';
 import type {
@@ -77,7 +77,7 @@ import {
 } from './lists';
 import { localToday } from './remind';
 import { defaultColumns, parseColumns, serializeColumns, type ListColumns } from './columns';
-import { emptyFolds, parseFolds, serializeFolds, type FoldMemory, type Folds, type FoldView } from './fold';
+import { emptyFolds, foldOf, parseFolds, serializeFolds, type FoldMemory, type Folds, type FoldView } from './fold';
 import { parseSizes, serializeSizes, withSize, type Size, type Sizes } from './sizes';
 
 /** The longest line of the notes the engine takes (`append_note`), in characters. */
@@ -1906,7 +1906,7 @@ export class App {
   moveSelectionInColumn(delta: number): void {
     const task = this.tasks.find((t) => t.id === this.selectedId);
     if (!task || !isColumn(task.status)) {
-      const first = Object.values(this.board).flat()[0];
+      const first = COLUMNS.filter((c) => this.columnShown(c)).flatMap((c) => this.board[c])[0];
       if (first) this.select(first.id);
       return;
     }
@@ -1916,7 +1916,12 @@ export class App {
     if (next) this.select(next.id);
   }
 
-  /** The selection to the same height in the column left or right (`h`, `l`); empty columns are passed. */
+  /** Whether the cards of a column of the board are drawn: a folded column shows its head only. */
+  columnShown(column: Column): boolean {
+    return foldOf(this.folds.board, column) === 'open';
+  }
+
+  /** The selection to the same height in the column left or right (`h`, `l`); empty and folded columns are passed. */
   moveSelectionAcross(dir: 1 | -1): void {
     const task = this.tasks.find((t) => t.id === this.selectedId);
     if (!task || !isColumn(task.status)) return;
@@ -1924,7 +1929,7 @@ export class App {
     const board = this.board;
     const row = board[at].findIndex((t) => t.id === task.id);
     let col = neighbourColumn(at, dir);
-    while (col !== null && board[col].length === 0) col = neighbourColumn(col, dir);
+    while (col !== null && (board[col].length === 0 || !this.columnShown(col))) col = neighbourColumn(col, dir);
     if (col === null) return;
     const target = board[col][Math.min(row, board[col].length - 1)];
     if (target) this.select(target.id);

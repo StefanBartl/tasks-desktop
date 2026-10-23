@@ -1,7 +1,8 @@
 <script lang="ts">
   // The head of the list: the names of its columns and the edges that set their widths. An edge is dragged with the
   // mouse or moved with the arrow keys; a double click or Enter gives the column its default width back.
-  import { COLUMN_LIMITS, COLUMN_STEP, draggedWidth, withWidth, type ColumnKey, type ListColumns } from '../lib/columns';
+  import { untrack } from 'svelte';
+  import { COLUMN_KEYS, COLUMN_LIMITS, COLUMN_STEP, draggedWidth, withWidth, type ColumnKey, type ListColumns } from '../lib/columns';
   import { translate, type Key, type Lang } from '../lib/i18n';
 
   let {
@@ -24,9 +25,37 @@
   let metaCell: HTMLElement | undefined = $state();
   let drag: { key: ColumnKey; x: number; start: number } | null = null;
 
-  const cellOf = (key: ColumnKey): HTMLElement | undefined => (key === 'id' ? idCell : metaCell);
+  /** The rows the default width of the marks is read from: enough to see the wide ones, not all of a long list. */
+  const MEASURED_ROWS = 100;
+
+  /**
+   * The width a column has by default. The id lays out alike in the head and in every row. The marks are as wide as
+   * each row's own marks (`auto` in the grid of each row): the head holds only their name, so the default is the
+   * widest of the rows drawn, and the name in the head when no row is drawn.
+   */
+  function defaultWidth(key: ColumnKey): number {
+    const head = (key === 'id' ? idCell : metaCell)?.getBoundingClientRect().width ?? 0;
+    if (key === 'id') return head;
+    const rows = metaCell?.closest('.table')?.querySelectorAll<HTMLElement>('button.row .meta') ?? [];
+    let widest = 0;
+    for (let i = 0; i < Math.min(rows.length, MEASURED_ROWS); i += 1) {
+      widest = Math.max(widest, rows[i]!.getBoundingClientRect().width);
+    }
+    return widest > 0 ? widest : head;
+  }
   /** The width the column has now: the one it was given, else the one the default lays out. */
-  const widthOf = (key: ColumnKey): number => columns[key] ?? cellOf(key)?.getBoundingClientRect().width ?? 0;
+  const widthOf = (key: ColumnKey): number => columns[key] ?? defaultWidth(key);
+
+  // The default widths the edges tell a screen reader. They are measured when an edge is reached (focus, pointer),
+  // not at every drawing of the head: a drag draws it at every move, and the marks are measured over many rows.
+  let shownDefault = $state<Record<ColumnKey, number>>({ id: 0, meta: 0 });
+  function measure(key: ColumnKey): void {
+    if (columns[key] === null) shownDefault = { ...shownDefault, [key]: defaultWidth(key) };
+  }
+  $effect(() => {
+    if (idCell && metaCell) untrack(() => COLUMN_KEYS.forEach(measure));
+  });
+  const valueOf = (key: ColumnKey): number => Math.round(columns[key] ?? shownDefault[key]);
 
   function down(event: PointerEvent, key: ColumnKey): void {
     if (event.button !== 0) return;
@@ -75,8 +104,10 @@
         aria-label={t('list.col.edge', { col: t('list.col.id') })}
         aria-valuemin={COLUMN_LIMITS.id.min}
         aria-valuemax={COLUMN_LIMITS.id.max}
-        aria-valuenow={Math.round(widthOf('id'))}
+        aria-valuenow={valueOf('id')}
         data-hint={t('hint.list.col_edge')}
+        onfocus={() => measure('id')}
+        onpointerenter={() => measure('id')}
         onpointerdown={(e) => down(e, 'id')}
         onpointermove={move}
         onpointerup={up}
@@ -96,8 +127,10 @@
         aria-label={t('list.col.edge', { col: t('list.col.meta') })}
         aria-valuemin={COLUMN_LIMITS.meta.min}
         aria-valuemax={COLUMN_LIMITS.meta.max}
-        aria-valuenow={Math.round(widthOf('meta'))}
+        aria-valuenow={valueOf('meta')}
         data-hint={t('hint.list.col_edge')}
+        onfocus={() => measure('meta')}
+        onpointerenter={() => measure('meta')}
         onpointerdown={(e) => down(e, 'meta')}
         onpointermove={move}
         onpointerup={up}

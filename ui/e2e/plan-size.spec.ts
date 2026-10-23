@@ -102,6 +102,34 @@ test('a stage with many tasks scrolls in itself, so the stages after it stay in 
   expect(last.y).toBeLessThan((page.viewportSize()?.height ?? 0) * 1.5);
 });
 
+test('the button for all stages folds every stage, also the ones not drawn yet when it is pressed', async ({ page }) => {
+  await bigSnapshot(page, 2000);
+  await openPlan(page);
+  // The press comes in the first frame of the plan, while only its first tasks are drawn.
+  const drawnAtPress = await page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        const el = [...document.querySelectorAll('[role="menuitemradio"]')].find(
+          (e) => e.textContent?.trim() === 'Plan',
+        ) as HTMLElement;
+        const obs = new MutationObserver(() => {
+          const all = document.querySelector<HTMLButtonElement>('button[aria-label="Fold all stages"]');
+          if (!all) return;
+          obs.disconnect();
+          const n = document.querySelectorAll('.stages .stage').length;
+          all.click();
+          resolve(n);
+        });
+        obs.observe(document.body, { childList: true, subtree: true });
+        el.click();
+      }),
+  );
+  expect(drawnAtPress).toBeLessThan(12);
+  // 2000 tasks in stages of 167: twelve stages, and every one of them folded once all are drawn.
+  await expect(page.locator('.stages .stage')).toHaveCount(12);
+  await expect(page.locator('.stages .stage.folded')).toHaveCount(12);
+});
+
 test('another plan starts from the first tasks again, not from the number the last one had grown to', async ({
   page,
 }) => {

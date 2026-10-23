@@ -30,6 +30,7 @@
   class:on={active}
   aria-pressed={active}
   aria-label={t('size.toggle', { what })}
+  data-size-toggle
   data-hint={t('hint.size')}
   onclick={ontoggle}
 >

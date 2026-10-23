@@ -12,6 +12,24 @@ export const MIN_SIZE: Size = { w: 160, h: 80 };
 /** The largest, so a slip of the mouse does not make a block wider than any screen. */
 export const MAX_SIZE: Size = { w: 4000, h: 4000 };
 
+/** How far one press of an arrow key on the button of a block moves its edge, in pixels. */
+export const SIZE_STEP = 16;
+
+/**
+ * The size an arrow key gives a block of size `now`: right and left make it wider and narrower, down and up taller
+ * and shorter; another key gives `null`.
+ */
+export function keyedSize(now: Size, key: string): Size | null {
+  const step: Record<string, [number, number]> = {
+    ArrowRight: [SIZE_STEP, 0],
+    ArrowLeft: [-SIZE_STEP, 0],
+    ArrowDown: [0, SIZE_STEP],
+    ArrowUp: [0, -SIZE_STEP],
+  };
+  const d = step[key];
+  return d ? clampSize({ w: now.w + d[0], h: now.h + d[1] }) : null;
+}
+
 export function clampSize(size: Size): Size {
   const clamp = (v: number, lo: number, hi: number) => Math.round(Math.min(hi, Math.max(lo, v)));
   return { w: clamp(size.w, MIN_SIZE.w, MAX_SIZE.w), h: clamp(size.h, MIN_SIZE.h, MAX_SIZE.h) };
