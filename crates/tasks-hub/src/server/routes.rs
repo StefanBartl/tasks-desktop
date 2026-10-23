@@ -331,6 +331,16 @@ pub(super) fn check_ops_request(body: &[u8]) -> Result<serde_json::Value, String
             return Err(format!("ops[{}]: unknown operation", i + 1));
         }
     }
+    // One screenshot a request: each reads the clipboard of this machine (seconds on Windows), and a hundred would run
+    // into the time the engine has.
+    if ops
+        .iter()
+        .filter(|op| op.get("op").and_then(serde_json::Value::as_str) == Some("attach"))
+        .count()
+        > 1
+    {
+        return Err("at most one attach in a request".to_owned());
+    }
     if let Some(id) = map.get("client_op_id") {
         let ok = id.as_str().is_some_and(|s| {
             (1..=64).contains(&s.len())
@@ -345,6 +355,30 @@ pub(super) fn check_ops_request(body: &[u8]) -> Result<serde_json::Value, String
         return Err("dry_run must be true or false".to_owned());
     }
     Ok(value)
+}
+
+/// The folders of `attach` with `from: latest` are the hub's (its settings), never the page's: the door above refuses
+/// `attach_dirs` from a page. With none, `latest` is refused here without asking the engine (only the clipboard is
+/// read); with some, the request carries them to the engine.
+pub(super) fn with_attach_dirs(
+    mut request: serde_json::Value,
+    dirs: &[String],
+) -> Result<serde_json::Value, String> {
+    let latest = request["ops"].as_array().is_some_and(|ops| {
+        ops.iter()
+            .any(|op| op["op"] == "attach" && op["from"] == "latest")
+    });
+    if !latest {
+        return Ok(request);
+    }
+    if dirs.is_empty() {
+        return Err(
+            "no screenshot folders are set for the hub (attach_dirs in config.json): only the clipboard is read"
+                .to_owned(),
+        );
+    }
+    request["attach_dirs"] = serde_json::json!(dirs);
+    Ok(request)
 }
 
 /// The most ids and the most assumptions a question of `estimate` holds (the engine's limit too).
@@ -431,8 +465,20 @@ pub(super) async fn estimate(State(st): State<Arc<Shared>>, body: Bytes) -> Resp
 /// followed by a scan before the answer, so that the next read is the new
 /// state, and the open streams hear of it.
 pub(super) async fn ops(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
-    let request = match check_ops_request(&body) {
+    let request = match check_ops_request(&body).and_then(|r| {
+        with_attach_dirs(r, &st.rt().attach_dirs).map_err(|why| format!("attach_no_folders:{why}"))
+    }) {
         Ok(r) => r,
+        Err(why) if why.starts_with("attach_no_folders:") => {
+            if !st.post_limit.allow() {
+                return too_many();
+            }
+            return error_body(
+                StatusCode::BAD_REQUEST,
+                "attach_no_folders",
+                &why["attach_no_folders:".len()..],
+            );
+        }
         Err(why) => {
             // A request that is not one still counts as a mutation.
             if !st.post_limit.allow() {

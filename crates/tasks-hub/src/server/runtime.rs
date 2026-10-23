@@ -16,6 +16,8 @@ pub(super) struct VaultRuntime {
     pub(super) usage: Option<Arc<UsageLog>>,
     /// The event streams that are open, by session token.
     pub(super) streams: Arc<StreamCounter>,
+    /// The folders `attach` may take the newest screenshot from (the hub's settings, never the page).
+    pub(super) attach_dirs: Arc<Vec<String>>,
     pub(super) engine: Option<Arc<dyn Engine>>,
     pub(super) store: Arc<SnapshotStore>,
     pub(super) search: Option<Arc<SearchIndex>>,
@@ -59,6 +61,7 @@ pub(super) struct AppParts {
     pub(super) opener: Option<Arc<dyn FileOpener>>,
     pub(super) usage: Option<Arc<UsageLog>>,
     pub(super) streams: Arc<StreamCounter>,
+    pub(super) attach_dirs: Arc<Vec<String>>,
 }
 
 impl VaultRuntime {
@@ -129,6 +132,7 @@ pub(super) fn build_runtime(
         opener: app.opener.clone(),
         usage: app.usage.clone(),
         streams: Arc::clone(&app.streams),
+        attach_dirs: Arc::clone(&app.attach_dirs),
         engine,
         store,
         search,

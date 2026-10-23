@@ -94,6 +94,7 @@ async fn rig(name: &str, with_opener: bool) -> Rig {
     let server = start_with(
         cfg,
         Extras {
+            attach_dirs: Vec::new(),
             vaults: None,
             opener,
         },

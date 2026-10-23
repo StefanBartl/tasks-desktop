@@ -150,6 +150,8 @@ pub struct Extras {
     pub vaults: Option<Arc<dyn VaultAdmin<VaultTarget>>>,
     /// How a task file is shown in Neovim.
     pub opener: Option<Arc<dyn FileOpener>>,
+    /// The folders `attach` takes the newest screenshot from (the settings' `attach_dirs`); none: only the clipboard.
+    pub attach_dirs: Vec<std::path::PathBuf>,
 }
 
 /// Bind and serve, with a list of vaults the page may choose from.
@@ -162,7 +164,11 @@ pub struct Extras {
 ///
 /// As [`start`].
 pub async fn start_with(cfg: ServerConfig, extras: Extras) -> std::io::Result<RunningServer> {
-    let Extras { vaults, opener } = extras;
+    let Extras {
+        vaults,
+        opener,
+        attach_dirs,
+    } = extras;
     let (vault, refresh) = match cfg.watch {
         Some(w) => (Some(w.vault), w.refresh),
         None => (None, RefreshOptions::default()),
@@ -172,6 +178,12 @@ pub async fn start_with(cfg: ServerConfig, extras: Extras) -> std::io::Result<Ru
         opener,
         usage: cfg.usage,
         streams: Arc::new(StreamCounter::default()),
+        attach_dirs: Arc::new(
+            attach_dirs
+                .iter()
+                .map(|d| d.to_string_lossy().into_owned())
+                .collect(),
+        ),
     };
     let max_age = cfg.limits.snapshot_max_age;
     let runtime = build_runtime(
@@ -374,6 +386,7 @@ mod tests {
                 opener: None,
                 usage: None,
                 streams: Arc::new(StreamCounter::default()),
+                attach_dirs: Arc::default(),
             },
         ))
     }

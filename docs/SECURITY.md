@@ -261,16 +261,18 @@ A screenshot is attached with `attach` through `POST /api/tasks/ops` (a button
 in the detail, a box in the new-task form): the engine takes the image on the
 clipboard of the machine the hub runs on, else the newest image younger than
 `attach.max_age_s` (300 s) in the screenshot folders, and writes it below the
-folder of the task. The hub starts the engine without the person's Neovim
-configuration (`-u NONE`), so `attach.screenshot_dirs` is empty there and the
-engine looks into the usual folders of the system: on Windows
-`~/Pictures/Screenshots`, `~/OneDrive/Pictures/Screenshots` and `~/Pictures`, on
-macOS `~/Desktop` and `~/Pictures/Screenshots`, on Linux
-`~/Pictures/Screenshots` and `~/Pictures`. Any image saved there in the last
-five minutes can be taken, not only a screenshot. The page asks for the newest
+folder of the task. The screenshot folders are only those `attach_dirs` of the
+hub's `config.json` names (at most 8 absolute paths); the hub hands them to the
+engine with the request (`attach_dirs` of `tasks-ops/1`), because it runs the
+engine without the person's Neovim configuration and the engine would else look
+into the folders of the system (`~/Pictures`, on macOS the Desktop). Without
+`attach_dirs` the hub refuses `from: latest` itself (`attach_no_folders`, the
+engine is not asked): only the clipboard is read. The page asks for the newest
 image only when the engine said the clipboard holds none, and the message says
-which of the two was taken.
-The request names no path and no file, only `from` (`clipboard` or `latest`);
+which of the two was taken. One request holds at most one `attach` (the door
+refuses more): each reads the clipboard, which takes seconds on Windows.
+The request names no path and no file, only `from` (`clipboard` or `latest`); the door refuses `attach_dirs` from a
+page;
 the answer holds the path below the task and the Markdown link, never the
 image, and the page reads neither the clipboard of the browser nor the file.
 A paired page can make the hub's clipboard a file of the vault this way: it

@@ -586,9 +586,11 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
     // it is taken the server still starts, on another port, and says so:
     // the page then has another origin and its stored state does not carry over.
     let nvim = state.nvim.clone();
+    let attach_dirs = file.app.attach_dirs.clone();
     let vaults: Arc<dyn VaultAdmin<VaultTarget>> =
         Arc::new(ConfigVaults::new(dir.clone(), env.clone(), file));
     let extras = || Extras {
+        attach_dirs: attach_dirs.clone(),
         vaults: Some(Arc::clone(&vaults)),
         opener: nvim.clone().map(|n| {
             Arc::new(TerminalOpener::new(n, env.clone())) as Arc<dyn crate::editor::FileOpener>

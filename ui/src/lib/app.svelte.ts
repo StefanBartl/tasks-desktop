@@ -1019,6 +1019,9 @@ export class App {
       } else if (error instanceof ApiError && error.status === 409) {
         this.conflictsState.add(conflictsOfRequest(ops, Date.now(), opts.tags));
         this.say('error', 'write.conflict');
+      } else if (error instanceof ApiError && error.code === 'attach_no_folders') {
+        // The hub reads no folder for the newest screenshot unless its settings name some.
+        this.say('error', 'attach.no_folders');
       } else if (error instanceof ApiError && error.status === 400) {
         this.say('error', 'write.invalid', { message: error.message });
       } else {

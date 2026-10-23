@@ -4854,6 +4854,17 @@ describe('App, attaching a screenshot', () => {
     expect(m.app.toast?.text).toBe(translate(m.app.lang, 'write.invalid', { message: 'powershell.exe failed (exit 1): the clipboard is in use' }));
   });
 
+  it('says that the hub has no screenshot folders when the clipboard holds no image', async () => {
+    const m = await started();
+    m.hub.ops_queue = [
+      nothing('pub/a', 'no image in the clipboard'),
+      new ApiError(400, 'attach_no_folders', 'no screenshot folders are set for the hub'),
+    ];
+    expect(await m.app.attachScreenshot('pub/a')).toBe(false);
+    expect(asked(m)).toHaveLength(2);
+    expect(m.app.toast?.text).toBe(translate(m.app.lang, 'attach.no_folders'));
+  });
+
   it('forgets the link of the screenshot when the session is lost', async () => {
     const m = await started();
     m.hub.next_ops = attached('pub/a', 'assets/a-shot.png');

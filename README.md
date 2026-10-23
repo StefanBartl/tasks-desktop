@@ -249,7 +249,9 @@ that a failure, as CI does.
 whatever `TASKS_DESKTOP_CONFIG_DIR` names) may set `vault`, `vaults` (more
 vaults, each a `name` and an absolute `path`: the Vaults menu of the page adds them and
 chooses the one that is read), `active` (the name of that one), `nvim`,
-`engine_dir`, `lib_dir`, `extra_areas` and `port`. Unknown keys are refused.
+`engine_dir`, `lib_dir`, `extra_areas`, `attach_dirs` (the folders *Attach screenshot* takes the newest screenshot from
+when the clipboard holds no image, at most 8 absolute paths; none: only the clipboard) and `port`. Unknown keys are
+refused.
 Every path falls back to an environment variable (`TASKS_VAULT`,
 `TASKS_NVIM`, `TASKS_ENGINE_DIR`, `LIB_NVIM_DIR`, and `TASKS_DESKTOP_PORT`
 for the port) and then to a search; a value that is set decides, a wrong one

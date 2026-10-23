@@ -13,7 +13,9 @@ use tasks_hub::classes::AreaPolicy;
 use tasks_hub::client;
 use tasks_hub::config::Env;
 use tasks_hub::engine::{CliEngine, CliEngineConfig, Engine};
-use tasks_hub::server::{start, HubStatus, Limits, RunningServer, ServerConfig, WatchConfig};
+use tasks_hub::server::{
+    start_with, Extras, HubStatus, Limits, RunningServer, ServerConfig, WatchConfig,
+};
 use tasks_hub::store::RefreshOptions;
 
 struct Rig {
@@ -27,6 +29,11 @@ async fn rig(name: &str) -> Rig {
 }
 
 async fn rig_with(name: &str, limits: Limits) -> Rig {
+    rig_full(name, limits, Vec::new()).await
+}
+
+/// A rig whose settings name `attach_dirs`.
+async fn rig_full(name: &str, limits: Limits, attach_dirs: Vec<PathBuf>) -> Rig {
     let vault =
         std::env::temp_dir().join(format!("tasks-desktop-write-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&vault);
@@ -45,34 +52,40 @@ async fn rig_with(name: &str, limits: Limits) -> Rig {
         max_reply_bytes: 4 * 1024 * 1024,
     }));
     let control = Secret::generate(TOKEN_BYTES).unwrap();
-    let server = start(ServerConfig {
-        addr: "127.0.0.1:0".parse().unwrap(),
-        limits: Limits {
-            snapshot_max_age: None,
-            ..limits
-        },
-        clock: Arc::new(ManualClock::new()),
-        pairing_ttl: Duration::from_secs(60),
-        control_secret: control.clone(),
-        instance: Secret::generate(CODE_BYTES).unwrap(),
-        status: HubStatus {
-            engine_ready: true,
-            problem: None,
-            capabilities: Vec::new(),
-        },
-        engine: Some(engine),
-        policy: Arc::new(AreaPolicy::default()),
-        usage: None,
-        ui: tasks_hub::ui::UiFiles::none(),
-        watch: Some(WatchConfig {
-            vault: vault.clone(),
-            refresh: RefreshOptions {
-                debounce: Duration::from_millis(100),
-                max_wait: Duration::from_secs(1),
-                interval: Duration::from_secs(300),
+    let server = start_with(
+        ServerConfig {
+            addr: "127.0.0.1:0".parse().unwrap(),
+            limits: Limits {
+                snapshot_max_age: None,
+                ..limits
             },
-        }),
-    })
+            clock: Arc::new(ManualClock::new()),
+            pairing_ttl: Duration::from_secs(60),
+            control_secret: control.clone(),
+            instance: Secret::generate(CODE_BYTES).unwrap(),
+            status: HubStatus {
+                engine_ready: true,
+                problem: None,
+                capabilities: Vec::new(),
+            },
+            engine: Some(engine),
+            policy: Arc::new(AreaPolicy::default()),
+            usage: None,
+            ui: tasks_hub::ui::UiFiles::none(),
+            watch: Some(WatchConfig {
+                vault: vault.clone(),
+                refresh: RefreshOptions {
+                    debounce: Duration::from_millis(100),
+                    max_wait: Duration::from_secs(1),
+                    interval: Duration::from_secs(300),
+                },
+            }),
+        },
+        Extras {
+            attach_dirs,
+            ..Extras::default()
+        },
+    )
     .await
     .unwrap();
     let addr: SocketAddr = server.addr();
@@ -187,6 +200,39 @@ async fn a_write_refused_as_a_conflict_reads_the_vault_again_before_it_answers()
         before["rev"], after["rev"],
         "the hub answered a conflict from the old state"
     );
+}
+
+#[tokio::test]
+async fn the_newest_screenshot_is_taken_only_from_the_folders_of_the_settings() {
+    // None set: latest is refused at the door, the engine is not asked (nothing reaches it, nothing is written).
+    let r = rig("attach-none").await;
+    let latest = r#"{"ops":[{"op":"attach","id":"alpha.nvim/t1","from":"latest"}]}"#;
+    let (status, doc) = post(&r, "/api/tasks/ops", latest, JSON, true).await;
+    assert_eq!(status, 400, "{doc}");
+    assert_eq!(doc["error"]["code"], "attach_no_folders", "{doc}");
+    assert!(!r.vault.join(".fake-attach-dirs").exists());
+    assert_eq!(
+        std::fs::read_to_string(r.vault.join(".fake-n")).unwrap(),
+        "2"
+    );
+    // The clipboard needs no folder.
+    let clip = r#"{"ops":[{"op":"attach","id":"alpha.nvim/t1","from":"clipboard"}]}"#;
+    let (status, doc) = post(&r, "/api/tasks/ops", clip, JSON, true).await;
+    assert_eq!(status, 200, "{doc}");
+    assert!(
+        !r.vault.join(".fake-attach-dirs").exists(),
+        "no folder goes with the clipboard"
+    );
+
+    // Set: the request reaches the engine with exactly those folders.
+    let shots = std::env::temp_dir().join("tasks-desktop-shots");
+    let r = rig_full("attach-set", Limits::default(), vec![shots.clone()]).await;
+    let (status, doc) = post(&r, "/api/tasks/ops", latest, JSON, true).await;
+    assert_eq!(status, 200, "{doc}");
+    let sent: Value =
+        serde_json::from_str(&std::fs::read_to_string(r.vault.join(".fake-attach-dirs")).unwrap())
+            .unwrap();
+    assert_eq!(sent, serde_json::json!([shots.to_string_lossy()]));
 }
 
 #[tokio::test]
@@ -317,6 +363,14 @@ async fn a_request_that_is_plainly_not_one_is_refused_at_the_door() {
         (
             "unknown op",
             r#"{"ops":[{"op":"rm","id":"a/b"}]}"#.to_owned(),
+        ),
+        (
+            "two attach",
+            r#"{"ops":[{"op":"attach","id":"a/b","from":"clipboard"},{"op":"attach","id":"a/c","from":"clipboard"}]}"#.to_owned(),
+        ),
+        (
+            "folders from the page",
+            r#"{"attach_dirs":["C:/Users"],"ops":[{"op":"attach","id":"a/b","from":"latest"}]}"#.to_owned(),
         ),
         ("op missing", r#"{"ops":[{"id":"a/b"}]}"#.to_owned()),
         (

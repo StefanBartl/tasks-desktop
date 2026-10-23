@@ -21,7 +21,15 @@ pub struct TasksSettings {
     /// Folders that are areas although they have no `ROADMAP/` or `Backlog/`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extra_areas: Vec<String>,
+    /// The folders `attach` takes the newest screenshot from (`from: latest`); none: only the clipboard is read. The
+    /// engine of the hub runs without the person's configuration, so it gets these instead of the folders of the
+    /// system.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attach_dirs: Vec<PathBuf>,
 }
+
+/// The most folders `attach_dirs` may name (the engine's limit too).
+pub const MAX_ATTACH_DIRS: usize = 8;
 
 impl AppSettings for TasksSettings {
     /// An area name is one plain folder name, nothing that could climb out of the vault or break
@@ -29,6 +37,17 @@ impl AppSettings for TasksSettings {
     fn validate(&self) -> Result<(), String> {
         for name in &self.extra_areas {
             valid_area_name(name).map_err(|why| format!("extra_areas: {name:?} {why}"))?;
+        }
+        if self.attach_dirs.len() > MAX_ATTACH_DIRS {
+            return Err(format!("attach_dirs: at most {MAX_ATTACH_DIRS} folders"));
+        }
+        for dir in &self.attach_dirs {
+            if !dir.is_absolute() {
+                return Err(format!(
+                    "attach_dirs: {} is not an absolute path",
+                    dir.display()
+                ));
+            }
         }
         Ok(())
     }
@@ -160,6 +179,31 @@ mod tests {
         ] {
             assert!(areas(&[bad]).validate().is_err(), "{bad:?} was accepted");
         }
+    }
+
+    fn shots(dirs: &[PathBuf]) -> FileConfig {
+        FileConfig {
+            app: TasksSettings {
+                attach_dirs: dirs.to_vec(),
+                ..TasksSettings::default()
+            },
+            ..FileConfig::default()
+        }
+    }
+
+    #[test]
+    fn the_screenshot_folders_are_absolute_and_few() {
+        let here = std::env::temp_dir();
+        assert!(shots(&[]).validate().is_ok());
+        assert!(shots(std::slice::from_ref(&here)).validate().is_ok());
+        assert!(
+            shots(&[PathBuf::from("Pictures")]).validate().is_err(),
+            "a relative folder"
+        );
+        assert!(
+            shots(&vec![here; MAX_ATTACH_DIRS + 1]).validate().is_err(),
+            "more folders than the engine takes"
+        );
     }
 
     fn temp_config(name: &str, bytes: &[u8]) -> PathBuf {

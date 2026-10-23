@@ -379,6 +379,8 @@ const en = {
   'attach.copy': 'Copy link',
   'attach.copied': 'Link copied.',
   'attach.copy_failed': 'The link could not be copied: select it and copy it by hand.',
+  'attach.no_folders':
+    'The clipboard holds no image, and the hub has no screenshot folders to look into (attach_dirs in its config.json): nothing was attached.',
   'write.saved': 'Saved.',
   'write.undo': 'Undo',
   'write.undone': 'Undone.',
@@ -1344,6 +1346,8 @@ const de: Record<Key, string> = {
   'attach.copy': 'Link kopieren',
   'attach.copied': 'Link kopiert.',
   'attach.copy_failed': 'Der Link ließ sich nicht kopieren: markieren und von Hand kopieren.',
+  'attach.no_folders':
+    'Die Zwischenablage hält kein Bild, und der Hub hat keine Screenshot-Ordner zum Nachsehen (attach_dirs in seiner config.json): nichts angehängt.',
   'write.saved': 'Gespeichert.',
   'write.undo': 'Rückgängig',
   'write.undone': 'Rückgängig gemacht.',

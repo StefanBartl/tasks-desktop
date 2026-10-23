@@ -13,7 +13,9 @@
 //! * `.fake-check-ms`, `.fake-check-done`, `.fake-check-fail`: a `check` takes that long, leaves a
 //!   note when it ran to its end, or fails;
 //! * `.fake-ops-conflict`: every operation of `ops` is refused with `conflict` (the file changed
-//!   since it was read), and nothing is written.
+//!   since it was read), and nothing is written;
+//! * `.fake-attach-dirs`: written by an `ops` request that carries `attach_dirs` (the folders the hub
+//!   named), as JSON: what reached the engine.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -262,6 +264,9 @@ fn tasks_fill(call: &Call<'_>, doc: &mut Value) {
             // a write moves the vault.
             let dry = params.get("dry_run").and_then(Value::as_bool) == Some(true);
             let conflict = vault.join(".fake-ops-conflict").exists();
+            if let Some(dirs) = params.get("attach_dirs") {
+                let _ = std::fs::write(vault.join(".fake-attach-dirs"), dirs.to_string());
+            }
             let ops = params
                 .get("ops")
                 .and_then(Value::as_array)
