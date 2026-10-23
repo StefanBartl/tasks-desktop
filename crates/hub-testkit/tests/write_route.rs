@@ -171,6 +171,25 @@ async fn a_write_goes_through_and_the_next_read_is_the_new_state() {
 }
 
 #[tokio::test]
+async fn a_write_refused_as_a_conflict_reads_the_vault_again_before_it_answers() {
+    let r = rig("conflict").await;
+    let (_, before) = get(&r, "/api/tasks/snapshot").await;
+    // The file is changed outside (an editor) and the engine refuses the write on the version read: the hub's
+    // snapshot is the old one until the watcher scans, so the page would read the old version and be refused again.
+    std::fs::write(r.vault.join(".fake-n"), "3").unwrap();
+    std::fs::write(r.vault.join(".fake-ops-conflict"), "").unwrap();
+    let body = r#"{"ops":[{"op":"set","id":"alpha.nvim/t1","patch":{"status":"doing"},"if_match":"sha256:old"}]}"#;
+    let (status, doc) = post(&r, "/api/tasks/ops", body, JSON, true).await;
+    assert_eq!(status, 200, "{doc}");
+    assert_eq!(doc["results"][0]["error"]["code"], "conflict", "{doc}");
+    let (_, after) = get(&r, "/api/tasks/snapshot").await;
+    assert_ne!(
+        before["rev"], after["rev"],
+        "the hub answered a conflict from the old state"
+    );
+}
+
+#[tokio::test]
 async fn a_dry_run_changes_and_scans_nothing() {
     let r = rig("dry").await;
     let (_, before) = get(&r, "/api/tasks/snapshot").await;

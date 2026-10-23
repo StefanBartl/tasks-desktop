@@ -471,7 +471,23 @@ pub(super) async fn ops(State(st): State<Arc<Shared>>, body: Bytes) -> Response 
             })
             // A document this hub cannot read for it: scan anyway.
             .unwrap_or(true);
-        if wrote {
+        // A refusal as a conflict says the engine read a file the snapshot does not hold yet (changed outside, the
+        // watcher has not scanned): the page reads the list again after it and must get that version, or its next
+        // write is refused the same way.
+        let conflict = serde_json::from_str::<serde_json::Value>(&reply.text)
+            .ok()
+            .and_then(|d| {
+                d.get("results")
+                    .and_then(serde_json::Value::as_array)
+                    .map(|a| {
+                        a.iter().any(|e| {
+                            e.pointer("/error/code").and_then(serde_json::Value::as_str)
+                                == Some("conflict")
+                        })
+                    })
+            })
+            .unwrap_or(false);
+        if wrote || conflict {
             let _ = st.rt().store.refresh("ops").await;
         }
         if let Some(usage) = &st.rt().usage {

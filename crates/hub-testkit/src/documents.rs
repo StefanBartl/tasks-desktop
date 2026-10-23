@@ -11,7 +11,9 @@
 //! * `.fake-task-ms`, `.fake-task-calls`: a `task` read takes that long, and every one is counted;
 //! * `.fake-task-file`: the file every task is in;
 //! * `.fake-check-ms`, `.fake-check-done`, `.fake-check-fail`: a `check` takes that long, leaves a
-//!   note when it ran to its end, or fails.
+//!   note when it ran to its end, or fails;
+//! * `.fake-ops-conflict`: every operation of `ops` is refused with `conflict` (the file changed
+//!   since it was read), and nothing is written.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -259,6 +261,7 @@ fn tasks_fill(call: &Call<'_>, doc: &mut Value) {
             // Every operation `changed` the task it names, and a real run moves the state on, as
             // a write moves the vault.
             let dry = params.get("dry_run").and_then(Value::as_bool) == Some(true);
+            let conflict = vault.join(".fake-ops-conflict").exists();
             let ops = params
                 .get("ops")
                 .and_then(Value::as_array)
@@ -272,6 +275,17 @@ fn tasks_fill(call: &Call<'_>, doc: &mut Value) {
                         .get("id")
                         .and_then(Value::as_str)
                         .unwrap_or("alpha.nvim/new");
+                    if conflict {
+                        return json!({
+                            "n": i + 1,
+                            "op": op.get("op").cloned().unwrap_or(Value::Null),
+                            "id": id,
+                            "ok": false,
+                            "outcome": "failed",
+                            "changed_ids": [],
+                            "error": { "code": "conflict", "message": "the file changed since it was read", "retryable": true },
+                        });
+                    }
                     json!({
                         "n": i + 1,
                         "op": op.get("op").cloned().unwrap_or(Value::Null),
@@ -284,12 +298,15 @@ fn tasks_fill(call: &Call<'_>, doc: &mut Value) {
                 .collect();
             // Only a vault that keeps a state moves: a test that has none must not leave a file
             // behind (a vault may be the temp dir).
-            if !dry && let Some(n) = state(vault) {
+            if !dry
+                && !conflict
+                && let Some(n) = state(vault)
+            {
                 let _ = std::fs::write(vault.join(".fake-n"), (n + 1).to_string());
             }
             doc["digest"] = json!("sha256:0000000000000001");
             doc["dry_run"] = json!(dry);
-            doc["ok"] = json!(true);
+            doc["ok"] = json!(!conflict);
             doc["results"] = json!(results);
             if let Some(id) = params.get("client_op_id") {
                 doc["client_op_id"] = id.clone();

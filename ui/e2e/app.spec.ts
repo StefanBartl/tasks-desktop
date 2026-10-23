@@ -417,6 +417,12 @@ test('a task moved between the groups of a view writes the field: by key first, 
   expect(readFileSync(one, 'utf8')).toContain(`tags: [${second}]`);
   expect(readFileSync(one, 'utf8')).toContain('Changed by someone else.');
   await expect(live).toHaveText(`E2e drag v001 one: now in ${second}`);
+  // At once the same card again: the hub read the changed file before it answered the refusal, so the list the page
+  // read after it holds the new version and this move goes through (it was refused the same way before).
+  await card(second, 'e2e-drag-v001-one').focus();
+  await write(page, () => page.keyboard.press('Shift+l'));
+  await expect.poll(() => readFileSync(one, 'utf8'), { timeout: WRITE_BUDGET }).toContain(`tags: [${first}]`);
+  await expect(live).toHaveText(`E2e drag v001 one: now in ${first}`);
 
   // One drag with the mouse: the second task onto the group next to the group of none.
   await write(page, () =>
