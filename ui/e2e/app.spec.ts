@@ -3561,22 +3561,33 @@ test('the marked tasks are moved to another area in one batch: a dry run first, 
   await watchViolations(page);
   await pair(page);
   await showList(page);
-  for (const n of [1, 2, 3]) await capture(page, `Bulk move e2e ${n}`);
-  const file = (area: string, n: number) => join(state().vault, area, 'ROADMAP', 'tasks', `bulk-move-e2e-${n}.md`);
+  // A name of its own for each repeat (--repeat-each with the one worker shares the vault), of a fixed width: no
+  // repeat's word is a part of another's.
+  const tag = `r${String(test.info().repeatEachIndex).padStart(3, '0')}`;
+  const title = `Bulk move e2e ${tag}`;
+  const slug = `bulk-move-e2e-${tag}`;
+  for (const n of [1, 2, 3]) await capture(page, `${title} ${n}`);
+  const file = (area: string, n: number) => join(state().vault, area, 'ROADMAP', 'tasks', `${slug}-${n}.md`);
+  /** The id the `after` of a file names, written as a list or as one id. */
+  const afterOf = (path: string) =>
+    (readFileSync(path, 'utf8').split('\n').find((line) => line.startsWith('after: ')) ?? '')
+      .slice('after: '.length)
+      .replace('[', '')
+      .replace(']', '');
   // The first waits for the second: the reference follows the move (and comes back with the undo).
-  addFrontmatter('bulk-move-e2e-1', 'after: [lib.nvim/bulk-move-e2e-2]');
+  addFrontmatter(`${slug}-1`, `after: [lib.nvim/${slug}-2]`);
   // The slug of the third is taken in the other area: it cannot go there.
   const occupant = file('cascade.nvim', 3);
   writeFileSync(occupant, readFileSync(file('lib.nvim', 3), 'utf8').replace(/^title: .*$/m, 'title: Occupant of a slug'));
   try {
     // The search finds the occupant too (by its id): four rows, three marked.
-    await page.getByRole('searchbox', { name: /search/i }).first().fill('bulk-move-e2e');
+    await page.getByRole('searchbox', { name: /search/i }).first().fill(slug);
     await expect(page.locator('.rows .line')).toHaveCount(4);
     // The page holds the new version of the first file when its relation shows (the version is what is checked on writing).
-    await page.locator('button.row', { hasText: 'Bulk move e2e 1' }).click();
-    await expect(page.locator('aside.detail').getByLabel('After')).toHaveValue(/bulk-move-e2e-2/);
+    await page.locator('button.row', { hasText: `${title} 1` }).click();
+    await expect(page.locator('aside.detail').getByLabel('After')).toHaveValue(new RegExp(`${slug}-2`));
     // Marked in the order 2, 1, 3: the second's move rewrites the first, so the page has to move the first before it.
-    for (const n of [2, 1, 3]) await page.getByRole('checkbox', { name: `Mark lib.nvim/bulk-move-e2e-${n}` }).check();
+    for (const n of [2, 1, 3]) await page.getByRole('checkbox', { name: `Mark lib.nvim/${slug}-${n}` }).check();
     await expect(page.getByText('3 marked')).toBeVisible();
     const bar = page.getByRole('group', { name: 'Move the marked to the area' });
     await expect(bar.getByRole('button', { name: /^Move \d/ })).toHaveCount(0);
@@ -3592,15 +3603,15 @@ test('the marked tasks are moved to another area in one batch: a dry run first, 
     await bar.getByRole('button', { name: 'Check the moves' }).focus();
     await page.keyboard.press('Enter');
     await expect(bar.getByRole('button', { name: 'Move 2' })).toBeFocused();
-    await expect(told).toContainText('lib.nvim/bulk-move-e2e-1 becomes cascade.nvim/bulk-move-e2e-1');
-    await expect(told).toContainText('lib.nvim/bulk-move-e2e-2 becomes cascade.nvim/bulk-move-e2e-2 (1 place(s) follow)');
-    await expect(told).toContainText('lib.nvim/bulk-move-e2e-3 stays: cascade.nvim/bulk-move-e2e-3 is an open task already');
+    await expect(told).toContainText(`lib.nvim/${slug}-1 becomes cascade.nvim/${slug}-1`);
+    await expect(told).toContainText(`lib.nvim/${slug}-2 becomes cascade.nvim/${slug}-2 (1 place(s) follow)`);
+    await expect(told).toContainText(`lib.nvim/${slug}-3 stays: cascade.nvim/${slug}-3 is an open task already`);
     await expectAccessible(page, 'the answer of the dry run of a bulk move');
     for (const n of [1, 2, 3]) expect(existsSync(file('lib.nvim', n))).toBe(true);
     expect(existsSync(file('cascade.nvim', 1))).toBe(false);
 
     // The answer belongs to the version of each marked task: one that is changed meanwhile voids it.
-    addFrontmatter('bulk-move-e2e-3', 'effort: S');
+    addFrontmatter(`${slug}-3`, 'effort: S');
     await expect(bar.getByRole('button', { name: 'Check the moves' })).toBeVisible({ timeout: 15_000 });
     await expect(told).toBeEmpty();
     // The dry run takes its time with many tasks: while it is on its way the button says so, so it is asked once.
@@ -3612,7 +3623,7 @@ test('the marked tasks are moved to another area in one batch: a dry run first, 
     await bar.getByRole('button', { name: 'Check the moves' }).click();
     await expect(bar.getByRole('button', { name: 'Check the moves' })).toHaveAttribute('aria-busy', 'true');
     await expect(bar.getByRole('button', { name: 'Check the moves' })).toHaveAttribute('aria-disabled', 'true');
-    await expect(told).toContainText('lib.nvim/bulk-move-e2e-1 becomes cascade.nvim/bulk-move-e2e-1');
+    await expect(told).toContainText(`lib.nvim/${slug}-1 becomes cascade.nvim/${slug}-1`);
     delaying = false;
 
     // The move: one request, the two that can go go, the third stays marked.
@@ -3629,11 +3640,11 @@ test('the marked tasks are moved to another area in one batch: a dry run first, 
       expect(existsSync(file('cascade.nvim', n))).toBe(true);
     }
     expect(existsSync(file('lib.nvim', 3))).toBe(true);
-    expect(readFileSync(file('cascade.nvim', 1), 'utf8')).toMatch(/^after: \[?cascade\.nvim\/bulk-move-e2e-2\]?$/m);
+    expect(afterOf(file('cascade.nvim', 1))).toBe(`cascade.nvim/${slug}-2`);
     // The marks and the selection follow the new ids: nothing points at an id that is gone.
-    await expect(page.locator('aside.detail .id')).toHaveText('cascade.nvim/bulk-move-e2e-1');
+    await expect(page.locator('aside.detail .id')).toHaveText(`cascade.nvim/${slug}-1`);
     await expect(page.getByText('3 marked')).toBeVisible();
-    await expect(page.getByRole('checkbox', { name: 'Mark cascade.nvim/bulk-move-e2e-2' })).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: `Mark cascade.nvim/${slug}-2` })).toBeChecked();
 
     // Taken back: both files and the reference where they were, the selection with them.
     await write(page, () => page.getByRole('status').getByRole('button', { name: 'Undo' }).click());
@@ -3642,8 +3653,8 @@ test('the marked tasks are moved to another area in one batch: a dry run first, 
       expect(existsSync(file('lib.nvim', n))).toBe(true);
       expect(existsSync(file('cascade.nvim', n))).toBe(false);
     }
-    expect(readFileSync(file('lib.nvim', 1), 'utf8')).toMatch(/^after: \[?lib\.nvim\/bulk-move-e2e-2\]?$/m);
-    await expect(page.locator('aside.detail .id')).toHaveText('lib.nvim/bulk-move-e2e-1');
+    expect(afterOf(file('lib.nvim', 1))).toBe(`lib.nvim/${slug}-2`);
+    await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/${slug}-1`);
     expect(await violations(page)).toEqual([]);
     expect(consoleProblems.get(page)).toEqual([]);
   } finally {
