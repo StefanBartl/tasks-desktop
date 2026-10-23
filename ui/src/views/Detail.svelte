@@ -29,8 +29,6 @@
   const blocks = $derived(raw ? [] : parseMarkdown(body));
   const byId = $derived(new Map(app.tasks.map((x) => [x.id, x] as const)));
 
-  const STATUSES = ['doing', 'decision', 'blocked', 'open', 'parked'] as const;
-  const ACTORS = ['me', 'cdx', 'pair'] as const;
 
   const unknown = '?';
   function show(value: string | number | undefined): string {
@@ -185,7 +183,11 @@
           disabled={app.saving}
           onchange={(e) => void app.setField(task.id, 'status', e.currentTarget.value)}
         >
-          {#each STATUSES as s (s)}
+          <!-- A status the file has and the engine does not name (an older engine) is shown as it is. -->
+          {#if task.status && !app.ranges.statuses.includes(task.status)}
+            <option value={task.status}>{labelOf(app.lang, 'status', task.status)}</option>
+          {/if}
+          {#each app.ranges.statuses as s (s)}
             <option value={s}>{labelOf(app.lang, 'status', s)}</option>
           {/each}
         </select>
@@ -203,9 +205,9 @@
             )}
         >
           <option value="">{t('field.none')}</option>
-          <option value="1">1</option>
-          <option value="2">2</option>
-          <option value="3">3</option>
+          {#each app.ranges.prios as p (p)}
+            <option value={String(p)}>{p}</option>
+          {/each}
         </select>
       </label>
       <label>
@@ -217,7 +219,7 @@
             void app.setField(task.id, 'actor', e.currentTarget.value === '' ? null : e.currentTarget.value)}
         >
           <option value="">{t('field.none')}</option>
-          {#each ACTORS as a (a)}
+          {#each app.ranges.actors as a (a)}
             <option value={a}>{labelOf(app.lang, 'actor', a)}</option>
           {/each}
         </select>

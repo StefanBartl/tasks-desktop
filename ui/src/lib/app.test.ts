@@ -3761,6 +3761,27 @@ describe('the order of the list', () => {
       m.app.stop();
     });
 
+    it('a status, a priority and a who the engine names are offered, a word without a text as it is', async () => {
+      const m = make({ token: 't' });
+      m.hub.doc = snapshot([task('pub/a', { status: 'open', etag: 'e1' })]);
+      m.hub.enumsDoc = { status: ['open', 'doing', 'review'], prio: [1, 2, 3, 4], actor: ['me', 'bot'] };
+      await m.app.start(null);
+      await vi.waitFor(() => expect(m.app.ranges.statuses).toContain('review'));
+      m.app.select('pub/a');
+      const actions = paletteActions(m.app);
+      const review = actions.find((a) => a.key === 'task.status.review');
+      // No text for `review`: the word of the engine, never an empty place.
+      expect(review?.label).toBe(translate(m.app.lang, 'palette.status', { status: 'review' }));
+      expect(actions.some((a) => a.key === 'task.prio.4')).toBe(true);
+      // The statuses the engine does not name are not offered (parked is a default of the page only).
+      expect(actions.some((a) => a.key === 'task.status.parked')).toBe(false);
+      // A status that is no column of the board is a field: one set, not a drop.
+      await review?.run();
+      await vi.waitFor(() => expect(m.hub.sent.at(-1)?.ops[0]).toMatchObject({ op: 'set', id: 'pub/a', patch: { status: 'review' } }));
+      expect(m.app.ranges.actors).toEqual(['me', 'bot']);
+      m.app.stop();
+    });
+
     it('stay the defaults when the hub or the engine cannot say', async () => {
       const m = make({ token: 't' });
       m.hub.doc = snapshot([task('pub/a')]);

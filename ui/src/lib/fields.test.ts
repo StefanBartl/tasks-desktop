@@ -14,6 +14,24 @@ describe('the ranges of the engine', () => {
     expect(ranges.values).toEqual([1, 2, 3]);
   });
 
+  it('take the statuses, priorities, actors, categories and severities of the engine, each on its own', () => {
+    const ranges = rangesOf({
+      status: ['open', 'review'],
+      prio: [1, 2, 3, 4],
+      actor: ['me', 'bot'],
+      category: ['docs', 'legal'],
+      severity: ['low', 'blocker'],
+    });
+    expect(ranges.statuses).toEqual(['open', 'review']);
+    expect(ranges.prios).toEqual([1, 2, 3, 4]);
+    expect(ranges.actors).toEqual(['me', 'bot']);
+    expect(ranges.categories).toEqual(['docs', 'legal']);
+    expect(ranges.severities).toEqual(['low', 'blocker']);
+    // A field that is not a list of words or numbers keeps the default, the others do not change it.
+    const bad = rangesOf({ status: 'open', prio: ['1'], actor: [''], category: [7], severity: [] });
+    expect(bad).toEqual(DEFAULT_RANGES);
+  });
+
   it('keep the default for what is missing or not what it should be (an answer is data)', () => {
     for (const bad of [undefined, null, 'x', 5, [], {}, { kind: 'bug', effort: [1], value: ['1'] }, { kind: [], effort: ['<n>d'], value: [1.5] }]) {
       expect(rangesOf(bad), JSON.stringify(bad)).toEqual(DEFAULT_RANGES);

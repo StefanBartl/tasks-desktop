@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { App } from '../lib/app.svelte';
-  import { labelOf, translate, type Key } from '../lib/i18n';
+  import { hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
   import Detail from './Detail.svelte';
   import FinishedList from './FinishedList.svelte';
@@ -44,8 +44,9 @@
   const t = (key: Key, params: Record<string, string | number> = {}) =>
     translate(app.lang, key, params);
 
-  const statuses = ['doing', 'decision', 'blocked', 'open', 'parked'] as const;
-  const actors = ['me', 'cdx', 'pair', 'none'] as const;
+  // The engine names the values (`hello.enums`); a word this version has no text for is shown as it is.
+  const statuses = $derived(app.ranges.statuses);
+  const actors = $derived([...app.ranges.actors, 'none']);
 
   // A name for the filter and the order shown now: kept in this browser, for the vault that is read.
   let saveListOpen = $state(false);
@@ -297,7 +298,7 @@
       <MultiSelect
         label={t('list.filter.status')}
         hint={t('hint.ui.list.status')}
-        options={statuses.map((s) => ({ value: s, label: t(`status.${s}` as Key) }))}
+        options={statuses.map((s) => ({ value: s, label: labelOf(app.lang, 'status', s) }))}
         selected={app.filter.statuses}
         onchange={(statuses) => (app.filter = { ...app.filter, statuses })}
         resetLabel={t('multi.reset')}
@@ -308,8 +309,8 @@
         hint={t('hint.ui.list.actor')}
         options={actors.map((a) => ({
           value: a,
-          label: t(`actor.${a}` as Key),
-          title: t(`actor.${a}.hint` as Key),
+          label: labelOf(app.lang, 'actor', a),
+          title: hintOf(app.lang, 'actor', `${a}.hint`),
         }))}
         selected={app.filter.actors}
         onchange={(actors) => (app.filter = { ...app.filter, actors })}
@@ -505,23 +506,21 @@
           <span class="sr-only">{t('field.status')}</span>
           <select bind:value={draft.status} disabled={app.saving}>
             <option value="">{t('field.status')}: {t('bulk.keep')}</option>
-            {#each statuses as s (s)}<option value={s}>{t(`status.${s}` as Key)}</option>{/each}
+            {#each statuses as s (s)}<option value={s}>{labelOf(app.lang, 'status', s)}</option>{/each}
           </select>
         </label>
         <label>
           <span class="sr-only">{t('field.prio')}</span>
           <select bind:value={draft.prio} disabled={app.saving}>
             <option value="">{t('field.prio')}: {t('bulk.keep')}</option>
-            <option value="1">P1</option>
-            <option value="2">P2</option>
-            <option value="3">P3</option>
+            {#each app.ranges.prios as p (p)}<option value={String(p)}>P{p}</option>{/each}
           </select>
         </label>
         <label>
           <span class="sr-only">{t('field.actor')}</span>
           <select bind:value={draft.actor} disabled={app.saving}>
             <option value="">{t('field.actor')}: {t('bulk.keep')}</option>
-            {#each actors.filter((a) => a !== 'none') as a (a)}<option value={a}>{t(`actor.${a}` as Key)}</option>{/each}
+            {#each app.ranges.actors as a (a)}<option value={a}>{labelOf(app.lang, 'actor', a)}</option>{/each}
           </select>
         </label>
         <label>

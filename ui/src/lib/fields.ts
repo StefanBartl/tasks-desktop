@@ -11,15 +11,36 @@ export const EFFORT_SIZES = ['XS', 'S', 'M', 'L', 'XL'] as const;
 
 export const VALUES = [1, 2, 3, 4, 5] as const;
 
-/** The ranges the form offers. */
+/** The open statuses in the order the engine names them (the board has its own columns). */
+export const STATUSES = ['doing', 'decision', 'blocked', 'open', 'parked'] as const;
+export const PRIOS = [1, 2, 3] as const;
+export const ACTORS = ['me', 'cdx', 'pair'] as const;
+export const CATEGORIES = ['bug', 'security', 'performance', 'docs', 'ruleset'] as const;
+export const SEVERITIES = ['low', 'medium', 'high', 'critical'] as const;
+
+/** The ranges the forms and filters offer. */
 export interface Ranges {
   kinds: readonly string[];
   /** The sizes (`XS` ... `XL`); a duration (`3d`) is free text and not a size. */
   efforts: readonly string[];
   values: readonly number[];
+  statuses: readonly string[];
+  prios: readonly number[];
+  actors: readonly string[];
+  categories: readonly string[];
+  severities: readonly string[];
 }
 
-export const DEFAULT_RANGES: Ranges = { kinds: KINDS, efforts: EFFORT_SIZES, values: VALUES };
+export const DEFAULT_RANGES: Ranges = {
+  kinds: KINDS,
+  efforts: EFFORT_SIZES,
+  values: VALUES,
+  statuses: STATUSES,
+  prios: PRIOS,
+  actors: ACTORS,
+  categories: CATEGORIES,
+  severities: SEVERITIES,
+};
 
 const MOST = 50;
 
@@ -46,6 +67,11 @@ export function rangesOf(enums: unknown): Ranges {
     kinds: words(given['kind']) ?? DEFAULT_RANGES.kinds,
     efforts: words(given['effort'], (w) => !w.includes('<')) ?? DEFAULT_RANGES.efforts,
     values: numbers(given['value']) ?? DEFAULT_RANGES.values,
+    statuses: words(given['status']) ?? DEFAULT_RANGES.statuses,
+    prios: numbers(given['prio']) ?? DEFAULT_RANGES.prios,
+    actors: words(given['actor']) ?? DEFAULT_RANGES.actors,
+    categories: words(given['category']) ?? DEFAULT_RANGES.categories,
+    severities: words(given['severity']) ?? DEFAULT_RANGES.severities,
   };
 }
 

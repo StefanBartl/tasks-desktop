@@ -2,12 +2,11 @@
 // board the engine can serve, marks that are made). Only what can be done now is listed.
 
 import type { App } from './app.svelte';
-import { translate, type Key } from './i18n';
+import { labelOf, translate, type Key } from './i18n';
+import { isColumn } from './board';
 import type { PaletteAction } from 'appkit-ui/palette';
 import { selectOfFilter } from './views';
 
-const STATUSES = ['doing', 'decision', 'blocked', 'open', 'parked'] as const;
-const PRIOS = [1, 2, 3] as const;
 
 export function paletteActions(app: App): PaletteAction[] {
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
@@ -25,11 +24,13 @@ export function paletteActions(app: App): PaletteAction[] {
     const id = selected.id;
     add('task.finish', t('palette.finish'), () => app.startFinish(id), id);
     if (app.can('plan_for')) add('task.graph', t('graph.button'), () => app.openGraph(id), id);
-    for (const status of STATUSES) {
+    for (const status of app.ranges.statuses) {
       if (status === selected.status) continue;
-      add(`task.status.${status}`, t('palette.status', { status: t(`status.${status}` as Key) }), () => app.dropOnColumn(id, status), id);
+      // A status of the board goes the way of its column (blocked asks for the blocker); another one is a field.
+      const run = isColumn(status) ? () => app.dropOnColumn(id, status) : () => app.setField(id, 'status', status);
+      add(`task.status.${status}`, t('palette.status', { status: labelOf(app.lang, 'status', status) }), run, id);
     }
-    for (const prio of PRIOS) {
+    for (const prio of app.ranges.prios) {
       if (prio === selected.prio) continue;
       add(`task.prio.${prio}`, t('palette.prio', { prio }), () => app.setField(id, 'prio', prio), id);
     }
