@@ -98,6 +98,65 @@ test('the last menu opens inside the window, and a choice closes when the focus 
   await expect(choice).toHaveCount(0);
 });
 
+test('a hint goes where it covers no other control: the one of Help in a wide window', async ({ page }) => {
+  // Below Help the popup would lie on the filters; above, beside or below - it takes a place that is free.
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await pair(page);
+  await showList(page);
+  await page.keyboard.press('Escape');
+  const help = (await page.getByRole('menuitem', { name: 'Help', exact: true }).boundingBox())!;
+  await page.mouse.move(help.x + help.width / 2, help.y + help.height / 2);
+  await expect(page.locator('#hint-tip')).toBeVisible();
+  const covered = await page.evaluate(() => {
+    const tip = document.getElementById('hint-tip')!;
+    const r = tip.getBoundingClientRect();
+    const anchor = document.querySelector('[aria-describedby~="hint-tip"]');
+    const controls = 'a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"]), [role="menuitem"], [role="checkbox"]';
+    const found: string[] = [];
+    for (const fy of [0.05, 0.5, 0.95]) {
+      for (const fx of [0.05, 0.5, 0.95]) {
+        const under = document.elementsFromPoint(r.x + r.width * fx, r.y + r.height * fy).find((e) => !tip.parentElement!.contains(e));
+        const control = under?.closest(controls);
+        if (control && anchor && control !== anchor && !control.contains(anchor) && !anchor.contains(control)) {
+          found.push(control.textContent?.trim().slice(0, 30) ?? control.tagName);
+        }
+      }
+    }
+    return found;
+  });
+  expect(covered).toEqual([]);
+});
+
+test('a hint that lies on the next control goes with the first press, and the second press reaches the control', async ({ page }) => {
+  // At 420 px the popup of Help finds no free place (no room above the menu bar, none beside it) and stays below Help,
+  // over the upper edge of the filter Areas. Raw mouse events, as a person moves (Playwright's click would scroll and
+  // wait until the target is free); the pointer rests on Help first, as a person reading it does.
+  await page.setViewportSize({ width: 420, height: 800 });
+  await pair(page);
+  await showList(page);
+  await page.keyboard.press('Escape');
+  const help = (await page.getByRole('menuitem', { name: 'Help', exact: true }).boundingBox())!;
+  await page.mouse.move(help.x + help.width / 2, help.y + help.height / 2);
+  await page.waitForTimeout(600);
+  const tip = page.locator('#hint-tip');
+  await expect(tip).toBeVisible();
+  const areas = (await page.getByRole('button', { name: 'Areas', exact: true }).boundingBox())!;
+  const x = areas.x + areas.width / 2;
+  const y = areas.y + 3;
+  await page.mouse.move(x, y, { steps: 4 });
+  const under = () => page.evaluate(([px, py]) => document.elementFromPoint(px!, py!)?.id ?? '', [x, y]);
+  expect(await under()).toBe('hint-tip');
+  // The first press takes the popup away: before, it stayed while the pointer was on it and caught every press.
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect(tip).toBeHidden();
+  // The second press reaches the control.
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect(page.getByRole('group', { name: 'Areas' })).toBeVisible();
+  await expectAccessible(page, 'the choice of areas opened past the hint of Help');
+});
+
 async function capture(page: Page, title: string): Promise<void> {
   const dialog = page.getByRole('dialog', { name: 'New task' });
   await expect(async () => {
