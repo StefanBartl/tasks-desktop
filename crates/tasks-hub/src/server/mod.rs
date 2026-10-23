@@ -154,6 +154,10 @@ pub struct Extras {
 
 /// Bind and serve, with a list of vaults the page may choose from.
 ///
+/// The runtime (watcher, refresher, indexer) is built before the address is checked and bound: an address that is
+/// refused (not loopback, in use) builds one that is dropped again at once, whose `Drop` stops its watcher and jobs.
+/// `app::serve` asks a second time after `AddrInUse`, so such a start builds the runtime twice.
+///
 /// # Errors
 ///
 /// As [`start`].
