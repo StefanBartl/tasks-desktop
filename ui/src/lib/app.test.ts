@@ -1194,13 +1194,39 @@ describe('App, the export', () => {
     expect(sheet.facts.join(' ')).toContain('pub');
     expect(sheet.facts.join(' ')).not.toMatch(/\bpriv\b/);
     expect(sheet.facts).toContain(translate('de', 'print.kept', { m: 1 }));
-    // The board's columns as sections, the cells in the page's words.
+    // The board's columns as sections, named and filled in the page's words (a file keeps the engine's status word).
     expect(sheet.sections.map((s) => [s.heading, s.rows.map((r) => r[0])])).toEqual([
-      ['doing', ['pub/a']],
-      ['open', ['pub/c']],
+      [translate('de', 'status.doing'), ['pub/a']],
+      [translate('de', 'status.open'), ['pub/c']],
     ]);
+    expect(app.exportRows().rows[0]!.group).toBe('doing');
     expect(sheet.sections[0]!.rows[0]).toEqual(['pub/a', 'A', translate('de', 'status.doing'), '1', '', '']);
     expect(JSON.stringify(sheet)).not.toContain('priv/b');
+    app.stop();
+  });
+
+  it('prints no chip of a plan kept in a private area, and the words of a search only when no held-back task has them', async () => {
+    const { app, printed } = await started(
+      [task('pub/a', { title: 'Alpha', status: 'open', plan: 'priv/secret-plan' }), task('priv/b', { title: 'Hidden alpha', status: 'open' })],
+      [
+        { name: 'pub', data_class: 'public' },
+        { name: 'priv', data_class: 'private' },
+      ],
+    );
+    app.setView('list');
+    app.filter = { ...app.filter, fields: { ...app.filter.fields, plan: ['priv/secret-plan'] } };
+    app.printView();
+    expect(JSON.stringify(printed.at(-1))).not.toContain('secret');
+    // "alpha" is in the title of a private task: the words are not printed, only that a search narrows the list.
+    app.filter = { ...app.filter, fields: {} };
+    app.setQuery('alpha');
+    app.printView();
+    expect(printed.at(-1)!.facts.join(' ')).not.toContain('"alpha"');
+    expect(printed.at(-1)!.facts.join(' ')).toContain(translate('de', 'print.search_held'));
+    // Words no held-back task has are printed as they are.
+    app.setQuery('pub/');
+    app.printView();
+    expect(printed.at(-1)!.facts.join(' ')).toContain('"pub/"');
     app.stop();
   });
 
@@ -4310,6 +4336,33 @@ describe('the saved views', () => {
     // The classes of the areas come a moment after the list.
     await new Promise((r) => setTimeout(r, 10));
   }
+
+  it('name no plan of a private area as a group, and print the groups in the words the view shows', async () => {
+    const m = made();
+    m.hub.doc = snapshot([task('pub/a', { status: 'open', plan: 'priv/secret-plan' }), task('pub/b', { status: 'doing', plan: 'pub/open-plan' })]);
+    m.hub.areaList = [
+      { name: 'pub', data_class: 'public' },
+      { name: 'priv', data_class: 'private' },
+    ];
+    const fields = [
+      { field: 'status', values: ['doing', 'open'], truncated: false, writable: true, value_type: 'string', mode: 'set' },
+      { field: 'plan', values: ['priv/secret-plan', 'pub/open-plan'], truncated: false, writable: true, value_type: 'string', mode: 'set' },
+    ];
+    m.hub.groupings = async () => ({ kind: 'tasks.groupings', rev: m.hub.doc.rev, fields }) as unknown as Groupings;
+    m.hub.viewList = [view('pub/by-plan', { group_by: 'plan' }), view('pub/by-status', { group_by: 'status' })];
+    await opened(m, 'pub/by-plan');
+    const { rows, printRows } = m.app.exportRows();
+    const privatePlan = translate('de', 'export.private_plan');
+    expect(rows.map((r) => `${r.group} ${r.task.id}`)).toEqual([`${privatePlan} pub/a`, 'pub/open-plan pub/b']);
+    expect(printRows.map((r) => r.group)).toEqual([privatePlan, 'pub/open-plan']);
+    expect(JSON.stringify(m.app.exportTasks('json'))).not.toContain('secret');
+    // By status: a file keeps the engine's word, the page for the printer says the view's.
+    m.app.openView('pub/by-status');
+    const byStatus = m.app.exportRows();
+    expect(byStatus.rows.map((r) => r.group)).toEqual(['doing', 'open']);
+    expect(byStatus.printRows.map((r) => r.group)).toEqual([translate('de', 'status.doing'), translate('de', 'status.open')]);
+    m.app.stop();
+  });
 
   it('export their groups, as the view draws them, the group of no value named', async () => {
     const m = made();

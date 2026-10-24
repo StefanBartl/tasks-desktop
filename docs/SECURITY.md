@@ -165,10 +165,14 @@ area is released for nothing that leaves the hub.
 | `private` | no | no | no | no |
 | unclassified | no | no | no | no |
 
-An export (a file the browser saves, the clipboard) leaves the app: the page leaves the tasks of private and
-unclassified areas out and says how many, and until the classes are read after a start (or when the hub cannot tell
-them) nothing is exported. The id of a plan or a saved view kept in such an area names that area: it is in neither
-the name of the file, nor the `view` of a JSON export, nor the `plan` field of a task of a public area in that plan.
+An export (a file the browser saves, the clipboard, the page for the printer or a PDF) leaves the app: the page leaves
+the tasks of private and unclassified areas out and says how many, and until the classes are read after a start (or
+when the hub cannot tell them) nothing is exported. The id of a plan or a saved view kept in such an area names that
+area: it is in neither the name of the file, nor the `view` of a JSON export, nor the `plan` field of a task of a
+public area in that plan, nor the name of a group of a view grouped by plan (it is called a plan of a private area).
+The page for the printer names the filters of the list on top, but no chip of such an area or plan, and the words of
+the search only when no task of such an area has them (else it says only that a search narrows the list); a saved
+view kept in such an area is called by the word for views, not by its title.
 
 The file may name a `"default"` class: the owner's explicit choice for every
 area it has no entry for (a new area then needs no decision, and an entry

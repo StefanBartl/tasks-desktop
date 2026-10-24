@@ -1,6 +1,8 @@
 // The ways out of the tile Today: an image (PNG, drawn on a canvas) and a page for the printer or a PDF. Both take the
 // same rows (a word and a number each), so what leaves the page is what the tile shows.
 
+import { clearPrintPages } from './exportDom';
+
 export interface DailyRow {
   label: string;
   value: string;
@@ -94,6 +96,7 @@ export const PRINT_ID = 'daily-print';
  * the document only while the dialog is open; the print rules of the page hide the rest of it.
  */
 export function printDaily(doc: Document, win: Pick<Window, 'print' | 'addEventListener'>, title: string, range: string, rows: readonly DailyRow[]): void {
+  clearPrintPages(doc);
   const page = doc.createElement('div');
   page.id = PRINT_ID;
   const h = doc.createElement('h1');

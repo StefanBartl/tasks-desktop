@@ -1141,7 +1141,10 @@ test('the view prints as a page of its own: its rows and groups, the filters on 
     const sheet = page.locator('#view-print');
     await expect(sheet.locator('h1')).toHaveText('Tasks');
     await expect(sheet.locator('p').first()).toHaveText(/^Board · \d{4}-\d{2}-\d{2} · 2 tasks$/);
-    await expect(sheet).toContainText(`Filtered by: "${word}"`);
+    // The word of the search is in the title of the private task too: the page says that a search narrows the list,
+    // not the word.
+    await expect(sheet).toContainText('Filtered by: a search (its words are not printed');
+    for (const fact of await sheet.locator('p').allTextContents()) expect(fact).not.toContain(word);
     await expect(sheet).toContainText('1 tasks of private or unclassified areas are not printed.');
     // The board's columns as sections; the private task is not on the page.
     await expect(sheet.locator('h2')).toHaveText(['open', 'parked']);

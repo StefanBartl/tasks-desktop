@@ -28,6 +28,24 @@ export function cellRows(cells: readonly { row: string; column: string; items: T
   return cells.flatMap((c) => c.items.map((task) => ({ task, group: label(c.column), row: label(c.row) })));
 }
 
+/** How the values of a view's groups (and of a matrix's rows) are named. */
+export interface GroupWords {
+  group: (value: string) => string;
+  row: (value: string) => string;
+}
+
+/** The values as they are. */
+export const AS_THEY_ARE: GroupWords = { group: (v) => v, row: (v) => v };
+
+/** The rows with their group and row named by `words` (the tasks stay as they are). */
+export function relabel(rows: readonly ExportRow[], words: GroupWords): ExportRow[] {
+  return rows.map((r) => ({
+    ...r,
+    ...(r.group === undefined ? {} : { group: words.group(r.group) }),
+    ...(r.row === undefined ? {} : { row: words.row(r.row) }),
+  }));
+}
+
 /** Only the marked tasks, when some are marked: the marks say what is meant. */
 export function onlyMarked(rows: readonly ExportRow[], marks: ReadonlySet<string>): ExportRow[] {
   return marks.size === 0 ? [...rows] : rows.filter((r) => marks.has(r.task.id));

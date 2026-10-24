@@ -61,7 +61,19 @@ import { Preferences, StreamSession } from 'appkit-ui/session';
 import type { SseMessage } from 'appkit-ui/sse';
 import { labelOf, LANGS, translate, type Key, type Lang } from './i18n';
 import { csvSeparatorFor, EXPORT_FILES, exportFileName, rowsText, sheetOf, type ExportFormat, type ExportRow, type PrintSheet } from './export';
-import { boardRows, cellRows, groupRows, mayLeave, onlyMarked, stageRows, taskCount, withoutPlansOf } from './viewExport';
+import {
+  AS_THEY_ARE,
+  boardRows,
+  cellRows,
+  groupRows,
+  mayLeave,
+  onlyMarked,
+  relabel,
+  stageRows,
+  taskCount,
+  withoutPlansOf,
+  type GroupWords,
+} from './viewExport';
 import { chosenPlan, stagesOf } from './plan';
 import { applyOrder, orderOf, parseSort, type SortWord } from './sort';
 import { fromEngineList, type EngineList } from './engineLists';
@@ -1417,17 +1429,21 @@ export class App {
    * cells of a saved view (nothing where it draws only a note), the list's rows for the list. `view` names it for the
    * file; a view that draws no tasks has none.
    */
-  viewRows(): { view: string; rows: ExportRow[] } {
+  viewRows(): { view: string; rows: ExportRow[]; data: GroupWords; words: GroupWords } {
     const t = (key: Key, params: Record<string, string | number> = {}) => translate(this.lang, key, params);
+    const plain = { data: AS_THEY_ARE, words: AS_THEY_ARE };
     switch (this.view) {
       case 'list':
-        return { view: 'list', rows: this.shown.map((task) => ({ task })) };
-      case 'board':
-        return { view: 'board', rows: boardRows(this.shown) };
+        return { view: 'list', rows: this.shown.map((task) => ({ task })), ...plain };
+      case 'board': {
+        // A file keeps the status word of the engine; the page for the printer says it as the board does.
+        const status = (v: string) => labelOf(this.lang, 'status', v);
+        return { view: 'board', rows: boardRows(this.shown), data: AS_THEY_ARE, words: { group: status, row: status } };
+      }
       case 'plan': {
         const plan = chosenPlan(this.snapshot?.plans ?? [], this.planChoice);
         const name = (stage: number | null) => (stage === null ? t('plan.no_stage') : t('plan.stage', { n: stage }));
-        return { view: plan === '' ? 'plan' : this.exportName('plan', plan), rows: stageRows(stagesOf(this.shown, plan === '' ? null : plan), name) };
+        return { view: plan === '' ? 'plan' : this.exportName('plan', plan), rows: stageRows(stagesOf(this.shown, plan === '' ? null : plan), name), ...plain };
       }
       case 'views': {
         const open = this.viewsState.open;
@@ -1437,31 +1453,44 @@ export class App {
         const columns = fields.find((f) => f.field === open.group_by);
         const rows = open.group_by2 === undefined ? undefined : fields.find((f) => f.field === open.group_by2);
         // As the view: a field it does not know, or a matrix without its second field, is a note and no tasks.
-        if (!columns || (open.display === 'matrix' && !rows)) return { view, rows: [] };
-        const label = (value: string) => (value === NONE ? t('views.none') : value);
+        if (!columns || (open.display === 'matrix' && !rows)) return { view, rows: [], ...plain };
+        // The group of no value is named; a group by plan does not name a plan kept in an area that may not leave.
+        const named = (field: string) => (value: string) =>
+          value === NONE ? t('views.none') : field === 'plan' && !this.mayRememberArea(areaOfId(value)) ? t('export.private_plan') : value;
+        // For the printer, the page's words as the view shows them (the status, the who, P1).
+        const shown = (field: string) => (value: string) => {
+          const name = named(field)(value);
+          if (name !== value) return name;
+          if (field === 'status' || field === 'actor' || field === 'state' || field === 'cross') return labelOf(this.lang, field, value);
+          return field === 'prio' ? `P${value}` : value;
+        };
+        const second = rows?.field ?? columns.field;
         const tasks = this.tasksOfView(open);
         return {
           view,
           rows:
             open.display === 'matrix' && rows
-              ? cellRows(cellsOf(tasks, rows, columns, this.derivedValues), label)
-              : groupRows(groupsOf(tasks, columns, this.derivedValues), label),
+              ? cellRows(cellsOf(tasks, rows, columns, this.derivedValues), (v) => v)
+              : groupRows(groupsOf(tasks, columns, this.derivedValues), (v) => v),
+          data: { group: named(columns.field), row: named(second) },
+          words: { group: shown(columns.field), row: shown(second) },
         };
       }
     }
-    return { view: 'list', rows: [] };
+    return { view: 'list', rows: [], ...plain };
   }
 
   /**
    * The rows an export takes: the view's (in the list only the marked ones when some are marked: the other views do
    * not show the marks), none of a private or unclassified area (`kept`: how many tasks stay in the app for that), and
-   * no id of a plan kept in such an area.
+   * no id of a plan kept in such an area. `rows` name their groups for a file, `printRows` in the page's words.
    */
-  exportRows(): { view: string; rows: ExportRow[]; kept: number } {
-    const { view, rows } = this.viewRows();
+  exportRows(): { view: string; rows: ExportRow[]; printRows: ExportRow[]; kept: number } {
+    const { view, rows, data, words } = this.viewRows();
     const marked = onlyMarked(rows, new Set(this.view === 'list' ? this.marks : []));
     const { rows: out, kept } = mayLeave(marked, (task) => this.mayRememberArea(task.area));
-    return { view, rows: withoutPlansOf(out, (plan) => this.mayRememberArea(areaOfId(plan))), kept };
+    const leaving = withoutPlansOf(out, (plan) => this.mayRememberArea(areaOfId(plan)));
+    return { view, rows: relabel(leaving, data), printRows: relabel(leaving, words), kept };
   }
 
   /** The text of an export in `format`, with the name of its view and how many tasks it holds and keeps back. */
@@ -1504,7 +1533,7 @@ export class App {
    * own selection), and a chip that names an area which may not leave is not.
    */
   printView(): void {
-    const { rows, kept } = this.exportRows();
+    const { printRows: rows, kept } = this.exportRows();
     const count = taskCount(rows);
     if (count === 0) {
       this.sayNothingExported(kept);
@@ -1513,19 +1542,23 @@ export class App {
     const t = (key: Key, params: Record<string, string | number> = {}) => translate(this.lang, key, params);
     const open = this.viewsState.open;
     const name =
-      this.view === 'views' && open !== null
-        ? this.mayRememberArea(areaOfId(open.id)) ? open.title : t('nav.views')
-        : t(`nav.${this.view === 'views' ? 'list' : this.view}` as Key);
+      this.view === 'views'
+        ? open !== null && this.mayRememberArea(areaOfId(open.id)) ? open.title : t('nav.views')
+        : t(`nav.${this.view}` as Key);
+    // A chip that names an area, or a plan kept in an area, which may not leave is not printed.
     const filters =
       this.view === 'views'
         ? []
         : activeFilters(this.filter)
-            .filter((item) => item.kind !== 'area' || this.mayRememberArea(item.value))
+            .filter((item) => (item.kind === 'area' ? this.mayRememberArea(item.value) : item.kind === 'plan' ? this.mayRememberArea(areaOfId(item.value)) : true))
             .map((item) => chipLabel(this.lang, this.filter, item, { short: this.shortAreas, all: this.allAreaNames }));
-    const query = this.view === 'views' ? '' : this.filter.query.trim();
+    // The words of the search may name what is held back (an id, a word of a title): they are printed only when no task
+    // of an area that may not leave has them; else the page says that a search narrows the list, not what it is.
+    const words = this.view === 'views' ? '' : this.filter.query.trim();
+    const query = words === '' ? '' : this.namesHeldBack(words) ? t('print.search_held') : `"${words}"`;
     const facts = [
       `${name} · ${this.localDay()} · ${t('print.count', { n: count })}`,
-      ...(filters.length > 0 || query !== '' ? [t('print.filters', { what: [...(query ? [`"${query}"`] : []), ...filters].join(', ') })] : []),
+      ...(filters.length > 0 || query !== '' ? [t('print.filters', { what: [...(query ? [query] : []), ...filters].join(', ') })] : []),
       ...(kept > 0 ? [t('print.kept', { m: kept })] : []),
     ];
     const headers = [t('print.col.id'), t('print.col.title'), t('list.filter.status'), t('filter.field.prio'), t('filter.field.effort'), t('list.filter.actor')];
@@ -1538,6 +1571,12 @@ export class App {
       task.actor === undefined ? '' : labelOf(this.lang, 'actor', task.actor),
     ];
     if (!this.env.out.print(sheetOf(rows, t('app.title'), facts, headers, cells))) this.say('error', 'print.failed');
+  }
+
+  /** Whether `words` are found in the id or the title of a task of an area that may not leave (or name such an area). */
+  private namesHeldBack(words: string): boolean {
+    const w = words.toLowerCase();
+    return this.tasks.some((task) => !this.mayRememberArea(task.area) && (task.id.toLowerCase().includes(w) || task.title.toLowerCase().includes(w)));
   }
 
   /** The day of the clock in the person's time zone, as `YYYY-MM-DD`. */

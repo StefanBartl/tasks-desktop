@@ -697,6 +697,11 @@
     :global(html.print-view body > *:not(#view-print)) {
       display: none !important;
     }
+    /* With "background graphics" in the dialog a dark theme would print its page colour around the sheet. */
+    :global(html.print-view),
+    :global(html.print-view body) {
+      background: white !important;
+    }
     :global(html.print-view #view-print) {
       display: block;
       color: black;
@@ -726,6 +731,8 @@
       padding: 0.15em 0.4em;
       text-align: left;
       vertical-align: top;
+      /* A long id or a title without spaces breaks in the cell instead of widening the table past the page. */
+      overflow-wrap: anywhere;
     }
     :global(#view-print tr) {
       break-inside: avoid;

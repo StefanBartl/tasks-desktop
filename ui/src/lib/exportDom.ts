@@ -4,10 +4,27 @@ import type { PrintSheet } from './export';
 
 const BOM = '\ufeff';
 
-/** The id of the page for the printer: while it stands, the print rules (app.css) hide everything else. */
+/** The id of the page for the printer: while it stands, the print rules (App.svelte) hide everything else. */
 export const VIEW_PRINT_ID = 'view-print';
 /** The class on the root while that page stands. */
 export const VIEW_PRINT_CLASS = 'print-view';
+
+/** Every page for the printer of this app (a view's, the tile Today's) with the class it sets on the root. */
+const PRINT_PAGES = [
+  [VIEW_PRINT_ID, VIEW_PRINT_CLASS],
+  ['daily-print', 'print-daily'],
+] as const;
+
+/**
+ * Take away every page for the printer that still stands, with its class: a dialog that sent no `afterprint` (printing
+ * switched off) leaves its page, and two of them would hide each other on paper.
+ */
+export function clearPrintPages(doc: Document): void {
+  for (const [id, cls] of PRINT_PAGES) {
+    doc.getElementById?.(id)?.remove();
+    doc.documentElement.classList.remove(cls);
+  }
+}
 
 /**
  * Put the sheet into the document as a page of its own and open the print dialog; the page goes when the dialog is
@@ -15,7 +32,7 @@ export const VIEW_PRINT_CLASS = 'print-view';
  */
 export function printSheet(doc: Document, win: Pick<Window, 'print' | 'addEventListener'>, sheet: PrintSheet): boolean {
   try {
-    doc.getElementById(VIEW_PRINT_ID)?.remove();
+    clearPrintPages(doc);
     const page = doc.createElement('div');
     page.id = VIEW_PRINT_ID;
     const text = <K extends keyof HTMLElementTagNameMap>(tag: K, value: string): HTMLElementTagNameMap[K] => {

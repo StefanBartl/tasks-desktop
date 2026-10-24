@@ -16,6 +16,7 @@ import {
   toMarkdown,
 } from './export';
 import { task } from './fixtures';
+import { printDaily } from './dailyExport';
 
 describe('csv', () => {
   it('quotes what needs it and doubles the quotes', () => {
@@ -280,6 +281,24 @@ describe('the page for the printer', () => {
     after?.();
     expect(page.removed).toBe(true);
     expect(classes.has(VIEW_PRINT_CLASS)).toBe(false);
+  });
+
+  it('takes a page of the tile Today that was left (no afterprint) away with its class, and the other way round', () => {
+    const { doc, body, classes } = fakeDoc();
+    const left = doc.createElement('div');
+    left.id = 'daily-print';
+    body.append(left as never);
+    classes.add('print-daily');
+    const win = { print: () => undefined, addEventListener: () => undefined };
+    printSheet(doc, win as never, sheetOf([{ task: task('a/1') }], 'T', [], ['ID'], (t) => [t.id]));
+    expect((left as unknown as { removed: boolean }).removed).toBe(true);
+    expect(classes.has('print-daily')).toBe(false);
+    expect(classes.has(VIEW_PRINT_CLASS)).toBe(true);
+    // The tile's print takes the view's page away in turn.
+    printDaily(doc, win as never, 'Week', 'x', []);
+    expect(body.children.find((c) => c.id === VIEW_PRINT_ID)!.removed).toBe(true);
+    expect(classes.has(VIEW_PRINT_CLASS)).toBe(false);
+    expect(classes.has('print-daily')).toBe(true);
   });
 
   it('takes the page of a print before away, and says false when the page could not be made', () => {

@@ -1,6 +1,7 @@
 <script lang="ts">
   // The button Export of a view that shows tasks: what the view draws (or the marked tasks), as a file or on the
   // clipboard. The same entries are in the View menu and the palette; this one is where the tasks are.
+  import { flushSync } from 'svelte';
   import type { App } from '../lib/app.svelte';
   import type { ExportFormat } from '../lib/export';
   import { translate, type Key } from '../lib/i18n';
@@ -82,9 +83,12 @@
     void app.exportView(format, how);
   }
 
-  /** The page for the printer: the popup closes first, so that the dialog opens over the page and not over it. */
+  /**
+   * The page for the printer: the popup closes first and is drawn closed (the dialog blocks the page until it is done,
+   * and would stand over the open popup otherwise).
+   */
   function print(): void {
-    open = false;
+    flushSync(() => (open = false));
     summary?.focus();
     app.printView();
   }
