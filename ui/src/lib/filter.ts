@@ -28,13 +28,6 @@ export const MULTI_KEYS = ['tag', 'category'] as const;
 export type MultiKey = (typeof MULTI_KEYS)[number];
 export const isMultiKey = (key: string): key is MultiKey => (MULTI_KEYS as readonly string[]).includes(key);
 
-/**
- * The area of the desktop app's own tasks. tasks-desktop is the app of tasks.nvim, and a vault keeps the tasks of
- * the two in one area, the one of tasks.nvim; a person who looks for "tasks-desktop" among the areas finds it.
- */
-export const APP_AREA_LABEL = 'tasks.nvim';
-export const APP_NAME = 'tasks-desktop';
-
 /** How long ago a task was last changed: within 7, 30 or 90 days, or longer ago. */
 export type UpdatedWindow = '' | '7' | '30' | '90' | 'older';
 export const UPDATED_WINDOWS: readonly UpdatedWindow[] = ['7', '30', '90', 'older'];
