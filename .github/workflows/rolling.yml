@@ -55,7 +55,7 @@ jobs:
       short: ${{ steps.prepare.outputs.short }}
     steps:
       - id: prepare
-        uses: StefanBartl/appkit/release-kit/prepare@e990d93389a17f99bdb14674367dd4a16185e240 # v0.19.1
+        uses: StefanBartl/appkit/release-kit/prepare@c673f234251ddbf170c259ce625c965b8f442b54 # v0.21.0
         with:
           sha: ${{ github.event.workflow_run.head_sha }}
           token: ${{ github.token }}
@@ -136,7 +136,7 @@ jobs:
           pattern: rolling-*
           path: dist
           merge-multiple: true
-      - uses: StefanBartl/appkit/release-kit/publish@e990d93389a17f99bdb14674367dd4a16185e240 # v0.19.1
+      - uses: StefanBartl/appkit/release-kit/publish@c673f234251ddbf170c259ce625c965b8f442b54 # v0.21.0
         with:
           token: ${{ github.token }}
           tag: latest
