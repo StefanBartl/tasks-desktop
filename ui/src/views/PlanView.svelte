@@ -10,6 +10,7 @@
   import { narrows } from '../lib/filter';
   import FilterNote from './FilterNote.svelte';
   import GraphPanel from './GraphPanel.svelte';
+  import PlanGraph from './PlanGraph.svelte';
   import PlanFinished from './PlanFinished.svelte';
   import FoldButton from './FoldButton.svelte';
   import ExportMenu from './ExportMenu.svelte';
@@ -119,6 +120,10 @@
           </label>
         {/if}
         <button type="button" class="newplan" data-hint={t('hint.ui.plan.new')} disabled={!app.can('plan_new')} onclick={() => app.openPlanWizard()}>{t('plan.new.button')}</button>
+        <div class="view-toggle" role="group" aria-label={t('plan.view')} data-hint={t('hint.ui.plan.view')}>
+          <button type="button" aria-pressed={app.planView === 'stages'} onclick={() => app.setPlanView('stages')}>{t('plan.view.stages')}</button>
+          <button type="button" aria-pressed={app.planView === 'graph'} onclick={() => app.setPlanView('graph')}>{t('plan.view.graph')}</button>
+        </div>
         <ExportMenu {app} />
       </div>
       {#if phases.length > 0}
@@ -196,6 +201,11 @@
 
     <PlanFinished {app} {planId} />
 
+    {#if app.planView === 'graph'}
+      <section class="card" tabindex="-1" aria-label={t('plan.graph.title')}>
+        <PlanGraph {app} {planId} tasks={app.shown} />
+      </section>
+    {:else}
     <section class="stages" tabindex="-1" aria-label={t('plan.stages')}>
       <p class="legend">
         <Info hint={stagesLegend(app.lang)} label={t('hint.about', { what: t('plan.legend.what') })} />
@@ -254,6 +264,7 @@
         <p class="muted">{t(planEmptyKey(narrows(app.filter), stagesOf(app.tasks, planId === '' ? null : planId).length))}</p>
       {/each}
     </section>
+    {/if}
   {/if}
 </div>
 
@@ -308,6 +319,21 @@
     border-radius: var(--radius);
     padding: 0.25rem 0.6rem;
     cursor: pointer;
+  }
+  .view-toggle {
+    display: flex;
+    gap: 0.4rem;
+  }
+  .view-toggle button {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.2rem 0.6rem;
+    cursor: pointer;
+  }
+  .view-toggle button[aria-pressed='true'] {
+    border-color: var(--accent);
   }
   .headline {
     display: flex;

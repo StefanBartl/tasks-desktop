@@ -37,3 +37,10 @@ export function graphLegend(lang: Lang): string {
   const keys: Key[] = ['hint.graph.needs', 'hint.graph.unlocks', 'hint.graph.count', 'hint.graph.cycle', 'hint.graph.waits', 'hint.critical'];
   return keys.map((key) => translate(lang, key)).join('\n');
 }
+
+/** What the plan's dependency graph draws: the two arrow kinds, the display-only order inside a row, the stage a
+ * row stands for and the critical path. */
+export function planGraphLegend(lang: Lang): string {
+  const keys: Key[] = ['plan.graph.hint.hard', 'plan.graph.hint.soft', 'plan.graph.hint.order', 'plan.stage_hint', 'hint.critical'];
+  return keys.map((key) => translate(lang, key)).join('\n');
+}

@@ -480,6 +480,8 @@ export class App {
   selectedId = $state<string | null>(null);
   /** The plan the plan view is narrowed to ('': every task); kept when the view is left. */
   planChoice = $state('');
+  /** How the plan view draws its tasks: stage cards, or the dependency graph. Remembered across sessions. */
+  planView = $state<'stages' | 'graph'>('stages');
 
   tasks = $state.raw<TaskEntry[]>([]);
   snapshot = $state.raw<Snapshot | null>(null);
@@ -542,6 +544,7 @@ export class App {
       'en',
     );
     this.shortAreas = safe(() => env.prefs.getItem('tasks-desktop.short-areas')) !== 'off';
+    this.planView = safe(() => env.prefs.getItem('tasks-desktop.plan-view')) === 'graph' ? 'graph' : 'stages';
     this.listColumns = parseColumns(safe(() => env.prefs.getItem('tasks-desktop.list-columns')));
     this.folds = parseFolds(safe(() => env.prefs.getItem('tasks-desktop.folds')));
     this.tileSizes = parseSizes(safe(() => env.prefs.getItem('tasks-desktop.sizes')));
@@ -2263,6 +2266,11 @@ export class App {
   setShortAreas(on: boolean): void {
     this.shortAreas = on;
     safe(() => this.env.prefs.setItem('tasks-desktop.short-areas', on ? 'on' : 'off'));
+  }
+
+  setPlanView(view: 'stages' | 'graph'): void {
+    this.planView = view;
+    safe(() => this.env.prefs.setItem('tasks-desktop.plan-view', view));
   }
 
   /** Take every chosen area, status and actor and the search words away. */

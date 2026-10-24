@@ -2541,6 +2541,81 @@ test('the graph of a task lists what it needs and what waits for it, as a list',
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('the plan can switch to a dependency graph: rows by stage, arrows for blocked_by, a cycle row, keyboard, kept over a reload', async ({
+  page,
+}) => {
+  await watchViolations(page);
+  await pair(page);
+  await chooseView(page, 'View', 'Plan');
+  const toggle = page.getByRole('group', { name: 'View' });
+  await expect(toggle.getByRole('button', { name: 'Stages' })).toHaveAttribute('aria-pressed', 'true');
+  await toggle.getByRole('button', { name: 'Graph' }).click();
+  const graph = page.locator('.dep-graph');
+  await expect(graph).toBeVisible();
+  await expect(page.locator('section.stages')).toHaveCount(0);
+
+  const alpha = graph.locator('button.tile[data-id="lib.nvim/alpha"]');
+  const beta = graph.locator('button.tile[data-id="lib.nvim/beta"]');
+  const iota = graph.locator('button.tile[data-id="cascade.nvim/iota"]');
+  const cycA = graph.locator('button.tile[data-id="lib.nvim/cyc-a"]');
+  const cycB = graph.locator('button.tile[data-id="lib.nvim/cyc-b"]');
+  await expect(alpha).toBeVisible();
+  await expect(beta).toBeVisible();
+  await expect(iota).toBeVisible();
+  // Alpha has no blocker (stage 0); beta and iota both wait only for alpha, in the row after it.
+  const alphaRow = await alpha.locator('xpath=ancestor::div[contains(@class,"row")][1]').getAttribute('data-row');
+  const betaRow = await beta.locator('xpath=ancestor::div[contains(@class,"row")][1]').getAttribute('data-row');
+  const iotaRow = await iota.locator('xpath=ancestor::div[contains(@class,"row")][1]').getAttribute('data-row');
+  expect(betaRow).toBe(iotaRow);
+  expect(Number(betaRow)).toBeGreaterThan(Number(alphaRow));
+  // The cycle (no stage) is its own row, apart from the staged tasks.
+  const cycleRow = graph.locator('.row.cycle');
+  await expect(cycleRow).toContainText('Without a stage');
+  await expect(cycA).toBeVisible();
+  await expect(cycB).toBeVisible();
+  expect(await cycA.locator('xpath=ancestor::div[contains(@class,"row")][1]').getAttribute('data-row')).toBe('cycle');
+
+  // A hard (blocked_by) arrow from alpha to each of beta and iota; the fixture has no `after` edge among them.
+  await expect(graph.locator('svg path.edge.hard[data-from="lib.nvim/alpha"][data-to="lib.nvim/beta"]')).toHaveCount(1);
+  await expect(graph.locator('svg path.edge.hard[data-from="lib.nvim/alpha"][data-to="cascade.nvim/iota"]')).toHaveCount(1);
+  await expect(graph.locator('svg path.edge.soft')).toHaveCount(0);
+
+  // The arrow keys walk the tiles: down moves into the row after, right moves inside a row, up moves back.
+  const rowOfFocused = async (): Promise<string | null> => {
+    const id = await page.evaluate(() => document.activeElement?.getAttribute('data-id'));
+    if (!id) return null;
+    return graph.locator(`button.tile[data-id="${id}"]`).locator('xpath=ancestor::div[contains(@class,"row")][1]').getAttribute('data-row');
+  };
+  await alpha.focus();
+  await page.keyboard.press('ArrowDown');
+  const downId = await page.evaluate(() => document.activeElement?.getAttribute('data-id'));
+  const downRow = await rowOfFocused();
+  expect(Number(downRow)).toBeGreaterThan(Number(alphaRow));
+  await page.keyboard.press('ArrowRight');
+  const rightId = await page.evaluate(() => document.activeElement?.getAttribute('data-id'));
+  expect(rightId).not.toBe(downId);
+  expect(await rowOfFocused()).toBe(downRow);
+  await page.keyboard.press('ArrowUp');
+  expect(Number(await rowOfFocused())).toBeLessThan(Number(downRow));
+
+  // The edge list under the graph says the same thing in words, for what the picture alone cannot carry.
+  const edges = graph.locator('details.edges');
+  await edges.locator('summary').click();
+  await expect(edges.locator('li', { hasText: 'Beta waits for alpha' }).first()).toContainText('must finish before');
+  await expectAccessible(page, 'plan dependency graph');
+  // The tiles and arrows use the same tokens as the rest of the page, no opacity of their own: checked in dark too.
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(graph).toBeVisible();
+  await expectAccessible(page, 'plan dependency graph, dark');
+  await page.emulateMedia({ colorScheme: 'light' });
+
+  // Kept across a reload, like the other view toggles (the open view itself is remembered too).
+  await page.reload();
+  await expect(page.locator('.dep-graph')).toBeVisible();
+  await expect(page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Graph' })).toHaveAttribute('aria-pressed', 'true');
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
 test('the check runs as a job in the background and its findings reach the list and the detail', async ({ page }) => {
   await watchViolations(page);
   await pair(page);
