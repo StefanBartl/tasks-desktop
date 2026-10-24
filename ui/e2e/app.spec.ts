@@ -4977,6 +4977,30 @@ test('help: the about dialog names the build and the engine, and the report carr
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('menus: every entry of every menu of the bar explains itself with a hint', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  const bar = page.getByRole('menubar');
+  const names = await bar.locator('button.mb-trigger').allInnerTexts();
+  expect(names.length).toBeGreaterThanOrEqual(5);
+  for (const trigger of await bar.locator('button.mb-trigger').all()) {
+    await trigger.click();
+    const popup = page.locator('.mb-popup');
+    await expect(popup).toBeVisible();
+    const items = await popup.locator('button.mb-item').all();
+    expect(items.length).toBeGreaterThan(0);
+    for (const item of items) {
+      const label = (await item.innerText()).trim();
+      expect((await item.getAttribute('data-hint')) ?? '', `the hint of "${label}"`).not.toBe('');
+    }
+    // The hint shows on hover of an entry that can be reached: the popup of the hint, not only the attribute.
+    await items[0]!.hover();
+    await expect(page.locator('#hint-tip')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(popup).toHaveCount(0);
+  }
+});
+
 test('the strip of the filter: switching off a chip puts the focus on the next chip, also behind the search chip, and "Change it in the list" keeps it on the page', async ({
   page,
 }) => {

@@ -216,10 +216,11 @@
       .map(([label, format, how]) => ({
         kind: 'action' as const,
         label: t(label),
+        hint: t(`hint.item.${label}` as Key),
         disabled: !ready || !app.exportable,
         onselect: () => void app.exportView(format, how),
       }))
-      .concat({ kind: 'action' as const, label: t('menu.print_view'), disabled: !ready || !app.exportable, onselect: () => void app.printView() });
+      .concat({ kind: 'action' as const, label: t('menu.print_view'), hint: t('hint.item.menu.print_view'), disabled: !ready || !app.exportable, onselect: () => void app.printView() });
 
   /** The task the engine names as the next one to take: the one the tile of that name shows. */
   const nextTaskId = $derived(app.next?.task?.id ?? null);
@@ -254,6 +255,7 @@
           {
             kind: 'action',
             label: t('menu.capture'),
+            hint: t('hint.item.menu.capture'),
             shortcut: app.shortcuts ? 'C' : undefined,
             disabled: !ready,
             onselect: () => app.openCapture(),
@@ -262,6 +264,7 @@
           {
             kind: 'action',
             label: t('menu.find_task'),
+            hint: t('hint.item.menu.find_task'),
             shortcut: app.shortcuts ? '/' : undefined,
             disabled: !ready,
             onselect: () => void findTask(),
@@ -269,6 +272,7 @@
           {
             kind: 'action',
             label: t('menu.palette'),
+            hint: t('hint.item.menu.palette'),
             shortcut: 'Ctrl+K',
             disabled: !ready,
             onselect: () => app.openPalette(),
@@ -276,6 +280,7 @@
           {
             kind: 'action',
             label: t('menu.next_task'),
+            hint: t('hint.item.menu.next_task'),
             disabled: !ready || nextTaskId === null,
             onselect: () => nextTaskId !== null && app.reveal(nextTaskId),
           },
@@ -283,12 +288,14 @@
           {
             kind: 'action',
             label: t('menu.copy_id'),
+            hint: t('hint.item.menu.copy_id'),
             disabled: !ready || app.selectedId === null,
             onselect: () => void copyId(),
           },
           {
             kind: 'action',
             label: t('menu.reset_filter'),
+            hint: t('hint.item.menu.reset_filter'),
             disabled: !ready,
             onselect: () => app.resetFilter(),
           },
@@ -307,23 +314,27 @@
             label: v.name === 'main' ? `${v.label} (main)` : `${v.name} (${v.label})`,
             checked: v.name === app.vaultList?.active,
             disabled: !ready || app.vaultBusy,
+            hint: t('hint.item.menu.vault_switch'),
             onselect: () => void app.selectVault(v.name),
           })),
           {
             kind: 'action' as const,
             label: t('menu.vault_reveal'),
+            hint: t('hint.item.menu.vault_reveal'),
             disabled: !ready || app.vaultBusy,
             onselect: () => void app.revealVault(),
           },
           {
             kind: 'action' as const,
             label: t('menu.vaults_manage'),
+            hint: t('hint.item.menu.vaults_manage'),
             disabled: !ready || !app.vaultList,
             onselect: () => app.openVaults(),
           },
           {
             kind: 'action',
             label: t('menu.rescan'),
+            hint: t('hint.item.menu.rescan'),
             disabled: !ready,
             onselect: () => void app.focused(),
           },
@@ -331,6 +342,7 @@
           {
             kind: 'action',
             label: t('plan.new.button'),
+            hint: t('hint.item.plan.new.button'),
             disabled: app.phase !== 'ready' || !app.can('plan_new'),
             onselect: () => app.openPlanWizard(),
           },
@@ -338,7 +350,7 @@
           { kind: 'info', label: t('menu.export_where') },
           ...exportItems(ready),
           { kind: 'section', label: t('menu.sec.page') },
-          { kind: 'action', label: t('menu.reload'), onselect: () => window.location.reload() },
+          { kind: 'action', label: t('menu.reload'), hint: t('hint.item.menu.reload'), onselect: () => window.location.reload() },
         ],
       },
       {
@@ -350,18 +362,21 @@
           {
             kind: 'radio',
             label: t('nav.today'),
+            hint: t('hint.item.nav.today'),
             checked: app.view === 'today',
             onselect: () => app.setView('today'),
           },
           {
             kind: 'radio',
             label: t('nav.list'),
+            hint: t('hint.item.nav.list'),
             checked: app.view === 'list',
             onselect: () => app.setView('list'),
           },
           {
             kind: 'radio',
             label: t('nav.board'),
+            hint: t('hint.item.nav.board'),
             disabled: !app.can('reorder'),
             checked: app.view === 'board',
             onselect: () => app.setView('board'),
@@ -369,18 +384,21 @@
           {
             kind: 'radio',
             label: t('nav.plan'),
+            hint: t('hint.item.nav.plan'),
             checked: app.view === 'plan',
             onselect: () => app.setView('plan'),
           },
           {
             kind: 'radio',
             label: t('nav.inbox'),
+            hint: t('hint.item.nav.inbox'),
             checked: app.view === 'inbox',
             onselect: () => app.setView('inbox'),
           },
           {
             kind: 'radio',
             label: t('nav.cross'),
+            hint: t('hint.item.nav.cross'),
             checked: app.view === 'cross',
             onselect: () => app.setView('cross'),
           },
@@ -389,6 +407,7 @@
                 {
                   kind: 'radio' as const,
                   label: t('nav.done'),
+                  hint: t('hint.item.nav.done'),
                   checked: app.view === 'done',
                   onselect: () => app.setView('done'),
                 },
@@ -399,6 +418,7 @@
                 {
                   kind: 'radio' as const,
                   label: t('nav.views'),
+                  hint: t('hint.item.nav.views'),
                   checked: app.view === 'views',
                   onselect: () => app.setView('views'),
                 },
@@ -411,12 +431,14 @@
           {
             kind: 'action',
             label: t('menu.show_tiles', { n: app.hiddenTiles.length }),
+            hint: t('hint.item.menu.show_tiles'),
             disabled: app.hiddenTiles.length === 0,
             onselect: () => app.showTiles(),
           },
           {
             kind: 'action',
             label: t('menu.reset_order'),
+            hint: t('hint.item.menu.reset_order'),
             disabled: !app.tileOrderChanged,
             onselect: () => app.resetTileOrder(),
           },
@@ -424,6 +446,7 @@
           ...(['auto', 'light', 'dark'] as const).map((value) => ({
             kind: 'radio' as const,
             label: t(`theme.${value}` as Key),
+            hint: t(`hint.item.theme.${value}` as Key),
             checked: app.theme === value,
             onselect: () => app.setTheme(value),
           })),
@@ -438,12 +461,14 @@
           {
             kind: 'radio',
             label: 'Deutsch',
+            hint: t('hint.item.lang.de'),
             checked: app.lang === 'de',
             onselect: () => app.setLang('de'),
           },
           {
             kind: 'radio',
             label: 'English',
+            hint: t('hint.item.lang.en'),
             checked: app.lang === 'en',
             onselect: () => app.setLang('en'),
           },
@@ -451,12 +476,14 @@
           {
             kind: 'check',
             label: t('shortcuts.label'),
+            hint: t('hint.item.shortcuts.label'),
             checked: app.shortcuts,
             onselect: () => app.setShortcuts(!app.shortcuts),
           },
           {
             kind: 'check',
             label: t('menu.short_areas'),
+            hint: t('hint.item.menu.short_areas'),
             checked: app.shortAreas,
             onselect: () => app.setShortAreas(!app.shortAreas),
           },
@@ -472,12 +499,14 @@
           {
             kind: 'action',
             label: t('menu.about'),
+            hint: t('hint.item.menu.about'),
             disabled: !app.canAbout,
             onselect: () => app.openAbout('info'),
           },
           {
             kind: 'action',
             label: t('menu.report'),
+            hint: t('hint.item.menu.report'),
             disabled: !app.canAbout,
             onselect: () => app.openAbout('report'),
           },
