@@ -123,6 +123,7 @@ const en = {
   'cross.kind.plan': 'shares the plan',
   'cross.kind.other': 'is linked with',
   'cross.matrix': 'Links per pair of areas',
+  'cross.net_tile': 'Net of the areas',
   'cross.net': 'The net of the areas: a line per pair, its number of links on it',
   'cross.net_edge': 'Line {a} to {b}: {n} links, open the list',
   'cross.net_edge_one': 'Line {a} to {b}: 1 link, open the list',
@@ -983,6 +984,7 @@ const en = {
   'size.toggle': 'Change the size of {what}',
   'size.reset': 'Give {what} the size of the layout back',
   'size.list': 'the list',
+  'size.net': 'the net of the areas',
   'hint.size':
     'Shows a grip in the lower right corner of the block: drag it to make the block wider, narrower, taller or shorter (or press the arrow keys on this button). The size is kept. Press again to hide the grip.',
   'fold.to.open': 'Open {what}',
@@ -1186,6 +1188,7 @@ const de: Record<Key, string> = {
   'cross.kind.plan': 'teilt den Plan',
   'cross.kind.other': 'ist verbunden mit',
   'cross.matrix': 'Verbindungen je Bereichspaar',
+  'cross.net_tile': 'Netz der Bereiche',
   'cross.net': 'Das Netz der Bereiche: eine Linie je Paar, darauf die Zahl der Verbindungen',
   'cross.net_edge': 'Linie {a} zu {b}: {n} Verbindungen, Liste öffnen',
   'cross.net_edge_one': 'Linie {a} zu {b}: 1 Verbindung, Liste öffnen',
@@ -2046,6 +2049,7 @@ const de: Record<Key, string> = {
   'size.toggle': 'Größe von {what} ändern',
   'size.reset': '{what} wieder die Größe des Layouts geben',
   'size.list': 'der Liste',
+  'size.net': 'des Netzes der Bereiche',
   'hint.size':
     'Zeigt einen Griff in der rechten unteren Ecke des Blocks: ziehen macht ihn breiter, schmaler, höher oder niedriger (oder die Pfeiltasten auf diesem Knopf). Die Größe bleibt erhalten. Erneut klicken blendet den Griff aus.',
   'fold.to.open': '{what} aufklappen',
