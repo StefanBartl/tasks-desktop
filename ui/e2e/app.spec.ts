@@ -5213,6 +5213,52 @@ test('the inbox says what it is, shows its keys as keys and lists the tasks area
   await expectAccessible(page, 'the inbox');
 });
 
+test('a new task can be made with the fields the engine takes, and the file has them', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  await page.getByRole('menuitem', { name: 'Tasks', exact: true }).click();
+  await page.getByRole('menuitem', { name: /New task/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'New task' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel('Title').fill('Capture fields r001');
+  await dialog.locator('select').first().selectOption('lib.nvim');
+  await dialog.getByLabel('Kind').selectOption('bug');
+  await dialog.getByLabel('Priority').selectOption('2');
+  await dialog.getByLabel('Effort').selectOption('M');
+  await dialog.getByLabel('Value').selectOption('4');
+  await dialog.getByLabel('Who').selectOption('me');
+  // The rarer fields are behind one line, closed until it is opened.
+  const summary = dialog.getByLabel('Summary');
+  await expect(summary).toBeHidden();
+  await dialog.getByText('More fields').click();
+  await summary.fill('One line from the dialog');
+  await dialog.getByLabel(/^Tags/).fill('ui, e2e');
+  await dialog.getByLabel('Category').selectOption('docs');
+  await dialog.getByLabel('Severity').selectOption('low');
+  await dialog.getByLabel(/^References/).fill('lib.nvim@abc1234');
+  await expectAccessible(page, 'the new task dialog with its fields');
+  // A tag the file could not hold is told, and nothing is written.
+  await dialog.getByLabel(/^Tags/).fill('bad#tag');
+  await dialog.getByRole('button', { name: 'Create' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('bad#tag');
+  await dialog.getByLabel(/^Tags/).fill('ui, e2e');
+  await write(page, () => dialog.getByRole('button', { name: 'Create' }).click());
+  await expect(dialog).toHaveCount(0);
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', 'capture-fields-r001.md');
+  await expect.poll(() => existsSync(file), { timeout: WRITE_BUDGET }).toBe(true);
+  const text = readFileSync(file, 'utf8');
+  expect(text).toMatch(/^kind: bug$/m);
+  expect(text).toMatch(/^prio: 2$/m);
+  expect(text).toMatch(/^effort: M$/m);
+  expect(text).toMatch(/^value: 4$/m);
+  expect(text).toMatch(/^actor: me$/m);
+  expect(text).toMatch(/^tags: \[ui, e2e\]$/m);
+  expect(text).toMatch(/^category: \[?docs\]?$/m);
+  expect(text).toMatch(/^severity: low$/m);
+  expect(text).toContain('One line from the dialog');
+  expect(text).toContain('lib.nvim@abc1234');
+});
+
 test('menus: every entry of every menu of the bar explains itself with a hint', async ({ page }) => {
   await pair(page);
   await showList(page);
