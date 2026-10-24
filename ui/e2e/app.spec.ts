@@ -1108,6 +1108,17 @@ async function exportEntriesReachable(page: Page): Promise<{ name: string; insid
   );
 }
 
+/**
+ * Open the popup of Export in the list and take the pointer off its button: the hint of the button would come after
+ * a moment and may lie on the first entries.
+ */
+async function openExport(page: Page): Promise<void> {
+  await page.locator('.filters details.export summary').click();
+  await page.mouse.move(0, 0);
+  await expect(page.locator('#hint-tip')).toBeHidden();
+  await expect(page.locator('details.export[open] .popup.placed')).toBeVisible();
+}
+
 test('the popup of Export stays whole: in a list sized small and in a narrow window', async ({ page }) => {
   // A list sized to its smallest: it scrolls what does not fit, and the popup must not be cut by it.
   await page.addInitScript(() => {
@@ -1120,8 +1131,8 @@ test('the popup of Export stays whole: in a list sized small and in a narrow win
   await showList(page);
   await expect(page.locator('section.list')).toHaveCSS('overflow', 'auto');
   const button = page.locator('.filters details.export summary');
-  await button.click();
-  await expect(page.locator('details.export[open] .popup')).toBeVisible();
+  const popup = page.locator('details.export .popup');
+  await openExport(page);
   let entries = await exportEntriesReachable(page);
   expect(entries).toHaveLength(6);
   expect(entries.filter((e) => !e.inside || !e.hit)).toEqual([]);
@@ -1135,8 +1146,40 @@ test('the popup of Export stays whole: in a list sized small and in a narrow win
   await page.reload();
   await showList(page);
   await expect(page.locator('section.list')).not.toHaveCSS('overflow', 'auto');
-  await button.click();
-  await expect(page.locator('details.export[open] .popup')).toBeVisible();
+  await openExport(page);
+  entries = await exportEntriesReachable(page);
+  expect(entries).toHaveLength(6);
+  expect(entries.filter((e) => !e.inside || !e.hit)).toEqual([]);
+  await button.press('Escape');
+  await expect(popup).toBeHidden();
+
+  // A wide window: the popup hangs under its button, its right edge at the button's.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openExport(page);
+  const at = await page.evaluate(() => {
+    const b = document.querySelector('.filters details.export summary')!.getBoundingClientRect();
+    const p = document.querySelector('details.export[open] .popup')!.getBoundingClientRect();
+    return { right: Math.round(p.right - b.right), gap: Math.round(p.top - b.bottom) };
+  });
+  expect(at).toEqual({ right: 0, gap: 4 });
+  // A scroll of a block around the button (here the rows of the list, or whatever scrolls) closes the popup: it would
+  // stand alone where the button went.
+  const scrolled = await page.evaluate(() => {
+    const blocks = [document.scrollingElement as HTMLElement, ...document.querySelectorAll<HTMLElement>('main, section.list, .rows')];
+    const block = blocks.find((el) => el.scrollHeight > el.clientHeight + 50);
+    if (!block) return null;
+    block.scrollBy(0, 40);
+    return block.tagName;
+  });
+  expect(scrolled).not.toBeNull();
+  await expect(popup).toBeHidden();
+
+  // A short window: neither below nor above the button is room; the popup is held inside the window.
+  await page.evaluate(() =>
+    [document.scrollingElement, ...document.querySelectorAll('main, section.list, .rows')].forEach((el) => el?.scrollTo(0, 0)),
+  );
+  await page.setViewportSize({ width: 1280, height: 260 });
+  await openExport(page);
   entries = await exportEntriesReachable(page);
   expect(entries).toHaveLength(6);
   expect(entries.filter((e) => !e.inside || !e.hit)).toEqual([]);

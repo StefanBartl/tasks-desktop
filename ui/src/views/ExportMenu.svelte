@@ -27,7 +27,8 @@
 
   /**
    * Put the popup under its button, its right edge at the button's, kept inside the window (a button at the left of a
-   * narrow window); above the button when there is no room below and there is above.
+   * narrow window); above the button when there is no room below and there is above. Where neither side has room (a
+   * short window, a large zoom) it is held inside the window and scrolls in itself (its height is at most the window's).
    */
   function placePopup(): void {
     if (!open || !summary || !popup) return;
@@ -37,21 +38,39 @@
     const left = Math.max(EDGE, Math.min(button.right - w, clientWidth - EDGE - w));
     const below = button.bottom + GAP;
     const above = button.top - GAP - h;
-    const top = below + h > clientHeight - EDGE && above >= EDGE ? above : below;
-    place = { left, top };
+    const wanted = below + h > clientHeight - EDGE && above >= EDGE ? above : below;
+    place = { left, top: Math.max(EDGE, Math.min(wanted, clientHeight - EDGE - h)) };
   }
 
-  // While it is open the popup follows its button: a scroll of the page or of a block, a change of the window's size.
+  /**
+   * A scroll elsewhere (of the page, of a sized list) closes the popup: its button goes with the scroll and may be gone
+   * behind the edge of its block, the popup would stand alone. A scroll of the popup itself is its own.
+   */
+  function closeOnScroll(e: Event): void {
+    if (open && popup && !(e.target instanceof Node && popup.contains(e.target))) open = false;
+  }
+
+  // While it is open the popup follows its button: a change of the window's size, or a button that moved without a
+  // scroll (a banner that comes above the view), places it again - the button's place is read once a frame.
   $effect(() => {
     if (!open) {
       place = null;
       return;
     }
     placePopup();
-    window.addEventListener('scroll', placePopup, true);
+    let seen = '';
+    let frame = requestAnimationFrame(function follow() {
+      const r = summary?.getBoundingClientRect();
+      const now = r ? `${r.left} ${r.top} ${r.right} ${r.bottom}` : '';
+      if (seen !== '' && now !== seen) placePopup();
+      seen = now;
+      frame = requestAnimationFrame(follow);
+    });
+    window.addEventListener('scroll', closeOnScroll, true);
     window.addEventListener('resize', placePopup);
     return () => {
-      window.removeEventListener('scroll', placePopup, true);
+      cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', closeOnScroll, true);
       window.removeEventListener('resize', placePopup);
     };
   });
@@ -110,7 +129,6 @@
 
 <style>
   .export {
-    position: relative;
     flex: none;
     font-size: 0.85rem;
   }
@@ -139,7 +157,12 @@
     z-index: 20;
     display: flex;
     flex-direction: column;
+    /* Its own width wherever it stands (a fixed box at the right edge would shrink to the room left), at most the window's. */
+    width: max-content;
     min-width: 12rem;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
     padding: 0.25rem;
     background: var(--surface);
     border: 1px solid var(--border);
