@@ -32,6 +32,14 @@ pub trait FileOpener: Send + Sync {
     ///
     /// Why the file manager could not be started.
     fn reveal(&self, dir: &Path) -> Result<(), String>;
+
+    /// Ask the person for a folder with the dialog of the system and wait for the answer. `Ok(None)` is a dialog that
+    /// was closed without a choice. Blocks until the person has answered: run it off the async threads.
+    ///
+    /// # Errors
+    ///
+    /// Why no dialog could be shown (no program for it on this system, or one is open already).
+    fn pick_folder(&self) -> Result<Option<PathBuf>, String>;
 }
 
 /// How to show a folder in the file manager on `os`, or `None` when no way is known. `find` looks a program up.
@@ -47,6 +55,66 @@ pub fn reveal_plan(dir: &Path, os: &str, find: &dyn Fn(&str) -> Option<PathBuf>)
         program,
         args: vec![dir.as_os_str().to_owned()],
     })
+}
+
+/// The PowerShell script that shows the folder dialog of Windows and prints the chosen folder. The output is UTF-8,
+/// so that a name with a non-ASCII letter reaches the hub as it is.
+const PICK_SCRIPT_WINDOWS: &str = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; \
+Add-Type -AssemblyName System.Windows.Forms; \
+$d = New-Object System.Windows.Forms.FolderBrowserDialog; \
+if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }";
+
+/// How to show the folder dialog of the system on `os` and get the chosen folder on standard output, or `None` when
+/// no way is known. `find` looks a program up.
+#[must_use]
+pub fn pick_plan(os: &str, find: &dyn Fn(&str) -> Option<PathBuf>) -> Option<Launch> {
+    match os {
+        "windows" => Some(Launch {
+            program: PathBuf::from("powershell.exe"),
+            args: ["-NoProfile", "-STA", "-Command", PICK_SCRIPT_WINDOWS]
+                .iter()
+                .map(OsString::from)
+                .collect(),
+        }),
+        "macos" => Some(Launch {
+            program: PathBuf::from("osascript"),
+            args: ["-e", "POSIX path of (choose folder)"]
+                .iter()
+                .map(OsString::from)
+                .collect(),
+        }),
+        "linux" => find("zenity")
+            .map(|program| Launch {
+                program,
+                args: ["--file-selection", "--directory"]
+                    .iter()
+                    .map(OsString::from)
+                    .collect(),
+            })
+            .or_else(|| {
+                find("kdialog").map(|program| Launch {
+                    program,
+                    args: vec![OsString::from("--getexistingdirectory")],
+                })
+            }),
+        _ => None,
+    }
+}
+
+/// The folder a dialog printed: its output without the line end, or `None` when the dialog was closed (a failed exit,
+/// or nothing printed). Only a control character is refused here; whether the folder can be a vault is for
+/// `vaults/add` to say.
+#[must_use]
+pub fn picked_folder(stdout: &[u8], success: bool) -> Option<PathBuf> {
+    if !success {
+        return None;
+    }
+    let text = String::from_utf8_lossy(stdout);
+    let text = text.trim_end_matches(['\r', '\n']);
+    if text.is_empty() || text.chars().any(char::is_control) {
+        return None;
+    }
+    Some(PathBuf::from(text))
 }
 
 /// A program and its arguments.
@@ -106,12 +174,18 @@ fn on_path(env: &Env, name: &str) -> Option<PathBuf> {
 pub struct TerminalOpener {
     nvim: PathBuf,
     env: Env,
+    /// Whether a folder dialog is open: a second one would stand on top of the first.
+    picking: std::sync::atomic::AtomicBool,
 }
 
 impl TerminalOpener {
     #[must_use]
     pub fn new(nvim: PathBuf, env: Env) -> Self {
-        Self { nvim, env }
+        Self {
+            nvim,
+            env,
+            picking: std::sync::atomic::AtomicBool::new(false),
+        }
     }
 }
 
@@ -187,6 +261,38 @@ impl FileOpener for TerminalOpener {
             let _ = child.wait();
         });
         Ok(())
+    }
+
+    fn pick_folder(&self) -> Result<Option<PathBuf>, String> {
+        use std::sync::atomic::Ordering;
+        // The seam of the tests: the folder the person "chose" (empty: the dialog was closed), the call in the log.
+        if let Some(log) = self.env.path(&crate::IDENTITY.var("EDITOR_LOG")) {
+            let mut out = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log)
+                .map_err(|_| "the test log cannot be written".to_owned())?;
+            writeln!(out, "pick").map_err(|_| "the test log cannot be written".to_owned())?;
+            let chosen = self
+                .env
+                .get(&crate::IDENTITY.var("PICK_RESULT"))
+                .map(|c| c.to_string_lossy().into_owned());
+            return Ok(chosen.and_then(|c| picked_folder(c.as_bytes(), true)));
+        }
+        let find = |name: &str| on_path(&self.env, name);
+        let launch = pick_plan(std::env::consts::OS, &find)
+            .ok_or_else(|| "no folder dialog is known on this system".to_owned())?;
+        if self.picking.swap(true, Ordering::SeqCst) {
+            return Err("a folder dialog is open already".to_owned());
+        }
+        let output = std::process::Command::new(&launch.program)
+            .args(&launch.args)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output();
+        self.picking.store(false, Ordering::SeqCst);
+        let output = output.map_err(|_| "the folder dialog could not be started".to_owned())?;
+        Ok(picked_folder(&output.stdout, output.status.success()))
     }
 }
 
@@ -423,5 +529,46 @@ mod tests {
         let text = std::fs::read_to_string(&log).unwrap();
         assert_eq!(text.lines().count(), 2);
         assert!(text.contains("a.md") && text.contains("b.md"));
+    }
+
+    #[test]
+    fn the_folder_dialog_is_the_one_of_the_system() {
+        let none = |_: &str| None;
+        let zenity = |name: &str| (name == "zenity").then(|| PathBuf::from("/usr/bin/zenity"));
+        let kdialog = |name: &str| (name == "kdialog").then(|| PathBuf::from("/usr/bin/kdialog"));
+        assert_eq!(
+            pick_plan("windows", &none).unwrap().program,
+            PathBuf::from("powershell.exe")
+        );
+        assert_eq!(
+            pick_plan("macos", &none).unwrap().program,
+            PathBuf::from("osascript")
+        );
+        assert_eq!(
+            pick_plan("linux", &zenity).unwrap().program,
+            PathBuf::from("/usr/bin/zenity")
+        );
+        assert_eq!(
+            pick_plan("linux", &kdialog).unwrap().program,
+            PathBuf::from("/usr/bin/kdialog")
+        );
+        assert!(pick_plan("linux", &none).is_none());
+        assert!(pick_plan("plan9", &zenity).is_none());
+    }
+
+    #[test]
+    fn a_closed_dialog_chooses_nothing_and_a_path_loses_only_its_line_end() {
+        assert_eq!(
+            picked_folder(b"/home/me/vault\n", true),
+            Some(PathBuf::from("/home/me/vault"))
+        );
+        assert_eq!(
+            picked_folder(b"C:/Users/me/vault\r\n", true),
+            Some(PathBuf::from("C:/Users/me/vault"))
+        );
+        assert_eq!(picked_folder(b"/home/me/vault\n", false), None);
+        assert_eq!(picked_folder(b"", true), None);
+        assert_eq!(picked_folder(b"\n", true), None);
+        assert_eq!(picked_folder(b"/a\x1b[0mb", true), None);
     }
 }

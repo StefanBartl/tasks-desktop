@@ -269,6 +269,10 @@ fn app_routes(core: &Arc<Shared>) -> Router<Arc<Shared>> {
             post(vault_reveal).layer(DefaultBodyLimit::max(small)),
         )
         .route(
+            &r("vault_pick"),
+            post(vault_pick).layer(DefaultBodyLimit::max(small)),
+        )
+        .route(
             &r("vault_create"),
             post(vault_create).layer(DefaultBodyLimit::max(small)),
         )

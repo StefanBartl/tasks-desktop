@@ -828,6 +828,36 @@ pub(super) async fn vault_reveal(State(st): State<Arc<Shared>>, body: Bytes) -> 
     }
 }
 
+/// `POST /api/tasks/vault_pick` `{}`: show the folder dialog of the system on the machine of the hub and answer with
+/// the folder the person chose (`{ "path" }`) or that the dialog was closed (`{ "path": null }`). The page names
+/// nothing; what the answer holds is the person's own choice, put in the field of the form to look at and change.
+pub(super) async fn vault_pick(State(st): State<Arc<Shared>>, body: Bytes) -> Response {
+    if let Err(r) = vault_request(&body, &[]) {
+        return r;
+    }
+    let rt = st.rt();
+    let Some(opener) = rt.opener.clone() else {
+        return error_body(
+            StatusCode::NOT_FOUND,
+            "open_unavailable",
+            "this hub cannot show a folder dialog",
+        );
+    };
+    // The dialog waits for the person: it runs on a thread of its own, not on one of the server.
+    match tokio::task::spawn_blocking(move || opener.pick_folder()).await {
+        Ok(Ok(chosen)) => axum::Json(json!({
+            "path": chosen.map(|p| p.to_string_lossy().into_owned()),
+        }))
+        .into_response(),
+        Ok(Err(why)) => error_body(StatusCode::BAD_GATEWAY, "pick_failed", &why),
+        Err(_) => error_body(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "pick_failed",
+            "the folder dialog stopped unexpectedly",
+        ),
+    }
+}
+
 /// `POST /api/tasks/vault_create` `{ "path", "area", "confirm": true }`: make a folder that is new (or empty) a vault
 /// with one area. It writes on the machine of the hub, so the person has been asked and the body says so; it does not
 /// register the vault (the page does that with `vaults/add`, as for any folder).

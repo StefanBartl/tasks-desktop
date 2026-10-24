@@ -6,7 +6,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { expectAccessible, violations, watchViolations } from './a11y';
 import { STATE } from './global';
-import { pairingLink, removeFile } from './hub';
+import { pairingLink, pickedFolder, removeFile } from './hub';
 
 test.use({ locale: 'en-US' });
 
@@ -4366,6 +4366,13 @@ test('the vaults menu lists the vault that is read, and the dialog adds, shows a
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText('read now')).toBeVisible();
   await expectAccessible(page, 'the vaults dialog');
+
+  // The button beside the field shows the folder dialog of the system (a test double here) and puts the folder in the
+  // field, which can still be changed by hand.
+  await dialog.getByRole('button', { name: 'Choose ...' }).click();
+  await expect(dialog.getByLabel(/^Folder/)).toHaveValue(pickedFolder(state().config));
+  await dialog.getByLabel(/^Folder/).fill('typed by hand');
+  await expect(dialog.getByLabel(/^Folder/)).toHaveValue('typed by hand');
 
   // A folder that is not there is refused in the hub's words, and nothing is added.
   await dialog.getByLabel(/^Name/).fill('elsewhere');

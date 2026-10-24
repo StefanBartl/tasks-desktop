@@ -13,6 +13,8 @@ export interface VaultsHost {
   removeVault(name: string): Promise<void>;
   createVault(path: string, area: string): Promise<void>;
   revealVault(): Promise<void>;
+  /** The folder the person chose in the dialog of the system, or `null` when it was closed. */
+  pickFolder(): Promise<string | null>;
   /** A word to the person: a success (`ok`) or a refusal with the hub's message. */
   say(kind: 'ok' | 'error', key: 'vaults.added' | 'vaults.created' | 'vaults.removed' | 'vaults.failed', params?: Record<string, string>): void;
 }
@@ -99,6 +101,23 @@ export class VaultsState {
   /** Show the folder of the vault read now in the file manager. */
   async reveal(): Promise<void> {
     await this.step(() => this.host.revealVault());
+  }
+
+  /**
+   * The folder the person chooses in the dialog of the system, to put in the field of the path; `null` when the dialog
+   * was closed or could not be shown (then the refusal is said with the hub's words and the field is typed in by hand).
+   */
+  async pick(): Promise<string | null> {
+    if (this.busy) return null;
+    this.busy = true;
+    try {
+      return await this.host.pickFolder();
+    } catch (error) {
+      this.host.say('error', 'vaults.failed', { message: error instanceof ApiError ? error.message : '' });
+      return null;
+    } finally {
+      this.busy = false;
+    }
   }
 
   async remove(name: string): Promise<void> {

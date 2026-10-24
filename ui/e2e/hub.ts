@@ -199,12 +199,19 @@ export function prepareVault(): { root: string; vault: string; config: string } 
   return { root, vault, config };
 }
 
+/** The folder the folder dialog returns in a test. */
+export function pickedFolder(config: string): string {
+  return join(config, '..', 'picked-vault');
+}
+
 export function env(config: string): NodeJS.ProcessEnv {
   return {
     ...process.env,
     TASKS_DESKTOP_CONFIG_DIR: config,
     // The editor is not started in a test: the file it would open is written here.
     TASKS_DESKTOP_EDITOR_LOG: join(config, '..', 'editor.log'),
+    // The folder dialog is not shown in a test: the folder it "returns" is this one (see `pickedFolder`).
+    TASKS_DESKTOP_PICK_RESULT: pickedFolder(config),
     TASKS_DESKTOP_PORT: String(PORT),
   };
 }
