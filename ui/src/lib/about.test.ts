@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { engineMatchesPin, issueUrl, reportText, type About } from './about';
+import { REPORT_REPOS, engineMatchesPin, issueUrl, reportText, type About } from './about';
 
 const about: About = {
   app: 'tasks-desktop',
@@ -64,5 +64,14 @@ describe('engineMatchesPin', () => {
     expect(engineMatchesPin({ ...about, engine: { ...about.engine!, git: 'not-hex-7' } })).toBeNull();
     expect(engineMatchesPin({ ...about, engine: { ...about.engine!, git: 'fa' } })).toBeNull();
     expect(engineMatchesPin({ ...about, pinned: { ...about.pinned, engine: 'moved' } })).toBeNull();
+  });
+});
+
+describe('REPORT_REPOS', () => {
+  it('names the app, the engine and appkit, each with the page of its issues', () => {
+    expect(REPORT_REPOS.map((r) => r.name)).toEqual(['tasks-desktop', 'tasks.nvim', 'appkit']);
+    for (const repo of REPORT_REPOS) {
+      expect(repo.url).toBe(`https://github.com/StefanBartl/${repo.name}/issues`);
+    }
   });
 });
