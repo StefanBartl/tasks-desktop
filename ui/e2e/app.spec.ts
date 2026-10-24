@@ -2941,13 +2941,16 @@ test('connections: the net of the areas beside the matrix, its lines by key, the
   const line = net.getByRole('button', { name: 'Line cascade.nvim to lib.nvim: 2 links, open the list' });
   await expect(line).toBeVisible();
   await expect(line.locator('text')).toHaveText('2');
-  // The names of the areas stand inside the drawing, not over the matrix beside it.
-  const matrix = (await page.locator('#cross-matrix-title ~ .side .scroll').boundingBox())!;
+  // The net is a tile of its own, apart from the matrix; the names of the areas stand inside the drawing.
+  const tile = page.getByRole('region', { name: 'Net of the areas' });
+  await expect(tile).toBeVisible();
+  await expect(tile.getByRole('group', { name: /^The net of the areas/ })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Net of the areas' }).locator('table')).toHaveCount(0);
   await expect
     .poll(async () => {
       const svg = (await net.boundingBox())!;
       const names = await net.locator('.node text').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON() as DOMRect));
-      return names.every((n) => n.left >= svg.x - 0.5 && n.right <= svg.x + svg.width + 0.5 && (n.left >= matrix.x + matrix.width || n.right <= matrix.x));
+      return names.every((n) => n.left >= svg.x - 0.5 && n.right <= svg.x + svg.width + 0.5);
     })
     .toBe(true);
   await expectAccessible(page, 'the net of the areas');
@@ -4973,6 +4976,58 @@ test('help: the about dialog names the build and the engine, and the report carr
   await expectAccessible(page, 'the report dialog');
   await reportDialog.getByRole('button', { name: 'Close' }).click();
   await expect(reportDialog).toHaveCount(0);
+  expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('menus: every entry of every menu of the bar explains itself with a hint', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  const bar = page.getByRole('menubar');
+  const names = await bar.locator('button.mb-trigger').allInnerTexts();
+  expect(names.length).toBeGreaterThanOrEqual(5);
+  for (const trigger of await bar.locator('button.mb-trigger').all()) {
+    await trigger.click();
+    const popup = page.locator('.mb-popup');
+    await expect(popup).toBeVisible();
+    const items = await popup.locator('button.mb-item').all();
+    expect(items.length).toBeGreaterThan(0);
+    for (const item of items) {
+      const label = (await item.innerText()).trim();
+      expect((await item.getAttribute('data-hint')) ?? '', `the hint of "${label}"`).not.toBe('');
+    }
+    // The hint shows on hover of an entry that can be reached: the popup of the hint, not only the attribute.
+    await items[0]!.hover();
+    await expect(page.locator('#hint-tip')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(popup).toHaveCount(0);
+  }
+});
+
+test('connections: the net of the areas is a tile that takes the size its grip is dragged to and keeps it', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await chooseView(page, 'View', 'Connections');
+  const tile = page.getByRole('region', { name: 'Net of the areas' });
+  await expect(tile).toBeVisible();
+  const toggle = tile.getByRole('button', { name: 'Change the size of the net of the areas' });
+  await toggle.click();
+  const before = (await tile.boundingBox())!;
+  await page.mouse.move(before.x + before.width - 3, before.y + before.height - 3);
+  await page.mouse.down();
+  await page.mouse.move(before.x + before.width - 3, before.y + before.height + 120, { steps: 6 });
+  await page.mouse.up();
+  const after = (await tile.boundingBox())!;
+  expect(after.height).toBeGreaterThan(before.height + 60);
+  // The drawing grows with the tile.
+  const net = tile.getByRole('group', { name: /^The net of the areas/ });
+  expect((await net.boundingBox())!.height).toBeGreaterThan(before.height - 60);
+  await page.reload();
+  const again = page.getByRole('region', { name: 'Net of the areas' });
+  await expect(again).toBeVisible();
+  expect(Math.abs((await again.boundingBox())!.height - after.height)).toBeLessThan(2);
+  const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('tasks-desktop.sizes') ?? '{}') as object);
+  expect(Object.keys(kept)).toContain('cross-net');
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });

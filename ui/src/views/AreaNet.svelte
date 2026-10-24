@@ -13,6 +13,7 @@
     label,
     edgeLabel,
     onopen,
+    fill = false,
   }: {
     pairs: readonly Pair[];
     areas: readonly string[];
@@ -22,6 +23,8 @@
     /** The words of a line: its two areas and its number, and that it opens them. */
     edgeLabel: (a: string, b: string, n: number) => string;
     onopen: (a: string, b: string) => void;
+    /** The net takes the whole box it stands in (a tile the person sized) instead of the width of the layout. */
+    fill?: boolean;
   } = $props();
 
   const SIZE = 320;
@@ -54,7 +57,7 @@
   const dy = (y: number, x: number): number => (Math.abs(x - SIZE / 2) <= 1 ? (y < SIZE / 2 ? -12 : 20) : 4);
 </script>
 
-<svg class="net" bind:this={svg} {viewBox} role="group" aria-label={label}>
+<svg class="net" class:fill bind:this={svg} {viewBox} role="group" aria-label={label}>
   {#each net.edges as edge (`${edge.a}|${edge.b}`)}
     <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
     <g
@@ -85,6 +88,11 @@
     width: 100%;
     max-width: 24rem;
     height: auto;
+  }
+  /* Sized by the person: the drawing grows and shrinks with the tile, its proportions kept. */
+  .net.fill {
+    max-width: none;
+    height: 100%;
   }
   .line {
     stroke: var(--muted);

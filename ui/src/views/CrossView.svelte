@@ -9,6 +9,8 @@
   import Info from 'appkit-ui/Info.svelte';
   import MultiSelect from 'appkit-ui/MultiSelect.svelte';
   import AreaNet from './AreaNet.svelte';
+  import SizeToggle from './SizeToggle.svelte';
+  import { sizeable } from '../lib/sizeable';
 
   let { app }: { app: App } = $props();
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
@@ -46,6 +48,9 @@
       }))
       .sort((x, y) => x.label.localeCompare(y.label)),
   );
+  /** The key under which the size of the net tile is kept (with the other tiles, so it survives a reload). */
+  const NET_TILE = 'cross-net';
+  const netSize = $derived(app.tileSizes[NET_TILE] ?? null);
   const nameOf = (area: string): string => (app.shortAreas ? areaLabel(area, app.allAreaNames) : area);
 
   const KNOWN_KINDS = new Set<string>(['blocked_by', 'after', 'refs', 'plan']);
@@ -109,7 +114,7 @@
     {#if matrixAreas.length >= 2}
       <section class="card" aria-labelledby="cross-matrix-title">
         <h3 id="cross-matrix-title" class="eyebrow">{t('cross.matrix')}</h3>
-        <div class="side">
+        <div>
         <!-- A wide matrix scrolls in its own box, which the keyboard can reach. -->
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <div class="scroll" tabindex="0">
@@ -154,15 +159,41 @@
           </tbody>
         </table>
         </div>
-        <!-- The same pairs as a net: the matrix is the table of its numbers. -->
-        <AreaNet
-          {pairs}
-          areas={matrixAreas}
-          {nameOf}
-          label={t('cross.net')}
-          edgeLabel={(a, b, n) => t(n === 1 ? 'cross.net_edge_one' : 'cross.net_edge', { a: nameOf(a), b: nameOf(b), n })}
-          onopen={openPair}
-        />
+        </div>
+      </section>
+
+      <!-- The same pairs as a net, in a tile of its own: the matrix is the table of its numbers. -->
+      <section
+        class="card net-tile"
+        aria-label={t('cross.net_tile')}
+        data-tile="cross-net"
+        use:sizeable={{
+          size: netSize,
+          active: app.sizing === NET_TILE,
+          onsize: (size) => app.setTileSize(NET_TILE, size),
+        }}
+      >
+        <header class="net-head">
+          <h3 class="eyebrow">{t('cross.net_tile')}</h3>
+          <SizeToggle
+            lang={app.lang}
+            what={t('size.net')}
+            active={app.sizing === NET_TILE}
+            sized={netSize !== null}
+            ontoggle={() => app.toggleSizing(NET_TILE)}
+            onreset={() => app.setTileSize(NET_TILE, null)}
+          />
+        </header>
+        <div class="net-box">
+          <AreaNet
+            {pairs}
+            areas={matrixAreas}
+            {nameOf}
+            label={t('cross.net')}
+            edgeLabel={(a, b, n) => t(n === 1 ? 'cross.net_edge_one' : 'cross.net_edge', { a: nameOf(a), b: nameOf(b), n })}
+            onopen={openPair}
+            fill={netSize !== null}
+          />
         </div>
       </section>
     {/if}
@@ -276,11 +307,23 @@
   .scroll {
     overflow-x: auto;
   }
-  .side {
+  .net-tile {
     display: flex;
-    flex-wrap: wrap;
-    gap: 1.5rem;
+    flex-direction: column;
+    /* A tile that was never sized takes the room of the layout; a sized one is the size the person gave it. */
+    min-width: 0;
+  }
+  .net-head {
+    display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.5em;
+  }
+  .net-box {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
   }
   table {
     border-collapse: collapse;
