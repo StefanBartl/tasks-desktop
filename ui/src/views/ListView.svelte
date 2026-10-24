@@ -18,7 +18,7 @@
     RANGE_KEYS,
     REMINDER_CHOICES,
     UPDATED_WINDOWS,
-    APP_AREA_LABEL,
+    areaOptions,
     activeFilters,
     areaLabel,
     boundOptions,
@@ -155,18 +155,8 @@
     searchBox?.focus();
   }
   const extraOn = $derived(extraCount(app.filter));
-  const areaOptions = $derived(
-    app.areaNames
-      .map((name) => {
-        // The search of the choice reads the title: the area of tasks.nvim is found as tasks-desktop too.
-        const appArea = areaLabel(name, app.allAreaNames) === APP_AREA_LABEL;
-        return {
-          value: name,
-          label: app.shortAreas ? areaLabel(name, app.allAreaNames) : name,
-          title: appArea ? `${name} · ${t('filter.area.app')}` : name,
-        };
-      })
-      .sort((x, y) => x.label.localeCompare(y.label)),
+  const areaChoices = $derived(
+    areaOptions(app.areaNames, app.allAreaNames, app.shortAreas, t('filter.area.app')),
   );
   const shown = $derived(app.shown);
 
@@ -361,7 +351,7 @@
         label={t('nav.areas')}
         hint={t('hint.ui.list.areas')}
         note={t('multi.note.areas')}
-        options={areaOptions}
+        options={areaChoices}
         selected={app.filter.areas}
         onchange={(areas) => (app.filter = { ...app.filter, areas })}
         resetLabel={t('multi.reset')}
