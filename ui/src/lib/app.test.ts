@@ -4,6 +4,7 @@ import { App, type Env } from './app.svelte';
 import type { CachedList, ListStore } from './cache';
 import type { DonePreview, Groupings, Result, Snapshot, TaskDocument, TaskEntry, View, Views } from './contract';
 import { task } from './fixtures';
+import type { PrintSheet } from './export';
 import { MOVE_MAX } from './bulk';
 import { translate } from './i18n';
 import { emptyForm } from './planwizard';
@@ -380,6 +381,7 @@ function make(
   let reloads = 0;
   const files: { name: string; text: string; type: string }[] = [];
   const copied: string[] = [];
+  const printed: PrintSheet[] = [];
   const cache: ListStore = {
     load: async () => overrides.cached ?? null,
     save: async (l) => void saved.push(l),
@@ -417,9 +419,13 @@ function make(
         copied.push(text);
         return true;
       },
+      print: (sheet) => {
+        printed.push(sheet);
+        return true;
+      },
     },
   };
-  return { app: new App(env), hub, saved, session, prefs, files, copied, cleared: () => cleared, reloads: () => reloads };
+  return { app: new App(env), hub, saved, session, prefs, files, copied, printed, cleared: () => cleared, reloads: () => reloads };
 }
 
 describe('App', () => {
@@ -1173,6 +1179,45 @@ describe('App, the export', () => {
     app.stop();
   });
 
+  it('prints the rows of the view with the view, the day, the count and the filters on top; a private area is neither printed nor named', async () => {
+    const { app, printed } = await started([task('pub/a', { title: 'A', status: 'doing', prio: 1 }), task('priv/b', { title: 'B', status: 'open' }), task('pub/c', { title: 'C', status: 'open' })], [
+      { name: 'pub', data_class: 'public' },
+      { name: 'priv', data_class: 'private' },
+    ]);
+    app.setView('board');
+    app.filter = { ...app.filter, areas: ['pub', 'priv'] };
+    app.setQuery('');
+    app.printView();
+    expect(printed).toHaveLength(1);
+    const sheet = printed[0]!;
+    expect(sheet.facts[0]).toBe(`${translate('de', 'nav.board')} · 2026-10-24 · ${translate('de', 'print.count', { n: 2 })}`);
+    expect(sheet.facts.join(' ')).toContain('pub');
+    expect(sheet.facts.join(' ')).not.toMatch(/\bpriv\b/);
+    expect(sheet.facts).toContain(translate('de', 'print.kept', { m: 1 }));
+    // The board's columns as sections, the cells in the page's words.
+    expect(sheet.sections.map((s) => [s.heading, s.rows.map((r) => r[0])])).toEqual([
+      ['doing', ['pub/a']],
+      ['open', ['pub/c']],
+    ]);
+    expect(sheet.sections[0]!.rows[0]).toEqual(['pub/a', 'A', translate('de', 'status.doing'), '1', '', '']);
+    expect(JSON.stringify(sheet)).not.toContain('priv/b');
+    app.stop();
+  });
+
+  it('prints nothing for a view that shows no task, and says so; a page that could not be made is told', async () => {
+    const { app, printed } = await started([task('pub/a')]);
+    app.setView('list');
+    app.setQuery('nothing matches this');
+    app.printView();
+    expect(printed).toHaveLength(0);
+    expect(app.toast).toMatchObject({ kind: 'error', text: translate('de', 'export.empty') });
+    app.setQuery('');
+    (app as unknown as { env: Env }).env.out.print = () => false;
+    app.printView();
+    expect(app.toast).toMatchObject({ kind: 'error', text: translate('de', 'print.failed') });
+    app.stop();
+  });
+
   it('offers every format and both ways in the palette', () => {
     const { app } = make();
     app.setView('list');
@@ -1181,6 +1226,7 @@ describe('App, the export', () => {
       expect(keys).toContain(`export.save.${format}`);
       expect(keys).toContain(`export.copy.${format}`);
     }
+    expect(keys).toContain('export.print');
   });
 });
 

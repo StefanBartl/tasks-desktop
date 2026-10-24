@@ -212,12 +212,14 @@
         ['menu.copy_json', 'json', 'copy'],
         ['menu.copy_md', 'markdown', 'copy'],
       ] as const
-    ).map(([label, format, how]) => ({
-      kind: 'action' as const,
-      label: t(label),
-      disabled: !ready || !app.exportable,
-      onselect: () => void app.exportView(format, how),
-    }));
+    )
+      .map(([label, format, how]) => ({
+        kind: 'action' as const,
+        label: t(label),
+        disabled: !ready || !app.exportable,
+        onselect: () => void app.exportView(format, how),
+      }))
+      .concat({ kind: 'action' as const, label: t('menu.print_view'), disabled: !ready || !app.exportable, onselect: () => void app.printView() });
 
   /** The task the engine names as the next one to take: the one the tile of that name shows. */
   const nextTaskId = $derived(app.next?.task?.id ?? null);
@@ -684,5 +686,49 @@
     border-radius: var(--radius);
     padding: 0.6rem 0.8rem;
     overflow: auto;
+  }
+
+  /* The page for the printer of a view (exportDom.printSheet) stands in the document only while the print dialog is
+     open; while it does, nothing else is printed. Black on white whatever the theme: it is paper or a PDF. */
+  :global(#view-print) {
+    display: none;
+  }
+  @media print {
+    :global(html.print-view body > *:not(#view-print)) {
+      display: none !important;
+    }
+    :global(html.print-view #view-print) {
+      display: block;
+      color: black;
+      background: white;
+      font-size: 10pt;
+    }
+    :global(#view-print h1) {
+      font-size: 14pt;
+      margin: 0 0 0.3em;
+    }
+    :global(#view-print h2) {
+      font-size: 11pt;
+      margin: 1em 0 0.3em;
+      break-after: avoid;
+    }
+    :global(#view-print p) {
+      margin: 0;
+    }
+    :global(#view-print table) {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.5em;
+    }
+    :global(#view-print th),
+    :global(#view-print td) {
+      border: 1px solid gray;
+      padding: 0.15em 0.4em;
+      text-align: left;
+      vertical-align: top;
+    }
+    :global(#view-print tr) {
+      break-inside: avoid;
+    }
   }
 </style>

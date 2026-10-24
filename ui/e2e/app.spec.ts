@@ -992,7 +992,7 @@ test('the export: the button of a view, the View menu and the palette take what 
   const tag = `r${String(info.repeatEachIndex).padStart(3, '0')}t${info.retry}`;
   const word = `exportpick${tag}`;
   const made = [
-    ['lib.nvim', 'one', 'doing'],
+    ['lib.nvim', 'one', 'parked'],
     ['lib.nvim', 'two', 'open'],
     ['cascade.nvim', 'three', 'open'],
   ].map(([area, n, status]) => {
@@ -1053,7 +1053,8 @@ test('the export: the button of a view, the View menu and the palette take what 
     expect(doc.tasks.every((x) => x.group === undefined)).toBe(true);
     await expect(page.getByText(`2 ${said}`)).toBeVisible();
 
-    // The board from the View menu: CSV with the column each task stands in, doing before open.
+    // The board from the View menu: CSV with the column each task stands in, open before parked. (Parked, not doing:
+    // the overview's list of doing tasks is dragged in by another test, and a row coming and going there moves it.)
     await chooseView(page, 'View', 'Board');
     await expect(page.locator('.foldall details.export summary')).toBeVisible();
     await page.getByRole('menuitem', { name: 'View', exact: true }).click();
@@ -1064,7 +1065,7 @@ test('the export: the button of a view, the View menu and the palette take what 
     expect(csv.suggestedFilename()).toMatch(/^tasks-board-\d{4}-\d{2}-\d{2}\.csv$/);
     const lines = readFileSync((await csv.path()) as string, 'utf8').slice(1).trimEnd().split('\r\n');
     expect(lines[0]!.startsWith('group,id,title,')).toBe(true);
-    expect(lines.slice(1).map((l) => l.split(',').slice(0, 2).join(' '))).toEqual([`doing ${lib[0]}`, `open ${lib[1]}`]);
+    expect(lines.slice(1).map((l) => l.split(',').slice(0, 2).join(' '))).toEqual([`open ${lib[1]}`, `parked ${lib[0]}`]);
 
     // The plan from the palette: each task with its stage.
     await chooseView(page, 'View', 'Plan');
@@ -1090,6 +1091,74 @@ test('the export: the button of a view, the View menu and the palette take what 
     await popup.getByRole('button', { name: 'Save as CSV ...' }).click();
     await expect(page.getByText('Nothing to export: the view shows no task.')).toBeVisible();
     expect(await violations(page)).toEqual([]);
+    expect(consoleProblems.get(page)).toEqual([]);
+  } finally {
+    for (const path of made) removeFile(path);
+  }
+});
+
+test('the view prints as a page of its own: its rows and groups, the filters on top, nothing of a private area, and only that page on paper', async ({
+  page,
+}) => {
+  test.slow();
+  const info = test.info();
+  const tag = `r${String(info.repeatEachIndex).padStart(3, '0')}t${info.retry}`;
+  const word = `printpick${tag}`;
+  const made = [
+    ['lib.nvim', 'one', 'parked'],
+    ['lib.nvim', 'two', 'open'],
+    ['cascade.nvim', 'three', 'open'],
+  ].map(([area, n, status]) => {
+    const path = join(state().vault, area!, 'ROADMAP', 'tasks', `print-e2e-${tag}-${n}.md`);
+    writeFileSync(path, `---\ntitle: ${word} ${n}\nstatus: ${status}\nkind: task\n---\n\nText.\n`);
+    return path;
+  });
+  try {
+    // cascade.nvim is private to this page only (the hub's file says public, and other tests count).
+    await page.route('**/api/tasks/areas', async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { areas: { name: string; data_class: string }[] };
+      for (const a of body.areas) if (a.name === 'cascade.nvim') a.data_class = 'private';
+      await route.fulfill({ response, json: body });
+    });
+    // The print dialog is a stub that counts; the page stays until afterprint, which the test sends.
+    await page.addInitScript(() => {
+      (window as unknown as { __prints: number }).__prints = 0;
+      window.print = () => void ((window as unknown as { __prints: number }).__prints += 1);
+    });
+    await pair(page);
+    await showList(page);
+    const box = page.getByRole('searchbox', { name: 'Search id and title' });
+    await expect(async () => {
+      await box.fill(word);
+      await expect(page.locator('.rows .line')).toHaveCount(3, { timeout: 2000 });
+    }).toPass({ timeout: WRITE_BUDGET });
+
+    await chooseView(page, 'View', 'Board');
+    await page.locator('.foldall details.export summary').click();
+    await page.getByRole('button', { name: 'Print or save as PDF ...' }).click();
+    expect(await page.evaluate(() => (window as unknown as { __prints: number }).__prints)).toBe(1);
+    const sheet = page.locator('#view-print');
+    await expect(sheet.locator('h1')).toHaveText('Tasks');
+    await expect(sheet.locator('p').first()).toHaveText(/^Board · \d{4}-\d{2}-\d{2} · 2 tasks$/);
+    await expect(sheet).toContainText(`Filtered by: "${word}"`);
+    await expect(sheet).toContainText('1 tasks of private or unclassified areas are not printed.');
+    // The board's columns as sections; the private task is not on the page.
+    await expect(sheet.locator('h2')).toHaveText(['open', 'parked']);
+    await expect(sheet.locator('tbody tr td:first-child')).toHaveText([`lib.nvim/print-e2e-${tag}-two`, `lib.nvim/print-e2e-${tag}-one`]);
+    await expect(sheet).not.toContainText('cascade.nvim');
+
+    // On screen the page is not seen; on paper it is the only thing.
+    await expect(sheet).toBeHidden();
+    await page.emulateMedia({ media: 'print' });
+    await expect(sheet).toBeVisible();
+    await expect(page.locator('div.shell')).toBeHidden();
+    await page.emulateMedia({ media: 'screen' });
+
+    // When the dialog is done the page goes.
+    await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
+    await expect(sheet).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.classList.contains('print-view'))).toBe(false);
     expect(consoleProblems.get(page)).toEqual([]);
   } finally {
     for (const path of made) removeFile(path);
@@ -1134,7 +1203,7 @@ test('the popup of Export stays whole: in a list sized small and in a narrow win
   const popup = page.locator('details.export .popup');
   await openExport(page);
   let entries = await exportEntriesReachable(page);
-  expect(entries).toHaveLength(6);
+  expect(entries).toHaveLength(7);
   expect(entries.filter((e) => !e.inside || !e.hit)).toEqual([]);
   // The entry works from there: a click saves.
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save as CSV ...' }).click()]);
@@ -1148,7 +1217,7 @@ test('the popup of Export stays whole: in a list sized small and in a narrow win
   await expect(page.locator('section.list')).not.toHaveCSS('overflow', 'auto');
   await openExport(page);
   entries = await exportEntriesReachable(page);
-  expect(entries).toHaveLength(6);
+  expect(entries).toHaveLength(7);
   expect(entries.filter((e) => !e.inside || !e.hit)).toEqual([]);
   await button.press('Escape');
   await expect(popup).toBeHidden();
@@ -1181,7 +1250,7 @@ test('the popup of Export stays whole: in a list sized small and in a narrow win
   await page.setViewportSize({ width: 1280, height: 260 });
   await openExport(page);
   entries = await exportEntriesReachable(page);
-  expect(entries).toHaveLength(6);
+  expect(entries).toHaveLength(7);
   expect(entries.filter((e) => !e.inside || !e.hit)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });

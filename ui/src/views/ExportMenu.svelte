@@ -82,6 +82,13 @@
     void app.exportView(format, how);
   }
 
+  /** The page for the printer: the popup closes first, so that the dialog opens over the page and not over it. */
+  function print(): void {
+    open = false;
+    summary?.focus();
+    app.printView();
+  }
+
   /**
    * Escape closes the popup and gives the focus back to its button. The key is marked as taken (the page does not
    * also take the selection away), but goes on: the kit's hint, on the document, closes on it too.
@@ -124,6 +131,7 @@
         >{t('export.copy', { format: name })}</button
       >
     {/each}
+    <button type="button" disabled={app.phase !== 'ready'} onkeydown={closeOnEscape} onclick={print}>{t('export.print')}</button>
   </div>
 </details>
 

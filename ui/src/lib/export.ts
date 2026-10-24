@@ -171,3 +171,36 @@ export function exportFileName(view: string, day: string, format: ExportFormat):
   const safe = view.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'list';
   return `tasks-${safe}-${day}.${EXPORT_FILES[format].ext}`;
 }
+
+/**
+ * The page for the printer (or "Save as PDF" of its dialog): a title, the facts under it (the view, the day, the count,
+ * the filters), and the tasks as tables, one section for each group the view has, in its order. Text only: the page that
+ * puts it into the document sets text, never markup.
+ */
+export interface PrintSheet {
+  title: string;
+  facts: string[];
+  headers: string[];
+  sections: { heading?: string; rows: string[][] }[];
+}
+
+/** The sheet of the rows: `cells` gives the cells of a task under `headers`; a group starts a section of its own. */
+export function sheetOf(
+  rows: readonly ExportRow[],
+  title: string,
+  facts: readonly string[],
+  headers: readonly string[],
+  cells: (task: TaskEntry) => string[],
+): PrintSheet {
+  const sections: PrintSheet['sections'] = [];
+  let current: string | undefined;
+  for (const r of rows) {
+    const heading = r.group === undefined ? undefined : r.row === undefined ? r.group : `${r.row} / ${r.group}`;
+    if (sections.length === 0 || heading !== current) {
+      sections.push(heading === undefined ? { rows: [] } : { heading, rows: [] });
+      current = heading;
+    }
+    sections.at(-1)!.rows.push(cells(r.task));
+  }
+  return { title, facts: [...facts], headers: [...headers], sections };
+}

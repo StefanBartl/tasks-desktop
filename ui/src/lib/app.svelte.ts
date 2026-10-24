@@ -35,7 +35,8 @@ import type {
 import type { Op } from './api';
 import { indexOfLinks, touchedAreas } from './cross';
 import { parsePrefs, type Prefs as FinishedPrefs } from './finished';
-import { applyFilter, filterVaultOf, freshFilter, moveSelection, parseFilter, serializeFilter, type Filter } from './filter';
+import { activeFilters, applyFilter, filterVaultOf, freshFilter, moveSelection, parseFilter, serializeFilter, type Filter } from './filter';
+import { chipLabel } from './filter-chips';
 import { inboxOf, triageKey } from './inbox';
 import type { Finding } from './check';
 import { CheckState } from './state/check.svelte';
@@ -58,8 +59,8 @@ import type { CountKey, CountView } from './counts';
 import { conflictsOf, conflictsOfRequest, retryOp, type Conflict } from './conflicts';
 import { Preferences, StreamSession } from 'appkit-ui/session';
 import type { SseMessage } from 'appkit-ui/sse';
-import { LANGS, translate, type Key, type Lang } from './i18n';
-import { csvSeparatorFor, EXPORT_FILES, exportFileName, rowsText, type ExportFormat, type ExportRow } from './export';
+import { labelOf, LANGS, translate, type Key, type Lang } from './i18n';
+import { csvSeparatorFor, EXPORT_FILES, exportFileName, rowsText, sheetOf, type ExportFormat, type ExportRow, type PrintSheet } from './export';
 import { boardRows, cellRows, groupRows, mayLeave, onlyMarked, stageRows, taskCount, withoutPlansOf } from './viewExport';
 import { chosenPlan, stagesOf } from './plan';
 import { applyOrder, orderOf, parseSort, type SortWord } from './sort';
@@ -130,10 +131,11 @@ export interface Env {
   sleep(ms: number): Promise<void>;
   /** Load the page again (after another vault was chosen); replaced in tests. */
   reload?(): void;
-  /** The ways out of the page for an export: a file the browser saves, the clipboard. Replaced in tests. */
+  /** The ways out of the page for an export: a file the browser saves, the clipboard, the printer. Replaced in tests. */
   out: {
     save(name: string, text: string, type: string): boolean;
     copy(text: string): Promise<boolean>;
+    print(sheet: PrintSheet): boolean;
   };
 }
 
@@ -1477,9 +1479,7 @@ export class App {
   async exportView(format: ExportFormat, how: 'save' | 'copy'): Promise<void> {
     const { view, text, count, kept } = this.exportTasks(format);
     if (count === 0) {
-      // Before the classes are read (or when the hub could not tell them) every task is held back: that is not their class.
-      const key = kept === 0 ? 'export.empty' : this.hubAreas.length === 0 ? 'export.classes_unknown' : 'export.only_kept';
-      this.say('error', key, { m: kept });
+      this.sayNothingExported(kept);
       return;
     }
     const file = EXPORT_FILES[format];
@@ -1488,6 +1488,56 @@ export class App {
     if (!ok) this.say('error', how === 'save' ? 'export.failed' : 'export.copy_failed', { n: count });
     else if (kept > 0) this.say('ok', `export.${done}_kept`, { n: count, m: kept });
     else this.say('ok', `export.${done}`, { n: count });
+  }
+
+  /** Why an export (or a print) made nothing: the view shows no task, or every task shown is held back. */
+  private sayNothingExported(kept: number): void {
+    // Before the classes are read (or when the hub could not tell them) every task is held back: that is not their class.
+    const key = kept === 0 ? 'export.empty' : this.hubAreas.length === 0 ? 'export.classes_unknown' : 'export.only_kept';
+    this.say('error', key, { m: kept });
+  }
+
+  /**
+   * Print what the view shows, or save it as a PDF from the print dialog: the same rows as an export (the view's order
+   * and groups, nothing of a private or unclassified area), as a page of its own with the view, the day, the count and
+   * the filters on top. The list's filters are named only where they make the view (not in a saved view, which has its
+   * own selection), and a chip that names an area which may not leave is not.
+   */
+  printView(): void {
+    const { rows, kept } = this.exportRows();
+    const count = taskCount(rows);
+    if (count === 0) {
+      this.sayNothingExported(kept);
+      return;
+    }
+    const t = (key: Key, params: Record<string, string | number> = {}) => translate(this.lang, key, params);
+    const open = this.viewsState.open;
+    const name =
+      this.view === 'views' && open !== null
+        ? this.mayRememberArea(areaOfId(open.id)) ? open.title : t('nav.views')
+        : t(`nav.${this.view === 'views' ? 'list' : this.view}` as Key);
+    const filters =
+      this.view === 'views'
+        ? []
+        : activeFilters(this.filter)
+            .filter((item) => item.kind !== 'area' || this.mayRememberArea(item.value))
+            .map((item) => chipLabel(this.lang, this.filter, item, { short: this.shortAreas, all: this.allAreaNames }));
+    const query = this.view === 'views' ? '' : this.filter.query.trim();
+    const facts = [
+      `${name} · ${this.localDay()} · ${t('print.count', { n: count })}`,
+      ...(filters.length > 0 || query !== '' ? [t('print.filters', { what: [...(query ? [`"${query}"`] : []), ...filters].join(', ') })] : []),
+      ...(kept > 0 ? [t('print.kept', { m: kept })] : []),
+    ];
+    const headers = [t('print.col.id'), t('print.col.title'), t('list.filter.status'), t('filter.field.prio'), t('filter.field.effort'), t('list.filter.actor')];
+    const cells = (task: TaskEntry) => [
+      task.id,
+      task.title,
+      labelOf(this.lang, 'status', task.status),
+      task.prio === undefined ? '' : String(task.prio),
+      task.effort ?? '',
+      task.actor === undefined ? '' : labelOf(this.lang, 'actor', task.actor),
+    ];
+    if (!this.env.out.print(sheetOf(rows, t('app.title'), facts, headers, cells))) this.say('error', 'print.failed');
   }
 
   /** The day of the clock in the person's time zone, as `YYYY-MM-DD`. */

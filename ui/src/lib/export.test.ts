@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { copyText, saveText } from './exportDom';
+import { copyText, printSheet, saveText, VIEW_PRINT_CLASS, VIEW_PRINT_ID } from './exportDom';
 import {
   csvCell,
   csvSeparatorFor,
@@ -11,6 +11,7 @@ import {
   rowsToCsv,
   rowsToJson,
   rowsToMarkdown,
+  sheetOf,
   toCsv,
   toMarkdown,
 } from './export';
@@ -201,6 +202,94 @@ describe('the rows of a view', () => {
     expect(rowsText(rows, 'csv', ',', 'v')).toBe(rowsToCsv(rows, ','));
     expect(rowsText(rows, 'json', ',', 'v')).toBe(rowsToJson(rows, 'v'));
     expect(rowsText(rows, 'markdown', ',', 'v')).toBe(rowsToMarkdown(rows));
+  });
+});
+
+describe('the page for the printer', () => {
+  const cells = (t: { id: string; title: string }) => [t.id, t.title];
+
+  it('is one table without groups, and a section for each group in the order they come', () => {
+    expect(sheetOf([{ task: task('a/1', { title: 'One' }) }], 'T', ['f'], ['ID', 'Title'], cells)).toEqual({
+      title: 'T',
+      facts: ['f'],
+      headers: ['ID', 'Title'],
+      sections: [{ rows: [['a/1', 'One']] }],
+    });
+    const grouped = sheetOf(
+      [
+        { task: task('a/1', { title: 'One' }), group: 'doing' },
+        { task: task('a/2', { title: 'Two' }), group: 'open' },
+        { task: task('a/3', { title: 'Three' }), group: 'open' },
+        { task: task('a/4', { title: 'Four' }), group: 'c', row: 'r' },
+      ],
+      'T',
+      [],
+      ['ID', 'Title'],
+      cells,
+    );
+    expect(grouped.sections.map((s) => [s.heading, s.rows.map((r) => r[0])])).toEqual([
+      ['doing', ['a/1']],
+      ['open', ['a/2', 'a/3']],
+      ['r / c', ['a/4']],
+    ]);
+  });
+
+  /** A document with what printSheet uses: elements with text, children and attributes, and the class of the root. */
+  function fakeDoc() {
+    type El = { tag: string; id: string; scope?: string; textContent: string; children: El[]; removed: boolean; append(...c: El[]): void; remove(): void };
+    const make = (tag: string): El => ({
+      tag,
+      id: '',
+      textContent: '',
+      children: [],
+      removed: false,
+      append(...c: El[]) {
+        this.children.push(...c);
+      },
+      remove() {
+        this.removed = true;
+      },
+    });
+    const body = make('body');
+    const classes = new Set<string>();
+    const doc = {
+      createElement: make,
+      body,
+      getElementById: (id: string) => body.children.find((c) => c.id === id && !c.removed) ?? null,
+      documentElement: { classList: { add: (c: string) => classes.add(c), remove: (c: string) => classes.delete(c) } },
+    };
+    return { doc: doc as unknown as Document, body, classes };
+  }
+
+  it('stands in the document as text while the dialog is open, and goes after it', () => {
+    const { doc, body, classes } = fakeDoc();
+    let printed = 0;
+    let after: (() => void) | undefined;
+    const win = { print: () => void (printed += 1), addEventListener: (_: string, fn: () => void) => void (after = fn) };
+    const sheet = sheetOf([{ task: task('a/1', { title: '<b>x</b>' }), group: 'g' }], 'Tasks', ['List · 2026-10-24'], ['ID', 'Title'], cells);
+    expect(printSheet(doc, win as never, sheet)).toBe(true);
+    expect(printed).toBe(1);
+    expect(classes.has(VIEW_PRINT_CLASS)).toBe(true);
+    const page = body.children[0]!;
+    expect(page.id).toBe(VIEW_PRINT_ID);
+    expect(page.children.map((c) => `${c.tag}:${c.textContent}`).slice(0, 3)).toEqual(['h1:Tasks', 'p:List · 2026-10-24', 'h2:g']);
+    // The title is text in a cell, never markup.
+    const table = page.children[3]!;
+    expect(table.children[1]!.children[0]!.children[1]!.textContent).toBe('<b>x</b>');
+    expect(table.children[0]!.children[0]!.children.map((th) => `${th.textContent}:${th.scope}`)).toEqual(['ID:col', 'Title:col']);
+    after?.();
+    expect(page.removed).toBe(true);
+    expect(classes.has(VIEW_PRINT_CLASS)).toBe(false);
+  });
+
+  it('takes the page of a print before away, and says false when the page could not be made', () => {
+    const { doc, body } = fakeDoc();
+    const win = { print: () => undefined, addEventListener: () => undefined };
+    const sheet = sheetOf([{ task: task('a/1') }], 'T', [], ['ID'], (t) => [t.id]);
+    printSheet(doc, win as never, sheet);
+    printSheet(doc, win as never, sheet);
+    expect(body.children.filter((c) => !c.removed)).toHaveLength(1);
+    expect(printSheet({} as Document, win as never, sheet)).toBe(false);
   });
 });
 
