@@ -181,7 +181,7 @@ jobs:
           pattern: release-*
           path: dist
           merge-multiple: true
-      - uses: StefanBartl/appkit/release-kit/publish@e76ee82e2484d53c18350a33e6530e8b8c33ca08 # v0.19.1
+      - uses: StefanBartl/appkit/release-kit/publish@e990d93389a17f99bdb14674367dd4a16185e240 # v0.19.1
         with:
           token: ${{ github.token }}
           tag: ${{ github.ref_name }}
