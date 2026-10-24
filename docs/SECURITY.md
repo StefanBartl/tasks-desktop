@@ -166,7 +166,9 @@ area is released for nothing that leaves the hub.
 | unclassified | no | no | no | no |
 
 An export (a file the browser saves, the clipboard) leaves the app: the page leaves the tasks of private and
-unclassified areas out and says how many, and until the classes are read after a start nothing is exported.
+unclassified areas out and says how many, and until the classes are read after a start (or when the hub cannot tell
+them) nothing is exported. The id of a plan or a saved view kept in such an area names that area: it is in neither
+the name of the file, nor the `view` of a JSON export, nor the `plan` field of a task of a public area in that plan.
 
 The file may name a `"default"` class: the owner's explicit choice for every
 area it has no entry for (a new area then needs no decision, and an entry

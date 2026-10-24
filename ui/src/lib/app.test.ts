@@ -371,7 +371,7 @@ class FakeHub {
 }
 
 function make(
-  overrides: { token?: string; cached?: CachedList | null; prefs?: Map<string, string> } = {},
+  overrides: { token?: string; cached?: CachedList | null; prefs?: Map<string, string>; now?: number } = {},
 ) {
   const prefs = overrides.prefs ?? new Map<string, string>();
   const hub = new FakeHub();
@@ -400,7 +400,7 @@ function make(
       setItem: (k, v) => void prefs.set(k, v),
     },
     preferredLanguages: ['de'],
-    now: () => 1000,
+    now: () => overrides.now ?? 1000,
     // The stream is not under test here: it is refused, and the loop stops
     // because the test stops the app.
     fetchFn: (async () => new Response('', { status: 503 })) as typeof fetch,
@@ -1035,9 +1035,12 @@ describe('App, the export', () => {
     expect(app.exportTasks('csv').text.split('\r\n')[0]).toContain('id;title;');
   });
 
-  async function started(tasks: TaskEntry[], areas: HubArea[] = [{ name: 'pub', data_class: 'public' }]) {
-    const made = make({ token: 't' });
-    made.hub.doc = snapshot(tasks);
+  /** Noon of 2026-10-24 in UTC: the same day in every time zone from UTC-11 to UTC+11. */
+  const NOON = Date.UTC(2026, 9, 24, 12);
+
+  async function started(tasks: TaskEntry[], areas: HubArea[] = [{ name: 'pub', data_class: 'public' }], doc?: Partial<Snapshot>) {
+    const made = make({ token: 't', now: NOON });
+    made.hub.doc = { ...snapshot(tasks), ...doc };
     made.hub.areaList = areas;
     await made.app.start(null);
     // The classes of the areas come a moment after the list; until then nothing may leave (a test below shows it).
@@ -1045,14 +1048,29 @@ describe('App, the export', () => {
     return made;
   }
 
-  it('lets nothing leave while the classes of the areas are not known yet', async () => {
+  it('lets nothing leave while the classes of the areas are not known yet, and says that, not that they are private', async () => {
     const { app, hub, copied } = make({ token: 't' });
     hub.doc = snapshot([task('pub/a')]);
     await app.start(null);
     app.setView('list');
     await app.exportView('csv', 'copy');
     expect(copied).toHaveLength(0);
-    expect(app.toast).toMatchObject({ kind: 'error', text: translate('de', 'export.only_kept', { m: 1 }) });
+    expect(app.toast).toMatchObject({ kind: 'error', text: translate('de', 'export.classes_unknown') });
+    app.stop();
+  });
+
+  it('says the same when the hub could not tell the classes', async () => {
+    const { app, hub, copied } = make({ token: 't' });
+    hub.doc = snapshot([task('pub/a')]);
+    hub.areas = async () => {
+      throw new ApiError(502, 'engine_failed', 'no classes');
+    };
+    await app.start(null);
+    await new Promise((r) => setTimeout(r, 10));
+    app.setView('list');
+    await app.exportView('csv', 'copy');
+    expect(copied).toHaveLength(0);
+    expect(app.toast?.text).toBe(translate('de', 'export.classes_unknown'));
     app.stop();
   });
 
@@ -1061,25 +1079,60 @@ describe('App, the export', () => {
     app.setView('list');
     await app.exportView('json', 'save');
     expect(files).toHaveLength(1);
-    expect(files[0]!.name).toBe('tasks-list-1970-01-01.json');
+    expect(files[0]!.name).toBe('tasks-list-2026-10-24.json');
     expect(files[0]!.type).toBe('application/json;charset=utf-8');
     expect(JSON.parse(files[0]!.text).tasks.map((x: { id: string }) => x.id)).toEqual(['pub/a', 'pub/b']);
     expect(app.toast?.text).toBe(translate('de', 'export.saved', { n: 2 }));
     app.stop();
   });
 
-  it('takes the board with its columns, and only the marked tasks when some are marked', async () => {
-    const { app, files } = await started([task('pub/a', { status: 'open' }), task('pub/b', { status: 'doing' }), task('pub/c', { status: 'open' })]);
+  it('takes the board with its columns; the marks count in the list only, where they are seen', async () => {
+    const { app, files, copied } = await started([task('pub/a', { status: 'open' }), task('pub/b', { status: 'doing' }), task('pub/c', { status: 'open' })]);
     app.setView('board');
     await app.exportView('csv', 'save');
     const lines = files[0]!.text.trimEnd().split('\r\n');
-    expect(files[0]!.name).toBe('tasks-board-1970-01-01.csv');
+    expect(files[0]!.name).toBe('tasks-board-2026-10-24.csv');
     expect(lines[0]!.startsWith('group;id;')).toBe(true);
     // The board's columns in order: doing before open.
     expect(lines.slice(1).map((l) => l.split(';').slice(0, 2).join(' '))).toEqual(['doing pub/b', 'open pub/a', 'open pub/c']);
     app.toggleMark('pub/c');
     await app.exportView('csv', 'copy');
+    expect(app.toast?.text).toBe(translate('de', 'export.copied', { n: 3 }));
+    app.setView('list');
+    await app.exportView('csv', 'copy');
     expect(app.toast?.text).toBe(translate('de', 'export.copied', { n: 1 }));
+    expect(copied.at(-1)).toContain('pub/c');
+    expect(copied.at(-1)).not.toContain('pub/a');
+    app.stop();
+  });
+
+  it('takes the plan chosen with its stages in the page language; a plan of a private area is named neither in the file nor in its tasks', async () => {
+    const plans = [{ id: 'priv/secret-plan' }, { id: 'pub/open-plan' }] as unknown as Snapshot['plans'];
+    const tasks = [
+      task('pub/a', { plan: 'priv/secret-plan', readiness: { stage: 0 } as TaskEntry['readiness'] }),
+      task('pub/b', { plan: 'pub/open-plan', readiness: { stage: 1 } as TaskEntry['readiness'] }),
+      task('pub/c'),
+    ];
+    const areas: HubArea[] = [
+      { name: 'pub', data_class: 'public' },
+      { name: 'priv', data_class: 'private' },
+    ];
+    const { app, files } = await started(tasks, areas, { plans });
+    app.setView('plan');
+    app.planChoice = 'pub/open-plan';
+    await app.exportView('json', 'save');
+    expect(files[0]!.name).toBe('tasks-plan-open-plan-2026-10-24.json');
+    expect(JSON.parse(files[0]!.text)).toMatchObject({ view: 'plan-open-plan', tasks: [{ id: 'pub/b', group: translate('de', 'plan.stage', { n: 1 }) }] });
+    app.planChoice = 'priv/secret-plan';
+    await app.exportView('json', 'save');
+    expect(files[1]!.name).toBe('tasks-plan-2026-10-24.json');
+    expect(files[1]!.text).not.toContain('secret');
+    expect(JSON.parse(files[1]!.text).tasks.map((x: { id: string }) => x.id)).toEqual(['pub/a']);
+    // The whole vault: the task of the private plan keeps its place, without the id of that plan.
+    app.planChoice = '';
+    await app.exportView('csv', 'save');
+    expect(files[2]!.text).not.toContain('secret');
+    expect(files[2]!.text).toContain('pub/open-plan');
     app.stop();
   });
 
@@ -1122,6 +1175,7 @@ describe('App, the export', () => {
 
   it('offers every format and both ways in the palette', () => {
     const { app } = make();
+    app.setView('list');
     const keys = paletteActions(app).map((a) => a.key);
     for (const format of ['csv', 'json', 'markdown']) {
       expect(keys).toContain(`export.save.${format}`);
@@ -4200,6 +4254,71 @@ describe('the saved views', () => {
   };
   const last = (m: ReturnType<typeof make>) => m.hub.sent.at(-1)!.ops;
   const form = (): ViewForm => ({ title: 'Mine', display: 'columns', group_by: 'status', collapsed: [], select: emptySelect() });
+
+  /** A view opened in its tab, with the groupings it is drawn with read. */
+  async function opened(m: ReturnType<typeof made>, id: string) {
+    await m.app.start(null);
+    await vi.waitFor(() => expect(m.app.viewsState.list.some((v) => v.id === id)).toBe(true));
+    m.app.openView(id);
+    await vi.waitFor(() => expect(m.app.viewsState.groupingsShown).not.toBeNull());
+    // The classes of the areas come a moment after the list.
+    await new Promise((r) => setTimeout(r, 10));
+  }
+
+  it('export their groups, as the view draws them, the group of no value named', async () => {
+    const m = made();
+    m.hub.viewList = [view('pub/mine', { group_by: 'tags' })];
+    await opened(m, 'pub/mine');
+    const { view: name, rows } = m.app.exportRows();
+    expect(name).toBe('view-mine');
+    expect(rows.map((r) => `${r.group} ${r.task.id}`)).toEqual(['ui pub/b', `${translate('de', 'views.none')} pub/a`]);
+    m.app.stop();
+  });
+
+  it('export a matrix cell by cell, the column as the group and the row beside it', async () => {
+    const m = made();
+    m.hub.viewList = [view('pub/grid', { display: 'matrix', group_by: 'status', group_by2: 'tags' })];
+    await opened(m, 'pub/grid');
+    const rows = m.app.exportRows().rows.map((r) => `${r.row} | ${r.group} | ${r.task.id}`);
+    // The rows are the second field (tags), the columns the first (status): as the view draws them.
+    expect(rows).toEqual(['ui | doing | pub/b', `${translate('de', 'views.none')} | open | pub/a`]);
+    m.app.stop();
+  });
+
+  it('export nothing where the view draws only a note, and a view of a private area is not named', async () => {
+    const m = made();
+    m.hub.areaList = [
+      { name: 'pub', data_class: 'public' },
+      { name: 'priv', data_class: 'private' },
+    ];
+    m.hub.viewList = [view('pub/half', { display: 'matrix', group_by: 'status' }), view('priv/secret-view'), view('pub/odd', { group_by: 'nope' as View['group_by'] })];
+    await opened(m, 'pub/half');
+    expect(m.app.exportRows().rows).toEqual([]);
+    m.app.openView('pub/odd');
+    expect(m.app.exportRows().rows).toEqual([]);
+    m.app.openView('priv/secret-view');
+    const { view: name, rows } = m.app.exportRows();
+    expect(name).toBe('view');
+    expect(rows.length).toBeGreaterThan(0);
+    m.app.stop();
+  });
+
+  it('are the only tab besides the list, the board and the plan with an export, and only with a view open', async () => {
+    const m = made();
+    await m.app.start(null);
+    const exports = () => paletteActions(m.app).some((a) => a.key.startsWith('export.'));
+    m.app.setView('today');
+    expect([m.app.exportable, exports()]).toEqual([false, false]);
+    m.app.setView('inbox');
+    expect(m.app.exportable).toBe(false);
+    m.app.setView('views');
+    expect(m.app.exportable).toBe(false);
+    for (const tab of ['list', 'board', 'plan'] as const) {
+      m.app.setView(tab);
+      expect([tab, m.app.exportable, exports()]).toEqual([tab, true, true]);
+    }
+    m.app.stop();
+  });
 
   it('are forgotten when the session is lost', async () => {
     const m = made();

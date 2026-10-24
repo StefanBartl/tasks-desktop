@@ -90,6 +90,8 @@
       return;
     }
     if (!app.shortcuts || app.phase !== 'ready') return;
+    // A key an element of the page already took (the Escape that closed a popup) is not also a key of the page.
+    if (event.defaultPrevented) return;
     if (event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) return;
     if (MODIFIERS.has(event.key)) return;
     if (chord) {
@@ -200,6 +202,7 @@
 
   /** The entries of the menu that export what the view shows: a file for each format, then the clipboard. */
   const exportItems = (ready: boolean) =>
+    // Only where the view shows tasks: an export from Today or the inbox would take the list, which is not shown there.
     (
       [
         ['menu.save_csv', 'csv', 'save'],
@@ -212,7 +215,7 @@
     ).map(([label, format, how]) => ({
       kind: 'action' as const,
       label: t(label),
-      disabled: !ready,
+      disabled: !ready || !app.exportable,
       onselect: () => void app.exportView(format, how),
     }));
 

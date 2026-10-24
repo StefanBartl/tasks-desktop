@@ -15,6 +15,7 @@
   ];
 
   let open = $state(false);
+  let details: HTMLDetailsElement | undefined = $state();
   let summary: HTMLElement | undefined = $state();
 
   /** Run one entry; the popup closes and the focus goes back to the button that opened it. */
@@ -24,21 +25,30 @@
     void app.exportView(format, how);
   }
 
-  /** Escape closes the popup only: it is not also the Escape of the page (which would take the selection away). */
+  /**
+   * Escape closes the popup and gives the focus back to its button. The key is marked as taken (the page does not
+   * also take the selection away), but goes on: the kit's hint, on the document, closes on it too.
+   */
   function closeOnEscape(e: KeyboardEvent): void {
     if (e.key !== 'Escape' || !open) return;
     e.preventDefault();
-    e.stopPropagation();
     open = false;
     summary?.focus();
   }
+
+  /** A press or a focus elsewhere closes the popup: it would cover the rows below it. */
+  function closeOutside(e: Event): void {
+    if (open && details && e.target instanceof Node && !details.contains(e.target)) open = false;
+  }
 </script>
 
-<details class="export" bind:open>
+<svelte:document onpointerdown={closeOutside} onfocusin={closeOutside} />
+
+<details class="export" bind:open bind:this={details}>
   <summary bind:this={summary} aria-label={t('export.label')} data-hint={t('export.hint')} onkeydown={closeOnEscape}>
     <span aria-hidden="true">⤓</span> {t('export.button')}
   </summary>
-  <div class="popup" role="group" aria-label={t('export.label')}>
+  <div class="popup" role="group" aria-label={t('export.choices')}>
     {#each FORMATS as [format, name] (format)}
       <button type="button" disabled={app.phase !== 'ready'} onkeydown={closeOnEscape} onclick={() => run(format, 'save')}
         >{t('export.save', { format: name })}</button

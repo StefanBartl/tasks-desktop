@@ -799,6 +799,8 @@ const en = {
   'menu.export_where': 'Export: the button Export of each view, or the View menu',
   'export.button': 'Export',
   'export.label': 'Export the tasks of this view',
+  'export.choices': 'Ways to export',
+  'export.classes_unknown': 'Nothing exported yet: the classes of the areas are not read yet. Try again in a moment.',
   'export.hint':
     'The tasks this view shows (or the marked ones), in its order and with the group each stands in, as a file or on the clipboard. Tasks of private or unclassified areas stay in the app.',
   'export.save': 'Save as {format} ...',
@@ -1807,7 +1809,9 @@ const de: Record<Key, string> = {
   'menu.copy_json': 'Tasks als JSON kopieren',
   'menu.export_where': 'Export: der Knopf Export jeder Ansicht, oder das Menü Ansicht',
   'export.button': 'Export',
-  'export.label': 'Die Tasks dieser Ansicht exportieren',
+  'export.label': 'Export: die Tasks dieser Ansicht',
+  'export.choices': 'Wege des Exports',
+  'export.classes_unknown': 'Noch nichts exportiert: die Klassen der Bereiche sind noch nicht gelesen. Gleich noch einmal versuchen.',
   'export.hint':
     'Die Tasks, die diese Ansicht zeigt (oder die markierten), in ihrer Reihenfolge und mit der Gruppe, in der sie stehen, als Datei oder in die Zwischenablage. Tasks privater oder nicht eingestufter Bereiche bleiben in der App.',
   'export.save': 'Als {format} speichern ...',

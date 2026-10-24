@@ -1022,9 +1022,12 @@ test('the export: the button of a view, the View menu and the palette take what 
     const button = page.locator('.filters details.export summary');
     await expect(button).toHaveText(/Export/);
     await expect(button).toHaveAttribute('aria-label', 'Export the tasks of this view');
+    // A task is selected: the Escape that closes the popup is the popup's, and the selection stays.
+    await page.locator('button.row', { hasText: `export-e2e-${tag}-one` }).click();
+    await expect(page.locator('aside.detail .id')).toHaveText(lib[0]!);
     await button.focus();
     await page.keyboard.press('Enter');
-    const popup = page.getByRole('group', { name: 'Export the tasks of this view' });
+    const popup = page.getByRole('group', { name: 'Ways to export' });
     await expect(popup.getByRole('button', { name: 'Save as JSON ...' })).toBeVisible();
     await expectAccessible(page, 'the list with the export open');
     await page.keyboard.press('Tab');
@@ -1032,6 +1035,12 @@ test('the export: the button of a view, the View menu and the palette take what 
     await page.keyboard.press('Escape');
     await expect(popup).toBeHidden();
     await expect(button).toBeFocused();
+    await expect(page.locator('aside.detail .id')).toHaveText(lib[0]!);
+    // A press elsewhere closes it too (it would cover the rows below it).
+    await button.click();
+    await expect(popup).toBeVisible();
+    await page.locator('p.count').click();
+    await expect(popup).toBeHidden();
 
     // JSON of the list: the tasks shown in the list's order, the private one left in the app and said so.
     await button.click();
@@ -1067,7 +1076,11 @@ test('the export: the button of a view, the View menu and the palette take what 
     expect(plan.suggestedFilename()).toMatch(/^tasks-plan-\d{4}-\d{2}-\d{2}\.json$/);
     const stages = JSON.parse(readFileSync((await plan.path()) as string, 'utf8')) as { tasks: { id: string; group: string }[] };
     expect(stages.tasks.map((x) => x.id).sort()).toEqual([...lib].sort());
-    expect(stages.tasks.every((x) => /^(stage \d+|no stage)$/.test(x.group))).toBe(true);
+    // Each task with the stage the view shows it under, in the view's words.
+    for (const x of stages.tasks) {
+      const stage = page.locator('.stage', { has: page.locator(`li[data-id="${x.id}"]`) });
+      await expect(stage.locator('h2')).toHaveText(new RegExp(`^${x.group} \\(\\d+\\)$`));
+    }
 
     // A view that shows nothing exports nothing, and says so.
     await showList(page);

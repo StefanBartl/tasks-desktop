@@ -66,24 +66,27 @@ export function csvSeparatorFor(locale: string | undefined): CsvSeparator {
 }
 
 /**
- * A task as a view shows it: with the group it stands in (a column of the board, a stage of the plan, a group or a
- * cell of a saved view). A task the view shows twice (a tag group for each of its tags) is two rows.
+ * A task as a view shows it: with the group it stands in (a column of the board, a stage of the plan, a group of a
+ * saved view, the column of a matrix with its `row` beside it). A task the view shows twice (a tag group for each of
+ * its tags) is two rows.
  */
 export interface ExportRow {
   task: TaskEntry;
   group?: string;
+  row?: string;
 }
 
 const rowsOf = (tasks: readonly TaskEntry[]): ExportRow[] => tasks.map((task) => ({ task }));
 const grouped = (rows: readonly ExportRow[]): boolean => rows.some((r) => r.group !== undefined);
+const inRows = (rows: readonly ExportRow[]): boolean => rows.some((r) => r.row !== undefined);
 
-/** The rows as CSV; a view with groups puts the group in a first column. */
+/** The rows as CSV; a view with groups puts the group in a first column (and a matrix its row in a second). */
 export function rowsToCsv(rows: readonly ExportRow[], separator: CsvSeparator = ','): string {
-  const withGroup = grouped(rows);
-  const lines = [(withGroup ? ['group', ...CSV_COLUMNS] : [...CSV_COLUMNS]).join(separator)];
-  for (const { task, group } of rows) {
-    const cells = CSV_COLUMNS.map((c) => csvCell(field(task, c)));
-    lines.push((withGroup ? [csvCell(group ?? ''), ...cells] : cells).join(separator));
+  const lead = [...(grouped(rows) ? ['group'] : []), ...(inRows(rows) ? ['row'] : [])] as const;
+  const lines = [[...lead, ...CSV_COLUMNS].join(separator)];
+  for (const r of rows) {
+    const front = lead.map((c) => csvCell((c === 'group' ? r.group : r.row) ?? ''));
+    lines.push([...front, ...CSV_COLUMNS.map((c) => csvCell(field(r.task, c)))].join(separator));
   }
   return lines.join('\r\n') + '\r\n';
 }
@@ -100,8 +103,8 @@ export const JSON_FORMAT = 'tasks-desktop-export/1';
  * task does not have left out, and the group where the view has one. `view` names the view they come from.
  */
 export function rowsToJson(rows: readonly ExportRow[], view: string): string {
-  const tasks = rows.map(({ task, group }) => {
-    const out: Record<string, unknown> = group === undefined ? {} : { group };
+  const tasks = rows.map(({ task, group, row }) => {
+    const out: Record<string, unknown> = { ...(group === undefined ? {} : { group }), ...(row === undefined ? {} : { row }) };
     for (const column of CSV_COLUMNS) {
       const value = task[column];
       if (value !== undefined && value !== null) out[column] = value;
@@ -130,8 +133,8 @@ export function rowsToMarkdown(rows: readonly ExportRow[]): string {
   if (!grouped(rows)) return rows.map((r) => mdLine(r.task)).join('\n') + '\n';
   const parts: string[] = [];
   let current: string | undefined;
-  for (const { task, group } of rows) {
-    const name = group ?? '';
+  for (const { task, group, row } of rows) {
+    const name = row === undefined ? (group ?? '') : `${row} / ${group ?? ''}`;
     if (parts.length === 0 || name !== current) {
       if (parts.length > 0) parts.push('');
       parts.push(`## ${mdText(name) || '-'}`, '');

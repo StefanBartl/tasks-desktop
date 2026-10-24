@@ -60,7 +60,7 @@ import { Preferences, StreamSession } from 'appkit-ui/session';
 import type { SseMessage } from 'appkit-ui/sse';
 import { LANGS, translate, type Key, type Lang } from './i18n';
 import { csvSeparatorFor, EXPORT_FILES, exportFileName, rowsText, type ExportFormat, type ExportRow } from './export';
-import { boardRows, cellRows, groupRows, mayLeave, onlyMarked, stageRows, taskCount } from './viewExport';
+import { boardRows, cellRows, groupRows, mayLeave, onlyMarked, stageRows, taskCount, withoutPlansOf } from './viewExport';
 import { chosenPlan, stagesOf } from './plan';
 import { applyOrder, orderOf, parseSort, type SortWord } from './sort';
 import { fromEngineList, type EngineList } from './engineLists';
@@ -1396,48 +1396,73 @@ export class App {
     this.marks = next;
   }
 
-  /** The text of the marked tasks, or of those the list shows when none is marked, in the order of the list. */
+  /** Whether the view that is shown draws tasks an export can take (the list, the board, the plan, an open saved view). */
+  get exportable(): boolean {
+    return this.view === 'list' || this.view === 'board' || this.view === 'plan' || (this.view === 'views' && this.viewsState.open !== null);
+  }
+
+  /**
+   * The name of a plan or a saved view in the name of the file: its slug, when its area may leave the app; a plan or
+   * a view kept in a private area may select tasks of public ones, and its id must not go with them.
+   */
+  private exportName(kind: 'plan' | 'view', id: string): string {
+    const slug = id.slice(id.indexOf('/') + 1);
+    return slug !== '' && this.mayRememberArea(areaOfId(id)) ? `${kind}-${slug}` : kind;
+  }
+
   /**
    * What the view that is shown draws, as rows for an export: the board's columns, the plan's stages, the groups or
-   * cells of a saved view; the list (and a view that draws no list of tasks) gives the tasks the list shows. `view`
-   * names it for the file.
+   * cells of a saved view (nothing where it draws only a note), the list's rows for the list. `view` names it for the
+   * file; a view that draws no tasks has none.
    */
   viewRows(): { view: string; rows: ExportRow[] } {
+    const t = (key: Key, params: Record<string, string | number> = {}) => translate(this.lang, key, params);
     switch (this.view) {
+      case 'list':
+        return { view: 'list', rows: this.shown.map((task) => ({ task })) };
       case 'board':
         return { view: 'board', rows: boardRows(this.shown) };
       case 'plan': {
         const plan = chosenPlan(this.snapshot?.plans ?? [], this.planChoice);
-        return { view: plan === '' ? 'plan' : `plan-${plan.slice(plan.indexOf('/') + 1)}`, rows: stageRows(stagesOf(this.shown, plan === '' ? null : plan)) };
+        const name = (stage: number | null) => (stage === null ? t('plan.no_stage') : t('plan.stage', { n: stage }));
+        return { view: plan === '' ? 'plan' : this.exportName('plan', plan), rows: stageRows(stagesOf(this.shown, plan === '' ? null : plan), name) };
       }
       case 'views': {
         const open = this.viewsState.open;
         if (open === null) break;
+        const view = this.exportName('view', open.id);
         const fields = this.viewsState.groupingsShown?.fields ?? [];
-        const tasks = this.tasksOfView(open);
-        const name = `view-${open.id.slice(open.id.indexOf('/') + 1)}`;
         const columns = fields.find((f) => f.field === open.group_by);
-        if (!columns) return { view: name, rows: tasks.map((task) => ({ task })) };
-        const rows = open.display === 'matrix' && open.group_by2 !== undefined ? fields.find((f) => f.field === open.group_by2) : undefined;
+        const rows = open.group_by2 === undefined ? undefined : fields.find((f) => f.field === open.group_by2);
+        // As the view: a field it does not know, or a matrix without its second field, is a note and no tasks.
+        if (!columns || (open.display === 'matrix' && !rows)) return { view, rows: [] };
+        const label = (value: string) => (value === NONE ? t('views.none') : value);
+        const tasks = this.tasksOfView(open);
         return {
-          view: name,
-          rows: rows ? cellRows(cellsOf(tasks, rows, columns, this.derivedValues)) : groupRows(groupsOf(tasks, columns, this.derivedValues)),
+          view,
+          rows:
+            open.display === 'matrix' && rows
+              ? cellRows(cellsOf(tasks, rows, columns, this.derivedValues), label)
+              : groupRows(groupsOf(tasks, columns, this.derivedValues), label),
         };
       }
     }
-    return { view: 'list', rows: this.shown.map((task) => ({ task })) };
+    return { view: 'list', rows: [] };
   }
 
   /**
-   * The rows an export takes: the view's, only the marked ones when some are marked, and none of a private or
-   * unclassified area (`kept`: how many tasks stay in the app for that).
+   * The rows an export takes: the view's (in the list only the marked ones when some are marked: the other views do
+   * not show the marks), none of a private or unclassified area (`kept`: how many tasks stay in the app for that), and
+   * no id of a plan kept in such an area.
    */
   exportRows(): { view: string; rows: ExportRow[]; kept: number } {
     const { view, rows } = this.viewRows();
-    const { rows: out, kept } = mayLeave(onlyMarked(rows, new Set(this.marks)), (task) => this.mayRememberArea(task.area));
-    return { view, rows: out, kept };
+    const marked = onlyMarked(rows, new Set(this.view === 'list' ? this.marks : []));
+    const { rows: out, kept } = mayLeave(marked, (task) => this.mayRememberArea(task.area));
+    return { view, rows: withoutPlansOf(out, (plan) => this.mayRememberArea(areaOfId(plan))), kept };
   }
 
+  /** The text of an export in `format`, with the name of its view and how many tasks it holds and keeps back. */
   exportTasks(format: ExportFormat): { view: string; text: string; count: number; kept: number } {
     const { view, rows, kept } = this.exportRows();
     // The spreadsheet that opens the file is the one of the system: its locale decides the column separator.
@@ -1452,7 +1477,9 @@ export class App {
   async exportView(format: ExportFormat, how: 'save' | 'copy'): Promise<void> {
     const { view, text, count, kept } = this.exportTasks(format);
     if (count === 0) {
-      this.say('error', kept > 0 ? 'export.only_kept' : 'export.empty', { m: kept });
+      // Before the classes are read (or when the hub could not tell them) every task is held back: that is not their class.
+      const key = kept === 0 ? 'export.empty' : this.hubAreas.length === 0 ? 'export.classes_unknown' : 'export.only_kept';
+      this.say('error', key, { m: kept });
       return;
     }
     const file = EXPORT_FILES[format];

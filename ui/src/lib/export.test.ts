@@ -183,6 +183,20 @@ describe('the rows of a view', () => {
     );
   });
 
+  it('of a matrix carry the row in a column of its own, in every format', () => {
+    const cells = [
+      { task: task('a/one', { title: 'One' }), group: 'doing', row: 'ui' },
+      { task: task('a/two', { title: 'Two' }), group: 'open', row: '=cmd' },
+    ];
+    const lines = rowsToCsv(cells).trimEnd().split('\r\n');
+    expect(lines[0]!.startsWith('group,row,id,')).toBe(true);
+    expect(lines[1]!.startsWith('doing,ui,a/one,')).toBe(true);
+    // The row is a cell like the others: it does not run as a formula.
+    expect(lines[2]!.startsWith("open,'=cmd,a/two,")).toBe(true);
+    expect((JSON.parse(rowsToJson(cells, 'v')) as { tasks: Record<string, unknown>[] }).tasks[0]).toMatchObject({ group: 'doing', row: 'ui' });
+    expect(rowsToMarkdown(cells)).toBe('## ui / doing\n\n- [ ] `a/one` One\n\n## =cmd / open\n\n- [ ] `a/two` Two\n');
+  });
+
   it('are picked by the format', () => {
     expect(rowsText(rows, 'csv', ',', 'v')).toBe(rowsToCsv(rows, ','));
     expect(rowsText(rows, 'json', ',', 'v')).toBe(rowsToJson(rows, 'v'));

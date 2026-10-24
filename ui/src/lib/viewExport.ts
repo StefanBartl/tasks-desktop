@@ -13,24 +13,37 @@ export function boardRows(tasks: readonly TaskEntry[]): ExportRow[] {
   return COLUMNS.flatMap((column) => columns[column].map((task) => ({ task, group: column })));
 }
 
-/** The plan: the stages in order (the tasks without a stage last, as the view has them). */
-export function stageRows(stages: readonly Stage[]): ExportRow[] {
-  return stages.flatMap((s) => s.tasks.map((task) => ({ task, group: s.stage === null ? 'no stage' : `stage ${s.stage}` })));
+/** The plan: the stages in order (the tasks without a stage last, as the view has them), named as the view names them. */
+export function stageRows(stages: readonly Stage[], name: (stage: number | null) => string): ExportRow[] {
+  return stages.flatMap((s) => s.tasks.map((task) => ({ task, group: name(s.stage) })));
 }
 
-/** A saved view shown as columns or as a list: its groups in order (the group of no value is an empty one). */
-export function groupRows(groups: readonly Group<TaskEntry>[]): ExportRow[] {
-  return groups.flatMap((g) => g.items.map((task) => ({ task, group: g.value })));
+/** A saved view shown as columns or as a list: its groups in order, named as the view names them (the group of no value). */
+export function groupRows(groups: readonly Group<TaskEntry>[], label: (value: string) => string): ExportRow[] {
+  return groups.flatMap((g) => g.items.map((task) => ({ task, group: label(g.value) })));
 }
 
-/** A saved view shown as a matrix: the cells row by row, each named by its row and its column. */
-export function cellRows(cells: readonly { row: string; column: string; items: TaskEntry[] }[]): ExportRow[] {
-  return cells.flatMap((c) => c.items.map((task) => ({ task, group: `${c.row} / ${c.column}` })));
+/** A saved view shown as a matrix: the cells row by row, the column as the group and the row beside it. */
+export function cellRows(cells: readonly { row: string; column: string; items: TaskEntry[] }[], label: (value: string) => string): ExportRow[] {
+  return cells.flatMap((c) => c.items.map((task) => ({ task, group: label(c.column), row: label(c.row) })));
 }
 
 /** Only the marked tasks, when some are marked: the marks say what is meant. */
 export function onlyMarked(rows: readonly ExportRow[], marks: ReadonlySet<string>): ExportRow[] {
   return marks.size === 0 ? [...rows] : rows.filter((r) => marks.has(r.task.id));
+}
+
+/**
+ * The tasks without the id of a plan that may not leave: a task of a public area can stand in a plan kept in a
+ * private one, whose id names that area. The field goes, the task stays.
+ */
+export function withoutPlansOf(rows: readonly ExportRow[], allowed: (planId: string) => boolean): ExportRow[] {
+  return rows.map((r) => {
+    if (r.task.plan === undefined || allowed(r.task.plan)) return r;
+    const task = { ...r.task };
+    delete task.plan;
+    return { ...r, task };
+  });
 }
 
 /**
