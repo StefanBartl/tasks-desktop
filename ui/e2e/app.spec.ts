@@ -1096,6 +1096,53 @@ test('the export: the button of a view, the View menu and the palette take what 
   }
 });
 
+/** Each entry of the open popup of Export: whole in the window, and the element at its middle is the entry itself. */
+async function exportEntriesReachable(page: Page): Promise<{ name: string; inside: boolean; hit: boolean }[]> {
+  return page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>('details.export[open] .popup button')].map((b) => {
+      const r = b.getBoundingClientRect();
+      const root = document.documentElement;
+      const inside = r.width > 0 && r.left >= 0 && r.top >= 0 && r.right <= root.clientWidth && r.bottom <= root.clientHeight;
+      return { name: b.textContent ?? '', inside, hit: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === b };
+    }),
+  );
+}
+
+test('the popup of Export stays whole: in a list sized small and in a narrow window', async ({ page }) => {
+  // A list sized to its smallest: it scrolls what does not fit, and the popup must not be cut by it.
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('sized-once') === null) {
+      sessionStorage.setItem('sized-once', '1');
+      localStorage.setItem('tasks-desktop.sizes', JSON.stringify({ list: { w: 1, h: 1 } }));
+    }
+  });
+  await pair(page);
+  await showList(page);
+  await expect(page.locator('section.list')).toHaveCSS('overflow', 'auto');
+  const button = page.locator('.filters details.export summary');
+  await button.click();
+  await expect(page.locator('details.export[open] .popup')).toBeVisible();
+  let entries = await exportEntriesReachable(page);
+  expect(entries).toHaveLength(6);
+  expect(entries.filter((e) => !e.inside || !e.hit)).toEqual([]);
+  // The entry works from there: a click saves.
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save as CSV ...' }).click()]);
+  expect(download.suggestedFilename()).toMatch(/^tasks-list-/);
+
+  // A narrow window, the list in its own size again: the row of filters wraps and the button can stand at the left.
+  await page.evaluate(() => localStorage.removeItem('tasks-desktop.sizes'));
+  await page.setViewportSize({ width: 420, height: 800 });
+  await page.reload();
+  await showList(page);
+  await expect(page.locator('section.list')).not.toHaveCSS('overflow', 'auto');
+  await button.click();
+  await expect(page.locator('details.export[open] .popup')).toBeVisible();
+  entries = await exportEntriesReachable(page);
+  expect(entries).toHaveLength(6);
+  expect(entries.filter((e) => !e.inside || !e.hit)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
 test('a choice of several areas says how they combine and does not move under the pointer', async ({ page }) => {
   await pair(page);
   await showList(page);

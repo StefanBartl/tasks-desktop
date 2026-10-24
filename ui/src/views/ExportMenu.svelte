@@ -17,6 +17,44 @@
   let open = $state(false);
   let details: HTMLDetailsElement | undefined = $state();
   let summary: HTMLElement | undefined = $state();
+  let popup: HTMLDivElement | undefined = $state();
+  /** Where the popup stands in the window: fixed, so that a block that scrolls (a sized list) does not cut it. */
+  let place = $state<{ left: number; top: number } | null>(null);
+
+  /** The space kept between the popup and the edge of the window, and between the popup and its button. */
+  const EDGE = 8;
+  const GAP = 4;
+
+  /**
+   * Put the popup under its button, its right edge at the button's, kept inside the window (a button at the left of a
+   * narrow window); above the button when there is no room below and there is above.
+   */
+  function placePopup(): void {
+    if (!open || !summary || !popup) return;
+    const button = summary.getBoundingClientRect();
+    const { offsetWidth: w, offsetHeight: h } = popup;
+    const { clientWidth, clientHeight } = document.documentElement;
+    const left = Math.max(EDGE, Math.min(button.right - w, clientWidth - EDGE - w));
+    const below = button.bottom + GAP;
+    const above = button.top - GAP - h;
+    const top = below + h > clientHeight - EDGE && above >= EDGE ? above : below;
+    place = { left, top };
+  }
+
+  // While it is open the popup follows its button: a scroll of the page or of a block, a change of the window's size.
+  $effect(() => {
+    if (!open) {
+      place = null;
+      return;
+    }
+    placePopup();
+    window.addEventListener('scroll', placePopup, true);
+    window.addEventListener('resize', placePopup);
+    return () => {
+      window.removeEventListener('scroll', placePopup, true);
+      window.removeEventListener('resize', placePopup);
+    };
+  });
 
   /** Run one entry; the popup closes and the focus goes back to the button that opened it. */
   function run(format: ExportFormat, how: 'save' | 'copy'): void {
@@ -48,7 +86,15 @@
   <summary bind:this={summary} aria-label={t('export.label')} data-hint={t('export.hint')} onkeydown={closeOnEscape}>
     <span aria-hidden="true">⤓</span> {t('export.button')}
   </summary>
-  <div class="popup" role="group" aria-label={t('export.choices')}>
+  <div
+    class="popup"
+    role="group"
+    aria-label={t('export.choices')}
+    bind:this={popup}
+    class:placed={place !== null}
+    style:left={place ? `${place.left}px` : undefined}
+    style:top={place ? `${place.top}px` : undefined}
+  >
     {#each FORMATS as [format, name] (format)}
       <button type="button" disabled={app.phase !== 'ready'} onkeydown={closeOnEscape} onclick={() => run(format, 'save')}
         >{t('export.save', { format: name })}</button
@@ -84,10 +130,12 @@
   summary::-webkit-details-marker {
     display: none;
   }
+  /* Measured once open (see `placePopup`); until then it is not seen, so it does not flash at the window's corner. */
   .popup {
-    position: absolute;
-    right: 0;
-    top: calc(100% + 0.25rem);
+    position: fixed;
+    left: 0;
+    top: 0;
+    visibility: hidden;
     z-index: 20;
     display: flex;
     flex-direction: column;
@@ -97,6 +145,9 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: var(--shadow);
+  }
+  .popup.placed {
+    visibility: visible;
   }
   .popup button {
     text-align: left;
