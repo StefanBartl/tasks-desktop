@@ -33,6 +33,52 @@
   const matrixAreas = $derived(areasOfPairs(pairs));
   const countOf = (x: string, y: string): number =>
     pairs.find((p) => (p.a === x && p.b === y) || (p.a === y && p.b === x))?.count ?? 0;
+  // The guide lines of the matrix: the row and the column under the pointer (or the focus) are drawn to the number
+  // and the numbers of the two grow, so that a long matrix can be read across. The way is kept in this browser.
+  const GUIDE_KEY = 'tasks-desktop.cross.guide';
+  const GUIDES = ['lines', 'dashed', 'cross', 'off'] as const;
+  type Guide = (typeof GUIDES)[number];
+  function storedGuide(): Guide {
+    try {
+      const v = localStorage.getItem(GUIDE_KEY);
+      return GUIDES.find((g) => g === v) ?? 'lines';
+    } catch {
+      return 'lines';
+    }
+  }
+  let guide = $state<Guide>(storedGuide());
+  function setGuide(next: Guide): void {
+    guide = next;
+    try {
+      localStorage.setItem(GUIDE_KEY, next);
+    } catch {
+      // A blocked store: the choice holds until the page is left.
+    }
+  }
+  /** The row and the column the pointer or the focus is on, as positions in the matrix. */
+  let hot = $state<{ r: number; c: number } | null>(null);
+  function track(event: Event): void {
+    const el = (event.target as Element | null)?.closest<HTMLElement>('[data-r],[data-c]');
+    if (!el) return;
+    const r = el.dataset['r'];
+    const c = el.dataset['c'];
+    // A header names one of the two: the other keeps what it was, or the first cell of the matrix.
+    hot = { r: r !== undefined ? Number(r) : (hot?.r ?? 0), c: c !== undefined ? Number(c) : (hot?.c ?? 0) };
+  }
+  /** What a cell is to the guide lines: on the row up to the hot cell, on the column up to it, or the hot cell itself. */
+  function guideOf(r: number, c: number): string {
+    if (!hot || guide === 'off') return '';
+    const full = guide === 'cross';
+    const inRow = r === hot.r && (full || c <= hot.c);
+    const inCol = c === hot.c && (full || r <= hot.r);
+    return [
+      inRow ? 'g-row' : '',
+      inCol ? 'g-col' : '',
+      r === hot.r && c === hot.c ? 'g-hot' : '',
+      r === hot.r || c === hot.c ? 'g-near' : '',
+    ].join(' ');
+  }
+
   /** The pairs that are open (a click on a cell of the matrix opens one). */
   let openKeys = $state<string[]>([]);
   const keyOf = (a: string, b: string): string => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
@@ -113,26 +159,46 @@
   {:else}
     {#if matrixAreas.length >= 2}
       <section class="card" aria-labelledby="cross-matrix-title">
-        <h3 id="cross-matrix-title" class="eyebrow">{t('cross.matrix')}</h3>
+        <div class="matrix-head">
+          <h3 id="cross-matrix-title" class="eyebrow">{t('cross.matrix')}</h3>
+          <label class="guide-pick" data-hint={t('hint.cross.guide')}>
+            <span class="sr-only">{t('cross.guide')}</span>
+            <select value={guide} aria-label={t('cross.guide')} onchange={(e) => setGuide(e.currentTarget.value as Guide)}>
+              {#each GUIDES as g (g)}
+                <option value={g}>{t(`cross.guide.${g}` as Key)}</option>
+              {/each}
+            </select>
+          </label>
+        </div>
         <div>
         <!-- A wide matrix scrolls in its own box, which the keyboard can reach. -->
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <div class="scroll" tabindex="0">
-        <table aria-labelledby="cross-matrix-title">
+        <!-- The pointer and the focus only tell the guide lines where they are; the cells keep their own buttons. -->
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        <table
+          aria-labelledby="cross-matrix-title"
+          class="guided guide-{guide}"
+          onmouseover={track}
+          onfocusin={track}
+          onmouseleave={() => (hot = null)}
+          onfocusout={() => (hot = null)}
+        >
           <thead>
             <tr>
               <th scope="col"><span class="sr-only">{t('cross.matrix')}</span></th>
-              {#each matrixAreas as col (col)}
-                <th scope="col">{markHidden(nameOf(col))}</th>
+              {#each matrixAreas as col, ci (col)}
+                <th scope="col" data-c={ci} class:g-near={hot?.c === ci && guide !== 'off'}>{markHidden(nameOf(col))}</th>
               {/each}
             </tr>
           </thead>
           <tbody>
-            {#each matrixAreas as row (row)}
+            {#each matrixAreas as row, ri (row)}
               <tr>
-                <th scope="row">{markHidden(nameOf(row))}</th>
-                {#each matrixAreas as col (col)}
-                  <td class="num">
+                <th scope="row" data-r={ri} class:g-near={hot?.r === ri && guide !== 'off'}>{markHidden(nameOf(row))}</th>
+                {#each matrixAreas as col, ci (col)}
+                  <td class="num {guideOf(ri, ci)}" data-r={ri} data-c={ci}>
+                    <span class="chip">
                     {#if row === col}
                       <span class="muted" aria-hidden="true">·</span>
                     {:else if row > col}
@@ -152,6 +218,7 @@
                     {:else}
                       <span class="muted">0</span>
                     {/if}
+                    </span>
                   </td>
                 {/each}
               </tr>
@@ -337,6 +404,82 @@
   thead th {
     color: var(--muted);
     font-size: 0.8rem;
+  }
+  .matrix-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+  .guide-pick select {
+    font: inherit;
+    font-size: 0.8rem;
+  }
+  /* The numbers sit in the middle of their cells, so that the line of a column meets them from above. */
+  .guided td.num {
+    position: relative;
+    text-align: center;
+  }
+  .guided thead th:not(:first-child) {
+    text-align: center;
+  }
+  /* The number is a chip on the colour of the card: the lines run behind it, so they never strike it out. */
+  .chip {
+    position: relative;
+    z-index: 1;
+    display: inline-block;
+    min-width: 1.4em;
+    padding: 0 0.3em;
+    background: var(--surface);
+    transform-origin: center;
+  }
+  .guided th.g-near {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .guided td.g-row::before,
+  .guided td.g-col::after {
+    content: '';
+    position: absolute;
+    pointer-events: none;
+  }
+  .guided td.g-row::before {
+    left: 0;
+    right: 0;
+    top: 50%;
+    border-top: 1px solid var(--accent);
+  }
+  .guided td.g-col::after {
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    border-left: 1px solid var(--accent);
+  }
+  /* The lines stop in the middle of the number's own cell: the row line comes from the left, the column line from above. */
+  .guided:not(.guide-cross) td.g-hot::before {
+    right: 50%;
+  }
+  .guided:not(.guide-cross) td.g-hot::after {
+    bottom: 50%;
+  }
+  .guide-dashed td.g-row::before {
+    border-top-style: dashed;
+  }
+  .guide-dashed td.g-col::after {
+    border-left-style: dashed;
+  }
+  .guided td.g-near .chip {
+    color: var(--accent);
+    transform: scale(1.25);
+  }
+  .guided td.g-hot .chip {
+    transform: scale(1.6);
+    font-weight: 700;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .guided .chip {
+      transition: transform 0.12s ease;
+    }
   }
   .num {
     text-align: right;

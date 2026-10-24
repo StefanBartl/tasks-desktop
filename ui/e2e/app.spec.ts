@@ -5152,6 +5152,47 @@ test('help: the repository and the license are linked, and the documentation ope
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
+test('connections: the row and the column under the pointer are drawn to the number, which grows; the way is chosen and kept', async ({
+  page,
+}) => {
+  await pair(page);
+  await chooseView(page, 'View', 'Connections');
+  const cell = page.getByRole('button', { name: 'cascade.nvim and lib.nvim: 2 links, open the list' });
+  await expect(cell).toBeVisible();
+  const table = page.locator('table.guided');
+  const hotCell = table.locator('td.g-hot');
+  await expect(hotCell).toHaveCount(0);
+
+  // The pointer on the number: its cell is the meeting point, the names of its row and column stand out.
+  await cell.hover();
+  await expect(hotCell).toHaveCount(1);
+  await expect(table.locator('th.g-near')).toHaveText(['lib.nvim', 'cascade.nvim']);
+  // Lines to the number only: a cell behind it, in its row or column, has none; one before it has.
+  await expect(table.locator('td.g-row')).toHaveCount(2);
+  await expect(table.locator('td.g-col')).toHaveCount(1);
+  // The number sits on the colour of the card, above the lines, and grows while the pointer is there.
+  const chip = hotCell.locator('.chip');
+  await expect.poll(() => chip.evaluate((el) => getComputedStyle(el).transform)).not.toBe('none');
+  expect(await chip.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)');
+  await page.mouse.move(2, 2);
+  await expect(hotCell).toHaveCount(0);
+
+  // The crosshair runs through the whole row and column; the choice stays after a reload.
+  await page.getByLabel('Guide lines').selectOption({ label: 'Crosshair' });
+  await cell.hover();
+  await expect(table.locator('td.g-col')).toHaveCount(2);
+  await expect(table.locator('td.g-row')).toHaveCount(2);
+  await page.reload();
+  await chooseView(page, 'View', 'Connections');
+  await expect(page.getByLabel('Guide lines')).toHaveValue('cross');
+
+  // None: nothing is drawn; the numbers are as they were.
+  await page.getByLabel('Guide lines').selectOption({ label: 'No guide lines' });
+  await cell.hover();
+  await expect(page.locator('table.guided td.g-row')).toHaveCount(0);
+  await page.getByLabel('Guide lines').selectOption({ label: 'Lines to the number' });
+});
+
 test('menus: every entry of every menu of the bar explains itself with a hint', async ({ page }) => {
   await pair(page);
   await showList(page);
