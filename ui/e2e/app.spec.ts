@@ -1226,7 +1226,6 @@ for (const scheme of ['light', 'dark'] as const) {
     await node('lib.nvim/beta').click();
     await expect(page.locator('aside.detail .id')).toHaveText('lib.nvim/beta');
     await expectAccessible(page, `the plan as a graph (${scheme})`);
-    if (scheme === 'light') await page.screenshot({ path: 'C:/Users/bartl/AppData/Local/Temp/claude/E--repos-tasks-desktop/59b7c04c-99f6-4f39-bef6-7af2eaf3d883/scratchpad/graph-light.png', fullPage: true });
 
     // The choice stays over a reload.
     await page.reload();

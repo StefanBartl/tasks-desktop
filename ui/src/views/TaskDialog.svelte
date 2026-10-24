@@ -48,6 +48,17 @@
     gap: 0.5rem;
     margin-bottom: 0.5rem;
   }
+  /* The two buttons are drawn like those of the other dialogs: without a background of their own the browser's grey
+     stood behind the light text in the dark theme (contrast 4.38, axe wants 4.5). */
+  .bar button {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.3rem 0.7rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
   /* The card is the one of the list; here it is not a column beside a list but the content of the dialog. */
   dialog :global(aside.detail) {
     max-height: none;
