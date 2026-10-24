@@ -14,10 +14,10 @@
 
 set -eu
 
-[ $# -ge 1 ] && [ $# -le 2 ] || {
+if [ $# -lt 1 ] || [ $# -gt 2 ]; then
     echo "usage: test-install.sh PATH/TO/tasks-hub [RELEASE_KIT_DIR]" >&2
     exit 2
-}
+fi
 BIN="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 [ -f "$BIN" ] || {
     echo "no such program: $BIN" >&2
