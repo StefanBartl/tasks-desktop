@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyFilter,
   areaLabel,
+  areaOptions,
   emptyFilter,
   moveSelection,
   toggled,
@@ -58,5 +59,26 @@ describe('filter', () => {
   });
   it('finds what waits for a decision of the user', () => {
     expect(waitingForMe(list).map((t) => t.id)).toEqual(['b/three']);
+  });
+});
+
+describe('areaOptions', () => {
+  const all = ['wkdbook-tasks.nvim', 'lib.nvim'];
+
+  it('names tasks-desktop beside the area its tasks are kept in', () => {
+    const options = areaOptions(all, all, true, 'note');
+    const app = options.find((o) => o.value === 'wkdbook-tasks.nvim');
+    expect(app?.label).toBe('tasks.nvim');
+    expect(app?.suffix).toBe('tasks-desktop');
+    expect(app?.title).toContain('note');
+  });
+
+  it('leaves every other area without a suffix', () => {
+    const options = areaOptions(all, all, true, 'note');
+    expect(options.find((o) => o.value === 'lib.nvim')?.suffix).toBeUndefined();
+  });
+
+  it('sorts by the label shown', () => {
+    expect(areaOptions(all, all, true, 'note').map((o) => o.label)).toEqual(['lib.nvim', 'tasks.nvim']);
   });
 });
