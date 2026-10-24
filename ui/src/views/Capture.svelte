@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { closeOnBackdrop } from 'appkit-ui/backdrop';
   // Quick capture: a title and an area, nothing else is required. The
   // engine gives the task its place and its file; the page selects it.
   import type { App } from '../lib/app.svelte';
@@ -54,7 +55,7 @@
   }
 </script>
 
-<dialog bind:this={dialog} aria-labelledby="capture-title" onclose={() => app.closeCapture()}>
+<dialog bind:this={dialog} use:closeOnBackdrop={{ closeable: () => title.trim() === '' && text.trim() === '' }} aria-labelledby="capture-title" onclose={() => app.closeCapture()}>
   <form onsubmit={submit}>
     <h2 id="capture-title">{t('capture.title')}</h2>
     <label>

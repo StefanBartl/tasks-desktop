@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { closeOnBackdrop } from 'appkit-ui/backdrop';
   // A task looked at without leaving the view: the overview and the plan open it here, over themselves, instead of
   // jumping to the list. The detail is the one of the list (the same card, with the same fields); "Show in the list"
   // goes where the other views used to go. Escape closes, the focus goes back to where it was (the dialog does that).
@@ -18,7 +19,7 @@
   });
 </script>
 
-<dialog bind:this={dialog} class="peek" aria-label={t('peek.label')} onclose={() => app.closePeek()}>
+<dialog bind:this={dialog} use:closeOnBackdrop class="peek" aria-label={t('peek.label')} onclose={() => app.closePeek()}>
   {#if app.peeking && app.selectedId !== null}
     <div class="bar">
       <button type="button" onclick={() => app.reveal(app.selectedId as string)}>{t('peek.in_list')}</button>

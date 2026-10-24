@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { closeOnBackdrop } from 'appkit-ui/backdrop';
   // The check of the vault. It runs in the hub, in the background: this dialog starts it, shows what the hub says of
   // it, and lists the engine's findings with a jump to the task. Closing it does not stop the job.
   import type { App } from '../lib/app.svelte';
@@ -32,7 +33,7 @@
   }
 </script>
 
-<dialog bind:this={dialog} aria-labelledby="check-title" onclose={() => app.closeChecks()}>
+<dialog bind:this={dialog} use:closeOnBackdrop aria-labelledby="check-title" onclose={() => app.closeChecks()}>
   {#if app.checking}
     <div class="title-row">
       <h2 id="check-title">{t('check.title')}</h2>

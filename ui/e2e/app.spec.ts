@@ -1683,7 +1683,7 @@ test('the German page has no violations either', async ({ page }) => {
   await expect(page.getByRole('menuitem', { name: 'Ansicht' })).toBeVisible();
   // The name of the app is a name: it stays "Tasks" in German. The menus: the appearance is in the view,
   // the vaults in the project, and the language is in the options.
-  await expect(page.locator('.brand')).toHaveText('Tasks');
+  await expect(page.locator('.kit-brand')).toHaveText('Tasks');
   const bar = page.getByRole('menubar').getByRole('menuitem');
   await expect(bar).toHaveText(['Tasks', 'Projekt', 'Ansicht', 'Optionen', 'Hilfe']);
   await showListDe(page);
@@ -5051,6 +5051,90 @@ test('help: the about dialog names the build and the engine, and the report carr
   await reportDialog.getByRole('button', { name: 'Close' }).click();
   await expect(reportDialog).toHaveCount(0);
   expect(await violations(page)).toEqual([]);
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('dialogs: a click on the backdrop beside a dialog closes it, unless it holds a draft', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+
+  // The about dialog has nothing to lose: a press and a release beside it close it, as Escape does.
+  await page.getByRole('menuitem', { name: 'Help', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'About ...' }).click();
+  const about = page.getByRole('dialog', { name: 'About tasks-desktop' });
+  await expect(about).toBeVisible();
+  // A click inside it does not.
+  await about.getByRole('heading').click();
+  await expect(about).toBeVisible();
+  await page.mouse.click(4, 4);
+  await expect(about).toHaveCount(0);
+
+  // The new-task dialog with a title typed in keeps it: a click beside it is too easily a slip.
+  await page.getByRole('menuitem', { name: 'Tasks', exact: true }).click();
+  await page.getByRole('menuitem', { name: /New task/ }).click();
+  const capture = page.getByRole('dialog', { name: 'New task' });
+  await expect(capture).toBeVisible();
+  await capture.getByLabel('Title').fill('A draft that stays');
+  await page.mouse.click(4, 4);
+  await expect(capture).toBeVisible();
+  await expect(capture.getByLabel('Title')).toHaveValue('A draft that stays');
+  // Emptied, it closes on the click.
+  await capture.getByLabel('Title').fill('');
+  await page.mouse.click(4, 4);
+  await expect(capture).toHaveCount(0);
+});
+
+test('the name at the left of the bar leads back to today and says so on hover', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  const brand = page.getByRole('button', { name: 'Tasks', exact: true });
+  await brand.hover();
+  await expect(page.locator('#hint-tip')).toHaveText(/Back to today/);
+  await brand.click();
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await expect(page.getByRole('menuitemradio', { name: 'Today', exact: true })).toBeChecked();
+});
+
+test('help: the repository and the license are linked, and the documentation opens and is searched', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+
+  // The about dialog links the repository (with its mark) and the license; both open in a new tab.
+  await page.getByRole('menuitem', { name: 'Help', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'About ...' }).click();
+  const about = page.getByRole('dialog', { name: 'About tasks-desktop' });
+  const repo = about.getByRole('link', { name: 'GitHub repository' });
+  await expect(repo).toHaveAttribute('href', 'https://github.com/StefanBartl/tasks-desktop');
+  await expect(repo).toHaveAttribute('target', '_blank');
+  await expect(repo.locator('svg')).toBeVisible();
+  await expect(about.getByRole('link', { name: 'License: MIT' })).toHaveAttribute(
+    'href',
+    'https://github.com/StefanBartl/tasks-desktop/blob/main/LICENSE',
+  );
+  await expectAccessible(page, 'the about dialog with its links');
+  await page.keyboard.press('Escape');
+
+  // The Help menu has a section Documentation: one entry per document opens it in the window.
+  await page.getByRole('menuitem', { name: 'Help', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Releasing', exact: true }).click();
+  const docs = page.getByRole('dialog', { name: 'Documentation' });
+  await expect(docs).toBeVisible();
+  await expect(docs.locator('article.doc')).toContainText(/release/i);
+  await expectAccessible(page, 'the documentation window');
+
+  // The search narrows the list to the documents that say the word.
+  const names = docs.locator('li button .name');
+  const all = await names.count();
+  expect(all).toBeGreaterThan(1);
+  await docs.getByRole('searchbox').fill('dns');
+  await expect(names).toHaveCount(1);
+  await expect(names.first()).toHaveText(/Security/i);
+  await docs.getByRole('searchbox').fill('zzzzzz-nothing');
+  await expect(docs.getByText('Nothing found')).toBeVisible();
+
+  // A click beside it closes it.
+  await page.mouse.click(4, 4);
+  await expect(docs).toHaveCount(0);
   expect(consoleProblems.get(page)).toEqual([]);
 });
 

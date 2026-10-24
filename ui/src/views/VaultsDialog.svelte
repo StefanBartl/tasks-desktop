@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { closeOnBackdrop } from 'appkit-ui/backdrop';
   // The vaults the hub can read: which one is read now, choose another, forget one, add a folder. The hub reads one
   // vault at a time; choosing another loads the page again. Adding a folder is the person's decision, so the dialog
   // says what it means before the button, and the request says it was confirmed.
@@ -43,6 +44,7 @@
 
 <dialog
   bind:this={dialog}
+  use:closeOnBackdrop
   aria-labelledby="vaults-title"
   onclose={() => {
     if (app.managingVaults) app.closeVaults();

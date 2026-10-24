@@ -16,6 +16,9 @@
   import CheckDialog from './views/CheckDialog.svelte';
   import { triageKey } from './lib/inbox';
   import { copyText } from './lib/exportDom';
+  import Brand from 'appkit-ui/Brand.svelte';
+  import DocsDialog from 'appkit-ui/DocsDialog.svelte';
+  import { helpItems } from 'appkit-ui/docs';
   import MenuBar, { type Menu } from 'appkit-ui/MenuBar.svelte';
   import PlanView from './views/PlanView.svelte';
   import Capture from './views/Capture.svelte';
@@ -25,6 +28,7 @@
   import BlockDialog from './views/BlockDialog.svelte';
   import DropMoveDialog from './views/DropMoveDialog.svelte';
   import Palette from './views/Palette.svelte';
+  import { DOCS, LICENSE, REPO_URL } from './lib/docs';
   import ContextMenu from './views/ContextMenu.svelte';
   import ConflictCenter from './views/ConflictCenter.svelte';
   import VaultsDialog from './views/VaultsDialog.svelte';
@@ -510,17 +514,32 @@
             disabled: !app.canAbout,
             onselect: () => app.openAbout('report'),
           },
+          ...helpItems({
+            text: (key, params) => t(key, params),
+            docs: DOCS,
+            opendoc: (id) => openDocs(id),
+            opensearch: () => openDocs(null),
+            repo: { url: REPO_URL },
+            license: LICENSE,
+          }),
         ],
       },
     ];
   });
+  // The documentation window: opened at a document from the Help menu, or at its search box.
+  let docsOpen = $state(false);
+  let docsAt = $state<string | null>(null);
+  function openDocs(id: string | null): void {
+    docsAt = id;
+    docsOpen = true;
+  }
 </script>
 
 <svelte:window onkeydown={onKey} />
 
 <div class="shell">
   <header class="bar">
-    <strong class="brand">{t('app.title')}</strong>
+    <Brand label={t('app.title')} hint={t('hint.ui.brand')} onclick={() => app.setView('today')} />
     <MenuBar {menus} label={t('menu.label')} />
     <span class="spacer"></span>
     {#if app.conflicts.length > 0}
@@ -634,6 +653,20 @@
     <BlockDialog {app} />
     <DropMoveDialog {app} />
     <Palette {app} />
+    <DocsDialog
+      open={docsOpen}
+      docs={DOCS}
+      docId={docsAt}
+      onclose={() => (docsOpen = false)}
+      labels={{
+        title: t('kit.docs.title'),
+        label: t('kit.docs.label'),
+        placeholder: t('kit.docs.placeholder'),
+        none: t('kit.docs.none'),
+        list: t('kit.docs.list'),
+        close: t('kit.dismiss'),
+      }}
+    />
     <ConflictCenter {app} />
     <VaultsDialog {app} />
   {/if}
@@ -656,9 +689,6 @@
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     flex-wrap: wrap;
-  }
-  .brand {
-    letter-spacing: 0.02em;
   }
   .spacer {
     flex: 1;

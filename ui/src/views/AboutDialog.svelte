@@ -1,9 +1,12 @@
 <script lang="ts">
+  import { closeOnBackdrop } from 'appkit-ui/backdrop';
   // What this build is and which engine answers (rule APP-09), and the bug report: a text without any path that the
   // person reads here, copies, or takes to a new issue in the browser. The page sends nothing.
   import { tick } from 'svelte';
   import type { App } from '../lib/app.svelte';
   import { REPORT_REPOS, engineMatchesPin, issueUrl, reportText } from '../lib/about';
+  import AboutLinks from 'appkit-ui/AboutLinks.svelte';
+  import { LICENSE, REPO_URL } from '../lib/docs';
   import { hintOf, translate, type Key } from '../lib/i18n';
 
   let { app }: { app: App } = $props();
@@ -45,6 +48,7 @@
 
 <dialog
   bind:this={dialog}
+  use:closeOnBackdrop
   aria-labelledby="about-title"
   onclose={() => {
     if (app.about.state !== 'closed') app.closeAbout();
@@ -90,6 +94,7 @@
       <dt><span data-hint={hintOf(app.lang, 'hint.about', 'pinned')}>{t('about.pinned_lib')}</span></dt>
       <dd><code>{doc.pinned.lib ?? unknown}</code></dd>
     </dl>
+    <AboutLinks repo={REPO_URL} repoLabel={t('kit.help.repo')} license={LICENSE} licenseLabel={t('kit.help.license', { name: LICENSE.name })} />
     {#if match === false}
       <p class="warn">{t('about.engine_differs')}</p>
     {:else if match === true}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { closeOnBackdrop } from 'appkit-ui/backdrop';
   // A card dropped among cards of another priority: the order has no meaning across that border, so the
   // person is asked whether the priority changes with the move.
   import type { App } from '../lib/app.svelte';
@@ -20,7 +21,7 @@
   });
 </script>
 
-<dialog bind:this={dialog} aria-labelledby="prio-title" onclose={() => app.cancelRepriority()}>
+<dialog bind:this={dialog} use:closeOnBackdrop aria-labelledby="prio-title" onclose={() => app.cancelRepriority()}>
   {#if asking}
     <h2 id="prio-title">{t('board.prio.title', { prio: asking.prio })}</h2>
     <p class="what">{markHidden(card?.title ?? asking.id)}</p>
