@@ -59,23 +59,36 @@ tasks-hub usage [--days=14]           on how many of the last days the interface
 
 ## Install from a release
 
-A release on GitHub (a tag `vX.Y.Z`, published by hand after a draft was tried) holds the program for
-Windows, Linux and macOS (macOS is built but not tried: the hub's tests with the real engine, the watcher of a
-folder task that moves to another area among them, run on Windows and Linux only), `SHA256SUMS`, and the four scripts below. The
-scripts need no administrator rights and install for one user, so they also work where a signed
-Setup is not allowed. Run them in your own terminal (not elevated, not from inside a program that
-sandboxes AppData).
+There are two channels, and both carry an install script that installs exactly their build:
+
+- **A release** (a tag `vX.Y.Z`, published by hand after a draft was tried) holds the program for
+  Windows, Linux and macOS (macOS is built but not tried: the hub's tests with the real engine, the
+  watcher of a folder task that moves to another area among them, run on Windows and Linux only).
+- **The rolling build** (the pre-release `latest`) is the newest green commit of `main`, rebuilt
+  after every CI run: for trying what is new, not for anything that matters.
+
+The scripts need no administrator rights and install for one user, so they also work where a signed
+Setup is not allowed or SmartScreen stops a downloaded program. Run them in your own terminal (not
+elevated, not from inside a program that sandboxes AppData):
 
 ```
-sh scripts/install.sh [--version vX.Y.Z] [--autostart] [--shortcut]      # Linux, macOS
-.\scripts\install.ps1 [-Version vX.Y.Z] [-Autostart] [-Shortcut]         # Windows PowerShell
+# the rolling build
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/StefanBartl/tasks-desktop/releases/download/latest/install.ps1 | iex"
+curl -fsSL https://github.com/StefanBartl/tasks-desktop/releases/download/latest/install.sh | sh
+
+# a release: the same with the tag in place of latest, e.g. .../releases/download/v0.1.0/install.ps1
 ```
 
-They download the archive of the release, check it against `SHA256SUMS` (a wrong or missing
+They download the program of that build, check it against its `SHA256SUMS` (a wrong or missing
 checksum installs nothing), and hand over to `tasks-hub install`, which replaces the program in one
 step and brings a running hub back. Run the same script again to repair or to update: the
-installation that is there is found and replaced, never a second one beside it. `--archive FILE`
-(`-Archive`) installs from a file you already have, with `--sums FILE` or `--sha256 HEX`.
+installation that is there is found and replaced, never a second one beside it. Saved as a file,
+the script takes options: `-InstallArgs '--autostart','--shortcut'` (`-- --autostart --shortcut`)
+registers the hub with your login and adds a link, `-Version vX.Y.Z` / `-Rolling` takes another
+channel, `-File FILE` (`--file`) installs from a file you already have, with `-Sums FILE` or
+`-Sha256 HEX`. The install scripts are the ones of appkit's
+[release-kit](https://github.com/StefanBartl/appkit/tree/main/release-kit), stamped for this app and
+the channel when they are attached; `scripts/test-install.*` try them against every build.
 
 ```
 sh scripts/uninstall.sh [--purge-settings]

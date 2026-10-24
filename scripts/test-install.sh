@@ -1,7 +1,12 @@
 #!/bin/sh
-# Test scripts/install.sh and scripts/uninstall.sh against a built tasks-hub.
+# Test the install.sh of a release and scripts/uninstall.sh against a built tasks-hub.
 #
-#   scripts/test-install.sh PATH/TO/tasks-hub
+#   scripts/test-install.sh PATH/TO/tasks-hub [RELEASE_KIT_DIR]
+#
+# The install.sh of a release is the one of appkit's release-kit, stamped for this app; here it is
+# called with what the stamp holds (--kind hub --program tasks-hub). RELEASE_KIT_DIR defaults to the
+# release-kit of the appkit that Cargo.lock pins (tools/release-kit-dir.py), so the test and the
+# release use the same file.
 #
 # Everything happens in a temporary folder: the install folder, the settings folder and HOME
 # are set there, the login entry and the link of this machine are left alone
@@ -9,8 +14,8 @@
 
 set -eu
 
-[ $# -eq 1 ] || {
-    echo "usage: test-install.sh PATH/TO/tasks-hub" >&2
+[ $# -ge 1 ] && [ $# -le 2 ] || {
+    echo "usage: test-install.sh PATH/TO/tasks-hub [RELEASE_KIT_DIR]" >&2
     exit 2
 }
 BIN="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
@@ -19,6 +24,23 @@ BIN="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
     exit 2
 }
 HERE="$(cd "$(dirname "$0")" && pwd)"
+KIT="${2:-}"
+if [ -z "$KIT" ]; then
+    KIT="$(cd "$HERE/.." && { python3 tools/release-kit-dir.py 2>/dev/null || python tools/release-kit-dir.py; })" || {
+        echo "no release-kit: give RELEASE_KIT_DIR (see tools/release-kit-dir.py)" >&2
+        exit 2
+    }
+fi
+[ -f "$KIT/scripts/install.sh" ] || {
+    echo "no install.sh in $KIT/scripts" >&2
+    exit 2
+}
+PROGRAM="$(basename "$BIN")"
+
+# The install.sh of a release, with what its stamp holds.
+install_sh() {
+    sh "$KIT/scripts/install.sh" --kind hub --program "$PROGRAM" "$@"
+}
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/tasks-desktop-test-install.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT INT TERM
@@ -78,24 +100,23 @@ ARCHIVE="$TMP/release/tasks-hub-0.0.0-test.tar.gz"
 
 # 1. No checksum, no install; a wrong one, no install.
 cp "$ARCHIVE" "$TMP/loose.tar.gz"
-refuses "an archive without a checksum is refused" sh "$HERE/install.sh" --archive "$TMP/loose.tar.gz"
+refuses "an archive without a checksum is refused" install_sh --archive "$TMP/loose.tar.gz"
 says "no checksum" "  and it says why"
-refuses "a wrong checksum is refused" sh "$HERE/install.sh" --archive "$ARCHIVE" --sha256 "0000000000000000000000000000000000000000000000000000000000000000"
+refuses "a wrong checksum is refused" install_sh --archive "$ARCHIVE" --sha256 "0000000000000000000000000000000000000000000000000000000000000000"
 says "does not match" "  and it says why"
-refuses "a file that is not listed is refused" sh "$HERE/install.sh" --archive "$TMP/loose.tar.gz" --sums "$TMP/release/SHA256SUMS"
+refuses "a file that is not listed is refused" install_sh --archive "$TMP/loose.tar.gz" --sums "$TMP/release/SHA256SUMS"
 check "nothing was installed by any of them" sh -c "! [ -e '$TMP/bin' ]"
-refuses "an unknown option is refused" sh "$HERE/install.sh" --nope
+refuses "an unknown option is refused" install_sh --nope
 
 # 2. A good archive installs, with the sums beside it.
-runs "install from an archive" sh "$HERE/install.sh" --archive "$ARCHIVE"
+runs "install from an archive" install_sh --archive "$ARCHIVE"
 check "the program is in the install folder" installed
 if [ -f "$TMP/bin/tasks-hub" ]; then P="$TMP/bin/tasks-hub"; else P="$TMP/bin/tasks-hub.exe"; fi
 check "it runs" "$P" --version
 check "no .new file is left" sh -c "! ls '$TMP'/bin/*.new >/dev/null 2>&1"
 
 # 3. Again: it is found and repaired, not installed beside.
-runs "install again" sh "$HERE/install.sh" --archive "$ARCHIVE"
-says "repairing" "  it says it repairs"
+runs "install again" install_sh --archive "$ARCHIVE"
 check "still one program" sh -c "[ \$(ls '$TMP/bin' | wc -l) -eq 1 ]"
 
 # 4. Uninstall keeps the settings; a file that is not ours stays in any case.
@@ -112,7 +133,7 @@ runs "uninstall again" sh "$HERE/uninstall.sh"
 says "nothing to remove" "  it says so"
 
 # 6. --purge-settings removes the files of the app and nothing else.
-sh "$HERE/install.sh" --archive "$ARCHIVE" >"$TMP/out" 2>&1 || nope "install before purge"
+install_sh --archive "$ARCHIVE" >"$TMP/out" 2>&1 || nope "install before purge"
 runs "uninstall --purge-settings" sh "$HERE/uninstall.sh" --purge-settings
 check "the settings file is gone" sh -c "! [ -e '$TMP/cfg/config.json' ]"
 check "a file that is not the app's stays" [ -f "$TMP/cfg/notes.txt" ]
@@ -121,7 +142,7 @@ check "a file that is not the app's stays" [ -f "$TMP/cfg/notes.txt" ]
 # where the mode bits mean nothing).
 case "$(uname -s)" in
     Linux | Darwin)
-        sh "$HERE/install.sh" --archive "$ARCHIVE" >"$TMP/out" 2>&1 || nope "install before the locked removal"
+        install_sh --archive "$ARCHIVE" >"$TMP/out" 2>&1 || nope "install before the locked removal"
         chmod a-w "$TMP/bin"
         refuses "a program that cannot be removed is an error" sh "$HERE/uninstall.sh"
         if grep -q '^removed ' "$TMP/out"; then nope "  and it does not say removed"; else pass "  and it does not say removed"; fi
@@ -152,7 +173,7 @@ check "  and the old program is gone" sh -c "! [ -e '$TMP/bin/tasks-hub' ]"
 # 9. A folder that holds other files stays when the program goes.
 mkdir -p "$TMP/bin"
 echo 'mine' >"$TMP/bin/other.txt"
-sh "$HERE/install.sh" --archive "$ARCHIVE" >"$TMP/out" 2>&1 || nope "install into a folder with other files"
+install_sh --archive "$ARCHIVE" >"$TMP/out" 2>&1 || nope "install into a folder with other files"
 sh "$HERE/uninstall.sh" >"$TMP/out" 2>&1 || nope "uninstall from a folder with other files"
 check "the other file and so the folder stay" [ -f "$TMP/bin/other.txt" ]
 

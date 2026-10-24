@@ -11,8 +11,14 @@ machine.
 | `tasks-hub-X.Y.Z-x86_64-pc-windows-msvc.zip` | the program for Windows |
 | `tasks-hub-X.Y.Z-x86_64-unknown-linux-gnu.tar.gz` | the program for Linux |
 | `tasks-hub-X.Y.Z-aarch64-apple-darwin.tar.gz` | the program for macOS (built, **not tried on a Mac**; the notes say so) |
-| `install.sh`, `install.ps1`, `uninstall.sh`, `uninstall.ps1` | the scripts of `scripts/` at this tag |
+| `install.sh`, `install.ps1` | the install scripts of appkit's release-kit, stamped for this tag: they install exactly this release |
+| `uninstall.sh`, `uninstall.ps1` | the scripts of `scripts/` at this tag |
 | `SHA256SUMS` | the checksum of every file above |
+
+The rolling build `latest` ([`rolling.yml`](../.github/workflows/rolling.yml)) carries the same
+scripts, stamped for `latest`, beside its two programs. Both workflows take the actions `prepare`
+and `publish` of the release-kit by the commit of the appkit tag that `Cargo.lock` pins;
+`tools/check-appkit-pin.py` fails when the two disagree, so a raised appkit tag raises them too.
 
 The native shell with a Setup (`*-setup.exe`, `.dmg`, a Linux package) is the Tauri task; this
 workflow gets a `bundle` job when it exists. The scripts stay in any case: they are the way for a
@@ -26,19 +32,20 @@ person without administrator rights or with a program that is not signed.
 3. **Wait for the CI of that commit.** The workflow looks for a green `ci` run of the very commit
    that the tag points at and stops without one.
 4. **Tag and push:** `git tag vX.Y.Z && git push origin vX.Y.Z`. The workflow
-   - checks the tag, the version, that the commit is on `main`, and the green CI (`check`),
-   - makes the draft with the notes of `.github/release-notes.md` (`draft`),
+   - checks the tag, the version, that the commit is on `main`, the green CI, and that no published
+     release of the tag exists (`check`),
    - builds the interface and then the program on each system, packs it, unpacks it again in
-     another folder to ask it for its version, and runs the install and uninstall scripts against
-     it in a folder of their own (`build`, rule `NREL-12`),
-   - adds `SHA256SUMS` and the scripts (`sums`).
+     another folder to ask it for its version, and runs the install script of the release-kit and
+     the uninstall scripts against it in a folder of their own (`build`, rule `NREL-12`),
+   - makes the draft with the notes of `.github/release-notes.md` and adds the archives, the stamped
+     install scripts, the uninstall scripts and `SHA256SUMS` (`publish`).
 5. **Open the draft on a clean user account** and, per system you have. The files of a draft can
    be downloaded only by people who may write to the repository (logged in, in the browser), so the
    script cannot fetch them by itself yet: download the archive of your system, `SHA256SUMS` and
-   `install.*` into one folder and run `install.* --archive <the archive>` there (the sums are
-   found beside it). Start the hub, run it again (repair), run `uninstall.*` with and without
-   `--purge-settings`. The download path of the scripts (`--version <tag>`, no `--archive`) is tried
-   after publishing, once: `install.sh --version vX.Y.Z`. A green build is not a program that was
+   `install.*` into one folder and run `install.ps1 -File <the archive>` (`install.sh --file`) there
+   (the sums are found beside it). Start the hub, run it again (repair), run `uninstall.*` with and
+   without `--purge-settings`. The download path of the script (no `-File`) is tried after
+   publishing, once, with the line of the notes. A green build is not a program that was
    tried (`NREL-07`). Do this in a normal terminal of the user, not from an agent session
    (`WIN-03`). A build machine that runs elevated needs `-AllowElevated` (PowerShell) for the
    scripts; a user session does not and should not.

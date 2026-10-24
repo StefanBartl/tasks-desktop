@@ -34,8 +34,13 @@ python tools/check-color-literals.py    # no colour outside the tokens of appkit
 - Die Oberfläche nimmt vom selben Tag das Paket `appkit-ui` (Ordner `ui-kit` in appkit: Tokens, Basisregeln,
   MenuBar, MultiSelect, Info, Markdown-Leser, Hinweis-Popup, SSE, Pairing-Code), eingebunden in `ui/package.json`
   als `"appkit-ui": "github:StefanBartl/appkit#vX.Y.Z&path:ui-kit"` (das `pnpm add "git+https://github.com/StefanBartl/appkit.git#vX.Y.Z&path:ui-kit"` aus dem README des Kits schreibt pnpm in diese Kurzform um; die Pin-Prüfung nimmt beide); `ui/pnpm-lock.yaml` pinnt den Commit,
-  `tools/check-appkit-pin.py` verlangt dasselbe Tag und denselben Commit wie `Cargo.lock`. Tag heben: beide
-  Stellen (`Cargo.toml` und `ui/package.json`), `cargo update -p appkit-hub`, `cd ui && pnpm install`.
+  `tools/check-appkit-pin.py` verlangt dasselbe Tag und denselben Commit wie `Cargo.lock`. Tag heben: alle
+  Stellen (`Cargo.toml`, `ui/package.json` und die `uses: StefanBartl/appkit/release-kit/...@<sha>` in
+  `.github/workflows/rolling.yml` und `release.yml`, voller Commit des Tags), `cargo update -p appkit-hub`,
+  `cd ui && pnpm install`. Die Pin-Prüfung meldet einen Workflow auf einem anderen Commit.
+- Install-Skripte der Releases kommen aus `release-kit` von appkit (gestempelt beim Hochladen), nicht aus
+  `scripts/`; dort liegen nur `uninstall.*` und `test-install.*` (die das Kit-Skript des gepinnten appkit
+  gegen den Build prüfen, Ordner per `tools/release-kit-dir.py`).
 - Gleichzeitig an `appkit` und hier arbeiten: `[patch."https://github.com/StefanBartl/appkit"]` mit Pfaden in
   einer **nicht eingecheckten** `.cargo/config.toml`; nie einen Pfad in `Cargo.toml` committen. Für die
   Oberfläche `pnpm add link:E:/repos/appkit/ui-kit` und vor dem Commit das Git-Tag zurück (die Pin-Prüfung

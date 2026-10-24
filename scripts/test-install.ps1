@@ -1,18 +1,25 @@
 <#
 .SYNOPSIS
-Test scripts/install.ps1 and scripts/uninstall.ps1 against a built tasks-hub.exe.
+Test the install.ps1 of a release and scripts/uninstall.ps1 against a built tasks-hub.exe.
 
 .DESCRIPTION
-Everything happens in a temporary folder: the install folder and the settings folder are set
-there, the login entry and the link of this machine are left alone (TASKS_DESKTOP_NO_LOGIN_SYNC),
-and nothing is downloaded (-Archive). Exit 0 when all checks pass.
+The install.ps1 of a release is the one of appkit's release-kit, stamped for this app; here it is
+called with what the stamp holds (-Kind hub -Program tasks-hub.exe). Everything happens in a
+temporary folder: the install folder and the settings folder are set there, the login entry and
+the link of this machine are left alone (TASKS_DESKTOP_NO_LOGIN_SYNC), and nothing is downloaded
+(-File). Exit 0 when all checks pass.
 
 .PARAMETER Program
 Path to the tasks-hub.exe under test.
+
+.PARAMETER ReleaseKit
+The folder release-kit of appkit (default: the one of the appkit Cargo.lock pins,
+tools/release-kit-dir.py), so the test and the release use the same file.
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)] [string] $Program
+    [Parameter(Mandatory = $true)] [string] $Program,
+    [string] $ReleaseKit = ''
 )
 
 Set-StrictMode -Version Latest
@@ -20,6 +27,18 @@ $ErrorActionPreference = 'Stop'
 
 $Program = (Resolve-Path -LiteralPath $Program).Path
 $here = $PSScriptRoot
+if ($ReleaseKit -eq '') {
+    Push-Location (Split-Path -Parent $here)
+    try {
+        $ReleaseKit = (& python tools/release-kit-dir.py | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) { throw 'no release-kit: give -ReleaseKit (see tools/release-kit-dir.py)' }
+    }
+    finally {
+        Pop-Location
+    }
+}
+$kitInstall = Join-Path $ReleaseKit 'scripts\install.ps1'
+if (-not (Test-Path -LiteralPath $kitInstall -PathType Leaf)) { throw "no install.ps1 in $ReleaseKit\scripts" }
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ('tasks-desktop-test-install-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp | Out-Null
 
@@ -42,12 +61,20 @@ function Write-Check([bool] $Passed, [string] $Name) {
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $elevated = ([Security.Principal.WindowsPrincipal] $identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
-# Run a script in a child PowerShell (its exit and its output are the answer, not ours).
+# Run a script in a child PowerShell (its exit and its output are the answer, not ours). install.ps1
+# is the one of the release-kit, with what its stamp holds.
 function Invoke-Script([string] $Script, [string[]] $Arguments, [switch] $Bare) {
     $shell = (Get-Process -Id $PID).Path
     $extra = @()
     if ($elevated -and -not $Bare) { $extra = @('-AllowElevated') }
-    $output = & $shell -NoProfile -NonInteractive -File (Join-Path $here $Script) @Arguments @extra 2>&1 | Out-String
+    if ($Script -eq 'install.ps1') {
+        $path = $kitInstall
+        $extra += @('-Kind', 'hub', '-Program', 'tasks-hub.exe')
+    }
+    else {
+        $path = Join-Path $here $Script
+    }
+    $output = & $shell -NoProfile -NonInteractive -File $path @Arguments @extra 2>&1 | Out-String
     return [pscustomobject]@{ Code = $LASTEXITCODE; Text = $output }
 }
 
@@ -64,11 +91,11 @@ try {
 
     # 1. No checksum, no install; a wrong one, no install.
     Copy-Item -LiteralPath $archive -Destination (Join-Path $tmp 'loose.zip')
-    $r = Invoke-Script 'install.ps1' @('-Archive', (Join-Path $tmp 'loose.zip'))
+    $r = Invoke-Script 'install.ps1' @('-File', (Join-Path $tmp 'loose.zip'))
     Write-Check ($r.Code -ne 0 -and $r.Text -match 'no checksum') 'an archive without a checksum is refused, and says why'
-    $r = Invoke-Script 'install.ps1' @('-Archive', $archive, '-Sha256', ('0' * 64))
+    $r = Invoke-Script 'install.ps1' @('-File', $archive, '-Sha256', ('0' * 64))
     Write-Check ($r.Code -ne 0 -and $r.Text -match 'does not match') 'a wrong checksum is refused, and says why'
-    $r = Invoke-Script 'install.ps1' @('-Archive', (Join-Path $tmp 'loose.zip'), '-Sums', (Join-Path $tmp 'release\SHA256SUMS'))
+    $r = Invoke-Script 'install.ps1' @('-File', (Join-Path $tmp 'loose.zip'), '-Sums', (Join-Path $tmp 'release\SHA256SUMS'))
     Write-Check ($r.Code -ne 0 -and $r.Text -match 'not listed') 'a file that is not listed is refused'
     Write-Check (-not (Test-Path -LiteralPath $bin)) 'nothing was installed by any of them'
 
@@ -86,13 +113,13 @@ try {
         $zip.Dispose()
     }
     $evilHash = (Get-FileHash -LiteralPath $evil -Algorithm SHA256).Hash
-    $r = Invoke-Script 'install.ps1' @('-Archive', $evil, '-Sha256', $evilHash)
+    $r = Invoke-Script 'install.ps1' @('-File', $evil, '-Sha256', $evilHash)
     Write-Check ($r.Code -ne 0 -and $r.Text -match 'leaves its folder') 'an archive with a path that leaves its folder is refused'
     Write-Check (-not (Test-Path -LiteralPath $bin)) 'and nothing was installed'
 
     # 1c. An elevated session is refused unless it is told that it is meant.
     if ($elevated) {
-        $r = Invoke-Script 'install.ps1' @('-Archive', $archive) -Bare
+        $r = Invoke-Script 'install.ps1' @('-File', $archive) -Bare
         Write-Check ($r.Code -ne 0 -and $r.Text -match 'elevated') 'an elevated session is refused'
         $r = Invoke-Script 'uninstall.ps1' @() -Bare
         Write-Check ($r.Code -ne 0 -and $r.Text -match 'elevated') 'an elevated uninstall is refused'
@@ -100,7 +127,7 @@ try {
     }
 
     # 2. A good archive installs, with the sums beside it.
-    $r = Invoke-Script 'install.ps1' @('-Archive', $archive)
+    $r = Invoke-Script 'install.ps1' @('-File', $archive)
     Write-Check ($r.Code -eq 0) 'install from an archive'
     if ($r.Code -ne 0) { Write-Output $r.Text }
     Write-Check (Test-Path -LiteralPath $exe -PathType Leaf) 'the program is in the install folder'
@@ -109,8 +136,8 @@ try {
     Write-Check (-not (Test-Path -LiteralPath "$exe.new")) 'no .new file is left'
 
     # 3. Again: it is found and repaired, not installed beside.
-    $r = Invoke-Script 'install.ps1' @('-Archive', $archive)
-    Write-Check ($r.Code -eq 0 -and $r.Text -match 'repairing') 'install again repairs'
+    $r = Invoke-Script 'install.ps1' @('-File', $archive)
+    Write-Check ($r.Code -eq 0) 'install again repairs'
     Write-Check (@(Get-ChildItem -LiteralPath $bin).Count -eq 1) 'still one program'
 
     # 4. Uninstall keeps the settings.
@@ -129,7 +156,7 @@ try {
     Write-Check ($r.Code -eq 0 -and $r.Text -match 'nothing to remove') 'uninstall again says there is nothing to remove'
 
     # 6. -PurgeSettings removes the files of the app and nothing else.
-    $r = Invoke-Script 'install.ps1' @('-Archive', $archive)
+    $r = Invoke-Script 'install.ps1' @('-File', $archive)
     Write-Check ($r.Code -eq 0) 'install before the purge'
     $r = Invoke-Script 'uninstall.ps1' @('-PurgeSettings')
     Write-Check ($r.Code -eq 0) 'uninstall -PurgeSettings'
@@ -137,7 +164,7 @@ try {
     Write-Check (Test-Path -LiteralPath (Join-Path $env:TASKS_DESKTOP_CONFIG_DIR 'notes.txt')) 'a file that is not the app''s stays'
 
     # 7. A program that cannot be removed (it is open) is an error, and the script does not say "removed".
-    $r = Invoke-Script 'install.ps1' @('-Archive', $archive)
+    $r = Invoke-Script 'install.ps1' @('-File', $archive)
     Write-Check ($r.Code -eq 0) 'install before the locked removal'
     $lock = [IO.File]::Open($exe, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
     try {
@@ -154,7 +181,7 @@ try {
     # 8. A folder that holds other files stays when the program goes.
     New-Item -ItemType Directory -Path $bin -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $bin 'other.txt') -Value 'mine'
-    $r = Invoke-Script 'install.ps1' @('-Archive', $archive)
+    $r = Invoke-Script 'install.ps1' @('-File', $archive)
     $r = Invoke-Script 'uninstall.ps1' @()
     Write-Check (Test-Path -LiteralPath (Join-Path $bin 'other.txt')) 'the other file and so the folder stay'
 }
