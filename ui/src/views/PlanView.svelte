@@ -13,6 +13,7 @@
   import PlanFinished from './PlanFinished.svelte';
   import FoldButton from './FoldButton.svelte';
   import ExportMenu from './ExportMenu.svelte';
+  import PlanGraph from './PlanGraph.svelte';
   import { allButtonFold, foldOf, withAll, withFold } from '../lib/fold';
 
   let { app }: { app: App } = $props();
@@ -118,6 +119,13 @@
             </select>
           </label>
         {/if}
+        <div class="display" role="group" aria-label={t('plan.display')}>
+          {#each ['stages', 'graph'] as const as display (display)}
+            <button type="button" aria-pressed={app.planDisplay === display} onclick={() => app.setPlanDisplay(display)}
+              >{t(`plan.display.${display}`)}</button
+            >
+          {/each}
+        </div>
         <button type="button" class="newplan" data-hint={t('hint.ui.plan.new')} disabled={!app.can('plan_new')} onclick={() => app.openPlanWizard()}>{t('plan.new.button')}</button>
         <ExportMenu {app} />
       </div>
@@ -196,6 +204,13 @@
 
     <PlanFinished {app} {planId} />
 
+    {#if app.planDisplay === 'graph'}
+      {#if stages.length > 0}
+        <PlanGraph {app} {stages} {critical} path={path?.path ?? []} {cycles} onopen={open} />
+      {:else}
+        <p class="muted">{t(planEmptyKey(narrows(app.filter), stagesOf(app.tasks, planId === '' ? null : planId).length))}</p>
+      {/if}
+    {:else}
     <section class="stages" tabindex="-1" aria-label={t('plan.stages')}>
       <p class="legend">
         <Info hint={stagesLegend(app.lang)} label={t('hint.about', { what: t('plan.legend.what') })} />
@@ -254,6 +269,7 @@
         <p class="muted">{t(planEmptyKey(narrows(app.filter), stagesOf(app.tasks, planId === '' ? null : planId).length))}</p>
       {/each}
     </section>
+    {/if}
   {/if}
 </div>
 
@@ -308,6 +324,23 @@
     border-radius: var(--radius);
     padding: 0.25rem 0.6rem;
     cursor: pointer;
+  }
+  /* Stages or graph: two buttons of one choice, the chosen one pressed (as the directions of the graph panel). */
+  .display {
+    display: inline-flex;
+    gap: 0.4rem;
+  }
+  .display button {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.25rem 0.6rem;
+    cursor: pointer;
+  }
+  .display button[aria-pressed='true'] {
+    border-color: var(--accent);
+    font-weight: 600;
   }
   .headline {
     display: flex;

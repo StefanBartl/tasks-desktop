@@ -294,6 +294,8 @@ export class App {
   listColumns = $state<ListColumns>(defaultColumns());
   /** How far each stage of the plan and each column of the board is folded. */
   folds = $state<FoldMemory>(emptyFolds());
+  /** How the plan is drawn: its stages as cards, or as a graph (the stages as rows, the dependencies as arrows). */
+  planDisplay = $state<'stages' | 'graph'>('stages');
   /** The sizes the person dragged the blocks of the page to (the tiles of today, the list). */
   tileSizes = $state<Sizes>({});
   /** The block whose grip is shown, if any (one at a time). */
@@ -545,6 +547,7 @@ export class App {
     this.shortAreas = safe(() => env.prefs.getItem('tasks-desktop.short-areas')) !== 'off';
     this.listColumns = parseColumns(safe(() => env.prefs.getItem('tasks-desktop.list-columns')));
     this.folds = parseFolds(safe(() => env.prefs.getItem('tasks-desktop.folds')));
+    this.planDisplay = safe(() => env.prefs.getItem('tasks-desktop.plan-display')) === 'graph' ? 'graph' : 'stages';
     this.tileSizes = parseSizes(safe(() => env.prefs.getItem('tasks-desktop.sizes')));
     this.sort = parseSort(safe(() => env.prefs.getItem('tasks-desktop.sort')));
     this.listMemory = parseListMemory(safe(() => env.prefs.getItem('tasks-desktop.lists')));
@@ -2242,6 +2245,12 @@ export class App {
   setListColumns(columns: ListColumns): void {
     this.listColumns = columns;
     safe(() => this.env.prefs.setItem('tasks-desktop.list-columns', serializeColumns(columns)));
+  }
+
+  /** Draw the plan as stages or as a graph, and remember the choice. */
+  setPlanDisplay(display: 'stages' | 'graph'): void {
+    this.planDisplay = display;
+    safe(() => this.env.prefs.setItem('tasks-desktop.plan-display', display));
   }
 
   /** Set the folds of the blocks of one view, and remember them. */

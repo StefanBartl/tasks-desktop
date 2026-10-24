@@ -1168,6 +1168,74 @@ test('the view prints as a page of its own: its rows and groups, the filters on 
   }
 });
 
+for (const scheme of ['light', 'dark'] as const) {
+  test(`the plan as a graph: the stages as rows, the dependencies as arrows, the keys walk the tasks, and the choice stays (${scheme})`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ colorScheme: scheme });
+    await pair(page);
+    await chooseView(page, 'View', 'Plan');
+    const choice = page.getByRole('group', { name: 'Show the plan as' });
+    await choice.getByRole('button', { name: 'Graph' }).click();
+    await expect(choice.getByRole('button', { name: 'Graph' })).toHaveAttribute('aria-pressed', 'true');
+    const graph = page.getByRole('region', { name: 'The plan as a graph' });
+    await expect(graph).toBeVisible();
+    const node = (id: string) => graph.locator(`[data-node="${id}"]`);
+
+    // The fixture: beta and iota wait for alpha (blocked_by), cyc-a and cyc-b for each other.
+    await expect(node('lib.nvim/alpha')).toBeVisible();
+    const rowOf = async (id: string) => node(id).evaluate((el) => el.closest('[data-row]')?.getAttribute('data-row'));
+    const alphaRow = Number(await rowOf('lib.nvim/alpha'));
+    expect(Number(await rowOf('lib.nvim/beta'))).toBeGreaterThan(alphaRow);
+    expect(Number(await rowOf('cascade.nvim/iota'))).toBeGreaterThan(alphaRow);
+    expect(await rowOf('lib.nvim/cyc-a')).toBe('cycle');
+    await expect(graph.locator('[data-row="cycle"]')).toContainText('lib.nvim/cyc-');
+    // An arrow for each dependency, hard ones solid, from the task waited for to the one that waits.
+    const arrowTo = graph.locator('path[data-edge="lib.nvim/alpha>lib.nvim/beta"]');
+    await expect(arrowTo).toHaveAttribute('data-kind', 'blocked_by');
+    await expect(graph.locator('path[data-edge="lib.nvim/alpha>cascade.nvim/iota"]')).toHaveCount(1);
+    // The arrow runs from the bottom of alpha to the top of beta.
+    const geometry = await page.evaluate(() => {
+      const box = (id: string) => document.querySelector(`[data-node="${id}"]`)!.getBoundingClientRect();
+      const line = document.querySelector<SVGPathElement>('path[data-edge="lib.nvim/alpha>lib.nvim/beta"]')!;
+      const total = line.getTotalLength();
+      const svg = line.ownerSVGElement!.getBoundingClientRect();
+      const start = line.getPointAtLength(0);
+      const end = line.getPointAtLength(total);
+      return { a: box('lib.nvim/alpha'), b: box('lib.nvim/beta'), start: { x: start.x + svg.left, y: start.y + svg.top }, end: { x: end.x + svg.left, y: end.y + svg.top } };
+    });
+    expect(Math.abs(geometry.start.y - geometry.a.bottom)).toBeLessThan(2);
+    expect(Math.abs(geometry.end.y - geometry.b.top)).toBeLessThan(2);
+    expect(geometry.start.x).toBeGreaterThan(geometry.a.left);
+    expect(geometry.start.x).toBeLessThan(geometry.a.right);
+    expect(geometry.end.x).toBeGreaterThan(geometry.b.left);
+    expect(geometry.end.x).toBeLessThan(geometry.b.right);
+
+    // One tab stop; the arrow keys walk: down from alpha to a task of a later row.
+    await expect(graph.locator('[data-node][tabindex="0"]')).toHaveCount(1);
+    await node('lib.nvim/alpha').focus();
+    await page.keyboard.press('ArrowDown');
+    const below = await page.evaluate(() => document.activeElement?.closest('[data-row]')?.getAttribute('data-row'));
+    expect(Number(below)).toBeGreaterThan(alphaRow);
+    await expect(graph.locator('[data-node][tabindex="0"]')).toHaveCount(1);
+
+    // The dependencies as a table, and a click opens a task as the stages do.
+    await graph.getByText(/^The dependencies as a list/).click();
+    const table = graph.locator('details.edges table');
+    await expect(table.locator('tr', { hasText: 'Beta waits for alpha' }).first()).toContainText('hard (blocked_by)');
+    await node('lib.nvim/beta').click();
+    await expect(page.locator('aside.detail .id')).toHaveText('lib.nvim/beta');
+    await expectAccessible(page, `the plan as a graph (${scheme})`);
+    if (scheme === 'light') await page.screenshot({ path: 'C:/Users/bartl/AppData/Local/Temp/claude/E--repos-tasks-desktop/59b7c04c-99f6-4f39-bef6-7af2eaf3d883/scratchpad/graph-light.png', fullPage: true });
+
+    // The choice stays over a reload.
+    await page.reload();
+    await chooseView(page, 'View', 'Plan');
+    await expect(page.getByRole('region', { name: 'The plan as a graph' })).toBeVisible();
+    expect(consoleProblems.get(page)).toEqual([]);
+  });
+}
+
 /** Each entry of the open popup of Export: whole in the window, and the element at its middle is the entry itself. */
 async function exportEntriesReachable(page: Page): Promise<{ name: string; inside: boolean; hit: boolean }[]> {
   return page.evaluate(() =>
