@@ -4935,7 +4935,26 @@ test('help: the about dialog names the build and the engine, and the report carr
   // The version of the hub and the commit of the real engine, as the hub tells them.
   await expect(dialog.getByText(/^\d+\.\d+\.\d+$/)).toBeVisible();
   await expect(dialog.getByText('Engine (tasks.nvim)')).toBeVisible();
-  const report = await dialog.getByLabel('Report', { exact: true }).inputValue();
+  // "About" is the build and the engine only: no report, no form, no link to one.
+  await expect(dialog.getByLabel('Report', { exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole('link', { name: 'Open the form' })).toHaveCount(0);
+  await expectAccessible(page, 'the about dialog');
+
+  // Escape closes it; "Report a problem" opens it again with the keyboard on the link to the form.
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('menuitem', { name: 'Help', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Report a problem ...' }).click();
+  const reportDialog = page.getByRole('dialog', { name: 'Report a problem' });
+  await expect(reportDialog).toBeVisible();
+  await expect(reportDialog.getByRole('link', { name: 'Open the form' })).toBeFocused();
+  // "Report a problem" is the form only (no table of the build) and names the repositories a report may belong to.
+  await expect(reportDialog.getByText('Engine (tasks.nvim)')).toHaveCount(0);
+  for (const repo of ['tasks-desktop', 'tasks.nvim', 'appkit']) {
+    const link = reportDialog.getByRole('link', { name: repo, exact: true });
+    await expect(link).toHaveAttribute('href', `https://github.com/StefanBartl/${repo}/issues`);
+  }
+  const report = await reportDialog.getByLabel('Report', { exact: true }).inputValue();
   expect(report).toMatch(/^tasks-desktop \d+\.\d+\.\d+/);
   expect(report).toMatch(/Engine: tasks\.nvim \S+, commit [0-9a-f]{7,40}, Neovim \d/);
   expect(report).toMatch(/Tested with: tasks\.nvim [0-9a-f]{40}, lib\.nvim [0-9a-f]{40}/);
@@ -4946,22 +4965,14 @@ test('help: the about dialog names the build and the engine, and the report carr
     expect(report).not.toContain(secret);
   }
   // The form is a link the person follows: a new issue, the report in its body, nothing sent by the page.
-  const href = await dialog.getByRole('link', { name: 'Open the form' }).getAttribute('href');
+  const href = await reportDialog.getByRole('link', { name: 'Open the form' }).getAttribute('href');
   expect(href).not.toBeNull();
   const url = new URL(href ?? '');
   expect(url.origin + url.pathname).toBe('https://github.com/StefanBartl/tasks-desktop/issues/new');
   expect(url.searchParams.get('body')).toBe(report);
-  await expectAccessible(page, 'the about dialog');
-
-  // Escape closes it; "Report a problem" opens it again with the keyboard on the link to the form.
-  await page.keyboard.press('Escape');
-  await expect(dialog).toHaveCount(0);
-  await page.getByRole('menuitem', { name: 'Help', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Report a problem ...' }).click();
-  await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole('link', { name: 'Open the form' })).toBeFocused();
-  await dialog.getByRole('button', { name: 'Close' }).click();
-  await expect(dialog).toHaveCount(0);
+  await expectAccessible(page, 'the report dialog');
+  await reportDialog.getByRole('button', { name: 'Close' }).click();
+  await expect(reportDialog).toHaveCount(0);
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });

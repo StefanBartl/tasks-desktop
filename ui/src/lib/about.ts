@@ -7,6 +7,16 @@ import { translate, type Lang } from './i18n';
 /** Where a problem is reported: a new issue of the public repository, the fields filled by the address. */
 export const ISSUES_URL = 'https://github.com/StefanBartl/tasks-desktop/issues/new';
 
+/**
+ * The repositories a report may belong to, each with the page of its issues and the words that say what lives there
+ * (a problem with the rules of the tasks is the engine's, one with the page or the hub is the app's).
+ */
+export const REPORT_REPOS = [
+  { name: 'tasks-desktop', url: 'https://github.com/StefanBartl/tasks-desktop/issues', note: 'about.repo.app' },
+  { name: 'tasks.nvim', url: 'https://github.com/StefanBartl/tasks.nvim/issues', note: 'about.repo.engine' },
+  { name: 'appkit', url: 'https://github.com/StefanBartl/appkit/issues', note: 'about.repo.appkit' },
+] as const;
+
 /** What the hub says about the build and the engine: versions and commits only, never a path (ENG-06). */
 export interface About {
   app: string;

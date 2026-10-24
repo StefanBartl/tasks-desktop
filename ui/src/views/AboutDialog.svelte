@@ -3,7 +3,7 @@
   // person reads here, copies, or takes to a new issue in the browser. The page sends nothing.
   import { tick } from 'svelte';
   import type { App } from '../lib/app.svelte';
-  import { engineMatchesPin, issueUrl, reportText } from '../lib/about';
+  import { REPORT_REPOS, engineMatchesPin, issueUrl, reportText } from '../lib/about';
   import { hintOf, translate, type Key } from '../lib/i18n';
 
   let { app }: { app: App } = $props();
@@ -12,6 +12,8 @@
   let dialog: HTMLDialogElement | undefined = $state();
   let formLink: HTMLAnchorElement | undefined = $state();
   const open = $derived(app.about.state !== 'closed');
+  // "About" shows the build and the engine; "Report a problem" shows the form and where a report belongs. Not both.
+  const reporting = $derived(app.about.state !== 'closed' && app.about.state !== 'failed' && app.about.focus === 'report');
   const doc = $derived(app.about.state === 'ok' ? app.about.doc : null);
   const report = $derived(doc ? reportText(app.lang, doc) : '');
   const url = $derived(doc ? issueUrl(app.lang, doc) : '');
@@ -48,11 +50,23 @@
     if (app.about.state !== 'closed') app.closeAbout();
   }}
 >
-  <h2 id="about-title">{t('about.title')}</h2>
+  <h2 id="about-title">{reporting ? t('about.report_title') : t('about.title')}</h2>
   {#if app.about.state === 'loading'}
     <p class="muted" role="status">{t('about.loading')}</p>
   {:else if app.about.state === 'failed'}
     <p role="alert">{t('about.failed', { message: app.about.message })}</p>
+  {:else if doc && reporting}
+    <p class="muted">{t('about.report_intro')}</p>
+    <textarea readonly rows="7" aria-label={t('about.report_text')} value={report}></textarea>
+    <h3>{t('about.repos')}</h3>
+    <ul class="repos">
+      {#each REPORT_REPOS as repo (repo.name)}
+        <li>
+          <a href={repo.url} target="_blank" rel="noopener noreferrer">{repo.name}</a>
+          <span class="muted">- {t(repo.note)}</span>
+        </li>
+      {/each}
+    </ul>
   {:else if doc}
     <dl>
       <dt>{t('about.version')}</dt>
@@ -81,13 +95,9 @@
     {:else if match === true}
       <p class="muted">{t('about.engine_same')}</p>
     {/if}
-
-    <h3>{t('about.report_title')}</h3>
-    <p class="muted">{t('about.report_intro')}</p>
-    <textarea readonly rows="7" aria-label={t('about.report_text')} value={report}></textarea>
   {/if}
   <div class="actions">
-    {#if doc}
+    {#if doc && reporting}
       <button type="button" onclick={() => void copy()}>{t('about.copy')}</button>
       <a class="button primary" href={url} target="_blank" rel="noopener noreferrer" bind:this={formLink}
         >{t('about.report_open')}</a
@@ -116,6 +126,10 @@
   h3 {
     margin: 1rem 0 0.4rem;
     font-size: 0.95rem;
+  }
+  .repos {
+    margin: 0;
+    padding-left: 1.2rem;
   }
   .muted {
     color: var(--muted);
