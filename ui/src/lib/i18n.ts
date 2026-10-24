@@ -556,6 +556,8 @@ const en = {
   'vaults.name': 'Name',
   'vaults.name_hint': 'letters, digits, . - _',
   'vaults.path': 'Folder',
+  'vaults.pick': 'Choose ...',
+  'hint.vaults.pick': 'Choose the folder in the file explorer of the system instead of typing its path. The field can still be changed by hand.',
   'vaults.path_hint': 'the whole path of the folder that holds the areas',
   'vaults.warn':
     'The hub will read the tasks of this folder. Areas that have no data class stay closed until you release them in areas.json.',
@@ -1621,6 +1623,8 @@ const de: Record<Key, string> = {
   'vaults.name': 'Name',
   'vaults.name_hint': 'Buchstaben, Ziffern, . - _',
   'vaults.path': 'Ordner',
+  'vaults.pick': 'Auswählen ...',
+  'hint.vaults.pick': 'Den Ordner im Datei-Explorer des Systems wählen, statt seinen Pfad zu tippen. Das Feld lässt sich weiter von Hand ändern.',
   'vaults.path_hint': 'der ganze Pfad des Ordners, der die Bereiche enthält',
   'vaults.warn':
     'Der Hub liest die Tasks dieses Ordners. Bereiche ohne Datenklasse bleiben gesperrt, bis du sie in areas.json freigibst.',

@@ -23,6 +23,12 @@
     if (!app.managingVaults && dialog.open) dialog.close();
   });
 
+  /** The dialog of the system fills the field; a closed dialog leaves what is typed there. */
+  async function pick(): Promise<void> {
+    const chosen = await app.pickVaultFolder();
+    if (chosen !== null) path = chosen;
+  }
+
   async function add(): Promise<void> {
     if (name.trim() === '' || path.trim() === '' || (create && area.trim() === '')) return;
     const done = create ? await app.createVault(name, path, area) : await app.addVault(name, path);
@@ -83,7 +89,16 @@
     </label>
     <label>
       <span>{t('vaults.path')} <small>({t('vaults.path_hint')})</small></span>
-      <input type="text" bind:value={path} maxlength="1024" disabled={app.vaultBusy} />
+      <span class="path-row">
+        <input type="text" bind:value={path} maxlength="1024" disabled={app.vaultBusy} />
+        <button
+          type="button"
+          class="pick"
+          data-hint={t('hint.vaults.pick')}
+          disabled={app.vaultBusy}
+          onclick={() => void pick()}>{t('vaults.pick')}</button
+        >
+      </span>
     </label>
     <label class="check">
       <input type="checkbox" bind:checked={create} disabled={app.vaultBusy} />
@@ -135,6 +150,18 @@
   }
   .muted {
     color: var(--muted);
+  }
+  .path-row {
+    display: flex;
+    gap: 0.4rem;
+    align-items: stretch;
+  }
+  .path-row input {
+    flex: 1;
+    min-width: 0;
+  }
+  .pick {
+    flex: none;
   }
   .vaults {
     list-style: none;

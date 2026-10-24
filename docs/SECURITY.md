@@ -433,17 +433,24 @@ do: a path of 260 UTF-16 units or more, and a name Windows reads differently wit
 private is opened too: it is the person at this machine who asks, and showing it here is not a use that leaves the hub.
 `TASKS_DESKTOP_EDITOR_LOG` (a file) makes the hub write the file instead of starting anything; the browser tests use it.
 
-## Showing the vault folder and making a new vault (`POST /api/tasks/vault_reveal`, `POST /api/tasks/vault_create`)
+## Showing the vault folder, choosing a folder and making a new vault (`POST /api/tasks/vault_reveal`, `POST /api/tasks/vault_pick`, `POST /api/tasks/vault_create`)
 
 `vault_reveal` takes `{}` (any field is refused): the page names no folder. The hub shows the folder of the vault it reads in
 the file manager of the system (`explorer.exe`, `open`, `xdg-open`; no shell, the folder as the one argument) and answers
 with no path. `TASKS_DESKTOP_EDITOR_LOG` makes it write `reveal <folder>` instead of starting anything.
 
+`vault_pick` takes `{}` (any field is refused): the page cannot show a folder dialog with a path, so the hub shows the one of
+the system on its own machine (PowerShell with `FolderBrowserDialog`, `osascript` with `choose folder`, `zenity` or `kdialog`; no
+shell, fixed arguments) and answers `{ "path": "<folder>" }`, or `{ "path": null }` when the dialog was closed. The answer is the
+person's own choice, put in the field of the form to look at and change; nothing is added by it (`vaults/add` asks again and
+checks the folder). Only one dialog is open at a time (`pick_failed`, 502, for the second), and a hub without an opener answers
+`404 open_unavailable`. `TASKS_DESKTOP_EDITOR_LOG` makes it write `pick` and return `TASKS_DESKTOP_PICK_RESULT` (empty: closed).
+
 `vault_create` takes `{ path, area, confirm: true }` and writes on the machine of the hub, so without `confirm: true` it does
 nothing. The path must be absolute without `.` or `..`, its parent must exist, and the target must not exist or be an empty
 folder (never a file, never a folder with something in it: nothing is merged or overwritten). The one exception is a folder that holds exactly the structure of the same area and nothing else, what an earlier try left when the second step was refused: it is taken as it is, so that the person can try again. The area must be a plain folder
 name. It makes `<path>/<area>/ROADMAP/tasks`, the folders the engine looks for, and does not register the vault: the page
-then calls `vaults/add` as for any folder. Both routes need a session and count as mutations.
+then calls `vaults/add` as for any folder. All three routes need a session and count as mutations.
 
 ## The ranges of the fields (`GET /api/tasks/enums`)
 

@@ -142,6 +142,24 @@ describe('the vaults', () => {
     expect(gone.said).toEqual(['error:vaults.failed:no']);
   });
 
+  it('takes the folder of the dialog, nothing when it was closed, and says why when it could not be shown', async () => {
+    const chosen = host({ pickFolder: async () => '/home/me/vault' });
+    const state = new VaultsState(chosen.host);
+    expect(await state.pick()).toBe('/home/me/vault');
+    expect([state.busy, chosen.said]).toEqual([false, []]);
+    const closed = host({ pickFolder: async () => null });
+    expect(await new VaultsState(closed.host).pick()).toBeNull();
+    expect(closed.said).toEqual([]);
+    const gone = host({ pickFolder: async () => Promise.reject(new ApiError(404, 'open_unavailable', 'no dialog')) });
+    expect(await new VaultsState(gone.host).pick()).toBeNull();
+    expect(gone.said).toEqual(['error:vaults.failed:no dialog']);
+    // A step under way: no second dialog beside it.
+    const busy = host({ pickFolder: async () => '/x' });
+    const held = new VaultsState(busy.host);
+    held.busy = true;
+    expect(await held.pick()).toBeNull();
+  });
+
   it('trims what is added, and runs what the page does before taking the choice of another vault', async () => {
     const added: string[][] = [];
     const order: string[] = [];

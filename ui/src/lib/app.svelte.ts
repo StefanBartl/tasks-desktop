@@ -430,6 +430,7 @@ export class App {
     removeVault: (name) => this.env.hub.removeVault(name),
     createVault: (path, area) => this.env.hub.createVault(path, area),
     revealVault: () => this.env.hub.revealVault(),
+    pickFolder: () => this.env.hub.pickVaultFolder(),
     say: (kind, key, params) => this.say(kind, key, params),
   });
   get vaultList(): VaultList | null {
@@ -2764,6 +2765,11 @@ export class App {
 
   revealVault(): Promise<void> {
     return this.vaultsState.reveal();
+  }
+
+  /** The folder chosen in the dialog of the system (shown by the hub), or `null`. */
+  pickVaultFolder(): Promise<string | null> {
+    return this.vaultsState.pick();
   }
 
   private nextFor: string | null = null;

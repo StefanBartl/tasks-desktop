@@ -26,6 +26,11 @@ struct Rig {
 }
 
 async fn rig(name: &str, with_opener: bool) -> Rig {
+    rig_with(name, with_opener, None).await
+}
+
+/// `pick`: the folder the folder dialog "returns" (`None`: the dialog is closed without a choice).
+async fn rig_with(name: &str, with_opener: bool, pick: Option<&str>) -> Rig {
     let base =
         std::env::temp_dir().join(format!("tasks-desktop-open-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
@@ -85,10 +90,14 @@ async fn rig(name: &str, with_opener: bool) -> Rig {
     let opener: Option<Arc<dyn tasks_hub::editor::FileOpener>> = with_opener.then(|| {
         Arc::new(TerminalOpener::new(
             PathBuf::from("nvim"),
-            Env::from_pairs([(
-                "TASKS_DESKTOP_EDITOR_LOG",
-                log.to_string_lossy().into_owned(),
-            )]),
+            Env::from_pairs(
+                [(
+                    "TASKS_DESKTOP_EDITOR_LOG",
+                    log.to_string_lossy().into_owned(),
+                )]
+                .into_iter()
+                .chain(pick.map(|p| ("TASKS_DESKTOP_PICK_RESULT", p.to_owned()))),
+            ),
         )) as Arc<dyn tasks_hub::editor::FileOpener>
     });
     let server = start_with(
@@ -241,6 +250,35 @@ async fn the_folder_of_the_vault_is_shown_and_the_page_names_nothing() {
     assert_eq!(opened(&r).len(), 1);
     let none = rig("reveal-none", false).await;
     let (status, doc) = post(&none, "/api/tasks/vault_reveal", "{}", true).await;
+    assert_eq!(
+        (status, doc["error"]["code"].as_str()),
+        (404, Some("open_unavailable"))
+    );
+}
+
+#[tokio::test]
+async fn the_folder_the_person_picks_is_answered_and_a_closed_dialog_says_so() {
+    let r = rig_with("pick", true, Some("/home/me/my-vault")).await;
+    let (status, doc) = post(&r, "/api/tasks/vault_pick", "{}", true).await;
+    assert_eq!(
+        (status, doc["path"].as_str()),
+        (200, Some("/home/me/my-vault")),
+        "{doc}"
+    );
+    assert_eq!(opened(&r), vec!["pick".to_owned()]);
+    // The page names no folder, and the credential comes first.
+    let (status, _) = post(&r, "/api/tasks/vault_pick", r#"{"path":"/etc"}"#, true).await;
+    assert_eq!(status, 400);
+    let (status, _) = post(&r, "/api/tasks/vault_pick", "{}", false).await;
+    assert_eq!(status, 401);
+    assert_eq!(opened(&r).len(), 1, "a refused request showed no dialog");
+    // A dialog closed without a choice is an answer, not an error.
+    let closed = rig_with("pick-closed", true, None).await;
+    let (status, doc) = post(&closed, "/api/tasks/vault_pick", "{}", true).await;
+    assert_eq!(status, 200, "{doc}");
+    assert!(doc["path"].is_null(), "{doc}");
+    let none = rig("pick-none", false).await;
+    let (status, doc) = post(&none, "/api/tasks/vault_pick", "{}", true).await;
     assert_eq!(
         (status, doc["error"]["code"].as_str()),
         (404, Some("open_unavailable"))

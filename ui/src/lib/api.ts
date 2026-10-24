@@ -205,6 +205,15 @@ export class Hub extends HubClient<Snapshot> {
     return this.vaultPost('/api/tasks/vault_reveal', {});
   }
 
+  /**
+   * Ask the person for a folder with the dialog of the system on the machine of the hub (a page cannot show one with a
+   * path). The folder they chose, or `null` when the dialog was closed; the page names nothing.
+   */
+  async pickVaultFolder(): Promise<string | null> {
+    const doc = await this.postJson<{ path: string | null }>('/api/tasks/vault_pick', {});
+    return typeof doc.path === 'string' && doc.path !== '' ? doc.path : null;
+  }
+
   removeVault(name: string): Promise<void> {
     return this.vaultPost('/api/vaults/remove', { name });
   }
