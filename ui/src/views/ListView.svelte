@@ -6,6 +6,7 @@
   import FinishedList from './FinishedList.svelte';
   import TextHits from './TextHits.svelte';
   import TaskRow from './TaskRow.svelte';
+  import ExportMenu from './ExportMenu.svelte';
   import MultiSelect from 'appkit-ui/MultiSelect.svelte';
   import Info from 'appkit-ui/Info.svelte';
   import { TIP_ID } from 'appkit-ui/tooltip';
@@ -404,6 +405,7 @@
         ontoggle={() => app.toggleSizing('list')}
         onreset={() => app.setTileSize('list', null)}
       />
+      <ExportMenu {app} />
       <label class="pick lists" data-hint={t('hint.ui.list.lists')}>
         <span>{t('lists.label')}</span>
         <select

@@ -496,7 +496,8 @@ test('the tasks the list shows are saved as a CSV file from the Project menu', a
     page.waitForEvent('download'),
     page.getByRole('menuitem', { name: 'Save tasks as CSV file ...', exact: true }).click(),
   ]);
-  expect(download.suggestedFilename()).toBe('tasks.csv');
+  // The name says the view and the day.
+  expect(download.suggestedFilename()).toMatch(/^tasks-list-\d{4}-\d{2}-\d{2}\.csv$/);
   await expect(page.getByText(`${shown} tasks saved.`)).toBeVisible();
   const csv = readFileSync((await download.path()) as string, 'utf8');
   // The file starts with a byte order mark (a spreadsheet reads the umlauts as UTF-8) and ends rows with CR LF.

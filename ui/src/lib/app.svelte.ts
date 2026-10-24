@@ -49,7 +49,7 @@ import { ViewsState } from './state/views.svelte';
 import { emptySelect, filterOfSelect, type ViewForm } from './views';
 import { viewMenuItems } from './viewMenu';
 import type { MenuItem } from 'appkit-ui/menu';
-import { cellDropOps, dropOps, NONE, type Cell, type Derived, type Drop, type Grouping } from './groups';
+import { cellDropOps, cellsOf, dropOps, groupsOf, NONE, type Cell, type Derived, type Drop, type Grouping } from './groups';
 import { TodayState } from './state/today.svelte';
 import { GraphState } from './state/graph.svelte';
 import type { DailyPrefs } from './daily';
@@ -59,7 +59,9 @@ import { conflictsOf, conflictsOfRequest, retryOp, type Conflict } from './confl
 import { Preferences, StreamSession } from 'appkit-ui/session';
 import type { SseMessage } from 'appkit-ui/sse';
 import { LANGS, translate, type Key, type Lang } from './i18n';
-import { csvSeparatorFor, exportText, type ExportFormat } from './export';
+import { csvSeparatorFor, EXPORT_FILES, exportFileName, rowsText, type ExportFormat, type ExportRow } from './export';
+import { boardRows, cellRows, groupRows, mayLeave, onlyMarked, stageRows, taskCount } from './viewExport';
+import { chosenPlan, stagesOf } from './plan';
 import { applyOrder, orderOf, parseSort, type SortWord } from './sort';
 import { fromEngineList, type EngineList } from './engineLists';
 import { DEFAULT_RANGES, rangesOf, type Ranges } from './fields';
@@ -128,6 +130,11 @@ export interface Env {
   sleep(ms: number): Promise<void>;
   /** Load the page again (after another vault was chosen); replaced in tests. */
   reload?(): void;
+  /** The ways out of the page for an export: a file the browser saves, the clipboard. Replaced in tests. */
+  out: {
+    save(name: string, text: string, type: string): boolean;
+    copy(text: string): Promise<boolean>;
+  };
 }
 
 const TOKEN_KEY = 'tasks-desktop.session';
@@ -1390,17 +1397,76 @@ export class App {
   }
 
   /** The text of the marked tasks, or of those the list shows when none is marked, in the order of the list. */
-  exportTasks(format: ExportFormat): { text: string; count: number } {
-    const marked = new Set(this.marks);
-    const tasks = marked.size > 0 ? this.shown.filter((t) => marked.has(t.id)) : this.shown;
-    // The spreadsheet that opens the file is the one of the system: its locale decides the column separator.
-    const separator = csvSeparatorFor(this.env.preferredLanguages[0]);
-    return { text: exportText(tasks, format, separator), count: tasks.length };
+  /**
+   * What the view that is shown draws, as rows for an export: the board's columns, the plan's stages, the groups or
+   * cells of a saved view; the list (and a view that draws no list of tasks) gives the tasks the list shows. `view`
+   * names it for the file.
+   */
+  viewRows(): { view: string; rows: ExportRow[] } {
+    switch (this.view) {
+      case 'board':
+        return { view: 'board', rows: boardRows(this.shown) };
+      case 'plan': {
+        const plan = chosenPlan(this.snapshot?.plans ?? [], this.planChoice);
+        return { view: plan === '' ? 'plan' : `plan-${plan.slice(plan.indexOf('/') + 1)}`, rows: stageRows(stagesOf(this.shown, plan === '' ? null : plan)) };
+      }
+      case 'views': {
+        const open = this.viewsState.open;
+        if (open === null) break;
+        const fields = this.viewsState.groupingsShown?.fields ?? [];
+        const tasks = this.tasksOfView(open);
+        const name = `view-${open.id.slice(open.id.indexOf('/') + 1)}`;
+        const columns = fields.find((f) => f.field === open.group_by);
+        if (!columns) return { view: name, rows: tasks.map((task) => ({ task })) };
+        const rows = open.display === 'matrix' && open.group_by2 !== undefined ? fields.find((f) => f.field === open.group_by2) : undefined;
+        return {
+          view: name,
+          rows: rows ? cellRows(cellsOf(tasks, rows, columns, this.derivedValues)) : groupRows(groupsOf(tasks, columns, this.derivedValues)),
+        };
+      }
+    }
+    return { view: 'list', rows: this.shown.map((task) => ({ task })) };
   }
 
-  /** Tell the person what an export did (`how`: saved, failed, copied or copy_failed). */
-  announceExport(how: 'saved' | 'failed' | 'copied' | 'copy_failed', count: number): void {
-    this.say(how === 'failed' || how === 'copy_failed' ? 'error' : 'ok', `export.${how}`, { n: count });
+  /**
+   * The rows an export takes: the view's, only the marked ones when some are marked, and none of a private or
+   * unclassified area (`kept`: how many tasks stay in the app for that).
+   */
+  exportRows(): { view: string; rows: ExportRow[]; kept: number } {
+    const { view, rows } = this.viewRows();
+    const { rows: out, kept } = mayLeave(onlyMarked(rows, new Set(this.marks)), (task) => this.mayRememberArea(task.area));
+    return { view, rows: out, kept };
+  }
+
+  exportTasks(format: ExportFormat): { view: string; text: string; count: number; kept: number } {
+    const { view, rows, kept } = this.exportRows();
+    // The spreadsheet that opens the file is the one of the system: its locale decides the column separator.
+    const separator = csvSeparatorFor(this.env.preferredLanguages[0]);
+    return { view, text: rowsText(rows, format, separator, view), count: taskCount(rows), kept };
+  }
+
+  /**
+   * Export what the view shows: as a file the browser saves (named by the view and the day) or onto the clipboard. An
+   * export of nothing is not made and says so; the tasks of areas that may not leave the app are named by their number.
+   */
+  async exportView(format: ExportFormat, how: 'save' | 'copy'): Promise<void> {
+    const { view, text, count, kept } = this.exportTasks(format);
+    if (count === 0) {
+      this.say('error', kept > 0 ? 'export.only_kept' : 'export.empty', { m: kept });
+      return;
+    }
+    const file = EXPORT_FILES[format];
+    const ok = how === 'save' ? this.env.out.save(exportFileName(view, this.localDay(), format), text, file.type) : await this.env.out.copy(text);
+    const done = how === 'save' ? 'saved' : 'copied';
+    if (!ok) this.say('error', how === 'save' ? 'export.failed' : 'export.copy_failed', { n: count });
+    else if (kept > 0) this.say('ok', `export.${done}_kept`, { n: count, m: kept });
+    else this.say('ok', `export.${done}`, { n: count });
+  }
+
+  /** The day of the clock in the person's time zone, as `YYYY-MM-DD`. */
+  private localDay(): string {
+    const d = new Date(this.env.now());
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
   /** Only the tasks the list shows stay marked: a mark that cannot be seen must not be changed. */

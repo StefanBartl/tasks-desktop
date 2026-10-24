@@ -1,6 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import { copyText, saveText } from './exportDom';
-import { csvCell, csvSeparatorFor, exportText, toCsv, toMarkdown } from './export';
+import {
+  csvCell,
+  csvSeparatorFor,
+  EXPORT_FILES,
+  exportFileName,
+  exportText,
+  JSON_FORMAT,
+  rowsText,
+  rowsToCsv,
+  rowsToJson,
+  rowsToMarkdown,
+  toCsv,
+  toMarkdown,
+} from './export';
 import { task } from './fixtures';
 
 describe('csv', () => {
@@ -122,5 +135,70 @@ describe('saveText', () => {
   it('starts a CSV with a byte order mark and a Markdown file without', async () => {
     expect(await saved('text/csv;charset=utf-8')).toBe('\ufeffa;b');
     expect(await saved('text/markdown;charset=utf-8')).toBe('a;b');
+  });
+
+  it('starts a JSON file without one', async () => {
+    expect(await saved(EXPORT_FILES.json.type)).toBe('a;b');
+  });
+});
+
+describe('the rows of a view', () => {
+  const rows = [
+    { task: task('a/one', { title: 'One', status: 'doing', prio: 1, tags: ['x'] }), group: 'doing' },
+    { task: task('a/two', { title: 'Two', status: 'open' }), group: 'open' },
+    { task: task('a/three', { title: 'Three', status: 'open' }), group: 'open' },
+  ];
+
+  it('put the group in a first column of the CSV, only when the view has groups', () => {
+    const lines = rowsToCsv(rows, ';').trimEnd().split('\r\n');
+    expect(lines[0]).toBe('group;id;title;status;actor;kind;prio;effort;value;severity;plan;phase;tags;updated');
+    expect(lines[1]).toBe('doing;a/one;One;doing;;;1;;;;;;x;');
+    expect(lines.slice(2).map((l) => l.split(';').slice(0, 2).join(' '))).toEqual(['open a/two', 'open a/three']);
+    expect(rowsToCsv([{ task: rows[0]!.task }]).split('\r\n')[0]).toBe(
+      'id,title,status,actor,kind,prio,effort,value,severity,plan,phase,tags,updated',
+    );
+  });
+
+  it('keep a group a spreadsheet would run as a formula from running', () => {
+    expect(rowsToCsv([{ task: task('a/one'), group: '=1+1' }]).split('\r\n')[1]!.startsWith("'=1+1,")).toBe(true);
+  });
+
+  it('are JSON with the format, the view and each task with its own types, a missing field left out', () => {
+    const doc = JSON.parse(rowsToJson(rows, 'board')) as { format: string; view: string; tasks: Record<string, unknown>[] };
+    expect(doc.format).toBe(JSON_FORMAT);
+    expect(doc.view).toBe('board');
+    expect(doc.tasks[0]).toEqual({ group: 'doing', id: 'a/one', title: 'One', status: 'doing', prio: 1, tags: ['x'] });
+    expect(doc.tasks.map((x) => x['id'])).toEqual(['a/one', 'a/two', 'a/three']);
+    // A list without groups has no group key at all.
+    expect(Object.hasOwn((JSON.parse(rowsToJson([{ task: rows[1]!.task }], 'list')) as typeof doc).tasks[0]!, 'group')).toBe(false);
+  });
+
+  it('give each group of the Markdown a heading, in the order the groups come', () => {
+    expect(rowsToMarkdown(rows)).toBe(
+      '## doing\n\n- [ ] `a/one` One (doing, prio 1)\n\n## open\n\n- [ ] `a/two` Two (open)\n- [ ] `a/three` Three (open)\n',
+    );
+    // The group of no value has a heading too, and markup in a group's name is escaped.
+    expect(rowsToMarkdown([{ task: task('a/one', { title: 'T' }), group: '' }, { task: task('a/two', { title: 'U' }), group: '*x*' }])).toBe(
+      '## -\n\n- [ ] `a/one` T\n\n## \\*x\\*\n\n- [ ] `a/two` U\n',
+    );
+  });
+
+  it('are picked by the format', () => {
+    expect(rowsText(rows, 'csv', ',', 'v')).toBe(rowsToCsv(rows, ','));
+    expect(rowsText(rows, 'json', ',', 'v')).toBe(rowsToJson(rows, 'v'));
+    expect(rowsText(rows, 'markdown', ',', 'v')).toBe(rowsToMarkdown(rows));
+  });
+});
+
+describe('the name of the file', () => {
+  it('names the view and the day, with the ending of the format', () => {
+    expect(exportFileName('board', '2026-10-24', 'csv')).toBe('tasks-board-2026-10-24.csv');
+    expect(exportFileName('plan-p1', '2026-10-24', 'json')).toBe('tasks-plan-p1-2026-10-24.json');
+    expect(exportFileName('list', '2026-10-24', 'markdown')).toBe('tasks-list-2026-10-24.md');
+  });
+
+  it('keeps the name of a view to safe letters', () => {
+    expect(exportFileName('view-../../Evil Name?', '2026-10-24', 'csv')).toBe('tasks-view-..-..-evil-name-2026-10-24.csv');
+    expect(exportFileName('///', '2026-10-24', 'csv')).toBe('tasks-list-2026-10-24.csv');
   });
 });

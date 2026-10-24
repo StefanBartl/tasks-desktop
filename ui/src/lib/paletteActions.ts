@@ -65,6 +65,12 @@ export function paletteActions(app: App): PaletteAction[] {
   if (app.can('check')) add('check.open', t('check.open'), () => app.openChecks());
   if (app.can('estimate') && app.view === 'list') add('matrix.open', t('matrix.open'), () => app.openMatrix());
 
+  // The export of what the view shows, by format and way out (the same entries as the button of the view).
+  for (const [format, name] of [['csv', 'CSV'], ['json', 'JSON'], ['markdown', 'Markdown']] as const) {
+    add(`export.save.${format}`, t('palette.export', { what: t('export.save', { format: name }) }), () => app.exportView(format, 'save'));
+    add(`export.copy.${format}`, t('palette.export', { what: t('export.copy', { format: name }) }), () => app.exportView(format, 'copy'));
+  }
+
   if (app.conflicts.length > 0) add('conflicts.show', t('palette.conflicts', { n: app.conflicts.length }), () => app.openConflicts());
   add('rescan', t('menu.rescan'), () => app.focused());
   add('about', t('menu.about'), () => app.openAbout('info'));

@@ -159,11 +159,14 @@ and changed by pull requests). Each area is `public`, `internal` or
 `private`; an area with no entry is **unclassified**, and an unclassified
 area is released for nothing that leaves the hub.
 
-| Class | Another panel | A cloud runner | A cache of the client |
-|---|---|---|---|
-| `public`, `internal` | yes | yes (after a consent, later) | yes |
-| `private` | no | no | no |
-| unclassified | no | no | no |
+| Class | Another panel | A cloud runner | A cache of the client | An export of the page |
+|---|---|---|---|---|
+| `public`, `internal` | yes | yes (after a consent, later) | yes | yes |
+| `private` | no | no | no | no |
+| unclassified | no | no | no | no |
+
+An export (a file the browser saves, the clipboard) leaves the app: the page leaves the tasks of private and
+unclassified areas out and says how many, and until the classes are read after a start nothing is exported.
 
 The file may name a `"default"` class: the owner's explicit choice for every
 area it has no entry for (a new area then needs no decision, and an entry
@@ -217,7 +220,7 @@ trusted-types svelte-trusted-html
 
 and `Cross-Origin-Opener-Policy: same-origin` and a `Permissions-Policy` that
 turns off the device features and the reading of the clipboard; the page itself may write it
-(`clipboard-write=(self)`, used by the "copy tasks" entries of the Project menu on a click). There is no `unsafe-inline` and
+(`clipboard-write=(self)`, used by the "copy" entries of the export, in a view, a menu or the palette, on a click). There is no `unsafe-inline` and
 no `unsafe-eval`. A sink that takes a string as HTML or script
 (`innerHTML`, `insertAdjacentHTML`, `document.write`, `script.src`) throws
 unless Svelte's one policy made the value; the browser tests assert that.

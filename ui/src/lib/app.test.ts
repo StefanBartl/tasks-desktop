@@ -378,6 +378,8 @@ function make(
   const saved: CachedList[] = [];
   let cleared = 0;
   let reloads = 0;
+  const files: { name: string; text: string; type: string }[] = [];
+  const copied: string[] = [];
   const cache: ListStore = {
     load: async () => overrides.cached ?? null,
     save: async (l) => void saved.push(l),
@@ -406,8 +408,18 @@ function make(
       await new Promise((r) => setTimeout(r, 1));
     },
     reload: () => void (reloads += 1),
+    out: {
+      save: (name, text, type) => {
+        files.push({ name, text, type });
+        return true;
+      },
+      copy: async (text) => {
+        copied.push(text);
+        return true;
+      },
+    },
   };
-  return { app: new App(env), hub, saved, session, prefs, cleared: () => cleared, reloads: () => reloads };
+  return { app: new App(env), hub, saved, session, prefs, files, copied, cleared: () => cleared, reloads: () => reloads };
 }
 
 describe('App', () => {
@@ -1021,6 +1033,100 @@ describe('App, the export', () => {
     const { app } = make(); // the browser prefers German
     app.setLang('en');
     expect(app.exportTasks('csv').text.split('\r\n')[0]).toContain('id;title;');
+  });
+
+  async function started(tasks: TaskEntry[], areas: HubArea[] = [{ name: 'pub', data_class: 'public' }]) {
+    const made = make({ token: 't' });
+    made.hub.doc = snapshot(tasks);
+    made.hub.areaList = areas;
+    await made.app.start(null);
+    // The classes of the areas come a moment after the list; until then nothing may leave (a test below shows it).
+    await new Promise((r) => setTimeout(r, 10));
+    return made;
+  }
+
+  it('lets nothing leave while the classes of the areas are not known yet', async () => {
+    const { app, hub, copied } = make({ token: 't' });
+    hub.doc = snapshot([task('pub/a')]);
+    await app.start(null);
+    app.setView('list');
+    await app.exportView('csv', 'copy');
+    expect(copied).toHaveLength(0);
+    expect(app.toast).toMatchObject({ kind: 'error', text: translate('de', 'export.only_kept', { m: 1 }) });
+    app.stop();
+  });
+
+  it('saves what the list shows as a file named by the view and the day, and says how many', async () => {
+    const { app, files } = await started([task('pub/a', { title: 'A', status: 'open' }), task('pub/b', { title: 'B', status: 'doing' })]);
+    app.setView('list');
+    await app.exportView('json', 'save');
+    expect(files).toHaveLength(1);
+    expect(files[0]!.name).toBe('tasks-list-1970-01-01.json');
+    expect(files[0]!.type).toBe('application/json;charset=utf-8');
+    expect(JSON.parse(files[0]!.text).tasks.map((x: { id: string }) => x.id)).toEqual(['pub/a', 'pub/b']);
+    expect(app.toast?.text).toBe(translate('de', 'export.saved', { n: 2 }));
+    app.stop();
+  });
+
+  it('takes the board with its columns, and only the marked tasks when some are marked', async () => {
+    const { app, files } = await started([task('pub/a', { status: 'open' }), task('pub/b', { status: 'doing' }), task('pub/c', { status: 'open' })]);
+    app.setView('board');
+    await app.exportView('csv', 'save');
+    const lines = files[0]!.text.trimEnd().split('\r\n');
+    expect(files[0]!.name).toBe('tasks-board-1970-01-01.csv');
+    expect(lines[0]!.startsWith('group;id;')).toBe(true);
+    // The board's columns in order: doing before open.
+    expect(lines.slice(1).map((l) => l.split(';').slice(0, 2).join(' '))).toEqual(['doing pub/b', 'open pub/a', 'open pub/c']);
+    app.toggleMark('pub/c');
+    await app.exportView('csv', 'copy');
+    expect(app.toast?.text).toBe(translate('de', 'export.copied', { n: 1 }));
+    app.stop();
+  });
+
+  it('leaves the tasks of a private or unclassified area in the app and says how many', async () => {
+    const { app, files, copied } = await started([task('pub/a'), task('priv/b'), task('loose/c')], [
+      { name: 'pub', data_class: 'public' },
+      { name: 'priv', data_class: 'private' },
+    ]);
+    app.setView('list');
+    await app.exportView('markdown', 'copy');
+    expect(copied).toHaveLength(1);
+    expect(copied[0]).toContain('`pub/a`');
+    expect(copied[0]).not.toContain('priv/b');
+    expect(copied[0]).not.toContain('loose/c');
+    expect(app.toast?.text).toBe(translate('de', 'export.copied_kept', { n: 1, m: 2 }));
+    // Only such tasks shown: nothing leaves, and it is said why.
+    app.setQuery('priv/');
+    await app.exportView('csv', 'save');
+    expect(files).toHaveLength(0);
+    expect(app.toast).toMatchObject({ kind: 'error', text: translate('de', 'export.only_kept', { m: 1 }) });
+    app.stop();
+  });
+
+  it('writes nothing for a view that shows no task, and says so; a failed save is told', async () => {
+    const { app, files } = await started([task('pub/a', { title: 'A' })]);
+    app.setView('list');
+    app.setQuery('nothing matches this');
+    await app.exportView('csv', 'save');
+    expect(files).toHaveLength(0);
+    expect(app.toast).toMatchObject({ kind: 'error', text: translate('de', 'export.empty') });
+    app.setQuery('');
+    const failing = await started([task('pub/a')]);
+    failing.app.setView('list');
+    (failing.app as unknown as { env: Env }).env.out.save = () => false;
+    await failing.app.exportView('csv', 'save');
+    expect(failing.app.toast).toMatchObject({ kind: 'error', text: translate('de', 'export.failed', { n: 1 }) });
+    failing.app.stop();
+    app.stop();
+  });
+
+  it('offers every format and both ways in the palette', () => {
+    const { app } = make();
+    const keys = paletteActions(app).map((a) => a.key);
+    for (const format of ['csv', 'json', 'markdown']) {
+      expect(keys).toContain(`export.save.${format}`);
+      expect(keys).toContain(`export.copy.${format}`);
+    }
   });
 });
 

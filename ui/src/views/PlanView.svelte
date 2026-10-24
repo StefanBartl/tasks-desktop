@@ -12,6 +12,7 @@
   import GraphPanel from './GraphPanel.svelte';
   import PlanFinished from './PlanFinished.svelte';
   import FoldButton from './FoldButton.svelte';
+  import ExportMenu from './ExportMenu.svelte';
   import { allButtonFold, foldOf, withAll, withFold } from '../lib/fold';
 
   let { app }: { app: App } = $props();
@@ -118,6 +119,7 @@
           </label>
         {/if}
         <button type="button" class="newplan" data-hint={t('hint.ui.plan.new')} disabled={!app.can('plan_new')} onclick={() => app.openPlanWizard()}>{t('plan.new.button')}</button>
+        <ExportMenu {app} />
       </div>
       {#if phases.length > 0}
         <p class="phases">

@@ -6,6 +6,7 @@
   import { tick, untrack } from 'svelte';
   import type { App } from '../lib/app.svelte';
   import type { GroupField, View, ViewSelect } from '../lib/contract';
+  import ExportMenu from './ExportMenu.svelte';
   import { cellsOf, groupsOf, keepsGroup, neighbourCell, neighbourGroup, NONE, type Cell, type Grouping } from '../lib/groups';
   import { labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
@@ -469,6 +470,7 @@
         {:else}
           <button type="button" class="danger" disabled={app.saving} onclick={() => void saved.remove(open)}>{t('views.delete')}</button>
         {/if}
+        <ExportMenu {app} />
       </div>
       {#if open.id === DRAFT_ID}<p class="note">{t('views.draft')}</p>{/if}
       <p class="muted">{t('views.selection', { what: selectionText(open) })}{open.id === DRAFT_ID ? '' : ` · ${open.id}`}</p>

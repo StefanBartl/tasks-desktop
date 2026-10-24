@@ -15,8 +15,7 @@
   import TaskDialog from './views/TaskDialog.svelte';
   import CheckDialog from './views/CheckDialog.svelte';
   import { triageKey } from './lib/inbox';
-  import { copyText, saveText } from './lib/exportDom';
-  import type { ExportFormat } from './lib/export';
+  import { copyText } from './lib/exportDom';
   import MenuBar, { type Menu } from 'appkit-ui/MenuBar.svelte';
   import PlanView from './views/PlanView.svelte';
   import Capture from './views/Capture.svelte';
@@ -199,20 +198,23 @@
 
   const age = $derived(app.cachedAt === null ? '' : ago(app.lang, Date.now() - app.cachedAt));
 
-  /** Hand the tasks shown (or marked) to a file the browser saves. */
-  function exportFile(format: ExportFormat): void {
-    const { text, count } = app.exportTasks(format);
-    if (count === 0) return;
-    const file = format === 'csv' ? ['tasks.csv', 'text/csv;charset=utf-8'] : ['tasks.md', 'text/markdown;charset=utf-8'];
-    app.announceExport(saveText(document, file[0]!, text, file[1]!) ? 'saved' : 'failed', count);
-  }
-
-  /** The same text on the clipboard (the page may write it, on this click, and never read it). */
-  async function copyToClipboard(format: ExportFormat): Promise<void> {
-    const { text, count } = app.exportTasks(format);
-    if (count === 0) return;
-    app.announceExport((await copyText(navigator.clipboard, text)) ? 'copied' : 'copy_failed', count);
-  }
+  /** The entries of the menu that export what the view shows: a file for each format, then the clipboard. */
+  const exportItems = (ready: boolean) =>
+    (
+      [
+        ['menu.save_csv', 'csv', 'save'],
+        ['menu.save_json', 'json', 'save'],
+        ['menu.save_md', 'markdown', 'save'],
+        ['menu.copy_csv', 'csv', 'copy'],
+        ['menu.copy_json', 'json', 'copy'],
+        ['menu.copy_md', 'markdown', 'copy'],
+      ] as const
+    ).map(([label, format, how]) => ({
+      kind: 'action' as const,
+      label: t(label),
+      disabled: !ready,
+      onselect: () => void app.exportView(format, how),
+    }));
 
   /** The task the engine names as the next one to take: the one the tile of that name shows. */
   const nextTaskId = $derived(app.next?.task?.id ?? null);
@@ -328,30 +330,8 @@
             onselect: () => app.openPlanWizard(),
           },
           { kind: 'section', label: t('menu.sec.export') },
-          {
-            kind: 'action',
-            label: t('menu.save_md'),
-            disabled: !ready,
-            onselect: () => exportFile('markdown'),
-          },
-          {
-            kind: 'action',
-            label: t('menu.save_csv'),
-            disabled: !ready,
-            onselect: () => exportFile('csv'),
-          },
-          {
-            kind: 'action',
-            label: t('menu.copy_md'),
-            disabled: !ready,
-            onselect: () => void copyToClipboard('markdown'),
-          },
-          {
-            kind: 'action',
-            label: t('menu.copy_csv'),
-            disabled: !ready,
-            onselect: () => void copyToClipboard('csv'),
-          },
+          { kind: 'info', label: t('menu.export_where') },
+          ...exportItems(ready),
           { kind: 'section', label: t('menu.sec.page') },
           { kind: 'action', label: t('menu.reload'), onselect: () => window.location.reload() },
         ],
@@ -419,6 +399,9 @@
                 },
               ]
             : []),
+          // The export belongs to the view that is shown: it takes what that view draws.
+          { kind: 'section', label: t('menu.sec.export') },
+          ...exportItems(ready),
           { kind: 'section', label: t('menu.sec.tiles') },
           {
             kind: 'action',
@@ -472,6 +455,8 @@
             checked: app.shortAreas,
             onselect: () => app.setShortAreas(!app.shortAreas),
           },
+          { kind: 'section', label: t('menu.sec.export') },
+          { kind: 'info', label: t('menu.export_where') },
         ],
       },
       {

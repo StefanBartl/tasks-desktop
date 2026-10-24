@@ -4,6 +4,7 @@ import App from './App.svelte';
 import { Hub } from './lib/api';
 import { App as AppState, type Env } from './lib/app.svelte';
 import { indexedDbStore } from './lib/cache';
+import { copyText, saveText } from './lib/exportDom';
 import { translate } from './lib/i18n';
 import { trackHistory } from './lib/trackHistory.svelte';
 import { takeInjected } from './lib/inject';
@@ -28,6 +29,10 @@ const env: Env = {
   fetchFn,
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   reload: () => window.location.reload(),
+  out: {
+    save: (name, text, type) => saveText(document, name, text, type),
+    copy: (text) => copyText(navigator.clipboard, text),
+  },
 };
 
 const state = new AppState(env);

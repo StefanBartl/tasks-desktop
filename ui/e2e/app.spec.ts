@@ -982,6 +982,107 @@ for (const scheme of ['light', 'dark'] as const) {
   });
 }
 
+test('the export: the button of a view, the View menu and the palette take what the view shows, with its groups; a private area stays in the app', async ({
+  page,
+}) => {
+  test.slow();
+  // Tasks of a name of their own for each repeat and retry (other tests change the fixture's tasks); they go again at
+  // the end. cascade.nvim is told private to this page only: the hub's own file says public, and other tests count.
+  const info = test.info();
+  const tag = `r${String(info.repeatEachIndex).padStart(3, '0')}t${info.retry}`;
+  const word = `exportpick${tag}`;
+  const made = [
+    ['lib.nvim', 'one', 'doing'],
+    ['lib.nvim', 'two', 'open'],
+    ['cascade.nvim', 'three', 'open'],
+  ].map(([area, n, status]) => {
+    const path = join(state().vault, area!, 'ROADMAP', 'tasks', `export-e2e-${tag}-${n}.md`);
+    writeFileSync(path, `---\ntitle: ${word} ${n}\nstatus: ${status}\nkind: task\n---\n\nText.\n`);
+    return path;
+  });
+  const lib = [`lib.nvim/export-e2e-${tag}-one`, `lib.nvim/export-e2e-${tag}-two`];
+  const said = 'tasks saved; 1 of private or unclassified areas stay in the app.';
+  try {
+    await page.route('**/api/tasks/areas', async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { areas: { name: string; data_class: string }[] };
+      for (const a of body.areas) if (a.name === 'cascade.nvim') a.data_class = 'private';
+      await route.fulfill({ response, json: body });
+    });
+    await pair(page);
+    await showList(page);
+    const box = page.getByRole('searchbox', { name: 'Search id and title' });
+    await expect(async () => {
+      await box.fill(word);
+      await expect(page.locator('.rows .line')).toHaveCount(3, { timeout: 2000 });
+    }).toPass({ timeout: WRITE_BUDGET });
+
+    // The list: the button stands in its row of filters and says what it does; its popup is reached by the keyboard
+    // and closed by Escape, back on the button.
+    const button = page.locator('.filters details.export summary');
+    await expect(button).toHaveText(/Export/);
+    await expect(button).toHaveAttribute('aria-label', 'Export the tasks of this view');
+    await button.focus();
+    await page.keyboard.press('Enter');
+    const popup = page.getByRole('group', { name: 'Export the tasks of this view' });
+    await expect(popup.getByRole('button', { name: 'Save as JSON ...' })).toBeVisible();
+    await expectAccessible(page, 'the list with the export open');
+    await page.keyboard.press('Tab');
+    await expect(popup.getByRole('button', { name: 'Save as CSV ...' })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(popup).toBeHidden();
+    await expect(button).toBeFocused();
+
+    // JSON of the list: the tasks shown in the list's order, the private one left in the app and said so.
+    await button.click();
+    const [json] = await Promise.all([page.waitForEvent('download'), popup.getByRole('button', { name: 'Save as JSON ...' }).click()]);
+    expect(json.suggestedFilename()).toMatch(/^tasks-list-\d{4}-\d{2}-\d{2}\.json$/);
+    const doc = JSON.parse(readFileSync((await json.path()) as string, 'utf8')) as { view: string; tasks: { id: string; group?: string }[] };
+    expect(doc.view).toBe('list');
+    const listed = await page.locator('.rows .line .id').allTextContents();
+    expect(doc.tasks.map((x) => x.id)).toEqual(listed.filter((id) => id.startsWith('lib.nvim/')));
+    expect(doc.tasks.every((x) => x.group === undefined)).toBe(true);
+    await expect(page.getByText(`2 ${said}`)).toBeVisible();
+
+    // The board from the View menu: CSV with the column each task stands in, doing before open.
+    await chooseView(page, 'View', 'Board');
+    await expect(page.locator('.foldall details.export summary')).toBeVisible();
+    await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+    const [csv] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('menuitem', { name: 'Save tasks as CSV file ...', exact: true }).click(),
+    ]);
+    expect(csv.suggestedFilename()).toMatch(/^tasks-board-\d{4}-\d{2}-\d{2}\.csv$/);
+    const lines = readFileSync((await csv.path()) as string, 'utf8').slice(1).trimEnd().split('\r\n');
+    expect(lines[0]!.startsWith('group,id,title,')).toBe(true);
+    expect(lines.slice(1).map((l) => l.split(',').slice(0, 2).join(' '))).toEqual([`doing ${lib[0]}`, `open ${lib[1]}`]);
+
+    // The plan from the palette: each task with its stage.
+    await chooseView(page, 'View', 'Plan');
+    await expect(page.locator('.toolbar details.export summary')).toBeVisible();
+    await page.keyboard.press('Control+k');
+    await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeVisible();
+    await page.keyboard.type('Export: Save as JSON');
+    const [plan] = await Promise.all([page.waitForEvent('download'), page.keyboard.press('Enter')]);
+    expect(plan.suggestedFilename()).toMatch(/^tasks-plan-\d{4}-\d{2}-\d{2}\.json$/);
+    const stages = JSON.parse(readFileSync((await plan.path()) as string, 'utf8')) as { tasks: { id: string; group: string }[] };
+    expect(stages.tasks.map((x) => x.id).sort()).toEqual([...lib].sort());
+    expect(stages.tasks.every((x) => /^(stage \d+|no stage)$/.test(x.group))).toBe(true);
+
+    // A view that shows nothing exports nothing, and says so.
+    await showList(page);
+    await box.fill(`${word} none of these`);
+    await expect(page.locator('.rows .line')).toHaveCount(0);
+    await page.locator('.filters details.export summary').click();
+    await popup.getByRole('button', { name: 'Save as CSV ...' }).click();
+    await expect(page.getByText('Nothing to export: the view shows no task.')).toBeVisible();
+    expect(await violations(page)).toEqual([]);
+    expect(consoleProblems.get(page)).toEqual([]);
+  } finally {
+    for (const path of made) removeFile(path);
+  }
+});
+
 test('a choice of several areas says how they combine and does not move under the pointer', async ({ page }) => {
   await pair(page);
   await showList(page);

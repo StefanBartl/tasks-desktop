@@ -12,6 +12,7 @@
   import Detail from './Detail.svelte';
   import FilterNote from './FilterNote.svelte';
   import FoldButton from './FoldButton.svelte';
+  import ExportMenu from './ExportMenu.svelte';
   import { allButtonFold, foldOf, withAll, withFold } from '../lib/fold';
 
   let { app }: { app: App } = $props();
@@ -216,6 +217,7 @@
         {t('board.done')}
       </div>
     <div class="foldall">
+      <ExportMenu {app} />
       <FoldButton
         lang={app.lang}
         fold={allFold}
@@ -399,6 +401,8 @@
   .foldall {
     display: flex;
     justify-content: flex-end;
+    align-items: center;
+    gap: 0.5rem;
   }
   /* A folded column is its head only; a narrow one stands its head on its side. */
   .column.folded {
