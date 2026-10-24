@@ -299,6 +299,9 @@
                   {#if card.steps && card.steps.total > 0}
                     <span class="tag soft" data-hint={hintOf(app.lang, 'hint', 'steps')}>{card.steps.ticked}/{card.steps.total}</span>
                   {/if}
+                  {#if card.open_questions}
+                    <span class="tag" data-hint={hintOf(app.lang, 'hint', 'questions')}><span aria-hidden="true">?{card.open_questions}</span><span class="sr-only">{translate(app.lang, 'mark.questions', { n: card.open_questions })}</span></span>
+                  {/if}
                 </span>
               </button>
             {:else}

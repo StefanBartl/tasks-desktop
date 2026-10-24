@@ -326,6 +326,7 @@ async fn a_plan_may_be_asked_for_and_an_unknown_operation_is_not() {
     // The ones that change the text of a task are let through as well (the engine judges them).
     for body in [
         r#"{"dry_run":true,"ops":[{"op":"tick_step","id":"alpha.nvim/t1","n":1}]}"#,
+        r#"{"dry_run":true,"ops":[{"op":"answer","id":"alpha.nvim/t1","question":"q1","option":1}]}"#,
         r#"{"dry_run":true,"ops":[{"op":"append_note","id":"alpha.nvim/t1","text":"a note"}]}"#,
         r#"{"dry_run":true,"ops":[{"op":"reopen","id":"alpha.nvim/t1"}]}"#,
         r#"{"dry_run":true,"ops":[{"op":"set_body","id":"alpha.nvim/t1","body":"text"}]}"#,

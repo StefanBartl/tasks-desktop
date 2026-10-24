@@ -33,6 +33,8 @@ export type Op =
   | { op: 'done'; id: string; confirm: string; remind?: string }
   | { op: 'reopen'; id: string; status?: string; if_match?: string }
   | { op: 'tick_step'; id: string; n: number; done?: boolean; if_match?: string }
+  /** Tick option `option` of a question (by its key), or take the answer back with `clear`. */
+  | { op: 'answer'; id: string; question: string; option?: number; clear?: boolean; if_match?: string }
   | { op: 'append_note'; id: string; text: string; if_match?: string }
   | { op: 'set_body'; id: string; body: string; if_match?: string }
   | { op: 'move_area'; id: string; to_area: string; if_match?: string }

@@ -1155,6 +1155,18 @@ export class App {
         });
         continue;
       }
+      if (inv.op === 'answer') {
+        if (typeof inv.question !== 'string') return undefined;
+        inverses.push({
+          op: 'answer',
+          id: inv.id,
+          question: inv.question,
+          ...(typeof inv.option === 'number' ? { option: inv.option } : {}),
+          ...(inv.clear === true ? { clear: true } : {}),
+          ...(inv.if_match ? { if_match: inv.if_match } : {}),
+        });
+        continue;
+      }
       if (inv.op === 'move_area') {
         if (typeof inv.to_area !== 'string') return undefined;
         inverses.push({ op: 'move_area', id: inv.id, to_area: inv.to_area, ...(inv.if_match ? { if_match: inv.if_match } : {}) });
@@ -1243,6 +1255,22 @@ export class App {
    */
   async tickStep(id: string, n: number, done: boolean, etag?: string): Promise<void> {
     await this.write([{ op: 'tick_step', id, n, done, ...(etag ? { if_match: etag } : {}) }]);
+  }
+
+  /**
+   * Answer a question of the task: tick option `option` (1-based), or take the answer back with `null`. `etag` is the
+   * version of the file the questions were read from; the engine refuses when it moved on.
+   */
+  async answerQuestion(id: string, key: string, option: number | null, etag?: string): Promise<void> {
+    await this.write([
+      {
+        op: 'answer',
+        id,
+        question: key,
+        ...(option === null ? { clear: true } : { option }),
+        ...(etag ? { if_match: etag } : {}),
+      },
+    ]);
   }
 
   /** Add one dated line to the notes of a task; says whether it was written (the box is emptied only then). */

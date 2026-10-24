@@ -88,6 +88,9 @@
     {#if task.steps && task.steps.total > 0}
       <span class="tag soft" data-hint={hintOf(lang, 'hint', 'steps')}>{task.steps.ticked}/{task.steps.total}</span>
     {/if}
+    {#if task.open_questions}
+      <span class="tag" data-hint={hintOf(lang, 'hint', 'questions')}><span aria-hidden="true">?{task.open_questions}</span><span class="sr-only">{translate(lang, 'mark.questions', { n: task.open_questions })}</span></span>
+    {/if}
   </span>
 </button>
 </div>

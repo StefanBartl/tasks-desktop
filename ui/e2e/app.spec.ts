@@ -5259,6 +5259,73 @@ test('a new task can be made with the fields the engine takes, and the file has 
   expect(text).toContain('lib.nvim@abc1234');
 });
 
+test('the open questions of a task are shown with their options and answered with a click, and taken back', async ({
+  page,
+}) => {
+  // A task that waits for two decisions, written the way a person writes it in Neovim.
+  const dir = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks');
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, 'questions-r001.md');
+  writeFileSync(
+    file,
+    [
+      '---',
+      'title: Questions r001',
+      'status: decision',
+      'kind: task',
+      'created: 2026-10-01',
+      '---',
+      '',
+      'A task with questions.',
+      '',
+      '## Offene Fragen',
+      '',
+      '### Which format? [q1]',
+      'Some words of explanation.',
+      '- [ ] Section in the body (empfohlen)',
+      '- [ ] List in the frontmatter',
+      '',
+      '### Written without a key',
+      '- [ ] Yes',
+      '- [ ] No',
+      '',
+    ].join('\n'),
+  );
+  await pair(page);
+  await showList(page);
+  // The row says that two questions wait.
+  await expect(page.locator('button.row', { hasText: 'Questions r001' })).toContainText('?2');
+  await page.locator('button.row', { hasText: 'Questions r001' }).click();
+  const detail = page.locator('aside.detail');
+  const first = detail.getByRole('region', { name: 'Which format?' });
+  await expect(first).toBeVisible();
+  await expect(first.getByText('Some words of explanation.')).toBeVisible();
+  // The recommendation is marked; nothing is chosen yet.
+  const section = first.getByRole('button', { name: /Section in the body/ });
+  await expect(section).toContainText('recommended');
+  await expect(section).toHaveAttribute('aria-pressed', 'false');
+  await expectAccessible(page, 'the questions of a task');
+
+  // A click answers: the file says so, and the page shows what the file says.
+  await write(page, () => section.click());
+  await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toContain('- [x] Section in the body (empfohlen)');
+  await expect(section).toHaveAttribute('aria-pressed', 'true');
+  expect(readFileSync(file, 'utf8')).toContain('- [ ] List in the frontmatter');
+
+  // Another option replaces the answer; the same one again takes it back.
+  await write(page, () => first.getByRole('button', { name: /List in the frontmatter/ }).click());
+  await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toContain('- [x] List in the frontmatter');
+  await write(page, () => first.getByRole('button', { name: /List in the frontmatter/ }).click());
+  await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toContain('- [ ] List in the frontmatter');
+
+  // A question written without a key is answered too, and gets its key.
+  const second = detail.getByRole('region', { name: 'Written without a key' });
+  await write(page, () => second.getByRole('button', { name: /Yes/ }).click());
+  await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toContain('### Written without a key [q2]');
+  expect(readFileSync(file, 'utf8')).toContain('- [x] Yes');
+  rmSync(file, { force: true });
+});
+
 test('menus: every entry of every menu of the bar explains itself with a hint', async ({ page }) => {
   await pair(page);
   await showList(page);

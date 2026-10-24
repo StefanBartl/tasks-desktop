@@ -51,6 +51,7 @@
     void app.setField(task.id, key, list.length === 0 ? null : list);
   }
   const steps = $derived(detail.state === 'ok' ? (detail.doc.steps ?? []) : []);
+  const questions = $derived(detail.state === 'ok' ? (detail.doc.questions ?? []) : []);
 
   // The line for the notes: kept while the task stays selected, emptied only when the engine wrote it.
   let note = $state('');
@@ -451,6 +452,45 @@
           {/each}
         </ul>
       {/if}
+      {#if questions.length > 0}
+        <h3>{t('detail.questions')}</h3>
+        <div class="questions">
+          {#each questions as q (q.n)}
+            <section class="question" class:answered={q.answered} aria-label={q.title}>
+              <h4>{markHidden(q.title)}</h4>
+              {#if q.text}<p class="muted">{markHidden(q.text)}</p>{/if}
+              <ul class="plain options">
+                {#each q.options as option (option.n)}
+                  <li>
+                    {#if app.can('answer')}
+                      <!-- The button shows what the file says: a click asks the engine and the task is read again. -->
+                      <button
+                        type="button"
+                        class="option"
+                        class:chosen={option.chosen}
+                        class:recommended={option.recommended}
+                        aria-pressed={option.chosen}
+                        disabled={app.saving}
+                        onclick={() => void app.answerQuestion(task.id, q.key ?? `#${q.n}`, option.chosen ? null : option.n, detail.doc.task.etag)}
+                      >
+                        <span aria-hidden="true">{option.chosen ? '◉' : '○'}</span>
+                        {markHidden(option.text)}
+                        {#if option.recommended}<span class="badge">{t('question.recommended')}</span>{/if}
+                      </button>
+                    {:else}
+                      <span class="option" class:chosen={option.chosen}>
+                        <span aria-hidden="true">{option.chosen ? '◉' : '○'}</span>
+                        {markHidden(option.text)}
+                        {#if option.recommended}<span class="badge">{t('question.recommended')}</span>{/if}
+                      </span>
+                    {/if}
+                  </li>
+                {/each}
+              </ul>
+            </section>
+          {/each}
+        </div>
+      {/if}
       <h3>
         {t('detail.body')}
         <!-- The label names what the button will do, so it is a plain button, not a pressed one (both at once contradict). -->
@@ -778,6 +818,58 @@
   .note :disabled {
     opacity: 0.6;
     cursor: default;
+  }
+  .question {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.4rem 0.6rem;
+    margin-bottom: 0.5rem;
+  }
+  .question h4 {
+    margin: 0 0 0.2rem;
+    font-size: 0.9rem;
+  }
+  .question.answered {
+    opacity: 0.85;
+  }
+  .options {
+    display: grid;
+    gap: 0.25rem;
+  }
+  .option {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    width: 100%;
+    text-align: left;
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.3rem 0.5rem;
+    font: inherit;
+  }
+  button.option {
+    cursor: pointer;
+  }
+  button.option:hover:not(:disabled) {
+    border-color: var(--accent);
+  }
+  .option.chosen {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .option.recommended:not(.chosen) {
+    border-style: dashed;
+  }
+  .badge {
+    margin-left: auto;
+    font-size: 0.7rem;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-pill);
+    padding: 0 0.4rem;
+    white-space: nowrap;
   }
   .dropped {
     text-decoration: line-through;

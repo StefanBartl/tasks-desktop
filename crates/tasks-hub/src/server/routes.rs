@@ -278,13 +278,13 @@ pub(super) async fn search_route(
 
 /// The operations the page may ask for. `move_area` asked as a dry run is the
 /// report of what the move would break; without it the engine moves the task. A dry
-/// run of `plan_new` names the plan without making it. `tick_step`, `append_note` and `set_body` change the text of one open task
-/// (a step, a line of the notes, the text); the engine checks the version and the text. `view_save` and `view_delete` make,
+/// run of `plan_new` names the plan without making it. `tick_step`, `answer`, `append_note` and `set_body` change the text of one open task
+/// (a step, the answer to a question, a line of the notes, the text); the engine checks the version and the text. `view_save` and `view_delete` make,
 /// replace and delete a saved view (a small file of the vault, not a task); the engine checks the view and its version.
 /// `attach` makes the image on the clipboard of this machine, or its newest screenshot, an asset of a task: the request
 /// names no path (the folders are the hub's settings, `attach_dirs`, added by `with_attach_dirs`), and the answer holds
 /// the path below the task and its link, never the image.
-pub(super) const OPS_ALLOWED: [&str; 13] = [
+pub(super) const OPS_ALLOWED: [&str; 14] = [
     "set",
     "new",
     "reorder",
@@ -292,6 +292,7 @@ pub(super) const OPS_ALLOWED: [&str; 13] = [
     "move_area",
     "plan_new",
     "tick_step",
+    "answer",
     "append_note",
     "reopen",
     "set_body",
