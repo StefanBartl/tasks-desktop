@@ -1739,7 +1739,12 @@ test('the overview is at the top right, tiles can be put away, choices combine',
   await page.reload();
   await expect(page.getByText('Next task')).toBeVisible();
   await expect(overview).toHaveCount(0);
-  await page.getByRole('button', { name: /Hidden tiles \(1\)/ }).click();
+  // The way back is an icon with the count; the words are its hint and its name.
+  const hiddenTiles = page.getByRole('button', { name: /Hidden tiles \(1\)/ });
+  await expect(hiddenTiles).toHaveText('1');
+  await hiddenTiles.hover();
+  await expect(page.locator('#hint-tip')).toHaveText('Hidden tiles (1): show again');
+  await hiddenTiles.click();
   await expect(overview).toBeVisible();
 
   // The name of a choice is the button, not an option of it.

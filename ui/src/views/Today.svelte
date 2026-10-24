@@ -221,9 +221,25 @@
     {/if}
     {#if app.hiddenTiles.length > 0}
       <p class="restore">
-        <button type="button" class="link" onclick={() => app.showTiles()}
-          >{t('today.hidden', { n: app.hiddenTiles.length })}</button
+        <button
+          type="button"
+          class="link hidden-tiles"
+          aria-label={t('today.hidden', { n: app.hiddenTiles.length })}
+          data-hint={t('today.hidden', { n: app.hiddenTiles.length })}
+          onclick={() => app.showTiles()}
         >
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+            <path
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M1.5 8s2.3-4.5 6.5-4.5S14.5 8 14.5 8s-2.3 4.5-6.5 4.5S1.5 8 1.5 8Zm6.5 1.8a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6ZM2.5 2.5l11 11"
+            />
+          </svg>
+          <span class="count">{app.hiddenTiles.length}</span>
+        </button>
       </p>
     {/if}
     {#if shown('next')}
@@ -404,6 +420,15 @@
   }
   .restore {
     margin: 0;
+  }
+  .hidden-tiles {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .hidden-tiles .count {
+    font-size: 0.75rem;
+    color: var(--muted);
   }
   .tools {
     margin-left: auto;
