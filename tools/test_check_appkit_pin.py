@@ -156,6 +156,23 @@ class Main(unittest.TestCase):
         self.assertIn("release.yml", words)
         self.assertIn(OTHER, words)
 
+    def test_a_quoted_other_case_or_root_action_is_read_too(self):
+        for line in (
+            f'      - uses: "StefanBartl/appkit/release-kit/publish@{OTHER}"\n',
+            f"      - uses: stefanbartl/APPKIT/release-kit/publish@{OTHER}\n",
+            f"      - uses: StefanBartl/appkit@{OTHER}\n",
+        ):
+            with self.subTest(line=line):
+                code, words = self.run_main(lock(tagged(), tagged(), tagged()), [SHA], workflows={"r.yml": line})
+                self.assertEqual(code, 1, words)
+                self.assertIn(OTHER, words)
+
+    def test_the_steps_found_are_counted(self):
+        flow = f"      - uses: StefanBartl/appkit/release-kit/publish@{SHA}\n"
+        code, words = self.run_main(lock(tagged(), tagged(), tagged()), [SHA], workflows={"r.yml": flow})
+        self.assertEqual(code, 0, words)
+        self.assertIn("1 step(s)", words)
+
     def test_the_release_kit_by_a_tag_fails(self):
         flow = "        uses: StefanBartl/appkit/release-kit/prepare@v0.1.0\n"
         code, words = self.run_main(lock(tagged(), tagged(), tagged()), [SHA], workflows={"rolling.yaml": flow})

@@ -72,7 +72,7 @@ Setup is not allowed or SmartScreen stops a downloaded program. Run them in your
 elevated, not from inside a program that sandboxes AppData):
 
 ```
-# the rolling build
+# the rolling build (Windows; Linux x86-64)
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/StefanBartl/tasks-desktop/releases/download/latest/install.ps1 | iex"
 curl -fsSL https://github.com/StefanBartl/tasks-desktop/releases/download/latest/install.sh | sh
 
@@ -81,14 +81,17 @@ curl -fsSL https://github.com/StefanBartl/tasks-desktop/releases/download/latest
 
 They download the program of that build, check it against its `SHA256SUMS` (a wrong or missing
 checksum installs nothing), and hand over to `tasks-hub install`, which replaces the program in one
-step and brings a running hub back. Run the same script again to repair or to update: the
-installation that is there is found and replaced, never a second one beside it. Saved as a file,
+step and brings a running hub back. The installation that is there is found and replaced, never a
+second one beside it: the script of `latest` run again updates to the newest rolling build, the
+script of a release run again repairs that release (to update, take the script of the newer
+release, or pass `-Version`/`-Rolling`). Saved as a file,
 the script takes options: `-InstallArgs '--autostart','--shortcut'` (`-- --autostart --shortcut`)
 registers the hub with your login and adds a link, `-Version vX.Y.Z` / `-Rolling` takes another
 channel, `-File FILE` (`--file`) installs from a file you already have, with `-Sums FILE` or
 `-Sha256 HEX`. The install scripts are the ones of appkit's
 [release-kit](https://github.com/StefanBartl/appkit/tree/main/release-kit), stamped for this app and
-the channel when they are attached; `scripts/test-install.*` try them against every build.
+the channel when they are attached; `scripts/test-install.*` try the script of the pinned kit
+against the hub in the CI of every commit and in the build of every release.
 
 ```
 sh scripts/uninstall.sh [--purge-settings]

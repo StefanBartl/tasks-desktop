@@ -26,7 +26,12 @@ BIN="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 KIT="${2:-}"
 if [ -z "$KIT" ]; then
-    KIT="$(cd "$HERE/.." && { python3 tools/release-kit-dir.py 2>/dev/null || python tools/release-kit-dir.py; })" || {
+    PY="$(command -v python3 || command -v python || true)"
+    if [ -z "$PY" ]; then
+        echo "no python to find the release-kit: give RELEASE_KIT_DIR (see tools/release-kit-dir.py)" >&2
+        exit 2
+    fi
+    KIT="$(cd "$HERE/.." && "$PY" tools/release-kit-dir.py)" || {
         echo "no release-kit: give RELEASE_KIT_DIR (see tools/release-kit-dir.py)" >&2
         exit 2
     }
@@ -90,10 +95,12 @@ says() {
 
 installed() { [ -f "$TMP/bin/tasks-hub" ] || [ -f "$TMP/bin/tasks-hub.exe" ]; }
 
-# A release archive and its sums, made from the program under test.
+# A release archive and its sums, made from the program under test the way release.yml and
+# rolling.yml pack it (the folder with the program and LICENSE, entries ./tasks-hub and ./LICENSE).
 mkdir -p "$TMP/release/stage"
 cp "$BIN" "$TMP/release/stage/$(basename "$BIN")"
-tar -czf "$TMP/release/tasks-hub-0.0.0-test.tar.gz" -C "$TMP/release/stage" "$(basename "$BIN")"
+cp "$HERE/../LICENSE" "$TMP/release/stage/"
+tar -czf "$TMP/release/tasks-hub-0.0.0-test.tar.gz" -C "$TMP/release/stage" .
 HASH="$(cd "$TMP/release" && { sha256sum tasks-hub-0.0.0-test.tar.gz 2>/dev/null || shasum -a 256 tasks-hub-0.0.0-test.tar.gz; } | cut -d ' ' -f 1)"
 printf '%s  tasks-hub-0.0.0-test.tar.gz\n' "$HASH" >"$TMP/release/SHA256SUMS"
 ARCHIVE="$TMP/release/tasks-hub-0.0.0-test.tar.gz"

@@ -19,10 +19,11 @@ curl -fsSL https://github.com/StefanBartl/tasks-desktop/releases/download/<tag>/
 
 With the script saved: `.\install.ps1 -InstallArgs '--autostart','--shortcut'` or
 `sh install.sh -- --autostart --shortcut` registers the hub with your login and adds a link. The
-setup downloaded by the script is not stopped by SmartScreen; what is checked instead is that it is
-the file `SHA256SUMS` of this release lists.
+program downloaded by the script is not stopped by SmartScreen; what is checked instead is that it
+is the file `SHA256SUMS` of this release lists.
 
-Run the same script again to repair or to update; remove the program with `uninstall.sh` or
+Run the same script again to repair this release (to update, take the script of a newer release);
+remove the program with `uninstall.sh` or
 `uninstall.ps1` (your settings stay unless you add `--purge-settings` or `-PurgeSettings`; your
 vault is never touched). The install scripts come from the release-kit of appkit, the uninstall
 scripts from `scripts/` at this tag; all are listed in `SHA256SUMS`.

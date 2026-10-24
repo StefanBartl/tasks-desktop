@@ -16,8 +16,9 @@ machine.
 | `SHA256SUMS` | the checksum of every file above |
 
 The rolling build `latest` ([`rolling.yml`](../.github/workflows/rolling.yml)) carries the same
-scripts, stamped for `latest`, beside its two programs. Both workflows take the actions `prepare`
-and `publish` of the release-kit by the commit of the appkit tag that `Cargo.lock` pins;
+scripts, stamped for `latest`, beside its two programs. `rolling.yml` takes the actions `prepare`
+and `publish` of the release-kit, `release.yml` takes `publish` (its own `check` decides), both by
+the commit of the appkit tag that `Cargo.lock` pins;
 `tools/check-appkit-pin.py` fails when the two disagree, so a raised appkit tag raises them too.
 
 The native shell with a Setup (`*-setup.exe`, `.dmg`, a Linux package) is the Tauri task; this

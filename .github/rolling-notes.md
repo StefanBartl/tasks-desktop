@@ -3,9 +3,11 @@
 **Install it with the script** (for the current user, no administrator rights, and no SmartScreen stop: the script downloads the program itself and checks it against `SHA256SUMS`):
 
 ```
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/StefanBartl/tasks-desktop/releases/download/latest/install.ps1 | iex"
-curl -fsSL https://github.com/StefanBartl/tasks-desktop/releases/download/latest/install.sh | sh
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/StefanBartl/tasks-desktop/releases/download/latest/install.ps1 | iex"   # Windows
+curl -fsSL https://github.com/StefanBartl/tasks-desktop/releases/download/latest/install.sh | sh                                # Linux x86-64
 ```
+
+Run it again to update to the newest rolling build.
 
 Or take the file yourself:
 
