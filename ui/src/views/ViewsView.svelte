@@ -10,7 +10,7 @@
   import { cellsOf, groupsOf, keepsGroup, neighbourCell, neighbourGroup, NONE, type Cell, type Grouping } from '../lib/groups';
   import { labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
-  import { cleanTitle, emptySelect, formOf, selectOfFilter, type ViewForm } from '../lib/views';
+  import { cleanTitle, emptySelect, formOf, selectOfFilter, selectParts, type ViewForm } from '../lib/views';
   import { selectOfGroup } from '../lib/viewMenu';
   import { DRAFT_ID } from '../lib/state/views.svelte';
   import { createGrip, farEnough, placeAt, type PointerDragEvent } from '../lib/pointerDrag';
@@ -67,6 +67,11 @@
   let titleBox = $state<HTMLInputElement | null>(null);
 
   const fromFilter = $derived(selectOfFilter(app.filter));
+  /** The selection the new view will get: the one being tried, else the filter of the list, else none. */
+  const chosenSelect = $derived(draftSelect ?? (fromList ? fromFilter.select : emptySelect()));
+  const parts = $derived(selectParts(chosenSelect));
+  const partValue = (key: string, value: string): string =>
+    key === 'statuses' ? labelOf(app.lang, 'status', value) : key === 'actors' ? labelOf(app.lang, 'actor', value) : value;
 
   function startMaking(): void {
     making = true;
@@ -93,7 +98,7 @@
       group_by: groupBy,
       ...(rows !== undefined ? { group_by2: rows } : {}),
       collapsed: [],
-      select: draftSelect ?? (fromList ? fromFilter.select : emptySelect()),
+      select: chosenSelect,
     };
     if (await saved.create(area, form)) {
       making = false;
@@ -409,6 +414,22 @@
       {#if draftSelect === null && fromList && fromFilter.dropped}
         <p class="note">{t('views.form.dropped')}</p>
       {/if}
+      <dl class="preview" aria-label={t('views.preview.title')}>
+        <dt>{t('views.preview.name')}</dt>
+        <dd>{cleanTitle(title) ?? t('views.preview.untitled')} · {area}</dd>
+        <dt>{t('views.preview.groups')}</dt>
+        <dd>
+          {fieldLabel(groupBy)}{#if display === 'matrix'} × {fieldLabel(groupBy2 !== undefined && groupBy2 !== groupBy ? groupBy2 : (fields.find((f) => f !== groupBy) ?? groupBy))}{/if}, {t(`views.display.${display}` as Key)}
+        </dd>
+        <dt>{t('views.preview.shows')}</dt>
+        <dd>
+          {#each parts as part (part.key)}
+            <span class="chip"><b>{t(`views.sel.${part.key}` as Key)}</b> {part.values.map((v) => partValue(part.key, v)).join(', ')}</span>
+          {:else}
+            {t('views.preview.all')}
+          {/each}
+        </dd>
+      </dl>
       {#if makeProblem}<p class="note" role="alert">{makeProblem}</p>{/if}
       <div class="actions">
         <button type="submit" disabled={app.saving || area === ''}>{t('views.create')}</button>
@@ -621,6 +642,27 @@
     flex-wrap: wrap;
     gap: 0.6rem;
     align-items: end;
+  }
+  .preview {
+    flex-basis: 100%;
+    margin: 0;
+    padding: 0.5rem 0.7rem;
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.2rem 0.8rem;
+    background: var(--surface-2);
+    border-radius: var(--radius);
+    font-size: 0.85rem;
+  }
+  .preview dt {
+    color: var(--muted);
+  }
+  .preview dd {
+    margin: 0;
+  }
+  .chip {
+    display: inline-block;
+    margin-right: 0.5rem;
   }
   .rename {
     display: flex;

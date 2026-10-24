@@ -305,6 +305,15 @@ test('a saved view is made in the tab of the views, kept as a file of the vault,
   await form.getByLabel('Name').fill('E2e view v001');
   await form.getByLabel('Kept in area').selectOption('lib.nvim');
   await form.getByLabel('Group by').selectOption({ label: 'Priority' });
+  // The form shows what is being made: the name, where it is kept, how it groups and what it shows.
+  const preview = form.locator('dl.preview');
+  await expect(preview).toContainText('E2e view v001');
+  await expect(preview).toContainText('lib.nvim');
+  await expect(preview).toContainText('Priority, Columns');
+  await expect(preview).toContainText('every open task');
+  await form.getByLabel('Show as').selectOption({ label: 'List' });
+  await expect(preview).toContainText('Priority, List');
+  await form.getByLabel('Show as').selectOption({ label: 'Columns' });
   await write(page, () => form.getByRole('button', { name: 'Create view' }).click());
   // The file is the engine's: in the area chosen, grouped by the field chosen.
   await expect.poll(() => viewFile('lib.nvim', 'E2e view v001'), { timeout: WRITE_BUDGET }).not.toBeNull();

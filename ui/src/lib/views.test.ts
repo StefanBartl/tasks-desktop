@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { View } from './contract';
 import { emptyFilter, type Filter } from './filter';
-import { cleanTitle, emptySelect, filterOfSelect, formOf, selectOfFilter, TITLE_MAX, toggledGroup } from './views';
+import { cleanTitle, emptySelect, filterOfSelect, formOf, selectOfFilter, selectParts, TITLE_MAX, toggledGroup } from './views';
 
 const filter = (extra: Partial<Filter> = {}): Filter => ({ ...emptyFilter, ...extra });
 
@@ -65,5 +65,17 @@ describe('the saved views', () => {
   it('fold a group that is open and open one that is folded', () => {
     expect(toggledGroup(['a'], 'b')).toEqual(['a', 'b']);
     expect(toggledGroup(['a', 'b'], 'a')).toEqual(['b']);
+  });
+});
+
+describe('selectParts', () => {
+  it('names only what narrows: an empty list and a blank text are left out', () => {
+    expect(selectParts(emptySelect())).toEqual([]);
+    expect(selectParts({ ...emptySelect(), query: '   ' })).toEqual([]);
+    expect(selectParts({ ...emptySelect(), tags: ['ui'], areas: ['lib.nvim', 'tasks-desktop'], query: ' hub ' })).toEqual([
+      { key: 'areas', values: ['lib.nvim', 'tasks-desktop'] },
+      { key: 'tags', values: ['ui'] },
+      { key: 'query', values: ['hub'] },
+    ]);
   });
 });

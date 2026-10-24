@@ -28,6 +28,22 @@ export function emptySelect(): ViewSelect {
   return { areas: [], statuses: [], actors: [], kinds: [], tags: [], plans: [] };
 }
 
+/** The lists of a selection, in the order the form shows them; the text search is the last. */
+export type SelectKey = 'areas' | 'statuses' | 'actors' | 'kinds' | 'tags' | 'plans' | 'query';
+
+/**
+ * What a selection holds, as the parts that narrow something: a list that is empty narrows nothing and is left out, a
+ * text that is blank too. No part at all means every open task.
+ */
+export function selectParts(select: ViewSelect): { key: SelectKey; values: string[] }[] {
+  const lists = ['areas', 'statuses', 'actors', 'kinds', 'tags', 'plans'] as const;
+  const parts: { key: SelectKey; values: string[] }[] = [];
+  for (const key of lists) if (select[key].length > 0) parts.push({ key, values: [...select[key]] });
+  const query = select.query?.trim();
+  if (query) parts.push({ key: 'query', values: [query] });
+  return parts;
+}
+
 /** The title as the engine takes it (one line, trimmed, at most `TITLE_MAX` characters), or null when it is empty. */
 export function cleanTitle(title: string): string | null {
   const line = title.replace(/\s*[\r\n\t]+\s*/g, ' ').trim();
