@@ -86,7 +86,7 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
+    box-shadow: var(--shadow);
   }
   .popup button {
     text-align: left;

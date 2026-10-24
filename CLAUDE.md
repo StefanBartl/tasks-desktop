@@ -14,6 +14,7 @@ cargo fmt --check && cargo clippy --workspace --all-targets --locked -- -D warni
 cargo test --workspace --locked
 cd ui && pnpm e2e                        # echtes Binary, echte Engine, axe
 python tools/check-control-chars.py
+python tools/check-color-literals.py    # no colour outside the tokens of appkit-ui (CI job hygiene)
 ```
 
 - Umgebung für Browser- und Engine-Tests: `TASKS_ENGINE_DIR=E:/repos/tasks.nvim`,
