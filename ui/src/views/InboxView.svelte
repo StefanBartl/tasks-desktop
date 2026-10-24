@@ -12,6 +12,9 @@
   import FilterNote from './FilterNote.svelte';
 
   let { app }: { app: App } = $props();
+  // What the keys write (see `triageKey`): shown as they are read, never worked out here.
+  const EFFORT_KEYS = [['a', 'XS'], ['s', 'S'], ['d', 'M'], ['f', 'L'], ['⇧F', 'XL']] as const;
+  const WHO_KEYS = [['m', 'me'], ['p', 'pair'], ['i', 'cdx']] as const;
   const t = (key: Key, params: Record<string, string | number> = {}) => translate(app.lang, key, params);
 
   const rows = $derived(app.inbox);
@@ -51,13 +54,32 @@
 <div class="split">
   <section class="inbox" aria-label={t('nav.inbox')}>
     <FilterNote {app} />
-    <div class="head">
-      <p class="count" role="status">{t('inbox.count', { n: rows.length })}</p>
-      <Info hint={t('hint.inbox')} label={t('hint.about', { what: t('nav.inbox') })} />
-    </div>
-    <p class="keys">{t('inbox.keys')}</p>
+    <header class="intro">
+      <div class="head">
+        <h2>{t('inbox.title')}</h2>
+        <Info hint={t('hint.inbox')} label={t('hint.about', { what: t('nav.inbox') })} />
+        <p class="count" role="status">{t(rows.length === 1 ? 'inbox.count_one' : 'inbox.count', { n: rows.length })}</p>
+      </div>
+      <p class="about">{t('inbox.intro')}</p>
+      <ul class="keys" aria-label={t('inbox.keys.label')}>
+        <li><span class="kgroup">{t('inbox.keys.move')}</span><kbd>j</kbd><kbd>k</kbd></li>
+        <li><span class="kgroup">{t('inbox.keys.prio')}</span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></li>
+        <li>
+          <span class="kgroup">{t('inbox.keys.effort')}</span>
+          {#each EFFORT_KEYS as [key, size] (size)}<span class="pair"><kbd>{key}</kbd>{size}</span>{/each}
+        </li>
+        <li>
+          <span class="kgroup">{t('inbox.keys.who')}</span>
+          {#each WHO_KEYS as [key, who] (who)}<span class="pair"><kbd>{key}</kbd>{t(`inbox.who.${who}` as Key)}</span>{/each}
+        </li>
+        <li><span class="kgroup">{t('inbox.keys.undo')}</span><kbd>u</kbd></li>
+      </ul>
+    </header>
     <div class="rows">
-      {#each drawn as task (task.id)}
+      {#each drawn as task, i (task.id)}
+        {#if i === 0 || drawn[i - 1]?.area !== task.area}
+          <h3 class="area">{task.area}<span class="n">{rows.filter((r) => r.area === task.area).length}</span></h3>
+        {/if}
         <button
           type="button"
           class="row"
@@ -112,15 +134,76 @@
     align-items: center;
     gap: 0.4rem;
   }
-  .count,
-  .keys {
+  .intro {
+    padding: 0.6rem 0.8rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .head h2 {
     margin: 0;
-    padding: 0.3rem 0.6rem;
+    font-size: 1.05rem;
+  }
+  .count {
+    margin: 0 0 0 auto;
     color: var(--muted);
-    font-size: 0.8rem;
+    font-size: 0.85rem;
+  }
+  .about {
+    margin: 0.3rem 0 0.5rem;
+    color: var(--muted);
+    font-size: 0.85rem;
   }
   .keys {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.1rem;
+    font-size: 0.8rem;
+  }
+  .keys li {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .kgroup {
+    color: var(--muted);
+    margin-right: 0.1rem;
+  }
+  .pair {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    margin-right: 0.2rem;
+  }
+  kbd {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    min-width: 1.4em;
+    text-align: center;
+    padding: 0.05rem 0.3rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: var(--radius);
+  }
+  .area {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0.35rem 0.6rem;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface);
     border-bottom: 1px solid var(--border);
+    font-size: 0.8rem;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+  }
+  .area .n {
+    font-weight: normal;
   }
   .rows {
     overflow: auto;

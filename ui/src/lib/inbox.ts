@@ -15,9 +15,13 @@ export function missingOf(task: TaskEntry): Missing[] {
   return out;
 }
 
-/** The tasks that lack something, in the order they came in (the engine's plan order). */
+/**
+ * The tasks that lack something, one area after the other (by name), inside an area in the order they came in (the
+ * engine's plan order). The order does not depend on what is missing: a task that is being sorted keeps its place until
+ * it leaves, so the rows do not jump under the keys.
+ */
 export function inboxOf(tasks: readonly TaskEntry[]): TaskEntry[] {
-  return tasks.filter((t) => missingOf(t).length > 0);
+  return tasks.filter((t) => missingOf(t).length > 0).sort((a, b) => String(a.area ?? '').localeCompare(String(b.area ?? '')));
 }
 
 /** One key, one field and the value it writes. */

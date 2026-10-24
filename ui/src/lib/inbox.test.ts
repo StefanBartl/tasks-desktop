@@ -72,3 +72,15 @@ describe('the page of the inbox', () => {
     expect(shownCount(rows, 'pub/gone', INBOX_PAGE)).toBe(100);
   });
 });
+
+describe('the order of the inbox', () => {
+  it('goes by area, and keeps the order of the engine inside an area, whatever is missing', () => {
+    const rows = [
+      t('z1', { area: 'lib.nvim' }),
+      t('a1', { area: 'cascade.nvim', prio: 1 }),
+      t('z2', { area: 'lib.nvim', prio: 1, effort: 'S' }),
+      t('a2', { area: 'cascade.nvim' }),
+    ];
+    expect(inboxOf(rows).map((x) => x.id)).toEqual(['a1', 'a2', 'z1', 'z2']);
+  });
+});

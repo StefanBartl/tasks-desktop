@@ -4948,7 +4948,7 @@ test('the inbox draws a page of rows, shows more on request and keeps the select
     // The count says how many there are; the page draws 100 of them.
     await expect(more).toBeVisible();
     await expect(inbox.locator('.row')).toHaveCount(100);
-    await expect(inbox.locator('.count')).toContainText(/to sort/);
+    await expect(inbox.locator('.count')).toContainText(/need details/);
     expect(await violations(page)).toEqual([]);
 
     // The keys walk past the page: the selected row is drawn, and the button counts what is still left.
@@ -5191,6 +5191,26 @@ test('connections: the row and the column under the pointer are drawn to the num
   await cell.hover();
   await expect(page.locator('table.guided td.g-row')).toHaveCount(0);
   await page.getByLabel('Guide lines').selectOption({ label: 'Lines to the number' });
+});
+
+test('the inbox says what it is, shows its keys as keys and lists the tasks area by area', async ({ page }) => {
+  await pair(page);
+  await chooseView(page, 'View', 'Inbox');
+  const inbox = page.getByRole('region', { name: 'Inbox' });
+  await expect(inbox.getByRole('heading', { name: 'Inbox', level: 2 })).toBeVisible();
+  // One sentence says what the view is for; the count says what is to be done, in the same words as the task.
+  await expect(inbox.locator('.about')).toContainText('lack a priority, an effort or a who');
+  await expect(inbox.locator('.count')).toContainText(/tasks? needs? details|tasks need details/);
+  // The keys are keys, in groups, not a line of text.
+  const keys = inbox.getByRole('list', { name: 'Keys of the inbox' });
+  await expect(keys.locator('kbd')).toHaveText(['j', 'k', '1', '2', '3', 'a', 's', 'd', 'f', '⇧F', 'm', 'p', 'i', 'u']);
+  await expect(keys.getByText('together')).toBeVisible();
+  // The tasks stand under the heading of their area, the areas in the order of their names.
+  const areas = await inbox.locator('h3.area').evaluateAll((els) => els.map((el) => el.childNodes[0]?.textContent ?? ''));
+  expect(areas.length).toBeGreaterThan(0);
+  expect(areas).toEqual([...areas].sort((a, b) => a.localeCompare(b)));
+  expect(new Set(areas).size).toBe(areas.length);
+  await expectAccessible(page, 'the inbox');
 });
 
 test('menus: every entry of every menu of the bar explains itself with a hint', async ({ page }) => {
