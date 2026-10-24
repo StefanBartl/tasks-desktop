@@ -306,41 +306,6 @@ export function areaLabel(name: string, all: readonly string[]): string {
   return taken ? name : short;
 }
 
-/** One choice of the area filter, in the shape of the multi choice (`appkit-ui` Option). */
-export interface AreaOption {
-  value: string;
-  label: string;
-  title: string;
-  /** Shown after the label in brackets: the app's own name beside the area its tasks are kept in. */
-  suffix?: string;
-}
-
-/**
- * The choices of the area filter. The tasks of tasks-desktop are kept in the area of tasks.nvim, so that area
- * carries the name of the app as a visible suffix: a person who looks for "tasks-desktop" sees it in the list and
- * need not know to type it into the search.
- */
-export function areaOptions(
-  names: readonly string[],
-  all: readonly string[],
-  short: boolean,
-  appNote: string,
-): AreaOption[] {
-  return names
-    .map((name) => {
-      const label = areaLabel(name, all);
-      const appArea = label === APP_AREA_LABEL;
-      const option: AreaOption = {
-        value: name,
-        label: short ? label : name,
-        title: appArea ? `${name} \u00b7 ${appNote}` : name,
-      };
-      if (appArea) option.suffix = APP_NAME;
-      return option;
-    })
-    .sort((x, y) => x.label.localeCompare(y.label));
-}
-
 export function applyFilter(
   tasks: readonly TaskEntry[],
   filter: Filter,
