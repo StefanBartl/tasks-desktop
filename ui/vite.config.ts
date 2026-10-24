@@ -12,6 +12,10 @@ export default defineConfig({
     assetsInlineLimit: 0,
     modulePreload: { polyfill: false },
     sourcemap: false,
+    // The page comes from 127.0.0.1 and is part of the binary, so the size of the one chunk (about 680 kB, 218 kB
+    // gzip) costs no load time; the default limit of 500 kB is meant for pages that cross a network. The limit is a
+    // little above what the page weighs, so that a jump in size still shows as a warning.
+    chunkSizeWarningLimit: 800,
   },
   test: {
     environment: 'node',
