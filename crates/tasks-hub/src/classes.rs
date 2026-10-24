@@ -81,7 +81,7 @@ pub enum Shown {
 pub struct Entry {
     pub class: Class,
     /// The repository folder of the area (they are not named alike:
-    /// `wkdbook-tasks.nvim` is `tasks.nvim`). Optional, a plain name.
+    /// `wkdbook-lib.nvim` is `lib.nvim`). Optional, a plain name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo: Option<String>,
 }
