@@ -95,6 +95,14 @@ value there; in a PowerShell session a list is fine. The install scripts are the
 the channel when they are attached; `scripts/test-install.*` try the script of the pinned kit
 against the hub in the CI of every commit and in the build of every release.
 
+**Or build this checkout and install it** (Windows; Rust, Node and the toolchain of [Build](#build)):
+the same steps as the rolling build, then `tasks-hub install` of the program built here. Nothing is downloaded but the packages
+of the lock files, and a file built on the machine carries no mark for SmartScreen to stop.
+
+```
+.\scripts\build-install.ps1 [-BuildOnly] [-InstallArgs '--autostart','--shortcut']
+```
+
 ```
 sh scripts/uninstall.sh [--purge-settings]
 .\scripts\uninstall.ps1 [-PurgeSettings]
