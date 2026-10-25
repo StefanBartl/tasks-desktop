@@ -5177,6 +5177,13 @@ test('connections: the row and the column under the pointer are drawn to the num
   await page.mouse.move(2, 2);
   await expect(hotCell).toHaveCount(0);
 
+  // A header names only its column: the line runs along all of it, and no cell is the meeting point.
+  await table.locator('thead th[data-c="1"]').hover();
+  await expect(table.locator('td.g-col')).toHaveCount(2);
+  await expect(table.locator('td.g-row')).toHaveCount(0);
+  await expect(hotCell).toHaveCount(0);
+  await page.mouse.move(2, 2);
+
   // The crosshair runs through the whole row and column; the choice stays after a reload.
   await page.getByLabel('Guide lines').selectOption({ label: 'Crosshair' });
   await cell.hover();
@@ -5208,7 +5215,7 @@ test('the inbox says what it is, shows its keys as keys and lists the tasks area
   // The tasks stand under the heading of their area, the areas in the order of their names.
   const areas = await inbox.locator('h3.area').evaluateAll((els) => els.map((el) => el.childNodes[0]?.textContent ?? ''));
   expect(areas.length).toBeGreaterThan(0);
-  expect(areas).toEqual([...areas].sort((a, b) => a.localeCompare(b)));
+  expect(areas).toEqual([...areas].sort());
   expect(new Set(areas).size).toBe(areas.length);
   await expectAccessible(page, 'the inbox');
 });

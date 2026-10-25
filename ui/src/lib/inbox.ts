@@ -21,7 +21,10 @@ export function missingOf(task: TaskEntry): Missing[] {
  * it leaves, so the rows do not jump under the keys.
  */
 export function inboxOf(tasks: readonly TaskEntry[]): TaskEntry[] {
-  return tasks.filter((t) => missingOf(t).length > 0).sort((a, b) => String(a.area ?? '').localeCompare(String(b.area ?? '')));
+  // A plain comparison, not `localeCompare`: the getter runs for every key and every draw, and a collator costs a
+  // lot of time for thousands of rows. The names of areas are the engine's; the order only has to be one order.
+  const areaOf = (t: TaskEntry): string => String(t.area ?? '');
+  return tasks.filter((t) => missingOf(t).length > 0).sort((a, b) => (areaOf(a) < areaOf(b) ? -1 : areaOf(a) > areaOf(b) ? 1 : 0));
 }
 
 /** One key, one field and the value it writes. */

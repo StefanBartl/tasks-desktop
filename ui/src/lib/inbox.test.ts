@@ -84,3 +84,10 @@ describe('the order of the inbox', () => {
     expect(inboxOf(rows).map((x) => x.id)).toEqual(['a1', 'a2', 'z1', 'z2']);
   });
 });
+
+describe('the order of the areas', () => {
+  it('is one plain order (capitals first), the same on every machine', () => {
+    const rows = [t('a', { area: 'lib.nvim' }), t('b', { area: 'ALL' }), t('c', { area: 'ai-desktop' })];
+    expect(inboxOf(rows).map((x) => x.id)).toEqual(['b', 'c', 'a']);
+  });
+});

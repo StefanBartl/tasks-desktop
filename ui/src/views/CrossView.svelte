@@ -56,27 +56,28 @@
     }
   }
   /** The row and the column the pointer or the focus is on, as positions in the matrix. */
-  let hot = $state<{ r: number; c: number } | null>(null);
+  let hot = $state<{ r: number | null; c: number | null } | null>(null);
   function track(event: Event): void {
     const el = (event.target as Element | null)?.closest<HTMLElement>('[data-r],[data-c]');
     if (!el) return;
     const r = el.dataset['r'];
     const c = el.dataset['c'];
-    // A header names one of the two: the other keeps what it was, or the first cell of the matrix.
-    hot = { r: r !== undefined ? Number(r) : (hot?.r ?? 0), c: c !== undefined ? Number(c) : (hot?.c ?? 0) };
+    // A header names only its row or its column: the other is none, so the guide runs along the one that is named.
+    const next = { r: r !== undefined ? Number(r) : null, c: c !== undefined ? Number(c) : null };
+    // The pointer moves inside a cell all the time: only a change of cell is drawn again (the matrix is n x n).
+    if (hot && hot.r === next.r && hot.c === next.c) return;
+    hot = next;
   }
   /** What a cell is to the guide lines: on the row up to the hot cell, on the column up to it, or the hot cell itself. */
   function guideOf(r: number, c: number): string {
     if (!hot || guide === 'off') return '';
     const full = guide === 'cross';
-    const inRow = r === hot.r && (full || c <= hot.c);
-    const inCol = c === hot.c && (full || r <= hot.r);
-    return [
-      inRow ? 'g-row' : '',
-      inCol ? 'g-col' : '',
-      r === hot.r && c === hot.c ? 'g-hot' : '',
-      r === hot.r || c === hot.c ? 'g-near' : '',
-    ].join(' ');
+    const onRow = hot.r !== null && r === hot.r;
+    const onCol = hot.c !== null && c === hot.c;
+    // Up to the hot cell; along the whole line when only the row or the column is named (a header).
+    const inRow = onRow && (full || hot.c === null || c <= hot.c);
+    const inCol = onCol && (full || hot.r === null || r <= hot.r);
+    return [inRow ? 'g-row' : '', inCol ? 'g-col' : '', onRow && onCol ? 'g-hot' : '', onRow || onCol ? 'g-near' : ''].join(' ');
   }
 
   /** The pairs that are open (a click on a cell of the matrix opens one). */
