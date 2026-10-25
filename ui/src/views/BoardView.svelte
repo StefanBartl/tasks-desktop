@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { contextTarget } from 'appkit-ui/contextmenu';
+  import { taskTarget } from '../lib/context';
   // The board: a column for each status, the cards in the order of the engine. A card is moved by dragging it (to
   // another column: the status; among the cards of its group: the order) or with the keys of the page. The page
   // never sorts: the order is the engine's, and a move asks the engine for the new one.
@@ -262,6 +264,7 @@
                 type="button"
                 class="card"
                 data-card={card.id}
+                use:contextTarget={taskTarget(card)}
                 data-card-column={column}
                 class:selected={card.id === app.selectedId}
                 class:dragging={dragging === card.id}

@@ -5011,35 +5011,29 @@ describe('the saved views', () => {
     it('the context menu offers the fields of the engine and opens the selection as a view being tried', async () => {
       const m = made();
       await m.app.start(null);
-      const target = { getBoundingClientRect: () => ({ left: 10, bottom: 20 }), focus: () => undefined } as unknown as HTMLElement;
-      let prevented = false;
-      const event = { clientX: 0, clientY: 0, currentTarget: target, preventDefault: () => (prevented = true) } as unknown as MouseEvent;
-      // Opened by a key (no pointer): under the element, and the focus goes back to it.
-      await m.app.openViewMenu(event, 'pub', { areas: ['pub'] });
-      expect(prevented).toBe(true);
-      const menu = m.app.contextMenu!;
-      expect(menu).toMatchObject({ x: 10, y: 20, origin: target });
-      expect(menu.items.filter((i) => i.kind === 'action').map((i) => (i as { label: string }).label)).toEqual([
+      // The fields are read once the page is ready (the menu is built at once, not after a request).
+      expect(m.app.viewMenuEntries('pub', { areas: ['pub'] })).toEqual([]);
+      await m.app.viewsState.loadGroupings();
+      const items = m.app.viewMenuEntries('pub', { areas: ['pub'] });
+      const actions = items.filter((i) => i.kind === 'action') as { label: string; onselect: () => void }[];
+      expect(actions.map((i) => i.label)).toEqual([
         translate(m.app.lang, 'views.display.columns'),
         translate(m.app.lang, 'views.display.list'),
         translate(m.app.lang, 'views.display.matrix'),
         translate(m.app.lang, 'views.field.status'),
         translate(m.app.lang, 'views.field.tags'),
       ]);
-      const byTags = menu.items.filter((i) => i.kind === 'action')[4] as { onselect: () => void };
-      byTags.onselect();
+      actions[4]!.onselect();
       expect(m.app.view).toBe('views');
       expect(m.app.viewsState.open).toMatchObject({ id: DRAFT_ID, title: 'pub', group_by: 'tags', select: { areas: ['pub'] } });
       m.app.stop();
     });
 
-    it('an engine without views keeps the menu of the browser', async () => {
+    it('an engine without views offers nothing, so the menu of the browser stays', async () => {
       const m = made([]);
       await m.app.start(null);
-      let prevented = false;
-      await m.app.openViewMenu({ clientX: 1, clientY: 1, currentTarget: null, preventDefault: () => (prevented = true) } as unknown as MouseEvent, 'pub', {});
-      expect(prevented).toBe(false);
-      expect(m.app.contextMenu).toBeNull();
+      await m.app.viewsState.loadGroupings();
+      expect(m.app.viewMenuEntries('pub', {})).toEqual([]);
       m.app.stop();
     });
   });

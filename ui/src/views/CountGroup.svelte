@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { contextTarget, type ContextTarget } from 'appkit-ui/contextmenu';
   // One group of the tasks behind a number: a heading with how many, and the tasks, a page at a time.
   import type { App } from '../lib/app.svelte';
   import { PAGE } from '../lib/counts';
@@ -14,7 +15,7 @@
     open = true,
     ondragtask,
     onpointerdrag,
-    onmenu,
+    target,
   }: {
     app: App;
     heading: string | null;
@@ -25,7 +26,7 @@
     /** The grip of a row is dragged with a finger or a pen (see `lib/pointerDrag.ts`). */
     onpointerdrag?: (event: PointerDragEvent) => void;
     /** The context menu of the heading (a right click, the menu key, Shift+F10), where the group has one. */
-    onmenu?: (event: MouseEvent) => void;
+    target?: ContextTarget;
   } = $props();
 
   const grip = createGrip(
@@ -113,7 +114,7 @@
   {@render list()}
 {:else}
   <details {open}>
-    <summary oncontextmenu={onmenu}>{markHidden(heading)} <span class="muted">({tasks.length})</span></summary>
+    <summary use:contextTarget={target}>{markHidden(heading)} <span class="muted">({tasks.length})</span></summary>
     {@render list()}
   </details>
 {/if}

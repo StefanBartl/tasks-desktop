@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { contextTarget, type ContextTarget } from 'appkit-ui/contextmenu';
   // The tasks of a view in groups: as columns (one per value, side by side) or as a list of sections that fold. What a
   // card or a row looks like is the caller's (`item`); which groups there are and what a drop onto one does is not this
   // component's either: it hands a drop on (`ondrop`) and the page turns it into an operation (`lib/groups.ts`). Nothing
@@ -20,7 +21,7 @@
     busy = false,
     columnsLabel,
     hint,
-    onmenu,
+    target,
     gripHint = '',
   }: {
     groups: readonly Group<TaskEntry>[];
@@ -43,7 +44,8 @@
     /** The explanation of a group (the hover popup). */
     hint?: (value: string) => string;
     /** The context menu of a group's heading (a right click, the menu key, Shift+F10). */
-    onmenu?: (event: MouseEvent, value: string) => void;
+    /** What the heading of a group is for the context menu. */
+    target?: (value: string) => ContextTarget | undefined;
     /** The explanation of the grip a finger drags a card by. */
     gripHint?: string;
   } = $props();
@@ -128,7 +130,7 @@
         ondragover={(e) => enter(e, group.value)}
         ondrop={(e) => drop(e, group.value)}
       >
-        <h3 data-hint={hint?.(group.value)} oncontextmenu={(e) => onmenu?.(e, group.value)}>
+        <h3 data-hint={hint?.(group.value)} use:contextTarget={target?.(group.value)}>
           <span class="name">{label(group.value)}</span>
           <span class="count" data-count>{countOf(group)}</span>
         </h3>
@@ -178,7 +180,7 @@
       >
         <h3 data-hint={hint?.(group.value)}>
           <button
-            oncontextmenu={(e) => onmenu?.(e, group.value)} type="button" aria-expanded={!folded} onclick={() => ontoggle?.(group.value)}>
+            use:contextTarget={target?.(group.value)} type="button" aria-expanded={!folded} onclick={() => ontoggle?.(group.value)}>
             <span class="caret" aria-hidden="true">{folded ? '▸' : '▾'}</span>
             <span class="name">{label(group.value)}</span>
             <span class="count" data-count>{countOf(group)}</span>

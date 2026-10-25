@@ -106,15 +106,6 @@ export type Theme = 'auto' | 'light' | 'dark';
 export { ORDERED_TILES, TILES, type OrderedTile, type Tile } from './tiles-list';
 import type { OrderedTile, Tile } from './tiles-list';
 
-/** A context menu that is open: at `x`/`y` of the window, its name, its entries, and where the focus goes back to. */
-export interface ContextMenuState {
-  x: number;
-  y: number;
-  label: string;
-  items: MenuItem[];
-  origin: HTMLElement | null;
-}
-
 /** What the last write did, in one line; `undo` is the way back, when there is one. */
 export interface Toast {
   kind: 'ok' | 'error';
@@ -639,37 +630,15 @@ export class App {
     this.setView('views');
   }
 
-  /** The context menu that is open: where, its name, its entries, and the element the focus goes back to. */
-  contextMenu = $state.raw<ContextMenuState | null>(null);
-
-  openContextMenu(menu: ContextMenuState): void {
-    this.contextMenu = menu;
-  }
-
-  closeContextMenu(): void {
-    this.contextMenu = null;
-  }
-
   /**
-   * The context menu "open as a view" for `select` (named `title`), at the place of `event` - a right click, the menu
-   * key or Shift+F10. Without views (an older engine) or without the fields of the engine the menu of the browser stays.
+   * The entries "open as a view" for `select` (named `title`) of the context menu (`lib/context.ts`). Without views
+   * (an older engine) or before the fields of the engine are read there are none, and the browser's menu stays.
    */
-  async openViewMenu(event: MouseEvent, title: string, select: Partial<ViewSelect>): Promise<void> {
-    if (this.phase !== 'ready' || !this.can('views') || !this.can('groupings')) return;
-    event.preventDefault();
-    // The element the menu belongs to (by what it can do, not by its class: the page is also run without a DOM in tests).
-    const target = event.currentTarget as Partial<HTMLElement> | null;
-    // (A label around a choice is such an element too: its `focus()` gives the focus to the choice.)
-    const origin = target && typeof target.focus === 'function' && typeof target.getBoundingClientRect === 'function' ? (target as HTMLElement) : null;
-    // A key opens the menu with no pointer: it opens at the element instead.
-    const box = origin?.getBoundingClientRect();
-    const byKey = event.clientX === 0 && event.clientY === 0;
-    const x = byKey && box ? box.left : event.clientX;
-    const y = byKey && box ? box.bottom : event.clientY;
-    await this.viewsState.loadGroupings();
+  viewMenuEntries(title: string, select: Partial<ViewSelect>): MenuItem[] {
+    if (this.phase !== 'ready' || !this.can('views') || !this.can('groupings')) return [];
     const fields = this.viewsState.groupingsShown?.fields.map((f) => f.field) ?? [];
     const t = (key: Key) => translate(this.lang, key);
-    const items = viewMenuItems(
+    return viewMenuItems(
       title,
       { ...emptySelect(), ...select },
       fields,
@@ -683,8 +652,6 @@ export class App {
       },
       (form) => this.tryView(form),
     );
-    if (items.length === 0) return;
-    this.contextMenu = { x, y, label: t('views.menu.label'), items, origin };
   }
 
   /** The named lists of the vault the hub reads. */

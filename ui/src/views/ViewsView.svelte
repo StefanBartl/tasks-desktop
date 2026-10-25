@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { selectionTarget } from '../lib/context';
+  import { contextTarget, type ContextTarget } from 'appkit-ui/contextmenu';
   // The tab of the saved views: which view is open, a form to make one, and the open view drawn in groups. A view is a
   // file of the vault (the engine reads and writes it); the fields it can be grouped by and their values are the
   // engine's (`tasks.groupings`). Nothing here names a field's values or judges a view: a change is sent, and the engine
@@ -117,10 +119,10 @@
     draftSelect = draft.select;
   }
 
-  /** The context menu of a group: the same view narrowed to the group, where a view can hold that. */
-  function groupMenu(event: MouseEvent, view: View, value: string): void {
+  /** What a group is for the context menu: the same view narrowed to the group, where a view can hold that. */
+  function groupTarget(view: View, value: string): ContextTarget | undefined {
     const select = selectOfGroup(view.select, view.group_by, value);
-    if (select) void app.openViewMenu(event, `${view.title}: ${valueLabel(view.group_by, value)}`, select);
+    return select ? selectionTarget(`${view.title}: ${valueLabel(view.group_by, value)}`, select) : undefined;
   }
 
   // ── the open view ──
@@ -582,7 +584,7 @@
               ondrop={movable ? (id, from, to, copy) => void move(id, from, to, copy) : undefined}
               canDrop={(_id, from, to) => from !== to}
               columnsLabel={t('views.columns', { name: open.title })}
-              onmenu={(e, value) => groupMenu(e, open, value)}
+              target={(value) => groupTarget(open, value)}
               gripHint={t('hint.ui.board.grip')}
             >
               {#snippet item(task, group)}
@@ -594,7 +596,7 @@
                   aria-current={task.id === app.selectedId ? 'true' : undefined}
                   onclick={() => app.select(task.id)}
                   onkeydown={(e) => onItemKey(e, task.id, group.value)}
-                  oncontextmenu={(e) => groupMenu(e, open, group.value)}
+                  use:contextTarget={groupTarget(open, group.value)}
                 >
                   <span class="title">{markHidden(task.title)}</span>
                   <span class="id">{task.id}</span>

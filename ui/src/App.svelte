@@ -29,7 +29,9 @@
   import DropMoveDialog from './views/DropMoveDialog.svelte';
   import Palette from './views/Palette.svelte';
   import { DOCS, LICENSE, REPO_URL } from './lib/docs';
-  import ContextMenu from './views/ContextMenu.svelte';
+  import ContextMenu from 'appkit-ui/ContextMenu.svelte';
+  import { contextTarget } from 'appkit-ui/contextmenu';
+  import { createContextRegistry, viewTarget } from './lib/context';
   import ConflictCenter from './views/ConflictCenter.svelte';
   import VaultsDialog from './views/VaultsDialog.svelte';
   import AboutDialog from './views/AboutDialog.svelte';
@@ -526,6 +528,12 @@
       },
     ];
   });
+  const contextRegistry = $derived(createContextRegistry(app));
+  // The context menu is built at once (the browser's menu is replaced or not before the event is over), so the fields
+  // of the engine for "open as a view" are read when the page is ready, not at the first right click.
+  $effect(() => {
+    if (app.phase === 'ready' && app.can('groupings')) void app.viewsState.loadGroupings();
+  });
   // The documentation window: opened at a document from the Help menu, or at its search box.
   let docsOpen = $state(false);
   let docsAt = $state<string | null>(null);
@@ -554,7 +562,7 @@
     {/if}
   </header>
 
-  <main tabindex="-1">
+  <main tabindex="-1" use:contextTarget={viewTarget(app.view)}>
     <!-- The data is somebody else's text: one task that breaks a view must
          not take the whole page with it. -->
     <svelte:boundary>
@@ -640,7 +648,7 @@
       {/snippet}
     </svelte:boundary>
     <!-- The context menu belongs to the content it was opened on: inside the main landmark. -->
-    {#if app.phase === 'ready'}<ContextMenu {app} />{/if}
+    {#if app.phase === 'ready'}<ContextMenu registry={contextRegistry} label={t('ctx.label')} />{/if}
   </main>
   {#if app.phase === 'ready'}
     <Capture {app} />

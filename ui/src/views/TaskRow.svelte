@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { contextTarget, type ContextTarget } from 'appkit-ui/contextmenu';
   import type { TaskEntry } from '../lib/contract';
   import { hintOf, labelOf, translate, type Lang } from '../lib/i18n';
   import { markHidden } from '../lib/text';
@@ -17,7 +18,7 @@
     flagTitle = '',
     crossAreas = [],
     crossTitle = '',
-    onmenu,
+    target,
   }: {
     task: TaskEntry;
     lang: Lang;
@@ -33,8 +34,8 @@
     /** The areas the task touches when that is more than its own (from the links). */
     crossAreas?: readonly string[];
     crossTitle?: string;
-    /** The context menu of the row (a right click, the menu key, Shift+F10). */
-    onmenu?: (event: MouseEvent) => void;
+    /** What the row is for the context menu (a right click, the menu key, Shift+F10). */
+    target?: ContextTarget;
   } = $props();
 
   // A word this version does not know is shown as it is.
@@ -70,7 +71,7 @@
   class:selected
   aria-current={selected ? 'true' : undefined}
   onclick={() => onselect(task.id)}
-  oncontextmenu={onmenu}
+  use:contextTarget={target}
   onmouseover={hintWhenCut}
 >
   <span class="id">{task.id}</span>

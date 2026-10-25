@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { contextTarget } from 'appkit-ui/contextmenu';
+  import { selectionTarget } from '../lib/context';
   // The plan, read only: what can be worked on at once (a stage), what holds
   // the rest up (the critical path) and what the plan warns about.
   import type { App } from '../lib/app.svelte';
@@ -17,6 +19,11 @@
   import { allButtonFold, foldOf, withAll, withFold } from '../lib/fold';
 
   let { app }: { app: App } = $props();
+  /** What the choice of the plan is for the context menu: the plan, opened as a view. */
+  function planTarget() {
+    const plan = plans.find((p) => p.id === planId);
+    return plan ? selectionTarget(plan.title, { plans: [plan.id] }) : undefined;
+  }
   const t = (key: Key, params: Record<string, string | number> = {}) =>
     translate(app.lang, key, params);
 
@@ -105,10 +112,7 @@
           <label
             class="plan-select"
             data-hint={t('hint.ui.plan.select')}
-            oncontextmenu={(e) => {
-              const plan = plans.find((p) => p.id === planId);
-              if (plan) void app.openViewMenu(e, plan.title, { plans: [plan.id] });
-            }}
+            use:contextTarget={planTarget()}
           >
             <span>{t('plan.which')}</span>
             <select bind:value={app.planChoice}>

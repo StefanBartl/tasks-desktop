@@ -432,7 +432,7 @@ for (const lang of ['en', 'de'] as const) {
       await expect(row).toBeVisible();
       await row.focus();
       await page.keyboard.press('Shift+F10');
-      const menu = page.getByRole('menu', { name: lang === 'de' ? 'Als Ansicht öffnen' : 'Open as a view' });
+      const menu = page.getByRole('menu', { name: lang === 'de' ? 'Kontextmenü' : 'Context menu' });
       await expect(menu).toBeVisible();
       await readsWell('the context menu');
       await menu.getByRole('menuitem', { name: 'Matrix', exact: true }).click();

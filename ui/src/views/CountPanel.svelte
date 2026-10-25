@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { selectionTarget } from '../lib/context';
   // The tasks behind one number of the overview, in the view that was chosen for it. The number may be large (hundreds
   // of blocked tasks): the views cut it up (by priority, area, plan, blocker) and each group shows a page at a time.
   // Keys: `v` walks the views, Escape closes and gives the focus back to the number.
@@ -163,7 +164,7 @@
         open={openAll || i === 0}
         ondragtask={movable ? (id) => (dragging = id) : undefined}
         onpointerdrag={movable ? pointerDrag : undefined}
-        onmenu={view === 'area' ? (e) => void app.openViewMenu(e, group.key, { areas: [group.key] }) : undefined}
+        target={view === 'area' ? selectionTarget(group.key, { areas: [group.key] }) : undefined}
       />
     {/each}
   {/if}

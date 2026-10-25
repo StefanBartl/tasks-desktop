@@ -456,7 +456,7 @@ test('a task moved between the groups of a view writes the field: by key first, 
   // The menu of a group by key: Shift+F10 on a card opens the menu of its group (the heading of a column takes no focus).
   await card(first, 'e2e-drag-v001-two').focus();
   await page.keyboard.press('Shift+F10');
-  await expect(page.getByRole('menu', { name: 'Open as a view' })).toBeVisible();
+  await expect(page.getByRole('menu', { name: 'Context menu' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(card(first, 'e2e-drag-v001-two')).toBeFocused();
 
@@ -473,17 +473,17 @@ test('the context menu opens a selection as a view to try: by key from a row, Es
   const files = () => (existsSync(viewsDir) ? readdirSync(viewsDir).length : 0);
   const before = files();
   const row = page.locator('button.row').filter({ has: page.locator('.id', { hasText: /^lib\.nvim\/alpha$/ }) });
-  const menu = page.getByRole('menu', { name: 'Open as a view' });
+  const menu = page.getByRole('menu', { name: 'Context menu' });
 
   // By key: Shift+F10 on the row opens the menu with the focus on its first entry; Escape closes it and gives the
   // focus back to the row.
   await row.focus();
   await page.keyboard.press('Shift+F10');
   await expect(menu).toBeVisible();
-  await expect(menu.getByRole('menuitem', { name: 'Columns' })).toBeFocused();
+  await expect(menu.getByRole('menuitem', { name: 'Show in the list' })).toBeFocused();
   await expectAccessible(page, 'the context menu');
   await page.keyboard.press('ArrowDown');
-  await expect(menu.getByRole('menuitem', { name: 'List' })).toBeFocused();
+  await expect(menu.getByRole('menuitem', { name: 'Copy the id' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(menu).toHaveCount(0);
   await expect(row).toBeFocused();
@@ -492,7 +492,7 @@ test('the context menu opens a selection as a view to try: by key from a row, Es
   await page.keyboard.press('Shift+F10');
   await expect(menu).toBeVisible();
   await page.keyboard.press('l');
-  await expect(menu.getByRole('menuitem', { name: 'List' })).toBeFocused();
+  await expect(menu.getByRole('menuitem', { name: 'List', exact: true })).toBeFocused();
   await page.keyboard.press('Enter');
   const tried = page.getByRole('region', { name: 'lib.nvim', exact: true });
   await expect(tried).toBeVisible();
@@ -5330,6 +5330,49 @@ test('the open questions of a task are shown with their options and answered wit
   await write(page, () => second.getByRole('button', { name: /Yes/ }).click());
   await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toContain('### Written without a key [q2]');
   expect(readFileSync(file, 'utf8')).toContain('- [x] Yes');
+  rmSync(file, { force: true });
+});
+
+test('the context menu of a task changes its status and priority and shows it in the list; a view has its own entries', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  await capture(page, 'Ctxmenu r001 task');
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Ctxmenu r001');
+  const row = page.locator('button.row', { hasText: 'Ctxmenu r001 task' });
+  await expect(row).toHaveCount(1);
+  const menu = page.getByRole('menu', { name: 'Context menu' });
+
+  // A right click on the row: the entries of the task, then the ones of the view around it.
+  await row.click({ button: 'right' });
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Show in the list' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Copy the id' })).toBeVisible();
+  await expect(menu.getByRole('menuitemradio', { name: 'P1' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'New task ...' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Columns' })).toBeVisible();
+  // The priority is written by the engine; the radio shows what the file says.
+  await write(page, () => menu.getByRole('menuitemradio', { name: 'P1' }).click());
+  await expect(menu).toHaveCount(0);
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', 'ctxmenu-r001-task.md');
+  await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toMatch(/^prio: 1$/m);
+  await row.click({ button: 'right' });
+  await expect(menu.getByRole('menuitemradio', { name: 'P1' })).toHaveAttribute('aria-checked', 'true');
+  await write(page, () => menu.getByRole('menuitemradio', { name: 'doing' }).click());
+  await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toMatch(/^status: doing$/m);
+
+  // A view has entries of its own: the board offers the task menu on a card too, and the plan has no "new task".
+  await chooseView(page, 'View', 'Board');
+  const card = page.locator('[data-card="lib.nvim/ctxmenu-r001-task"]');
+  await card.click({ button: 'right' });
+  await expect(menu.getByRole('menuitem', { name: 'Copy the id' })).toBeVisible();
+  // The hint of the first entry is closed by its own Escape (the hint popup), then the menu by the next.
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+
+  // Where nobody offers anything the browser's menu stays: nothing opens on the bar.
+  await page.getByRole('menubar').click({ button: 'right', position: { x: 2, y: 2 } });
+  await expect(menu).toHaveCount(0);
   rmSync(file, { force: true });
 });
 
