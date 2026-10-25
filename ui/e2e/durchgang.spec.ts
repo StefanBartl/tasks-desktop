@@ -430,10 +430,13 @@ for (const lang of ['en', 'de'] as const) {
       await page.getByRole('menuitemradio', { name: lang === 'de' ? 'Liste' : 'List', exact: true }).click();
       const row = page.locator('button.row').first();
       await expect(row).toBeVisible();
-      await row.focus();
-      await page.keyboard.press('Shift+F10');
       const menu = page.getByRole('menu', { name: lang === 'de' ? 'Kontextmenü' : 'Context menu' });
-      await expect(menu).toBeVisible();
+      // The list may draw again (the engine's fields arrive) and take the focus from the row: ask again until it opens.
+      await expect(async () => {
+        await row.focus();
+        await page.keyboard.press('Shift+F10');
+        await expect(menu).toBeVisible({ timeout: 1500 });
+      }).toPass({ timeout: 10000 });
       await readsWell('the context menu');
       await menu.getByRole('menuitem', { name: 'Matrix', exact: true }).click();
       const matrix = page.locator('section.open table');
