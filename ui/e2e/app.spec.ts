@@ -4644,7 +4644,7 @@ test('a number of the overview opens its tasks, in views that can be switched, w
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
-test('a task is made with a text: the file holds it as written, and the detail shows it', async ({ page }) => {
+test('a task is made with its sections: the file holds them as written, and the detail shows them', async ({ page }) => {
   await watchViolations(page);
   await pair(page);
   await showList(page);
@@ -4653,14 +4653,19 @@ test('a task is made with a text: the file holds it as written, and the detail s
   const capture = page.getByRole('dialog', { name: 'New task' });
   await capture.getByLabel('Title').fill('Task from a note');
   await capture.locator('select').first().selectOption('lib.nvim');
-  await capture.getByLabel(/^Text/).fill('The first line of the note.\n\n- one\n- two');
-  await expectAccessible(page, 'the capture dialog with a text field');
+  await capture.getByLabel(/^Context/).fill('The first line of the note.\n\n- one\n- two');
+  await capture.getByLabel(/^Acceptance/).fill('it works');
+  await expectAccessible(page, 'the capture dialog with its sections');
   await capture.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
   const id = (await page.locator('aside.detail .id').innerText()).trim();
   const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${id.split('/')[1]}.md`);
   const text = readFileSync(file, 'utf8');
-  expect(text).toContain('\nThe first line of the note.\n\n- one\n- two\n');
+  // The three sections as `:Tasks new` writes them: the typed ones as typed (an acceptance line gets its checkbox),
+  // the empty one keeps its hint.
+  expect(text).toContain('\n## Context\n\nThe first line of the note.\n\n- one\n- two\n');
+  expect(text).toContain('\n## Acceptance\n\n- [ ] it works\n');
+  expect(text).toContain('\n## Notes\n\n<!--');
   expect(text).not.toContain('## Kontext');
   await expect(page.locator('aside.detail .prose, aside.detail pre.body')).toContainText('The first line of the note.');
   await expect(page.locator('aside.detail').getByText('Task from a note').first()).toBeVisible();
@@ -4677,7 +4682,7 @@ test('the text of a task is edited in the detail: written whole, taken back by u
   const capture = page.getByRole('dialog', { name: 'New task' });
   await capture.getByLabel('Title').fill('Task whose text is edited');
   await capture.locator('select').first().selectOption('lib.nvim');
-  await capture.getByLabel(/^Text/).fill('The old text.');
+  await capture.getByLabel(/^Context/).fill('The old text.');
   await capture.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
   const id = (await page.locator('aside.detail .id').innerText()).trim();
@@ -4686,7 +4691,8 @@ test('the text of a task is edited in the detail: written whole, taken back by u
 
   await detail.getByRole('button', { name: 'Edit text' }).click();
   const box = detail.getByRole('textbox', { name: /Text of the task/ });
-  await expect(box).toHaveValue('The old text.');
+  // The editor holds the whole body: the sections the dialog wrote, the typed one in them.
+  await expect(box).toHaveValue(/^## Context\n\nThe old text\.\n/);
   await expectAccessible(page, 'the detail with the text editor');
   await box.fill('The new text.\n\n- with a list');
   await detail.getByRole('button', { name: 'Save text' }).click();
@@ -5240,7 +5246,8 @@ test('a new task can be made with the fields the engine takes, and the file has 
   await dialog.getByText('More fields').click();
   await summary.fill('One line from the dialog');
   await dialog.getByLabel(/^Tags/).fill('ui, e2e');
-  await dialog.getByLabel('Category').selectOption('docs');
+  // Several categories can be taken: a group of checkboxes, not one select.
+  await dialog.getByRole('group', { name: 'Category' }).getByRole('checkbox', { name: /docs/i }).check();
   await dialog.getByLabel('Severity').selectOption('low');
   await dialog.getByLabel(/^References/).fill('lib.nvim@abc1234');
   await expectAccessible(page, 'the new task dialog with its fields');
