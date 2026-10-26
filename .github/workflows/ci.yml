@@ -1,12 +1,30 @@
+# CI of tasks-desktop.
+#
+# Runs on a self-hosted runner (the author's Windows machine): the repository is private and has no paid plan, so
+# hosted runners do not start (billing/spending-limit errors, not a code problem). Runner: $REPOS_DIR/tasks-vault/
+# TOOLS/self-hosted-runner.md; start it with `scripts/runners.ps1 ensure tasks-desktop` of the nvim config (or
+# `:MyPlugins runner start tasks-desktop`). Without a running runner a push stays "Queued" (no red mark, discarded after
+# 24 h). Only for PRIVATE repos with trusted authors; no `pull_request` trigger on purpose (a PR would run its own
+# workflow with the author's rights on this machine). Windows only: the Linux jobs of the former workflow (hub tests
+# with inotify, install scripts under sh, ShellCheck) are gone.
+#
+# The private sources (tasks.nvim at the pinned commit of engine.lock, appkit through Cargo and pnpm) are fetched with
+# the credentials of the runner's user (`gh auth setup-git`), not with a token secret: the runner is this machine.
+# Tools (cargo, clippy, rustfmt, cargo-audit, cargo-deny, nvim, pnpm, python, Chrome) are expected on the PATH and not
+# pinned here; the jobs print their versions.
+
 name: ci
 
 on:
   push:
     branches: [main]
-  pull_request:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -15,54 +33,41 @@ env:
   TASKS_ENGINE_DIR: ${{ github.workspace }}/engine/tasks.nvim
   LIB_NVIM_DIR: ${{ github.workspace }}/engine/lib.nvim
 
+# `shell: bash` resolves to the WSL launcher on this machine; Git Bash is named explicitly, in 8.3 form because the
+# shell string is split at spaces.
+defaults:
+  run:
+    shell: C:\PROGRA~1\Git\bin\bash.exe --noprofile --norc -e -o pipefail {0}
+
 jobs:
   rust:
-    runs-on: windows-latest
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 40
     steps:
       # Actions are pinned by commit (concept 7.4); the comment names the tag.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
         with:
           persist-credentials: false
-      - uses: ./.github/actions/private-read
-        with:
-          token: ${{ secrets.PRIVATE_READ_TOKEN }}
-      - name: Read the pinned engine commits
-        id: engine
-        shell: bash
+      # The pins must exist: a typo in engine.lock fails here, not later.
+      - name: Fetch the pinned engine (tasks.nvim is private) and lib.nvim
         run: |
-          echo "commit=$(sed -n 's/^commit *= *//p' engine.lock)" >> "$GITHUB_OUTPUT"
-          echo "lib_commit=$(sed -n 's/^lib_commit *= *//p' engine.lock)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
-        with:
-          repository: WKDSteve/tasks.nvim
-          token: ${{ secrets.PRIVATE_READ_TOKEN }}
-          ref: ${{ steps.engine.outputs.commit }}
-          path: engine/tasks.nvim
-          persist-credentials: false
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
-        with:
-          repository: WKDSteve/lib.nvim
-          ref: ${{ steps.engine.outputs.lib_commit }}
-          path: engine/lib.nvim
-          persist-credentials: false
-      - uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1
-        with:
-          neovim: true
-          version: v0.12.2
-      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
-        with:
-          components: rustfmt, clippy
+          commit="$(sed -n 's/^commit *= *//p' engine.lock)"
+          lib_commit="$(sed -n 's/^lib_commit *= *//p' engine.lock)"
+          rm -rf engine
+          mkdir engine
+          git clone --quiet https://github.com/WKDSteve/tasks.nvim engine/tasks.nvim
+          git -C engine/tasks.nvim checkout --quiet "$commit"
+          git clone --quiet https://github.com/WKDSteve/lib.nvim engine/lib.nvim
+          git -C engine/lib.nvim checkout --quiet "$lib_commit"
+      - run: nvim --version | head -n1 && cargo --version && pnpm --version
       # The types of the UI are the engine's, copied: a change of the
       # contract that did not reach the UI fails here.
       - name: UI contract types equal the engine's
-        shell: bash
         run: cmp engine/tasks.nvim/schemas/tasks-export/1/tasks-export.d.ts ui/src/lib/contract.d.ts
       # The interface is part of the binary: it is built first.
       - name: Build the interface
-        shell: bash
         working-directory: ui
         run: |
-          npm install --global pnpm@11.28.2
           pnpm install --frozen-lockfile
           pnpm build
       - run: cargo fmt --all --check
@@ -71,7 +76,6 @@ jobs:
       # The install and uninstall scripts (NREL-16) against this build, in folders of their own:
       # the login entry and the link of the runner are left alone, nothing is downloaded.
       - name: Install and uninstall scripts (PowerShell and sh)
-        shell: bash
         run: |
           pwsh -NoProfile -File scripts/test-install.ps1 target/debug/tasks-hub.exe
           sh scripts/test-install.sh target/debug/tasks-hub.exe
@@ -84,7 +88,6 @@ jobs:
           if ($found) { exit 1 }
       # The browser tests: the binary, the real engine, the system's Chrome.
       - name: Browser tests (Playwright, axe, XSS corpus)
-        shell: bash
         working-directory: ui
         run: pnpm e2e
       # A failed browser test leaves its trace (network, DOM, console) to read instead of a guess.
@@ -97,9 +100,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
       # The supply chain (concept 7.4): known advisories, licenses, sources.
-      - uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2
-        with:
-          tool: cargo-audit,cargo-deny
       - run: cargo audit
       - run: cargo deny check
       # No crate version younger than a week (a hijacked release is caught
@@ -108,53 +108,9 @@ jobs:
       # appkit is the one git source: the commit Cargo.lock pins must be the one its tag names now.
       - run: python tools/check-appkit-pin.py
 
-  # The hub's tests with the real engine on Linux as well: the watcher hears
-  # inotify there, which tells a renamed folder (a folder task moved by
-  # move_area or done) in two halves, not as Windows does (TST-08).
-  rust-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/private-read
-        with:
-          token: ${{ secrets.PRIVATE_READ_TOKEN }}
-      - name: Read the pinned engine commits
-        id: engine
-        run: |
-          echo "commit=$(sed -n 's/^commit *= *//p' engine.lock)" >> "$GITHUB_OUTPUT"
-          echo "lib_commit=$(sed -n 's/^lib_commit *= *//p' engine.lock)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
-        with:
-          repository: WKDSteve/tasks.nvim
-          token: ${{ secrets.PRIVATE_READ_TOKEN }}
-          ref: ${{ steps.engine.outputs.commit }}
-          path: engine/tasks.nvim
-          persist-credentials: false
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
-        with:
-          repository: WKDSteve/lib.nvim
-          ref: ${{ steps.engine.outputs.lib_commit }}
-          path: engine/lib.nvim
-          persist-credentials: false
-      - uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1
-        with:
-          neovim: true
-          version: v0.12.2
-      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
-      # The interface is part of the binary: it is built first.
-      - name: Build the interface
-        working-directory: ui
-        run: |
-          npm install --global pnpm@11.28.2
-          pnpm install --frozen-lockfile
-          pnpm build
-      # Every test binary runs, so one red one does not hide the others.
-      - run: cargo test --workspace --locked --no-fail-fast
-
   ui:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: ui
@@ -162,12 +118,8 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
         with:
           persist-credentials: false
-      - uses: ./.github/actions/private-read
-        with:
-          token: ${{ secrets.PRIVATE_READ_TOKEN }}
       # The lockfile is the truth; the age and trust policy are in
-      # ui/pnpm-workspace.yaml.
-      - run: npm install --global pnpm@11.28.2
+      # ui/pnpm-workspace.yaml. pnpm is the runner's own (a global install would change this machine on every run).
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm test
@@ -176,36 +128,15 @@ jobs:
 
   # A control or invisible character in a tracked text file (a backspace in a
   # path, a bidirectional override in source) is refused; the tool tests itself.
+  # ShellCheck is not on the runner: the shell scripts are not checked by it any more.
   hygiene:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
         with:
           persist-credentials: false
-      - run: python3 -m unittest discover tools
-      - run: python3 tools/check-control-chars.py
+      - run: python -m unittest discover tools
+      - run: python tools/check-control-chars.py
       # A colour the CSS of the page states is a token of appkit-ui (the same check runs in appkit).
-      - run: python3 tools/check-color-literals.py
-      # The shell scripts of the repository (NREL-16): ShellCheck is on the runner.
-      - run: shellcheck scripts/*.sh
-
-  # The install and uninstall scripts on Linux, against a build of the hub (NREL-16).
-  scripts-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/private-read
-        with:
-          token: ${{ secrets.PRIVATE_READ_TOKEN }}
-      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
-      # The interface is part of the binary: it is built first.
-      - name: Build the interface
-        working-directory: ui
-        run: |
-          npm install --global pnpm@11.28.2
-          pnpm install --frozen-lockfile
-          pnpm build
-      - run: cargo build --locked -p tasks-hub
-      - run: sh scripts/test-install.sh target/debug/tasks-hub
+      - run: python tools/check-color-literals.py
