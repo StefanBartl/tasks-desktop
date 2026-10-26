@@ -153,3 +153,46 @@ describe('web links', () => {
     expect(badLink([])).toBeNull();
   });
 });
+
+describe('the sections of a new task, pinned against tasks.nvim', () => {
+  // The same two samples and strings are in `TESTS/tasks_form_spec.lua` of tasks.nvim (`mutate.body_sections`): the
+  // headings and hint comments are kept in two places, this is what makes one side name the other when it drifts.
+  it('write the English headings and hint as the engine does', () => {
+    expect(bodyFromSections({ context: 'Why', acceptance: 'works\n- [x] kept', notes: '' }, 'en')).toBe(
+      [
+        '## Context',
+        '',
+        'Why',
+        '',
+        '## Acceptance',
+        '',
+        '- [ ] works',
+        '- [x] kept',
+        '',
+        '## Notes',
+        '',
+        '<!-- Decisions, dead ends, references. -->',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('write the German headings and hints as the engine does', () => {
+    expect(bodyFromSections({ context: '', acceptance: '', notes: 'n' }, 'de')).toBe(
+      [
+        '## Kontext',
+        '',
+        '<!-- Warum, woher kam das. -->',
+        '',
+        '## Akzeptanz',
+        '',
+        '<!-- was am Ende wahr sein muss, als Checkliste -->',
+        '',
+        '## Notizen',
+        '',
+        'n',
+        '',
+      ].join('\n'),
+    );
+  });
+});
