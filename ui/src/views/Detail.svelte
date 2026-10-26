@@ -59,6 +59,8 @@
     }
     void app.setField(task.id, key, list.length === 0 ? null : list);
   }
+  /** The links the page may draw: http(s) only, whatever the file holds. */
+  const webLinks = $derived((task?.links ?? []).filter(isWebLink));
   const steps = $derived(detail.state === 'ok' ? (detail.doc.steps ?? []) : []);
   const questions = $derived(detail.state === 'ok' ? (detail.doc.questions ?? []) : []);
 
@@ -359,14 +361,15 @@
           placeholder="https://"
           onchange={(e) => changeList('links', task.links ?? [], e.currentTarget.value)}
         />
-        {#if (task.links ?? []).some(isWebLink)}
-          <span class="weblinks">
-            {#each (task.links ?? []).filter(isWebLink) as link (link)}
-              <a href={link} target="_blank" rel="noopener noreferrer">{link}</a>
-            {/each}
-          </span>
-        {/if}
       </label>
+      <!-- outside the label: a link inside it would become part of the accessible name of the field -->
+      {#if webLinks.length > 0}
+        <div class="wide weblinks">
+          {#each webLinks as link (link)}
+            <a href={link} target="_blank" rel="noopener noreferrer">{link}</a>
+          {/each}
+        </div>
+      {/if}
       <label>
         <span>{t('remind.field')}</span>
         <select
