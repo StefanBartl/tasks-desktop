@@ -907,8 +907,8 @@ fn install_starts_a_hub_again_that_it_stopped_when_the_program_cannot_be_replace
 
 #[test]
 fn start_works_in_a_config_folder_with_a_non_ascii_name() {
-    // The script host reads the path of the program and the log from a
-    // script: a name with an umlaut must not turn into something else.
+    // The path of the config folder goes to the hub that `start` runs (its
+    // log is there): a name with an umlaut must not turn into something else.
     let base = temp_dir("umlaut-base");
     let config = base.join("Müller äöü");
     std::fs::create_dir_all(&config).unwrap();

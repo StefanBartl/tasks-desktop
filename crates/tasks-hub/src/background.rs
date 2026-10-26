@@ -107,40 +107,25 @@ mod tests {
         assert!(program_file().starts_with("tasks-hub"));
     }
 
-    /// The scripts of the desktop link were typed here before the kit made them; for the tasks hub
-    /// they stay what they were, character for character.
+    /// The desktop link keeps what the link of the script host was: the name `Tasks.lnk`,
+    /// `start --open`, minimized, the description of the app.
     #[test]
-    fn the_desktop_link_of_the_tasks_hub_is_the_one_it_always_was() {
-        let make = appkit_hub::background::link_script(
-            crate::IDENTITY.title,
-            crate::IDENTITY.app,
-            r"C:\x\tasks-hub.exe",
+    fn the_desktop_link_is_the_one_it_always_was() {
+        assert_eq!(
+            appkit_hub::background::desktop_link_name(crate::IDENTITY.title),
+            "Tasks.lnk"
         );
-        let wanted_make = [
-            r#"Set link = CreateObject("WScript.Shell").CreateShortcut(CreateObject("WScript.Shell").SpecialFolders("Desktop") & "\Tasks.lnk")"#,
-            r#"link.TargetPath = "C:\x\tasks-hub.exe""#,
-            r#"link.Arguments = "start --open""#,
-            "link.WindowStyle = 7",
-            r#"link.Description = "tasks-desktop: start the hub and open the page""#,
-            "link.Save",
-            "",
-        ]
-        .join("\r\n");
-        assert_eq!(make, wanted_make);
-
-        let remove = appkit_hub::background::unlink_script(crate::IDENTITY.title, "tasks-hub.exe");
-        let wanted_remove = [
-            r#"Set shell = CreateObject("WScript.Shell")"#,
-            r#"Set fso = CreateObject("Scripting.FileSystemObject")"#,
-            r#"path = shell.SpecialFolders("Desktop") & "\Tasks.lnk""#,
-            "If fso.FileExists(path) Then",
-            // No indent: in the Rust source the `\` at the end of the line took the spaces of the
-            // next line with it, and so it did in the script that was typed here before.
-            r#"If LCase(Right(shell.CreateShortcut(path).TargetPath, 13)) = "tasks-hub.exe" Then fso.DeleteFile path, True"#,
-            "End If",
-            "",
-        ]
-        .join("\r\n");
-        assert_eq!(remove, wanted_remove);
+        let link = appkit_hub::background::app_link(
+            crate::IDENTITY.app,
+            std::path::Path::new(r"C:\x\tasks-hub.exe"),
+        );
+        assert_eq!(link.target, r"C:\x\tasks-hub.exe");
+        assert_eq!(link.arguments, "start --open");
+        assert_eq!(link.working_dir, r"C:\x");
+        assert_eq!(link.show_command, 7);
+        assert_eq!(
+            link.description,
+            "tasks-desktop: start the hub and open the page"
+        );
     }
 }
