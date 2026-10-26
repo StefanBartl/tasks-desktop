@@ -60,6 +60,7 @@ jobs:
           git clone --quiet https://github.com/WKDSteve/lib.nvim engine/lib.nvim
           git -C engine/lib.nvim checkout --quiet "$lib_commit"
       - run: nvim --version | head -n1 && cargo --version && pnpm --version
+      - uses: ./.github/actions/pnpm-auth
       # The types of the UI are the engine's, copied: a change of the
       # contract that did not reach the UI fails here.
       - name: UI contract types equal the engine's
@@ -118,6 +119,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0 (node24)
         with:
           persist-credentials: false
+      - uses: ./.github/actions/pnpm-auth
       # The lockfile is the truth; the age and trust policy are in
       # ui/pnpm-workspace.yaml. pnpm is the runner's own (a global install would change this machine on every run).
       - run: pnpm install --frozen-lockfile
