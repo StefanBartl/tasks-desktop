@@ -11,6 +11,7 @@
   const t = (key: Key, params: Record<string, string | number> = {}) =>
     translate(app.lang, key, params);
 
+  const BODY_MAX = 20000;
   let dialog: HTMLDialogElement | undefined = $state();
   let title = $state('');
   let area = $state('');
@@ -96,6 +97,12 @@
       // One task in each area named (the one chosen first), the same text in all of them.
       const names = [area, ...extraAreas.filter((name) => name !== area)];
       const body = bodyFromSections({ context, acceptance, notes }, app.lang);
+      // The engine refuses a body over 20000 characters; the three fields together can be more (and the headings add
+      // to it), so say it here instead of failing the whole write of several areas.
+      if (body.length > BODY_MAX) {
+        problem = t('capture.body_too_long', { max: BODY_MAX });
+        return;
+      }
       const created = await app.createTask(names, title.trim(), fields, body);
       // After the task is made: a plain task becomes the folder of its asset.
       if (created && attach) await app.attachScreenshot(created);
