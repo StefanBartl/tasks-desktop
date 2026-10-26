@@ -46,7 +46,7 @@ describe('reportText', () => {
 describe('issueUrl', () => {
   it('points at a new issue with the title and the report filled in', () => {
     const url = new URL(issueUrl('en', about));
-    expect(url.origin + url.pathname).toBe('https://github.com/StefanBartl/tasks-desktop/issues/new');
+    expect(url.origin + url.pathname).toBe('https://github.com/WKDSteve/tasks-desktop/issues/new');
     expect(url.searchParams.get('title')).toBe('tasks-desktop 0.4.1: ');
     expect(url.searchParams.get('body')).toBe(reportText('en', about));
   });
@@ -71,7 +71,7 @@ describe('REPORT_REPOS', () => {
   it('names the app, the engine and appkit, each with the page of its issues', () => {
     expect(REPORT_REPOS.map((r) => r.name)).toEqual(['tasks-desktop', 'tasks.nvim', 'appkit']);
     for (const repo of REPORT_REPOS) {
-      expect(repo.url).toBe(`https://github.com/StefanBartl/${repo.name}/issues`);
+      expect(repo.url).toBe(`https://github.com/WKDSteve/${repo.name}/issues`);
     }
   });
 });

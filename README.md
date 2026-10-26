@@ -1,6 +1,6 @@
 # tasks-desktop
 
-A local web UI and desktop app for [tasks.nvim](https://github.com/StefanBartl/tasks.nvim):
+A local web UI and desktop app for [tasks.nvim](https://github.com/WKDSteve/tasks.nvim):
 see the vault at a glance, create and move tasks, plans and a dashboard,
 in the browser first and later as a small native app.
 
@@ -73,8 +73,8 @@ elevated, not from inside a program that sandboxes AppData):
 
 ```
 # the rolling build (Windows; Linux x86-64)
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/StefanBartl/tasks-desktop/releases/download/latest/install.ps1 | iex"
-curl -fsSL https://github.com/StefanBartl/tasks-desktop/releases/download/latest/install.sh | sh
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/WKDSteve/tasks-desktop/releases/download/latest/install.ps1 | iex"
+curl -fsSL https://github.com/WKDSteve/tasks-desktop/releases/download/latest/install.sh | sh
 
 # a release: the same with the tag in place of latest, e.g. .../releases/download/v0.1.0/install.ps1
 ```
@@ -91,7 +91,7 @@ registers the hub with your login and adds a link (with the shell script saved: 
 `-File FILE` (`--file`) for a file you already have, with `-Sums FILE` or `-Sha256 HEX`. Through
 `powershell -File` an array arrives as one string, so a saved `install.ps1` takes one `-InstallArgs`
 value there; in a PowerShell session a list is fine. The install scripts are the ones of appkit's
-[release-kit](https://github.com/StefanBartl/appkit/tree/main/release-kit), stamped for this app and
+[release-kit](https://github.com/WKDSteve/appkit/tree/main/release-kit), stamped for this app and
 the channel when they are attached; `scripts/test-install.*` try the script of the pinned kit
 against the hub in the CI of every commit and in the build of every release.
 
@@ -149,7 +149,7 @@ the vault is not `main` or the file is already schema 2, and keeps what the othe
 ## The rolling build (the newest `main`, one click)
 
 After every green CI run on `main`, the workflow `rolling` builds the program of that commit for Windows and
-Linux and puts it on the pre-release [`latest`](https://github.com/StefanBartl/tasks-desktop/releases/tag/latest);
+Linux and puts it on the pre-release [`latest`](https://github.com/WKDSteve/tasks-desktop/releases/tag/latest);
 the files are replaced each time. It is not a release (see `release.yml` for that): not signed, not tried by hand.
 
 | File | Use |
@@ -192,7 +192,7 @@ ui/                 the browser interface (Svelte 5, Vite, TypeScript)
 
 What does not depend on tasks (the guard, pairing and sessions, the engine seam, the store, the
 watcher, the search, installing, and the security matrix every app's hub must pass) is
-[appkit](https://github.com/StefanBartl/appkit), taken by the tag named in `Cargo.toml`
+[appkit](https://github.com/WKDSteve/appkit), taken by the tag named in `Cargo.toml`
 (`[workspace.dependencies]`); `Cargo.lock` pins its commit and `tools/check-appkit-pin.py` checks
 that the tag still names it. The page takes its shared parts from the same tag (`appkit-ui`, the
 folder `ui-kit` of that repository, named in `ui/package.json` and pinned by `ui/pnpm-lock.yaml`):

@@ -6,7 +6,7 @@ what the server does about that, and what it does not.
 
 The numbers (T1 to T10, "rule N") refer to the maintainer's design notes. The
 guard, the pairing, the sessions and the engine seam are those of
-[appkit](https://github.com/StefanBartl/appkit) (its `SECURITY.md` says what holds for every app);
+[appkit](https://github.com/WKDSteve/appkit) (its `SECURITY.md` says what holds for every app);
 this page adds what is the tasks hub's own. The security matrix is written in
 `appkit-testkit` and run for this hub by `crates/hub-testkit/tests/security.rs`; other tests
 named here are in `crates/hub-testkit/tests/` unless another file is given.

@@ -24,7 +24,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
-USER_AGENT = "tasks-desktop-lock-age-check (https://github.com/StefanBartl/tasks-desktop)"
+USER_AGENT = "tasks-desktop-lock-age-check (https://github.com/WKDSteve/tasks-desktop)"
 
 
 def locked_registry_packages(lock_text):

@@ -2,7 +2,7 @@
 // build time (so they read without a network, and the build is the same as the text of this commit).
 import type { DocEntry } from 'appkit-ui/docs';
 
-export const REPO_URL = 'https://github.com/StefanBartl/tasks-desktop';
+export const REPO_URL = 'https://github.com/WKDSteve/tasks-desktop';
 export const LICENSE = { name: 'MIT', url: `${REPO_URL}/blob/main/LICENSE` } as const;
 
 /** The first level-one heading, else the name of the file: the title of a document in the list. */

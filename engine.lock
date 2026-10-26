@@ -2,7 +2,7 @@
 # The engine stays a pure Lua plugin; the contract is `tasks-export/1`
 # (read) and `tasks-ops/1` (write), see docs/CONTRACT.md in tasks.nvim.
 # Both checkouts are pinned by commit; CI reads `commit` and `lib_commit`.
-repo       = https://github.com/StefanBartl/tasks.nvim
+repo       = https://github.com/WKDSteve/tasks.nvim
 commit     = 088293e2a0795f3da72548870d77a0d89f59ad60
-lib_repo   = https://github.com/StefanBartl/lib.nvim
+lib_repo   = https://github.com/WKDSteve/lib.nvim
 lib_commit = a561474965d7ab0cdfd457d4ce131262c9c67d78

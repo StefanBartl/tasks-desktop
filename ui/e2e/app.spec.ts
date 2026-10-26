@@ -5043,7 +5043,7 @@ test('help: the about dialog names the build and the engine, and the report carr
   await expect(reportDialog.getByText('Engine (tasks.nvim)')).toHaveCount(0);
   for (const repo of ['tasks-desktop', 'tasks.nvim', 'appkit']) {
     const link = reportDialog.getByRole('link', { name: repo, exact: true });
-    await expect(link).toHaveAttribute('href', `https://github.com/StefanBartl/${repo}/issues`);
+    await expect(link).toHaveAttribute('href', `https://github.com/WKDSteve/${repo}/issues`);
   }
   const report = await reportDialog.getByLabel('Report', { exact: true }).inputValue();
   expect(report).toMatch(/^tasks-desktop \d+\.\d+\.\d+/);
@@ -5059,7 +5059,7 @@ test('help: the about dialog names the build and the engine, and the report carr
   const href = await reportDialog.getByRole('link', { name: 'Open the form' }).getAttribute('href');
   expect(href).not.toBeNull();
   const url = new URL(href ?? '');
-  expect(url.origin + url.pathname).toBe('https://github.com/StefanBartl/tasks-desktop/issues/new');
+  expect(url.origin + url.pathname).toBe('https://github.com/WKDSteve/tasks-desktop/issues/new');
   expect(url.searchParams.get('body')).toBe(report);
   await expectAccessible(page, 'the report dialog');
   await reportDialog.getByRole('button', { name: 'Close' }).click();
@@ -5118,12 +5118,12 @@ test('help: the repository and the license are linked, and the documentation ope
   await page.getByRole('menuitem', { name: 'About ...' }).click();
   const about = page.getByRole('dialog', { name: 'About tasks-desktop' });
   const repo = about.getByRole('link', { name: 'GitHub repository' });
-  await expect(repo).toHaveAttribute('href', 'https://github.com/StefanBartl/tasks-desktop');
+  await expect(repo).toHaveAttribute('href', 'https://github.com/WKDSteve/tasks-desktop');
   await expect(repo).toHaveAttribute('target', '_blank');
   await expect(repo.locator('svg')).toBeVisible();
   await expect(about.getByRole('link', { name: 'License: MIT' })).toHaveAttribute(
     'href',
-    'https://github.com/StefanBartl/tasks-desktop/blob/main/LICENSE',
+    'https://github.com/WKDSteve/tasks-desktop/blob/main/LICENSE',
   );
   await expectAccessible(page, 'the about dialog with its links');
   await page.keyboard.press('Escape');
