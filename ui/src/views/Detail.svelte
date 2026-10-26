@@ -8,7 +8,9 @@
   import { classChange as classChangeOf } from '../lib/bulk';
   import { copyText } from '../lib/exportDom';
   import {
+    badLink,
     badTag,
+    isWebLink,
     listEditable,
     parseList,
     parseTags,
@@ -45,9 +47,16 @@
     void app.setField(task.id, key, next === '' ? null : next);
   }
   /** Write a list field (`after`, `refs`) when the typed list differs from the one the file has. */
-  function changeList(key: 'after' | 'refs', current: readonly string[], typed: string): void {
+  function changeList(key: 'after' | 'refs' | 'links', current: readonly string[], typed: string): void {
     if (!task || !tagsChanged(current, typed)) return;
     const list = parseList(typed);
+    if (key === 'links') {
+      const notLink = badLink(list);
+      if (notLink !== null) {
+        app.tell('error', 'field.links_invalid', { link: notLink });
+        return;
+      }
+    }
     void app.setField(task.id, key, list.length === 0 ? null : list);
   }
   const steps = $derived(detail.state === 'ok' ? (detail.doc.steps ?? []) : []);
@@ -339,6 +348,24 @@
           title={listEditable(task.refs) ? undefined : t('field.list_plain')}
           onchange={(e) => changeList('refs', task.refs, e.currentTarget.value)}
         />
+      </label>
+      <label class="wide">
+        <span data-hint={hintOf(app.lang, 'hint.field', 'links')}>{t('field.links')} <small>({t('field.tags_hint')})</small></span>
+        <input
+          type="text"
+          value={tagsText(task.links)}
+          disabled={app.saving || !listEditable(task.links)}
+          title={listEditable(task.links) ? undefined : t('field.list_plain')}
+          placeholder="https://"
+          onchange={(e) => changeList('links', task.links ?? [], e.currentTarget.value)}
+        />
+        {#if (task.links ?? []).some(isWebLink)}
+          <span class="weblinks">
+            {#each (task.links ?? []).filter(isWebLink) as link (link)}
+              <a href={link} target="_blank" rel="noopener noreferrer">{link}</a>
+            {/each}
+          </span>
+        {/if}
       </label>
       <label>
         <span>{t('remind.field')}</span>
@@ -713,6 +740,13 @@
   }
   .edit .wide {
     flex: 1 1 14rem;
+  }
+  .weblinks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.1rem 0.8rem;
+    font-size: 0.85em;
+    overflow-wrap: anywhere;
   }
   .edit .finish {
     cursor: pointer;

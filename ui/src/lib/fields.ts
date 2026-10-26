@@ -166,3 +166,16 @@ export function bodyFromSections(sections: BodySections, lang: 'de' | 'en'): str
   }
   return out.join('\n');
 }
+
+/**
+ * Whether `text` is a web address the `links` field may hold: `http://` or `https://`, a host, no blank or control
+ * character (the engine's `model.is_web_link`). Only such an entry is drawn as a link: `javascript:` is never one.
+ */
+export function isWebLink(text: string): boolean {
+  return /^https?:\/\/[^\s/?#]/i.test(text) && !/[\s\p{Cc}]/u.test(text);
+}
+
+/** The first entry that is no web address, or null. */
+export function badLink(list: readonly string[]): string | null {
+  return list.find((entry) => !isWebLink(entry)) ?? null;
+}

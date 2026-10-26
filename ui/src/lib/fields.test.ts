@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_RANGES, badTag, bodyFromSections, listEditable, parseTags, rangesOf, tagsChanged, tagsText } from './fields';
+import { DEFAULT_RANGES, badLink, badTag, bodyFromSections, isWebLink, listEditable, parseTags, rangesOf, tagsChanged, tagsText } from './fields';
 
 describe('the ranges of the engine', () => {
   it('are taken from hello.enums, and the placeholder of the effort is not a size', () => {
@@ -135,5 +135,21 @@ describe('the body of a new task from its sections', () => {
 
   it('uses the German headings', () => {
     expect(bodyFromSections({ context: '', acceptance: '', notes: 'n' }, 'de')).toContain('## Notizen\n\nn');
+  });
+});
+
+describe('web links', () => {
+  it('accept http and https addresses with a host, nothing else', () => {
+    expect(isWebLink('https://example.org/a#b')).toBe(true);
+    expect(isWebLink('HTTP://example.org')).toBe(true);
+    for (const bad of ['javascript:alert(1)', 'ftp://example.org', 'file:///c:/x', 'lua/x.lua', 'https://', 'https:// a', 'https://a\tb', 'data:text/html,x']) {
+      expect(isWebLink(bad)).toBe(false);
+    }
+  });
+
+  it('name the first entry that is none', () => {
+    expect(badLink(['https://ok.org', 'javascript:x', 'ftp://y'])).toBe('javascript:x');
+    expect(badLink(['https://ok.org'])).toBeNull();
+    expect(badLink([])).toBeNull();
   });
 });

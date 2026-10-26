@@ -4,7 +4,7 @@
   // engine gives the task its place and its file; the page selects it.
   import type { App } from '../lib/app.svelte';
   import { areaLabel } from '../lib/filter';
-  import { badTag, bodyFromSections, parseList, parseTags } from '../lib/fields';
+  import { badLink, badTag, bodyFromSections, parseList, parseTags } from '../lib/fields';
   import { labelOf, translate, type Key } from '../lib/i18n';
 
   let { app }: { app: App } = $props();
@@ -27,6 +27,7 @@
   let extraAreas = $state<string[]>([]);
   let severity = $state('');
   let refs = $state('');
+  let links = $state('');
   let problem = $state('');
   let context = $state('');
   let acceptance = $state('');
@@ -59,6 +60,7 @@
       extraAreas = [];
       severity = '';
       refs = '';
+      links = '';
       problem = '';
       context = '';
       acceptance = '';
@@ -94,6 +96,13 @@
       if (severity !== '') fields['severity'] = severity;
       const refList = parseList(refs);
       if (refList.length > 0) fields['refs'] = refList;
+      const linkList = parseList(links);
+      const notLink = badLink(linkList);
+      if (notLink !== null) {
+        problem = t('field.links_invalid', { link: notLink });
+        return;
+      }
+      if (linkList.length > 0) fields['links'] = linkList;
       // One task in each area named (the one chosen first), the same text in all of them.
       const names = [area, ...extraAreas.filter((name) => name !== area)];
       const body = bodyFromSections({ context, acceptance, notes }, app.lang);
@@ -112,7 +121,7 @@
   }
 </script>
 
-<dialog bind:this={dialog} use:closeOnBackdrop={{ closeable: () => [title, context, acceptance, notes, summary, tags, refs].every((v) => v.trim() === '') }} aria-labelledby="capture-title" onclose={() => app.closeCapture()}>
+<dialog bind:this={dialog} use:closeOnBackdrop={{ closeable: () => [title, context, acceptance, notes, summary, tags, refs, links].every((v) => v.trim() === '') }} aria-labelledby="capture-title" onclose={() => app.closeCapture()}>
   <form onsubmit={submit}>
     <h2 id="capture-title">{t('capture.title')}</h2>
     <label>
@@ -216,6 +225,10 @@
       <label>
         <span>{t('field.refs')} <small>({t('field.tags_hint')})</small></span>
         <input type="text" bind:value={refs} />
+      </label>
+      <label>
+        <span>{t('field.links')} <small>({t('field.tags_hint')})</small></span>
+        <input type="text" bind:value={links} placeholder="https://" />
       </label>
     </details>
     <label>
