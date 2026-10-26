@@ -2116,25 +2116,28 @@ export class App {
     if (target) this.select(target.id);
   }
 
-  /** The task made, or null. */
+  /**
+   * The task made, or null: the id of the first one when several areas are named (one task with the same text in
+   * each, in one write, as `:Tasks new` does with `Area: a, b`).
+   */
   async createTask(
-    area: string,
+    areas: string | readonly string[],
     title: string,
     fields: Record<string, unknown> = {},
     body = '',
   ): Promise<string | null> {
     const text = body.trim();
+    const names = typeof areas === 'string' ? [areas] : [...new Set(areas)];
+    if (names.length === 0) return null;
     const result = await this.write(
-      [
-        {
-          op: 'new',
-          area,
-          title,
-          ...(Object.keys(fields).length > 0 ? { fields } : {}),
-          // A text replaces the sections of the template; none keeps them.
-          ...(text !== '' ? { body: text } : {}),
-        },
-      ],
+      names.map((area) => ({
+        op: 'new' as const,
+        area,
+        title,
+        ...(Object.keys(fields).length > 0 ? { fields } : {}),
+        // A text replaces the sections of the template; none keeps them.
+        ...(text !== '' ? { body: text } : {}),
+      })),
       { undoable: false },
     );
     const created = result?.results.find((r) => r.ok && r.outcome === 'created')?.id;

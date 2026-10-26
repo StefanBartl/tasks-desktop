@@ -125,3 +125,44 @@ const BAD_TAG = /[,[\]"'#\u0000-\u0008\u000a-\u001f\u007f-\u009f\u2028\u2029]/;
 export function badTag(tags: readonly string[]): string | null {
   return tags.find((tag) => BAD_TAG.test(tag)) ?? null;
 }
+
+/** The free-text sections of a new task, as the capture form holds them. */
+export interface BodySections {
+  context: string;
+  acceptance: string;
+  notes: string;
+}
+
+const SECTION_DEFS = {
+  de: [
+    ['context', '## Kontext', '<!-- Warum, woher kam das. -->'],
+    ['acceptance', '## Akzeptanz', '<!-- was am Ende wahr sein muss, als Checkliste -->'],
+    ['notes', '## Notizen', '<!-- Entscheidungen, Sackgassen, Verweise. -->'],
+  ],
+  en: [
+    ['context', '## Context', '<!-- Why, where this came from. -->'],
+    ['acceptance', '## Acceptance', '<!-- what must be true at the end, as a checklist -->'],
+    ['notes', '## Notes', '<!-- Decisions, dead ends, references. -->'],
+  ],
+} as const;
+
+/**
+ * The body of a new task from the three sections, as `:Tasks new` writes it (`mutate.body_sections` of tasks.nvim: the
+ * same headings and the same hint comment for an empty section; a line of the acceptance without a checkbox becomes
+ * `- [ ] line`). Empty when nothing was typed: the engine then writes the sections of its template itself.
+ */
+export function bodyFromSections(sections: BodySections, lang: 'de' | 'en'): string {
+  if ([sections.context, sections.acceptance, sections.notes].every((text) => text.trim() === '')) return '';
+  const out: string[] = [];
+  for (const [key, heading, hint] of SECTION_DEFS[lang]) {
+    let text = sections[key].trim().replace(/\r\n?/g, '\n');
+    if (text !== '' && key === 'acceptance') {
+      text = text
+        .split('\n')
+        .map((line) => (line.trim() === '' || /^\s*[-*]\s/.test(line) ? line : `- [ ] ${line.trim()}`))
+        .join('\n');
+    }
+    out.push(heading, '', text !== '' ? text : hint, '');
+  }
+  return out.join('\n');
+}

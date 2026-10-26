@@ -2636,6 +2636,18 @@ describe('writing', () => {
     expect(app.view).toBe('list');
   });
 
+  it('creates one task per area named, in one write, with the same fields and text', async () => {
+    const { app, hub } = await ready();
+    app.openCapture();
+    await app.createTask(['pub', 'other', 'pub'], 'Twin', { prio: 1, category: ['docs', 'bug'], status: 'doing' }, ' Text ');
+    const ops = hub.sent[0]?.ops;
+    expect(ops).toEqual([
+      { op: 'new', area: 'pub', title: 'Twin', fields: { prio: 1, category: ['docs', 'bug'], status: 'doing' }, body: 'Text' },
+      { op: 'new', area: 'other', title: 'Twin', fields: { prio: 1, category: ['docs', 'bug'], status: 'doing' }, body: 'Text' },
+    ]);
+    expect(app.capturing).toBe(false);
+  });
+
   it('takes away a filter that hides the task it created', async () => {
     const { app, hub } = await ready();
     app.filter = { ...app.filter, statuses: ['doing'] };

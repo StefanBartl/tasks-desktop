@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_RANGES, badTag, listEditable, parseTags, rangesOf, tagsChanged, tagsText } from './fields';
+import { DEFAULT_RANGES, badTag, bodyFromSections, listEditable, parseTags, rangesOf, tagsChanged, tagsText } from './fields';
 
 describe('the ranges of the engine', () => {
   it('are taken from hello.enums, and the placeholder of the effort is not a size', () => {
@@ -102,5 +102,38 @@ describe('tags', () => {
     expect(tagsChanged(undefined, '')).toBe(false);
     expect(tagsChanged(undefined, 'x')).toBe(true);
     expect(tagsChanged(['a'], '')).toBe(true);
+  });
+});
+
+describe('the body of a new task from its sections', () => {
+  it('is empty when nothing was typed, so the engine writes its own sections', () => {
+    expect(bodyFromSections({ context: ' ', acceptance: '', notes: '\n' }, 'de')).toBe('');
+  });
+
+  it('keeps the hint of an empty section and gives a plain acceptance line a checkbox', () => {
+    const body = bodyFromSections({ context: 'Why', acceptance: 'works\n- [x] kept\n\nlast', notes: '' }, 'en');
+    expect(body).toBe(
+      [
+        '## Context',
+        '',
+        'Why',
+        '',
+        '## Acceptance',
+        '',
+        '- [ ] works',
+        '- [x] kept',
+        '',
+        '- [ ] last',
+        '',
+        '## Notes',
+        '',
+        '<!-- Decisions, dead ends, references. -->',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('uses the German headings', () => {
+    expect(bodyFromSections({ context: '', acceptance: '', notes: 'n' }, 'de')).toContain('## Notizen\n\nn');
   });
 });
