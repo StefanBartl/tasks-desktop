@@ -39,6 +39,8 @@ python tools/check-color-literals.py    # no colour outside the tokens of appkit
   Stellen (`Cargo.toml`, `ui/package.json` und die `uses: WKDSteve/appkit/release-kit/...@<sha>` in
   `.github/workflows/rolling.yml` und `release.yml`, voller Commit des Tags), `cargo update -p appkit-hub`,
   `cd ui && pnpm install`. Die Pin-Prüfung meldet einen Workflow auf einem anderen Commit.
+  Das alles in einem Befehl, für alle vier Apps: `python tools/bump-apps.py vX.Y.Z` in appkit (`--dry-run`
+  zeigt es nur, `--commit` committet je App, pusht nie; der Tag muss auf origin liegen).
 - Install-Skripte der Releases kommen aus `release-kit` von appkit (gestempelt beim Hochladen), nicht aus
   `scripts/`; dort liegen nur `uninstall.*` und `test-install.*` (die das Kit-Skript des gepinnten appkit
   gegen den Build prüfen, Ordner per `tools/release-kit-dir.py`).
