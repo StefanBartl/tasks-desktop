@@ -1,6 +1,7 @@
 # tasks-desktop (Rust-Hub + Svelte-Oberfläche zu tasks.nvim)
 
-Öffentliches Repo. Hub und Oberfläche rechnen keine Regeln der Tasks: das tut die
+Privates Repo (kein bezahlter Tarif: CI, Rolling-Bau und Release laufen auf dem selbst gehosteten
+Windows-Runner, nur Windows; siehe `docs/RELEASING.md`). Hub und Oberfläche rechnen keine Regeln der Tasks: das tut die
 Engine (`tasks.nvim`), die Seite zeigt nur (Regel WEB-13). Übergabe und Regelwerk:
 `tasks-desktop-stand-*_HANDOVER.md`, `rules-vault/rulesets/native`.
 

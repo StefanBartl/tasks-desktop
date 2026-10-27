@@ -62,21 +62,25 @@ tasks-hub usage [--days=14]           on how many of the last days the interface
 There are two channels, and both carry an install script that installs exactly their build:
 
 - **A release** (a tag `vX.Y.Z`, published by hand after a draft was tried) holds the program for
-  Windows, Linux and macOS (macOS is built but not tried: the hub's tests with the real engine, the
-  watcher of a folder task that moves to another area among them, run on Windows and Linux only).
+  Windows. The repository is private and has no paid plan, so CI and the builds run on the author's
+  self-hosted Windows runner (see [docs/RELEASING.md](docs/RELEASING.md)); there is no Linux or macOS archive and
+  no `install.sh` any more. The code still has the Linux and macOS paths (autostart entry, launch agent) and
+  builds there from source, but nothing builds or tests them in CI.
 - **The rolling build** (the pre-release `latest`) is the newest green commit of `main`, rebuilt
   after every CI run: for trying what is new, not for anything that matters.
 
 The scripts need no administrator rights and install for one user, so they also work where a signed
 Setup is not allowed or SmartScreen stops a downloaded program. Run them in your own terminal (not
-elevated, not from inside a program that sandboxes AppData):
+elevated, not from inside a program that sandboxes AppData). The repository is private: an anonymous
+download is answered with a login page, so fetch the script with `gh` and give it a token that may read
+the repository in `GH_TOKEN`:
 
 ```
-# the rolling build (Windows; Linux x86-64)
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/WKDSteve/tasks-desktop/releases/download/latest/install.ps1 | iex"
-curl -fsSL https://github.com/WKDSteve/tasks-desktop/releases/download/latest/install.sh | sh
+# the rolling build (Windows)
+gh release download latest -R WKDSteve/tasks-desktop -p install.ps1 -D $env:TEMP --clobber
+$env:GH_TOKEN = (gh auth token); & "$env:TEMP\install.ps1"
 
-# a release: the same with the tag in place of latest, e.g. .../releases/download/v0.1.0/install.ps1
+# a release: the same with the tag in place of latest, e.g. gh release download v0.1.0 ...
 ```
 
 They download the program of that build, check it against its `SHA256SUMS` (a wrong or missing
@@ -84,11 +88,10 @@ checksum installs nothing), and hand over to `tasks-hub install`, which replaces
 step and brings a running hub back. The installation that is there is found and replaced, never a
 second one beside it: the script of `latest` run again updates to the newest rolling build, the
 script of a release run again repairs that release (to update, take the script of the newer
-release, or pass `-Version`/`-Rolling`). The `irm | iex` line takes no arguments; to pass some, make a
-script block of the text: `& ([scriptblock]::Create((irm .../install.ps1))) -InstallArgs '--autostart','--shortcut'`
-registers the hub with your login and adds a link (with the shell script saved: `sh install.sh --
---autostart --shortcut`). The other options are `-Version vX.Y.Z` / `-Rolling` for another channel and
-`-File FILE` (`--file`) for a file you already have, with `-Sums FILE` or `-Sha256 HEX`. Through
+release, or pass `-Version`/`-Rolling`). To pass arguments, add them to the call:
+`& "$env:TEMP\install.ps1" -InstallArgs '--autostart','--shortcut'`
+registers the hub with your login and adds a link. The other options are `-Version vX.Y.Z` / `-Rolling` for
+another channel and `-File FILE` for a file you already have, with `-Sums FILE` or `-Sha256 HEX`. Through
 `powershell -File` an array arrives as one string, so a saved `install.ps1` takes one `-InstallArgs`
 value there; in a PowerShell session a list is fine. The install scripts are the ones of appkit's
 [release-kit](https://github.com/WKDSteve/appkit/tree/main/release-kit), stamped for this app and
@@ -104,8 +107,8 @@ of the lock files, and a file built on the machine carries no mark for SmartScre
 ```
 
 ```
-sh scripts/uninstall.sh [--purge-settings]
 .\scripts\uninstall.ps1 [-PurgeSettings]
+sh scripts/uninstall.sh [--purge-settings]        # Linux/macOS, from source; not run by CI any more
 ```
 
 Uninstalling stops the hub, takes away the login entry and the link, and removes the program. Your
@@ -148,14 +151,15 @@ the vault is not `main` or the file is already schema 2, and keeps what the othe
 
 ## The rolling build (the newest `main`, one click)
 
-After every green CI run on `main`, the workflow `rolling` builds the program of that commit for Windows and
-Linux and puts it on the pre-release [`latest`](https://github.com/WKDSteve/tasks-desktop/releases/tag/latest);
+After every green CI run on `main`, the workflow `rolling` builds the program of that commit for Windows
+and puts it on the pre-release [`latest`](https://github.com/WKDSteve/tasks-desktop/releases/tag/latest) (a login
+with read access is needed: the repository is private);
 the files are replaced each time. It is not a release (see `release.yml` for that): not signed, not tried by hand.
 
 | File | Use |
 | --- | --- |
 | `tasks-hub-windows-x86_64.exe` | double click (SmartScreen warns about an unsigned program: "More info", "Run anyway") |
-| `tasks-hub-linux-x86_64.tar.gz` | unpack, run `./tasks-hub` |
+| `install.ps1` | installs exactly this build (see above) |
 | `SHA256SUMS` | the checksums of both |
 
 Started **without an argument**, the program starts the hub in the background if it is not running and opens

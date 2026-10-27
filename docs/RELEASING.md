@@ -9,19 +9,21 @@ machine.
 | File | What |
 | ---- | ---- |
 | `tasks-hub-X.Y.Z-x86_64-pc-windows-msvc.zip` | the program for Windows |
-| `tasks-hub-X.Y.Z-x86_64-unknown-linux-gnu.tar.gz` | the program for Linux |
-| `tasks-hub-X.Y.Z-aarch64-apple-darwin.tar.gz` | the program for macOS (built, **not tried on a Mac**; the notes say so) |
-| `install.sh`, `install.ps1` | the install scripts of appkit's release-kit, stamped for this tag: they install exactly this release |
-| `uninstall.sh`, `uninstall.ps1` | the scripts of `scripts/` at this tag |
+| `install.ps1` | the install script of appkit's release-kit, stamped for this tag: it installs exactly this release |
+| `uninstall.ps1` | the script of `scripts/` at this tag |
 | `SHA256SUMS` | the checksum of every file above |
 
+(Earlier releases also held a Linux and a macOS archive, `install.sh` and `uninstall.sh`; they were built on
+hosted runners, which a private repository without a paid plan does not have. See *Private repositories and
+the runner* below.)
+
 The rolling build `latest` ([`rolling.yml`](../.github/workflows/rolling.yml)) carries the same
-scripts, stamped for `latest`, beside its two programs. `rolling.yml` takes the actions `prepare`
+script, stamped for `latest`, beside its Windows program. `rolling.yml` takes the actions `prepare`
 and `publish` of the release-kit, `release.yml` takes `publish` (its own `check` decides), both by
 the commit of the appkit tag that `Cargo.lock` pins;
 `tools/check-appkit-pin.py` fails when the two disagree, so a raised appkit tag raises them too.
 
-The native shell with a Setup (`*-setup.exe`, `.dmg`, a Linux package) is the Tauri task; this
+The native shell with a Setup (`*-setup.exe`, and, if they return, `.dmg` and a Linux package) is the Tauri task; this
 workflow gets a `bundle` job when it exists. The scripts stay in any case: they are the way for a
 person without administrator rights or with a program that is not signed.
 
@@ -35,17 +37,17 @@ person without administrator rights or with a program that is not signed.
 4. **Tag and push:** `git tag vX.Y.Z && git push origin vX.Y.Z`. The workflow
    - checks the tag, the version, that the commit is on `main`, the green CI, and that no published
      release of the tag exists (`check`),
-   - builds the interface and then the program on each system, packs it, unpacks it again in
+   - builds the interface and then the program for Windows, packs it, unpacks it again in
      another folder to ask it for its version, and runs the install script of the release-kit and
-     the uninstall scripts against it in a folder of their own (`build`, rule `NREL-12`),
+     the uninstall script against it in a folder of their own (`build`, rule `NREL-12`),
    - makes the draft with the notes of `.github/release-notes.md` (`{tag}` in them becomes the tag; the
      notes stay on the page when it is published, so they say nothing about being a draft) and adds the
-     archives, the stamped install scripts, the uninstall scripts and `SHA256SUMS` (`publish`).
-5. **Open the draft on a clean user account** and, per system you have. The files of a draft can
+     archive, the stamped install script, the uninstall script and `SHA256SUMS` (`publish`).
+5. **Open the draft on a clean user account.** The files of a draft can
    be downloaded only by people who may write to the repository (logged in, in the browser), so the
-   script cannot fetch them by itself yet: download the archive of your system, `SHA256SUMS` and
-   `install.*` into one folder and run `install.ps1 -File <the archive>` (`install.sh --file`) there
-   (the sums are found beside it). Start the hub, run it again (repair), run `uninstall.*` with and
+   script cannot fetch them by itself yet: download the archive, `SHA256SUMS` and
+   `install.ps1` into one folder and run `install.ps1 -File <the archive>` there
+   (the sums are found beside it). Start the hub, run it again (repair), run `uninstall.ps1` with and
    without `--purge-settings`. The download path of the script (no `-File`) is tried after
    publishing, once, with the line of the notes. A green build is not a program that was
    tried (`NREL-07`). Do this in a normal terminal of the user, not from an agent session
@@ -62,7 +64,8 @@ person without administrator rights or with a program that is not signed.
   first (`git push origin :refs/tags/vX.Y.Z`).
 - *no green CI run for the commit*: the tag points at a commit CI has not passed. Wait, or fix.
 - *a release exists already*: delete the draft in GitHub (a published one stays, see step 7).
-- *a system is missing from the sums*: one `build` job failed; read it, delete the draft, tag again.
+- *a file is missing from the sums*: the `build` job failed; read it, delete the draft, tag again.
+- *nothing happens after the tag*: the runner is not running; `runners.ps1 status tasks-desktop`.
 
 ## Private repositories and the runner
 
