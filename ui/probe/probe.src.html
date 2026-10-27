@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Nothing may leave this page: no network, no remote script, workers only from blob:. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data:; worker-src blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tasks-web probe</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+  body { margin: 2rem auto; max-width: 52rem; padding: 0 1rem; background: Canvas; color: CanvasText; }
+  h1 { font-size: 1.4rem; }
+  p.note { color: GrayText; }
+  table { border-collapse: collapse; width: 100%; }
+  td { border-bottom: 1px solid GrayText; padding: 0.3rem 0.5rem; vertical-align: top; }
+  td.state { font-weight: 600; white-space: nowrap; }
+  td.state.ok::before { content: "OK  "; }
+  td.state.fail::before { content: "FAIL  "; }
+  td.state.info::before { content: "INFO  "; }
+  td.state.wait::before { content: "...  "; }
+  button { margin: 0.5rem 0.5rem 0.5rem 0; font: inherit; padding: 0.3rem 0.8rem; }
+  pre { white-space: pre-wrap; border: 1px solid GrayText; padding: 0.5rem; }
+</style>
+</head>
+<body>
+<h1>tasks-web probe</h1>
+<p class="note">Checks whether the web variant of tasks-desktop can run on this machine as a local file
+(<code>file://</code>), without a server. Use an <strong>empty test folder</strong>, never a real vault.
+The page makes no network request (the CSP forbids it). Build: <code>__BUILD__</code>.</p>
+
+<button id="pick" type="button">1. Pick an empty test folder</button>
+<button id="regrant" type="button">2. Ask again for the stored folder</button>
+<button id="copy" type="button">Copy result</button>
+
+<table><tbody id="rows"></tbody></table>
+
+<h2>Result (paste into the task notes)</h2>
+<pre id="out"></pre>
+
+<script id="filler" type="application/octet-stream">__FILLER_B64__</script>
+<script>
+"use strict";
+const T0 = performance.now();
+const BUILD = "__BUILD__";
+// The smallest useful module: (func (export "add") (param i32 i32) (result i32) local.get 0 local.get 1 i32.add).
+const WASM = new Uint8Array([
+  0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x07, 0x01, 0x60, 0x02, 0x7f, 0x7f, 0x01,
+  0x7f, 0x03, 0x02, 0x01, 0x00, 0x07, 0x07, 0x01, 0x03, 0x61, 0x64, 0x64, 0x00, 0x00, 0x0a, 0x09,
+  0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a, 0x0b,
+]);
+const TEST_FILE = "tasks-web-probe.txt";
+const results = new Map();
+
+function set(id, label, state, detail) {
+  results.set(id, { label, state, detail: String(detail ?? "") });
+  let row = document.getElementById("row-" + id);
+  if (!row) {
+    row = document.createElement("tr");
+    row.id = "row-" + id;
+    row.innerHTML = "<td class=\"state\"></td><td></td><td></td>";
+    document.getElementById("rows").appendChild(row);
+  }
+  row.cells[0].className = "state " + state;
+  row.cells[1].textContent = label;
+  row.cells[2].textContent = String(detail ?? "");
+  render();
+}
+
+function render() {
+  const lines = ["tasks-web probe " + BUILD + ", " + new Date().toISOString()];
+  for (const r of results.values()) lines.push("- " + r.state.toUpperCase() + " " + r.label + ": " + r.detail);
+  document.getElementById("out").textContent = lines.join("\n");
+}
+
+function err(e) {
+  return e && e.name ? e.name + ": " + e.message : String(e);
+}
+
+async function check(id, label, fn) {
+  set(id, label, "wait", "");
+  try {
+    const [state, detail] = await fn();
+    set(id, label, state, detail);
+  } catch (e) {
+    set(id, label, "fail", err(e));
+  }
+}
+
+function withTimeout(promise, ms, what) {
+  return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(what + " timed out after " + ms + " ms")), ms))]);
+}
+
+// --- IndexedDB: one store, one key, holds the directory handle.
+function db() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("tasks-web-probe", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("handles");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idb(mode, fn) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const tx = d.transaction("handles", mode);
+    const req = fn(tx.objectStore("handles"));
+    tx.oncomplete = () => resolve(req.result);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+const storeHandle = (h) => idb("readwrite", (s) => s.put(h, "dir"));
+const loadHandle = () => idb("readonly", (s) => s.get("dir"));
+
+// --- Worker from a blob; it instantiates the same bytes and answers with add(2, 3).
+function blobWorker(type) {
+  const src = "self.onmessage = async (e) => {" +
+    " try { const { instance } = await WebAssembly.instantiate(e.data);" +
+    " self.postMessage({ ok: true, sum: instance.exports.add(2, 3) }); }" +
+    " catch (x) { self.postMessage({ ok: false, error: String(x) }); } };";
+  const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+  return withTimeout(new Promise((resolve, reject) => {
+    const w = new Worker(url, { type });
+    w.onmessage = (e) => { w.terminate(); URL.revokeObjectURL(url); resolve(e.data); };
+    w.onerror = (e) => { w.terminate(); reject(new Error(e.message || "worker error")); };
+    w.postMessage(WASM.slice().buffer);
+  }), 5000, type + " worker");
+}
+
+async function countEntries(dir, depth) {
+  let files = 0, dirs = 0;
+  for await (const [name, h] of dir.entries()) {
+    if (h.kind === "file") files++;
+    else if (name !== ".git") {
+      dirs++;
+      if (depth > 0) {
+        const sub = await countEntries(h, depth - 1);
+        files += sub.files; dirs += sub.dirs;
+      }
+    }
+  }
+  return { files, dirs };
+}
+
+async function folderChecks(dir, how) {
+  await check("perm", "Permission (" + how + ")", async () => {
+    const p = await dir.queryPermission({ mode: "readwrite" });
+    return [p === "granted" ? "ok" : "fail", "readwrite = " + p];
+  });
+  if (results.get("perm").state !== "ok") return;
+  await check("read", "Read folder", async () => {
+    const c = await countEntries(dir, 3);
+    return ["ok", c.files + " files, " + c.dirs + " folders (3 levels, .git skipped), name = " + dir.name];
+  });
+  await check("write", "Write, read back, rename, delete a test file", async () => {
+    const text = "probe " + new Date().toISOString() + "\n";
+    const fh = await dir.getFileHandle(TEST_FILE, { create: true });
+    const w = await fh.createWritable();
+    await w.write(text);
+    await w.close();
+    const back = await (await fh.getFile()).text();
+    if (back !== text) return ["fail", "read back differs"];
+    let renamed = "move() missing";
+    if (typeof fh.move === "function") {
+      try { await fh.move(TEST_FILE + ".moved"); renamed = "move() ok"; }
+      catch (e) { renamed = "move() failed: " + err(e); }
+    }
+    const name = renamed === "move() ok" ? TEST_FILE + ".moved" : TEST_FILE;
+    await dir.removeEntry(name);
+    return [renamed === "move() ok" ? "ok" : "info", "write ok, read ok, " + renamed + ", delete ok"];
+  });
+  await check("store", "Folder handle kept in IndexedDB", async () => {
+    await storeHandle(dir);
+    return ["ok", "stored; reload the page, then restart Chrome, and use button 2"];
+  });
+}
+
+async function startup() {
+  await check("env", "Origin", async () => [
+    location.protocol === "file:" ? "ok" : "info",
+    location.protocol + " origin=" + location.origin + " secureContext=" + window.isSecureContext,
+  ]);
+  await check("ua", "Browser", async () => ["info", navigator.userAgent]);
+  await check("fsa", "showDirectoryPicker present", async () => [
+    typeof window.showDirectoryPicker === "function" ? "ok" : "fail",
+    typeof window.showDirectoryPicker,
+  ]);
+  await check("wasm", "WebAssembly from embedded bytes (page)", async () => {
+    const { instance } = await WebAssembly.instantiate(WASM);
+    const sum = instance.exports.add(2, 3);
+    return [sum === 5 ? "ok" : "fail", "add(2, 3) = " + sum];
+  });
+  for (const type of ["classic", "module"]) {
+    await check("worker-" + type, "Worker from a blob (" + type + ") with WebAssembly", async () => {
+      const r = await blobWorker(type);
+      return [r.ok && r.sum === 5 ? "ok" : "fail", r.ok ? "add(2, 3) = " + r.sum : r.error];
+    });
+  }
+  await check("filler", "Embedded base64 block", async () => {
+    const b64 = document.getElementById("filler").textContent.trim();
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    let detail = bytes.length + " bytes decoded";
+    if (crypto.subtle) {
+      const h = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+      detail += ", SHA-256 " + Array.from(h.slice(0, 6), (b) => b.toString(16).padStart(2, "0")).join("") + "...";
+    }
+    return ["ok", detail];
+  });
+  await check("idb", "IndexedDB", async () => {
+    await idb("readwrite", (s) => s.put(Date.now(), "ping"));
+    return ["ok", "open and write ok"];
+  });
+  await check("csp", "Network is blocked (CSP)", async () => {
+    try {
+      // The CSP stops this before any connection is made.
+      await fetch("https://example.invalid/", { mode: "no-cors" });
+      return ["fail", "a request went out"];
+    } catch (e) {
+      return ["ok", "fetch refused: " + err(e)];
+    }
+  });
+  await check("stored", "Stored folder from an earlier visit", async () => {
+    const h = await loadHandle();
+    if (!h) return ["info", "none yet (use button 1)"];
+    const p = await h.queryPermission({ mode: "readwrite" });
+    return ["info", "found '" + h.name + "', readwrite = " + p + (p === "granted" ? "" : " (use button 2)")];
+  });
+  set("time", "Time to all startup checks", "info", Math.round(performance.now() - T0) + " ms");
+}
+
+document.getElementById("pick").addEventListener("click", async () => {
+  if (typeof window.showDirectoryPicker !== "function") {
+    set("pick", "Pick folder", "fail", "showDirectoryPicker missing");
+    return;
+  }
+  try {
+    const dir = await window.showDirectoryPicker({ id: "tasks-web-probe", mode: "readwrite" });
+    set("pick", "Pick folder", "ok", "picked");
+    await folderChecks(dir, "after picking");
+  } catch (e) {
+    set("pick", "Pick folder", "fail", err(e));
+  }
+});
+
+document.getElementById("regrant").addEventListener("click", async () => {
+  await check("regrant", "Ask again for the stored folder", async () => {
+    const h = await loadHandle();
+    if (!h) return ["fail", "no stored folder (use button 1 first)"];
+    const before = await h.queryPermission({ mode: "readwrite" });
+    const after = await h.requestPermission({ mode: "readwrite" });
+    return [after === "granted" ? "ok" : "fail", "before = " + before + ", after = " + after];
+  });
+  const h = await loadHandle();
+  if (h && results.get("regrant").state === "ok") await folderChecks(h, "stored handle");
+});
+
+document.getElementById("copy").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(document.getElementById("out").textContent);
+    set("copy", "Copy result", "ok", "on the clipboard");
+  } catch (e) {
+    set("copy", "Copy result", "fail", err(e) + " (select the text below by hand)");
+  }
+});
+
+startup();
+</script>
+</body>
+</html>

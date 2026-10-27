@@ -8,7 +8,8 @@
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "probe": "node probe/build.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

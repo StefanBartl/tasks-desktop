@@ -192,7 +192,13 @@ e2e/fixture/vault   synthetic vault (no real data), made by tools/make-fixture-v
 docs/SECURITY.md    what the server checks, and what it does not
 engine.lock         the tasks.nvim and lib.nvim commits this is built against
 ui/                 the browser interface (Svelte 5, Vite, TypeScript)
+ui/probe/           the probe of the web variant: one HTML file run from file://, `pnpm probe` builds it
 ```
+
+The web variant (no install, no server: one HTML file opened from disk, the engine in the browser) is being
+built. Its built files go to the private repository
+[tasks-web](https://github.com/WKDSteve/tasks-web); for now that is the probe, which checks whether a machine
+allows it (`cd ui && pnpm probe -- --out=<tasks-web>/probe.html`).
 
 What does not depend on tasks (the guard, pairing and sessions, the engine seam, the store, the
 watcher, the search, installing, and the security matrix every app's hub must pass) is
