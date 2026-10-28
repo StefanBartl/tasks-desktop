@@ -153,13 +153,32 @@ async function main() {
       set("m-" + method, "call " + method, "fail", err(e));
     }
   }
-  try {
-    await fetch("https://example.invalid/", { mode: "no-cors" });
-    set("csp", "Network is blocked (CSP)", "fail", "a request went out");
-  } catch (e) {
-    set("csp", "Network is blocked (CSP)", "ok", "fetch refused: " + err(e));
-  }
+  const refused = await cspRefusesNetwork();
+  set("csp", "Network is blocked (CSP)", refused ? "ok" : "fail", refused || "no CSP report for the request: it may have left the page");
   set("total", "Time to all checks", "info", ms(T0));
+}
+
+// The CSP is proven by its own report, not by a failed fetch: a fetch to example.invalid fails without a CSP too (the
+// name has no address), and then a DNS query would have left the machine. Resolves with the directive, or null.
+function cspRefusesNetwork() {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener("securitypolicyviolation", onViolation);
+      resolve(value);
+    };
+    const onViolation = (e) => {
+      if (String(e.violatedDirective).startsWith("connect-src")) finish("refused by the CSP (" + e.violatedDirective + ")");
+    };
+    document.addEventListener("securitypolicyviolation", onViolation);
+    // the report may come after the rejection: wait a moment for it
+    fetch("https://example.invalid/", { mode: "no-cors" }).then(
+      () => finish(null),
+      () => setTimeout(() => finish(null), 1000),
+    );
+  });
 }
 
 document.getElementById("copy").addEventListener("click", async () => {

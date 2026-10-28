@@ -47,6 +47,11 @@ export function startWorker(scope: Scope): void {
   scope.onmessage = async (event) => {
     const msg = event.data;
     if (msg.type === 'init') {
+      // One engine per worker: a second init would wrap `fetch` again and start a second VM beside the first.
+      if (engine) {
+        post({ type: 'error', message: 'the engine is already started (one init per worker)' });
+        return;
+      }
       const t0 = performance.now();
       serveEmbeddedWasm(scope, msg.wasm);
       engine = WebEngine.create({

@@ -63,11 +63,14 @@ function mkdirTree(fs: MemFs, path: string): void {
 export class WebEngine {
   // Plain fields, no parameter properties: Node runs this file by stripping the types, without a build.
   private readonly lua: LuaEngine;
+  // Taken once: every `global.get` makes a new JS wrapper with its own reference into the Lua registry.
+  private readonly door: (method: string, request: string, root: string, today: string) => string;
   readonly fs: MemFs;
   readonly bundle: EngineBundle;
 
   private constructor(lua: LuaEngine, fs: MemFs, bundle: EngineBundle) {
     this.lua = lua;
+    this.door = lua.global.get('__web_call');
     this.fs = fs;
     this.bundle = bundle;
   }
@@ -104,13 +107,15 @@ export class WebEngine {
           return undefined;
         }
       },
+      // JSON, not a separated list: a name may hold a tab or a newline on the system the folder comes from.
       readdir: (path: string) => {
         try {
-          return fs
-            .readdir(path)
-            .filter((n) => n !== '.' && n !== '..')
-            .map((n) => `${n}\t${isDir(fs.stat(`${path}/${n}`).mode) ? 'directory' : 'file'}`)
-            .join('\n');
+          return JSON.stringify(
+            fs
+              .readdir(path)
+              .filter((n) => n !== '.' && n !== '..')
+              .map((n) => [n, isDir(fs.stat(`${path}/${n}`).mode) ? 'directory' : 'file']),
+          );
         } catch {
           return undefined;
         }
@@ -152,8 +157,7 @@ export class WebEngine {
    * whole request (`{"params": {...}}`, for `ops` the fields at the top), or empty.
    */
   call(method: string, request: string | null, opts: { root: string; today?: string }): CallResult {
-    const fn = this.lua.global.get('__web_call') as (m: string, r: string, root: string, today: string) => string;
-    const raw = String(fn(method, request ?? '', opts.root, opts.today ?? ''));
+    const raw = String(this.door(method, request ?? '', opts.root, opts.today ?? ''));
     const nl = raw.indexOf('\n');
     const code = raw.slice(0, nl);
     return { text: raw.slice(nl + 1), code: code === '' ? null : code };

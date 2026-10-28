@@ -201,11 +201,15 @@ The web variant (no install, no server: one HTML file opened from disk, the engi
 built. Its built files go to the private repository [tasks-web](https://github.com/WKDSteve/tasks-web).
 
 - **The engine runs unchanged.** `ui/web/engine-bundle.mjs` takes the Lua sources of tasks.nvim and lib.nvim
-  from the git objects of the commits in `engine.lock` (never the working tree). `ui/src/web/vim-shim.lua` gives
-  them the `vim` they use, on Lua 5.4 instead of LuaJIT. The vault lies in the in-memory file system of the VM.
+  from the git objects of the commits in `engine.lock` (never the working tree), follows their requires with a
+  small Lua lexer and drops the comments (the lines keep their numbers). `ui/src/web/vim-shim.lua` gives them the
+  `vim` they use, on Lua 5.4 instead of LuaJIT; `vim.inspect` is Neovim's own (`ui/src/web/vendor/`). The vault
+  lies in the in-memory file system of the VM.
 - **Same documents as nvim.** `pnpm web:test` runs the engine in Node. With `TASKS_WEB_COMPARE=1` (CI does)
   every read method must answer byte for byte as `nvim --headless -l scripts/tasks.lua call ...` on the same
-  commits; only `generated_at` and `engine` may differ (`engine.nvim` is `web+Lua5.4`: no Neovim runs).
+  commits; only `generated_at` and `engine` may differ (`engine.nvim` is `web+Lua5.4`: no Neovim runs). The
+  shim itself answers `ui/web/shim-parity.lua` (JSON, paths, `tolower` for every code point to U+1FFFF, ...) as
+  nvim does; `node web/tolower-table.mjs` makes its case table from nvim when Neovim's tables change.
 - **In the browser.** `pnpm web:check -- --out=<tasks-web>/engine-check.html` builds one page that starts the
   engine in a classic worker from a blob (a module worker does not start from `file://`) on a synthetic vault.
   `pnpm probe -- --out=<tasks-web>/probe.html` builds the probe that checks whether a machine allows all this.

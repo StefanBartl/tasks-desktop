@@ -50,6 +50,8 @@ const WASM = new Uint8Array([
 ]);
 const TEST_FILE = "tasks-web-probe.txt";
 const MARKER = "tasks-web-probe-marker";
+const WORKER_TIMEOUT_MS = 5000;
+const CSP_REPORT_WAIT_MS = 1000;
 const results = new Map();
 
 function set(id, label, state, detail) {
@@ -92,13 +94,19 @@ function withTimeout(promise, ms, what) {
 }
 
 // --- IndexedDB: one store, one key, holds the directory handle.
+// One connection for the page (a failed open is tried again next time).
+let dbPromise = null;
 function db() {
-  return new Promise((resolve, reject) => {
+  dbPromise ??= new Promise((resolve, reject) => {
     const req = indexedDB.open("tasks-web-probe", 1);
     req.onupgradeneeded = () => req.result.createObjectStore("handles");
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
+  }).catch((e) => {
+    dbPromise = null;
+    throw e;
   });
+  return dbPromise;
 }
 async function idb(mode, fn) {
   const d = await db();
@@ -107,6 +115,8 @@ async function idb(mode, fn) {
     const req = fn(tx.objectStore("handles"));
     tx.oncomplete = () => resolve(req.result);
     tx.onerror = () => reject(tx.error);
+    // an aborted transaction (quota) fires no error of its own
+    tx.onabort = () => reject(tx.error || new Error("transaction aborted"));
   });
 }
 const storeHandle = (h) => idb("readwrite", (s) => s.put(h, "dir"));
@@ -119,17 +129,44 @@ function blobWorker(type) {
     " self.postMessage({ ok: true, sum: instance.exports.add(2, 3) }); }" +
     " catch (x) { self.postMessage({ ok: false, error: String(x) }); } };";
   const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+  let w = null;
   return withTimeout(new Promise((resolve, reject) => {
-    const w = new Worker(url, { type });
-    w.onmessage = (e) => { w.terminate(); URL.revokeObjectURL(url); resolve(e.data); };
+    w = new Worker(url, { type });
+    w.onmessage = (e) => resolve(e.data);
     // A worker that fails to load fires a bare Event: name what little it carries.
     w.onerror = (e) => {
-      w.terminate();
       const where = e.filename ? " at " + e.filename + ":" + e.lineno : "";
       reject(new Error((e.message || "worker error, no message") + " (event " + e.type + where + ")"));
     };
     w.postMessage(WASM.slice().buffer);
-  }), 5000, type + " worker");
+  }), WORKER_TIMEOUT_MS, type + " worker").finally(() => {
+    // answered, failed or timed out: the worker and its URL go in every case
+    if (w) w.terminate();
+    URL.revokeObjectURL(url);
+  });
+}
+
+// The CSP is proven by its own report, not by a failed fetch: a fetch to example.invalid fails without a CSP too (the
+// name has no address), and then a DNS query would have left the machine. Resolves with the directive, or null.
+function cspRefusesNetwork() {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener("securitypolicyviolation", onViolation);
+      resolve(value);
+    };
+    const onViolation = (e) => {
+      if (String(e.violatedDirective).startsWith("connect-src")) finish("refused by the CSP (" + e.violatedDirective + ")");
+    };
+    document.addEventListener("securitypolicyviolation", onViolation);
+    // the report may come after the rejection: wait a moment for it
+    fetch("https://example.invalid/", { mode: "no-cors" }).then(
+      () => finish(null),
+      () => setTimeout(() => finish(null), CSP_REPORT_WAIT_MS),
+    );
+  });
 }
 
 async function countEntries(dir, depth) {
@@ -158,6 +195,15 @@ async function folderChecks(dir, how) {
     return ["ok", c.files + " files, " + c.dirs + " folders (3 levels, .git skipped), name = " + dir.name];
   });
   await check("write", "Write, read back, rename, delete a test file", async () => {
+    // A file of that name that is already there is someone's: left alone, it is neither overwritten nor deleted.
+    for (const name of [TEST_FILE, TEST_FILE + ".moved"]) {
+      try {
+        await dir.getFileHandle(name);
+        return ["fail", name + " is already in this folder and was left alone: pick an empty folder"];
+      } catch (e) {
+        if (!e || e.name !== "NotFoundError") throw e;
+      }
+    }
     const text = "probe " + new Date().toISOString() + "\n";
     const fh = await dir.getFileHandle(TEST_FILE, { create: true });
     const w = await fh.createWritable();
@@ -237,13 +283,8 @@ async function startup() {
     return [after ? "ok" : "info", "persisted before = " + before + ", after persist() = " + after + quota];
   });
   await check("csp", "Network is blocked (CSP)", async () => {
-    try {
-      // The CSP stops this before any connection is made.
-      await fetch("https://example.invalid/", { mode: "no-cors" });
-      return ["fail", "a request went out"];
-    } catch (e) {
-      return ["ok", "fetch refused: " + err(e)];
-    }
+    const refused = await cspRefusesNetwork();
+    return refused ? ["ok", refused] : ["fail", "no CSP report for the request: it may have left the page"];
   });
   await check("stored", "Stored folder from an earlier visit", async () => {
     const h = await loadHandle();
