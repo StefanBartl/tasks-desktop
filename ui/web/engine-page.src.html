@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- Nothing may leave this page: no network, no remote script, workers only from blob:. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; worker-src blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tasks-web engine check</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+  body { margin: 2rem auto; max-width: 52rem; padding: 0 1rem; background: Canvas; color: CanvasText; }
+  h1 { font-size: 1.4rem; }
+  p.note { color: GrayText; }
+  table { border-collapse: collapse; width: 100%; }
+  td { border-bottom: 1px solid GrayText; padding: 0.3rem 0.5rem; vertical-align: top; }
+  td.state { font-weight: 600; white-space: nowrap; }
+  td.state.ok::before { content: "OK  "; }
+  td.state.fail::before { content: "FAIL  "; }
+  td.state.info::before { content: "INFO  "; }
+  td.state.wait::before { content: "...  "; }
+  button { margin: 0.5rem 0.5rem 0.5rem 0; font: inherit; padding: 0.3rem 0.8rem; }
+  pre { white-space: pre-wrap; border: 1px solid GrayText; padding: 0.5rem; }
+</style>
+</head>
+<body>
+<h1>tasks-web engine check</h1>
+<p class="note">Starts the tasks.nvim engine (__ENGINE__) in a Lua VM in a worker, on a small synthetic test vault
+that is part of this file. Reads no folder of this machine and makes no network request (the CSP forbids it).
+Build: <code>__BUILD__</code>.</p>
+
+<button id="copy" type="button">Copy result</button>
+
+<table><tbody id="rows"></tbody></table>
+
+<h2>Result (paste into the task notes)</h2>
+<pre id="out"></pre>
+
+<script id="worker" type="application/octet-stream">__WORKER_GZ__</script>
+<script id="wasm" type="application/octet-stream">__WASM_GZ__</script>
+<script id="bundle" type="application/octet-stream">__BUNDLE_GZ__</script>
+<script id="shim" type="application/octet-stream">__SHIM_GZ__</script>
+<script id="vault" type="application/octet-stream">__VAULT_GZ__</script>
+<script>
+"use strict";
+const T0 = performance.now();
+const BUILD = "__BUILD__";
+const SIZES = __SIZES__;
+const results = new Map();
+
+function set(id, label, state, detail) {
+  results.set(id, { label, state, detail: String(detail ?? "") });
+  let row = document.getElementById("row-" + id);
+  if (!row) {
+    row = document.createElement("tr");
+    row.id = "row-" + id;
+    row.innerHTML = "<td class=\"state\"></td><td></td><td></td>";
+    document.getElementById("rows").appendChild(row);
+  }
+  row.cells[0].className = "state " + state;
+  row.cells[1].textContent = label;
+  row.cells[2].textContent = String(detail ?? "");
+  const lines = ["tasks-web engine check " + BUILD + ", " + new Date().toISOString()];
+  for (const r of results.values()) lines.push("- " + r.state.toUpperCase() + " " + r.label + ": " + r.detail);
+  document.getElementById("out").textContent = lines.join("\n");
+}
+
+const err = (e) => (e && e.name ? e.name + ": " + e.message : String(e));
+const ms = (t) => Math.round(performance.now() - t) + " ms";
+
+async function unpack(id) {
+  const b64 = document.getElementById(id).textContent.replace(/\s+/g, "");
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return { gz: bytes.length, data: await new Response(stream).arrayBuffer() };
+}
+
+function startWorker(source) {
+  const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+  const worker = new Worker(url);
+  const pending = new Map();
+  let next = 1;
+  let ready;
+  const readyP = new Promise((resolve, reject) => { ready = { resolve, reject }; });
+  worker.onmessage = (e) => {
+    const m = e.data;
+    if (m.type === "ready") ready.resolve(m.ms);
+    else if (m.type === "result") { pending.get(m.id)?.resolve(m); pending.delete(m.id); }
+    else if (m.type === "error") {
+      if (m.id && pending.has(m.id)) { pending.get(m.id).reject(new Error(m.message)); pending.delete(m.id); }
+      else ready.reject(new Error(m.message));
+    } else if (m.type === "log") console.log("engine:", m.level, m.message);
+  };
+  worker.onerror = (e) => ready.reject(new Error(e.message || "worker failed to start (event " + e.type + ")"));
+  return {
+    worker,
+    ready: readyP,
+    call(method, request) {
+      const id = next++;
+      return new Promise((resolve, reject) => {
+        pending.set(id, { resolve, reject });
+        worker.postMessage({ type: "call", id, method, request, root: "/vault" });
+      });
+    },
+  };
+}
+
+const withTimeout = (p, msec, what) =>
+  Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what + " timed out after " + msec + " ms")), msec))]);
+
+async function main() {
+  set("env", "Origin", location.protocol === "file:" ? "ok" : "info", location.protocol + " secureContext=" + window.isSecureContext);
+  set("sizes", "Embedded parts (bytes, unpacked)", "info", JSON.stringify(SIZES));
+  set("page", "Size of this file", "info", document.documentElement.outerHTML.length + " characters");
+  let parts;
+  try {
+    const t = performance.now();
+    const names = ["worker", "wasm", "bundle", "shim", "vault"];
+    const got = await Promise.all(names.map(unpack));
+    parts = Object.fromEntries(names.map((n, i) => [n, got[i].data]));
+    set("unpack", "Unpack (gzip, DecompressionStream)", "ok", ms(t) + ", gzip " + got.map((g, i) => names[i] + "=" + g.gz).join(" "));
+  } catch (e) {
+    set("unpack", "Unpack (gzip, DecompressionStream)", "fail", err(e));
+    return;
+  }
+  const dec = new TextDecoder();
+  let w;
+  try {
+    const t = performance.now();
+    w = startWorker(dec.decode(parts.worker));
+    w.worker.postMessage({
+      type: "init",
+      wasm: parts.wasm,
+      bundle: JSON.parse(dec.decode(parts.bundle)),
+      shim: dec.decode(parts.shim),
+      files: JSON.parse(dec.decode(parts.vault)),
+    }, [parts.wasm]);
+    const inWorker = await withTimeout(w.ready, 30000, "engine start");
+    set("start", "Engine started in a classic blob worker", "ok", ms(t) + " (in the worker " + inWorker + " ms)");
+  } catch (e) {
+    set("start", "Engine started in a classic blob worker", "fail", err(e));
+    return;
+  }
+  let firstId = null;
+  for (const method of ["hello", "areas", "snapshot", "list", "next", "links", "groupings", "check", "task"]) {
+    try {
+      const request = method === "task" ? JSON.stringify({ params: { id: firstId } }) : null;
+      const r = await withTimeout(w.call(method, request), 30000, method);
+      const doc = JSON.parse(r.text);
+      if (method === "list") firstId = doc.items && doc.items[0] && doc.items[0].id;
+      const extra = method === "hello" ? ", engine " + JSON.stringify(doc.engine) : method === "snapshot" ? ", " + (doc.tasks ? doc.tasks.length : "?") + " tasks" : "";
+      set("m-" + method, "call " + method, r.code ? "fail" : "ok", (r.code ? r.code + ": " + (doc.message || "") : doc.kind + ", " + r.text.length + " bytes") + ", " + r.ms + " ms" + extra);
+    } catch (e) {
+      set("m-" + method, "call " + method, "fail", err(e));
+    }
+  }
+  try {
+    await fetch("https://example.invalid/", { mode: "no-cors" });
+    set("csp", "Network is blocked (CSP)", "fail", "a request went out");
+  } catch (e) {
+    set("csp", "Network is blocked (CSP)", "ok", "fetch refused: " + err(e));
+  }
+  set("total", "Time to all checks", "info", ms(T0));
+}
+
+document.getElementById("copy").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(document.getElementById("out").textContent);
+    set("copy", "Copy result", "ok", "on the clipboard");
+  } catch (e) {
+    set("copy", "Copy result", "fail", err(e) + " (select the text below by hand)");
+  }
+});
+
+main();
+</script>
+</body>
+</html>

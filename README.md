@@ -193,12 +193,23 @@ docs/SECURITY.md    what the server checks, and what it does not
 engine.lock         the tasks.nvim and lib.nvim commits this is built against
 ui/                 the browser interface (Svelte 5, Vite, TypeScript)
 ui/probe/           the probe of the web variant: one HTML file run from file://, `pnpm probe` builds it
+ui/src/web/         the engine of the web variant: tasks.nvim in a Lua VM (wasmoon), the vim shim, the worker
+ui/web/             its Node side: the bundle of the Lua sources, the tests, the engine check page
 ```
 
 The web variant (no install, no server: one HTML file opened from disk, the engine in the browser) is being
-built. Its built files go to the private repository
-[tasks-web](https://github.com/WKDSteve/tasks-web); for now that is the probe, which checks whether a machine
-allows it (`cd ui && pnpm probe -- --out=<tasks-web>/probe.html`).
+built. Its built files go to the private repository [tasks-web](https://github.com/WKDSteve/tasks-web).
+
+- **The engine runs unchanged.** `ui/web/engine-bundle.mjs` takes the Lua sources of tasks.nvim and lib.nvim
+  from the git objects of the commits in `engine.lock` (never the working tree). `ui/src/web/vim-shim.lua` gives
+  them the `vim` they use, on Lua 5.4 instead of LuaJIT. The vault lies in the in-memory file system of the VM.
+- **Same documents as nvim.** `pnpm web:test` runs the engine in Node. With `TASKS_WEB_COMPARE=1` (CI does)
+  every read method must answer byte for byte as `nvim --headless -l scripts/tasks.lua call ...` on the same
+  commits; only `generated_at` and `engine` may differ (`engine.nvim` is `web+Lua5.4`: no Neovim runs).
+- **In the browser.** `pnpm web:check -- --out=<tasks-web>/engine-check.html` builds one page that starts the
+  engine in a classic worker from a blob (a module worker does not start from `file://`) on a synthetic vault.
+  `pnpm probe -- --out=<tasks-web>/probe.html` builds the probe that checks whether a machine allows all this.
+- Neither needs `pnpm install` or vite: Node strips the types itself, wasmoon is JavaScript and WebAssembly.
 
 What does not depend on tasks (the guard, pairing and sessions, the engine seam, the store, the
 watcher, the search, installing, and the security matrix every app's hub must pass) is
