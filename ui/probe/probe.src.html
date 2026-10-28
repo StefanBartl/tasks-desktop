@@ -49,6 +49,7 @@ const WASM = new Uint8Array([
   0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6a, 0x0b,
 ]);
 const TEST_FILE = "tasks-web-probe.txt";
+const MARKER = "tasks-web-probe-marker";
 const results = new Map();
 
 function set(id, label, state, detail) {
@@ -121,7 +122,12 @@ function blobWorker(type) {
   return withTimeout(new Promise((resolve, reject) => {
     const w = new Worker(url, { type });
     w.onmessage = (e) => { w.terminate(); URL.revokeObjectURL(url); resolve(e.data); };
-    w.onerror = (e) => { w.terminate(); reject(new Error(e.message || "worker error")); };
+    // A worker that fails to load fires a bare Event: name what little it carries.
+    w.onerror = (e) => {
+      w.terminate();
+      const where = e.filename ? " at " + e.filename + ":" + e.lineno : "";
+      reject(new Error((e.message || "worker error, no message") + " (event " + e.type + where + ")"));
+    };
     w.postMessage(WASM.slice().buffer);
   }), 5000, type + " worker");
 }
@@ -208,6 +214,27 @@ async function startup() {
   await check("idb", "IndexedDB", async () => {
     await idb("readwrite", (s) => s.put(Date.now(), "ping"));
     return ["ok", "open and write ok"];
+  });
+  // Tells a wiped store apart from a lost handle: the marker of the last visit in IndexedDB and in localStorage.
+  await check("marker", "Marker of the previous visit", async () => {
+    const now = new Date().toISOString();
+    const inIdb = await idb("readonly", (s) => s.get("marker"));
+    let inLs;
+    try { inLs = localStorage.getItem(MARKER); localStorage.setItem(MARKER, now); }
+    catch (e) { inLs = "localStorage failed: " + err(e); }
+    await idb("readwrite", (s) => s.put(now, "marker"));
+    return ["info", "IndexedDB = " + (inIdb ?? "none") + ", localStorage = " + (inLs ?? "none")];
+  });
+  await check("persist", "Persistent storage", async () => {
+    if (!navigator.storage || typeof navigator.storage.persisted !== "function") return ["fail", "navigator.storage missing"];
+    const before = await navigator.storage.persisted();
+    const after = before || await navigator.storage.persist();
+    let quota = "";
+    if (typeof navigator.storage.estimate === "function") {
+      const q = await navigator.storage.estimate();
+      quota = ", usage " + q.usage + " of " + q.quota + " bytes";
+    }
+    return [after ? "ok" : "info", "persisted before = " + before + ", after persist() = " + after + quota];
   });
   await check("csp", "Network is blocked (CSP)", async () => {
     try {
