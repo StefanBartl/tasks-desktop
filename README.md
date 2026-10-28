@@ -213,6 +213,13 @@ built. Its built files go to the private repository [tasks-web](https://github.c
 - **In the browser.** `pnpm web:check -- --out=<tasks-web>/engine-check.html` builds one page that starts the
   engine in a classic worker from a blob (a module worker does not start from `file://`) on a synthetic vault.
   `pnpm probe -- --out=<tasks-web>/probe.html` builds the probe that checks whether a machine allows all this.
+- **The vault folder.** `ui/src/web/vault-files.ts` reads a picked folder (`showDirectoryPicker`) into memory and
+  `VaultMount` puts it into the VM's file system. Names from the folder are untrusted: a separator, a NUL or a dot
+  segment never becomes a path; only `*.md` and, at the root, `areas.json` and `vault.json` are read; hidden folders
+  (`.git`) and `node_modules` are left out; a file over 4 MiB is skipped and reported; a folder over a budget
+  (20 000 files, 256 MiB, 32 levels) is refused as a whole, because a vault read in part would show wrong data.
+  `VaultMount.changes()` lists what the engine added, changed and removed since the load (for the write-back).
+  `pnpm web:test` runs `web/vault-files.test.mjs` with a fake folder, so it needs no browser.
 - Neither needs `pnpm install` or vite: Node strips the types itself, wasmoon is JavaScript and WebAssembly.
 
 What does not depend on tasks (the guard, pairing and sessions, the engine seam, the store, the

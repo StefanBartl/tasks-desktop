@@ -32,7 +32,7 @@ export interface WebEngineOptions {
 }
 
 /** The part of Emscripten's FS the bridge needs (wasmoon's build exports no `isDir` and no `mkdirTree`). */
-interface MemFs {
+export interface MemFs {
   stat(path: string): { mode: number; size: number; mtime: Date };
   readdir(path: string): string[];
   mkdir(path: string): void;
@@ -40,15 +40,16 @@ interface MemFs {
   unlink(path: string): void;
   writeFile(path: string, data: string | Uint8Array): void;
   readFile(path: string, opts: { encoding: 'utf8' }): string;
+  readFile(path: string): Uint8Array;
 }
 
 const HOME = '/home/web';
 
 const S_IFMT = 0o170000;
-const isDir = (mode: number) => (mode & S_IFMT) === 0o040000;
-const isFile = (mode: number) => (mode & S_IFMT) === 0o100000;
+export const isDir = (mode: number) => (mode & S_IFMT) === 0o040000;
+export const isFile = (mode: number) => (mode & S_IFMT) === 0o100000;
 
-function mkdirTree(fs: MemFs, path: string): void {
+export function mkdirTree(fs: MemFs, path: string): void {
   let at = '';
   for (const part of path.split('/').filter(Boolean)) {
     at += `/${part}`;
@@ -168,7 +169,7 @@ export class WebEngine {
   }
 }
 
-function removeTree(fs: MemFs, path: string): void {
+export function removeTree(fs: MemFs, path: string): void {
   for (const name of fs.readdir(path)) {
     if (name === '.' || name === '..') continue;
     const child = `${path}/${name}`;
