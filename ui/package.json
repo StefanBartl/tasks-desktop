@@ -10,7 +10,7 @@
     "test": "vitest run",
     "e2e": "playwright test",
     "probe": "node probe/build.mjs",
-    "web:test": "node --experimental-strip-types --test web/",
+    "web:test": "node --experimental-strip-types --test \"web/*.test.mjs\"",
     "web:check": "node --experimental-strip-types web/engine-page.mjs"
   },
   "devDependencies": {
