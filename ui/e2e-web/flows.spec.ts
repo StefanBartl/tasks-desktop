@@ -453,7 +453,7 @@ test('the German page has no violations either, and the name of the app stays', 
   await page.getByRole('menuitemradio', { name: 'Deutsch' }).click();
   await expect(page.getByRole('menuitem', { name: 'Ansicht' })).toBeVisible();
   await expect(page.locator('.kit-brand')).toHaveText('Tasks');
-  await expect(page.getByRole('menubar').getByRole('menuitem')).toHaveText(['Tasks', 'Projekt', 'Ansicht', 'Optionen', 'Hilfe']);
+  await expect(page.getByRole('menubar').getByRole('menuitem')).toHaveText(['Arbeit', 'Projekt', 'Ansicht', 'Optionen', 'Hilfe']);
   await page.getByRole('menuitem', { name: 'Ansicht', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'Liste', exact: true }).click();
   await expect(page.locator('button.row').first()).toBeVisible();
