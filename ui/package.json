@@ -11,7 +11,9 @@
     "e2e": "playwright test",
     "probe": "node probe/build.mjs",
     "web:test": "node --experimental-strip-types --test \"web/*.test.mjs\"",
-    "web:check": "node --experimental-strip-types web/engine-page.mjs"
+    "web:check": "node --experimental-strip-types web/engine-page.mjs",
+    "web:build": "vite build --mode web && node --experimental-strip-types web/pack.mjs",
+    "web:e2e": "playwright test -c playwright.web.config.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

@@ -241,7 +241,22 @@ built. Its built files go to the private repository [tasks-web](https://github.c
   picker (a policy of the organisation), a folder that is gone and a folder over the budget come back to the start
   page with their reason; a browser without the API, or a page that is not a secure context, is told so and offers
   no picker. `web/entry.test.mjs` and `src/web/WebEntry.test.ts` run it without a browser.
-- Neither needs `pnpm install` or vite: Node strips the types itself, wasmoon is JavaScript and WebAssembly.
+- **Reading again.** There is no server to say that a file changed. When the window gets the focus back, and every 30
+  seconds, the page asks for the signature of the folder (`vaultSignature`: path, size and time of each file the
+  reader would take, no content); if it differs, the vault is read again and the open event streams hear a `resync`
+  (`ui/src/web/watch.ts`, `ui/src/web/hub.ts`).
+- **One file.** `pnpm web:build` runs `vite build --mode web` (`ui/src/main.web.ts`, one script, one style) and
+  `web/pack.mjs`, which writes `ui/dist-web/tasks.html` and `SHA256SUMS`: the script and the style inline, the four
+  parts of the engine (worker, WASM, Lua sources, vim shim) gzip-compressed as base64, and a policy as a meta tag
+  (`default-src 'none'; connect-src 'none'; worker-src blob:` and the like: no request of any kind, no outside
+  source). The build refuses a shell that loads something (a `src`, a `href`, a URL, a refresh, a stray script).
+  `pnpm web:e2e` opens the file from disk in Chrome (`ui/e2e-web/`): the engine starts in its worker, a fake folder is
+  chosen, the tasks show, a change of a file shows after a focus event, and not one request and not one violation of
+  the policy happens; a positive test shows the policy does refuse a `fetch` and an image. The workflow `web.yml`
+  (tag `v*`, or by hand) builds, tests and commits `tasks.html` to the private repository `WKDSteve/tasks-web` with the
+  runner's own git credentials (no deploy key); it is opened there with `file:///.../tasks-web/tasks.html`.
+- The Node tests need `pnpm install` for wasmoon only where they start the engine (`web/engine.test.mjs`,
+  `web/worker-client.test.mjs`); the pieces around it run on Node alone: Node strips the types itself.
 
 What does not depend on tasks (the guard, pairing and sessions, the engine seam, the store, the
 watcher, the search, installing, and the security matrix every app's hub must pass) is

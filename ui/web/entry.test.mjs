@@ -366,3 +366,11 @@ test('a failed open is tried again, an aborted write is an error', async () => {
   const quota = idbKeyValue(fakeIdb({ abortWrites: true }));
   await assert.rejects(quota.put('k', 1), /quota/);
 });
+
+test('a folder that cannot be remembered is opened all the same', async () => {
+  const failing = new RecentFolders({ get: async () => [], put: async () => { throw domError('DataCloneError', 'could not be cloned'); } });
+  const { entry } = entryOver({ win: SECURE(async () => handle('vault')), recent: failing });
+  await entry.start();
+  await entry.pick();
+  assert.deepEqual(entry.state, { step: 'open', name: 'vault', files: 3, skipped: [] });
+});

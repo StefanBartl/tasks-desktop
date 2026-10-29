@@ -26,6 +26,8 @@ export interface HubDeps {
 export type DataClass = 'public' | 'internal' | 'private' | 'unclassified';
 
 const NS = '/api/tasks/';
+/** The one session of a page in the web variant: a word, not a secret. */
+export const SESSION = 'web-session';
 const SORTS = ['default', 'prio-effort', 'severity', 'frecency', 'roi'];
 const MAX_AREA_NAME = 128;
 const ESTIMATE_MAX = 1000;
@@ -130,12 +132,47 @@ type CheckState =
 
 export interface WebHub {
   fetch: typeof fetch;
+  /** Tell every open event stream that the vault may have changed: the page reads again (a `resync` event). */
+  notify(): void;
+  /** End every open event stream. */
+  close(): void;
 }
 
 export function createWebHub(deps: HubDeps): WebHub {
   const classes = deps.classes ?? (() => 'unclassified' as const);
   let check: CheckState = { state: 'idle' };
   let checkId = 0;
+  const streams = new Set<ReadableStreamDefaultController<Uint8Array>>();
+  const text = new TextEncoder();
+
+  /** `GET events`: what the Rust hub sends over SSE, without a server. `hello` first, then `resync` on `notify`. */
+  function events(signal?: AbortSignal | null): Response {
+    let mine: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        mine = controller;
+        streams.add(controller);
+        controller.enqueue(text.encode('event: hello\ndata: {}\n\n'));
+        // A request that is aborted ends its stream, as a real connection does: the reader sees an AbortError.
+        signal?.addEventListener(
+          'abort',
+          () => {
+            streams.delete(controller);
+            try {
+              controller.error(new DOMException('The request was aborted', 'AbortError'));
+            } catch {
+              // already closed
+            }
+          },
+          { once: true },
+        );
+      },
+      cancel() {
+        if (mine) streams.delete(mine);
+      },
+    });
+    return new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } });
+  }
 
   async function engine(method: string, params?: Record<string, unknown>): Promise<CallResult | Response> {
     let result: CallResult;
@@ -161,7 +198,7 @@ export function createWebHub(deps: HubDeps): WebHub {
     return validTaskId(id) ? id : errorBody(400, 'bad_id', 'id must be <area>/<slug>');
   };
 
-  async function get(name: string, query: string, headers: Headers): Promise<Response> {
+  async function get(name: string, query: string, headers: Headers, signal?: AbortSignal | null): Promise<Response> {
     switch (name) {
       case 'hello': {
         const r = await engine('hello');
@@ -331,6 +368,10 @@ export function createWebHub(deps: HubDeps): WebHub {
       case 'search': {
         return search(query);
       }
+      case 'events': {
+        const refused = noQuery(query);
+        return refused ?? events(signal);
+      }
       default:
         return errorBody(404, 'not_found', 'no such route');
     }
@@ -432,18 +473,45 @@ export function createWebHub(deps: HubDeps): WebHub {
     const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const method = (init?.method ?? 'GET').toUpperCase();
     const url = new URL(href, 'http://web.invalid');
+    // The page trades a pairing code for a session before it asks for anything. There is no server to pair with and
+    // nothing to protect from another page here, so any code is traded for the one session of this page.
+    if (url.pathname === '/auth/exchange') {
+      return method === 'POST' ? respond(200, JSON.stringify({ token: SESSION })) : errorBody(405, 'method_not_allowed', 'POST');
+    }
     if (!url.pathname.startsWith(NS)) return errorBody(404, 'not_found', 'no such route');
     const name = url.pathname.slice(NS.length);
     const query = url.search.startsWith('?') ? url.search.slice(1) : '';
     const headers = new Headers(init?.headers);
-    if (method === 'GET') return get(name, query, headers);
+    if (method === 'GET') return get(name, query, headers, init?.signal);
     if (method === 'POST') {
       const body = typeof init?.body === 'string' ? init.body : '';
       return post(name, body);
     }
     return errorBody(405, 'method_not_allowed', 'GET or POST');
   };
-  return { fetch: web };
+  const tell = (message: string): void => {
+    for (const controller of [...streams]) {
+      try {
+        controller.enqueue(text.encode(message));
+      } catch {
+        streams.delete(controller);
+      }
+    }
+  };
+  return {
+    fetch: web,
+    notify: () => tell('event: resync\ndata: {}\n\n'),
+    close: () => {
+      for (const controller of [...streams]) {
+        try {
+          controller.close();
+        } catch {
+          // already closed
+        }
+      }
+      streams.clear();
+    },
+  };
 }
 
 function parseSearch(query: string): { text: string; limit: number } | string {

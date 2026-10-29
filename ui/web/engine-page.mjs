@@ -12,32 +12,18 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { stripTypeScriptTypes } from 'node:module';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { verify } from '../probe/build.mjs';
 import { bundle } from './engine-bundle.mjs';
+import { classic, wasmBytes, workerSource as workerSourceText } from './worker-source.mjs';
+
+export { classic };
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ui = resolve(here, '..');
 const fixture = resolve(ui, '..', 'e2e', 'fixture', 'vault');
-
-/**
- * A module of src/web as a classic script: types stripped, imports dropped (also those over several lines), `export`
- * removed. Refuses what it cannot turn into one.
- */
-export function classic(ts) {
-  const js = stripTypeScriptTypes(ts, { mode: 'strip' });
-  // a re-export needs a module system; a classic script has none
-  if (/^\s*export\s*\*/m.test(js)) throw new Error('classic: a re-export (export * from) is left');
-  const out = js
-    .replace(/^[ \t]*import\b[\s\S]*?(['"])[^'"\n]+\1[ \t]*;?/gm, '')
-    .replace(/^[ \t]*export\s*\{[^}]*\}[^;\n]*;?/gm, '')
-    .replace(/^([ \t]*)export\s+(?:default\s+)?/gm, '$1');
-  if (/^\s*(?:import|export)\b/m.test(out)) throw new Error('classic: an import or export is left');
-  return out;
-}
 
 /** The part of a bundle the page needs: the pins and the sources, not the report of the build. */
 export function bundleJson(b) {
@@ -70,19 +56,12 @@ const gz = (data) => gzipSync(data, { level: 9 }).toString('base64').replace(/.{
 function main() {
   const outArg = process.argv.find((a) => a.startsWith('--out='));
   const out = resolve(outArg ? outArg.slice('--out='.length) : join(here, 'dist', 'engine-check.html'));
-  const wasmoonDir = join(ui, 'node_modules', 'wasmoon', 'dist');
   const src = (file) => readFileSync(join(ui, 'src', 'web', file), 'utf8');
-  const workerSource = [
-    readFileSync(join(wasmoonDir, 'index.js'), 'utf8'),
-    'const { LuaFactory } = self.wasmoon;',
-    classic(src('engine.ts')),
-    classic(src('worker.ts')),
-    'startWorker(self);',
-  ].join('\n;\n');
+  const workerSource = workerSourceText();
   const engineBundle = bundle();
   const parts = {
     worker: Buffer.from(workerSource, 'utf8'),
-    wasm: readFileSync(join(wasmoonDir, 'glue.wasm')),
+    wasm: wasmBytes(),
     bundle: Buffer.from(bundleJson(engineBundle), 'utf8'),
     shim: Buffer.from(src('vim-shim.lua'), 'utf8'),
     vault: Buffer.from(JSON.stringify(vaultFiles(fixture)), 'utf8'),

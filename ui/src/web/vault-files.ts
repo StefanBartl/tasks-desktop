@@ -12,7 +12,7 @@ import { isDir, isFile, mkdirTree, removeTree, type MemFs } from './engine.ts';
 export interface FileHandleLike {
   kind: 'file';
   name: string;
-  getFile(): Promise<{ size: number; arrayBuffer(): Promise<ArrayBuffer> }>;
+  getFile(): Promise<{ size: number; lastModified?: number; arrayBuffer(): Promise<ArrayBuffer> }>;
 }
 
 /** The part of a `FileSystemDirectoryHandle` the reader uses. */
@@ -144,6 +144,52 @@ export async function readVaultFolder(root: DirHandleLike, limits: Partial<LoadL
 
   await walk(root, '', 0);
   return out;
+}
+
+/** A 53-bit hash of a text (cyrb53): a signature to compare, not a secret. */
+function hash53(text: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
+/**
+ * What the folder looks like from outside: the files `readVaultFolder` would take, each with its size and the time it
+ * was changed, as one short text. It reads no content, so asking often is cheap; the same text twice means the same
+ * files. A folder over a budget is the reader's to refuse, here it only makes a signature of what it saw.
+ */
+export async function vaultSignature(root: DirHandleLike, limits: Partial<LoadLimits> = {}): Promise<string> {
+  const lim = { ...DEFAULT_LIMITS, ...limits };
+  const lines: string[] = [];
+
+  async function walk(dir: DirHandleLike, prefix: string, depth: number): Promise<void> {
+    if (depth > lim.maxDepth || lines.length > lim.maxFiles) return;
+    for await (const entry of dir.values()) {
+      if (!safeName(entry.name)) continue;
+      const path = prefix + entry.name;
+      if (entry.kind === 'directory') {
+        if (wantedDir(entry.name)) await walk(entry, `${path}/`, depth + 1);
+      } else if (entry.kind === 'file' && wantedFile(entry.name, depth === 0)) {
+        try {
+          const file = await entry.getFile();
+          lines.push(`${path}\0${file.size}\0${file.lastModified ?? ''}`);
+        } catch {
+          lines.push(`${path}\0unreadable`);
+        }
+      }
+    }
+  }
+
+  await walk(root, '', 0);
+  // The order a file system lists in is not the same twice; the signature must not depend on it.
+  return `${lines.length}:${hash53(lines.sort().join('\n'))}`;
 }
 
 export interface VaultChanges {

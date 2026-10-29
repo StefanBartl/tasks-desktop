@@ -78,6 +78,13 @@ jobs:
         env:
           TASKS_WEB_COMPARE: "1"
         run: pnpm web:test
+      # The page of the web variant as one file: built, opened from disk in Chrome, the engine started in its worker, a
+      # folder chosen (a fake one), the tasks shown, and not one request, not one violation of its own policy.
+      - name: Web page (one file) opens from disk and makes no request
+        working-directory: ui
+        run: |
+          pnpm web:build
+          pnpm web:e2e
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked

@@ -264,3 +264,67 @@ test('search finds the words in id or title, says it is partial, and checks its 
   assert.equal((await h.get('search?q=x&limit=99')).status, 400);
   assert.equal((await h.get('search?q=x&z=1')).status, 400);
 });
+
+/** Read what a stream has now, up to `n` messages (a stream that has nothing more would wait). */
+async function readMessages(reader, n) {
+  const decoder = new TextDecoder();
+  let buffer = '';
+  const out = [];
+  while (out.length < n) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value);
+    for (let at = buffer.indexOf('\n\n'); at >= 0; at = buffer.indexOf('\n\n')) {
+      out.push(buffer.slice(0, at));
+      buffer = buffer.slice(at + 2);
+    }
+  }
+  return out;
+}
+
+test('the event stream says hello, then tells every page that it should read again', async () => {
+  const h = hub();
+  const first = await h.get('events');
+  assert.equal(first.status, 200);
+  assert.equal(first.headers.get('content-type'), 'text/event-stream');
+  const second = await h.get('events');
+  const a = first.body.getReader();
+  const b = second.body.getReader();
+  assert.deepEqual(await readMessages(a, 1), ['event: hello\ndata: {}']);
+  assert.deepEqual(await readMessages(b, 1), ['event: hello\ndata: {}']);
+  h.api.notify();
+  assert.deepEqual(await readMessages(a, 1), ['event: resync\ndata: {}']);
+  assert.deepEqual(await readMessages(b, 1), ['event: resync\ndata: {}']);
+  assert.equal((await h.get('events?x=1')).status, 400, 'the route takes no query');
+});
+
+test('a stream that was cancelled or aborted hears nothing more, and close ends the rest', async () => {
+  const h = hub();
+  const cancelled = (await h.get('events')).body.getReader();
+  await readMessages(cancelled, 1);
+  await cancelled.cancel();
+
+  const controller = new AbortController();
+  const aborted = (await h.api.fetch('/api/tasks/events', { signal: controller.signal })).body.getReader();
+  await readMessages(aborted, 1);
+  controller.abort();
+  await assert.rejects(aborted.read(), (e) => e.name === 'AbortError');
+
+  const open = (await h.get('events')).body.getReader();
+  await readMessages(open, 1);
+  h.api.notify();
+  h.api.close();
+  assert.deepEqual(await readMessages(open, 2), ['event: resync\ndata: {}'], 'the message before the end still arrives');
+  assert.equal((await open.read()).done, true);
+  h.api.notify(); // nothing is listening: no error
+});
+
+test('the page trades any code for its one session, so the app starts without a server to pair with', async () => {
+  const h = hub();
+  const r = await h.api.fetch('/auth/exchange', { method: 'POST', body: '{"code":"web"}' });
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { token: 'web-session' });
+  assert.equal((await h.api.fetch('/auth/exchange')).status, 405);
+  assert.equal((await h.api.fetch('/auth/other', { method: 'POST' })).status, 404);
+  assert.deepEqual(h.calls, []);
+});

@@ -129,7 +129,13 @@ export class Entry {
     this.set({ step: 'opening', name: handle.name });
     try {
       const mounted = await this.deps.open(handle);
-      await this.deps.recent.remember(handle, this.deps.now());
+      // The list of folders used before is a convenience: a browser that cannot keep it (a private window, a full
+      // quota, a handle that does not clone) must not keep the person out of a vault that was read.
+      try {
+        await this.deps.recent.remember(handle, this.deps.now());
+      } catch {
+        // the next start simply does not list this folder
+      }
       this.set({ step: 'open', name: handle.name, files: mounted.files, skipped: mounted.skipped });
     } catch (error) {
       const name = typeof error === 'object' && error !== null ? (error as { name?: unknown }).name : undefined;
