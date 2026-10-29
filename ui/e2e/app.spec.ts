@@ -1742,7 +1742,7 @@ test('the German page has no violations either', async ({ page }) => {
   // the vaults in the project, and the language is in the options.
   await expect(page.locator('.kit-brand')).toHaveText('Tasks');
   const bar = page.getByRole('menubar').getByRole('menuitem');
-  await expect(bar).toHaveText(['Tasks', 'Projekt', 'Ansicht', 'Optionen', 'Hilfe']);
+  await expect(bar).toHaveText(['Arbeit', 'Projekt', 'Ansicht', 'Optionen', 'Hilfe']);
   await showListDe(page);
   const result = await new AxeBuilder({ page }).analyze();
   expect(result.violations, JSON.stringify(result.violations, null, 1)).toEqual([]);
@@ -1867,7 +1867,7 @@ test('Tasks, Next task opens the task that the tile Next task shows, not the pic
   await pair(page);
   const id = (await page.locator('section[data-tile="next"] p.id code').textContent())?.trim() ?? '';
   expect(id).not.toBe('');
-  await page.getByRole('menuitem', { name: 'Tasks', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Work', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Next task', exact: true }).click();
   await expect(page.locator('aside.detail')).toContainText(id);
   await expect(page.locator('button.row[aria-current="true"], button.row.selected').first()).toBeVisible();
@@ -2062,7 +2062,7 @@ test('every entry of the header explains itself on hover: the five menus and the
   await pair(page);
   const tip = page.locator('#hint-tip');
   const entries = [
-    [page.getByRole('menuitem', { name: 'Tasks', exact: true }), /Create, find and edit tasks/],
+    [page.getByRole('menuitem', { name: 'Work', exact: true }), /Create, find and edit tasks/],
     [page.getByRole('menuitem', { name: 'Project', exact: true }), /vault, the plan and the export/],
     [page.getByRole('menuitem', { name: 'View', exact: true }), /Switch the view/],
     [page.getByRole('menuitem', { name: 'Options', exact: true }), /language and how the page behaves/],
@@ -2112,10 +2112,13 @@ test('the menus are Tasks, Project, View, Options and Help, with sections and th
   await pair(page);
   await showList(page);
   const bar = page.getByRole('menubar').getByRole('menuitem');
-  await expect(bar).toHaveText(['Tasks', 'Project', 'View', 'Options', 'Help']);
+  await expect(bar).toHaveText(['Work', 'Project', 'View', 'Options', 'Help']);
+  // The name of the app is no name of a menu too: one word must not stand twice in the bar.
+  const brandName = (await page.locator('.kit-brand').innerText()).trim();
+  expect(await bar.allTextContents()).not.toContain(brandName);
 
-  // Tasks: sections, shortcuts as the keys have them, and the actions work.
-  await page.getByRole('menuitem', { name: 'Tasks', exact: true }).click();
+  // Work: sections, shortcuts as the keys have them, and the actions work.
+  await page.getByRole('menuitem', { name: 'Work', exact: true }).click();
   const menu = page.getByRole('menu');
   for (const heading of ['Create', 'Find', 'Edit']) await expect(menu.getByText(heading, { exact: true })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: /New task/ })).toHaveAttribute('aria-keyshortcuts', 'C');
@@ -2129,7 +2132,7 @@ test('the menus are Tasks, Project, View, Options and Help, with sections and th
   // A task that is selected (its float closed again) can have its ID copied.
   await page.locator('button.row').first().click();
   await closeFloat(page);
-  await page.getByRole('menuitem', { name: 'Tasks', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Work', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: /Copy the ID/ })).toBeEnabled();
   await page.getByRole('menuitem', { name: /Copy the ID/ }).click();
   await expect(page.getByRole('status').getByText(/Task ID copied|clipboard is not available/)).toBeVisible();
@@ -4180,7 +4183,7 @@ test('the command palette: Ctrl+K, an action by a few letters, a task by its wor
 
   // Ctrl+K works from the menu, too (the float of the task that was chosen closed first), and the page is quiet.
   await closeFloat(page);
-  await page.getByRole('menuitem', { name: 'Tasks', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Work', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Command palette ...' }).click();
   await expect(palette).toBeVisible();
   await page.keyboard.press('Escape');
@@ -5199,7 +5202,7 @@ test('dialogs: a click on the backdrop beside a dialog closes it, unless it hold
   await expect(about).toHaveCount(0);
 
   // The new-task dialog with a title typed in keeps it: a click beside it is too easily a slip.
-  await page.getByRole('menuitem', { name: 'Tasks', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Work', exact: true }).click();
   await page.getByRole('menuitem', { name: /New task/ }).click();
   const capture = page.getByRole('dialog', { name: 'New task' });
   await expect(capture).toBeVisible();
@@ -5338,7 +5341,7 @@ test('the inbox says what it is, shows its keys as keys and lists the tasks area
 test('a new task can be made with the fields the engine takes, and the file has them', async ({ page }) => {
   await pair(page);
   await showList(page);
-  await page.getByRole('menuitem', { name: 'Tasks', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Work', exact: true }).click();
   await page.getByRole('menuitem', { name: /New task/ }).click();
   const dialog = page.getByRole('dialog', { name: 'New task' });
   await expect(dialog).toBeVisible();

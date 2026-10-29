@@ -152,7 +152,7 @@ test('a hint goes where it covers no other control: the one of Help in a wide wi
   expect(covered).toEqual({ found: [], beside: true });
 });
 
-test('a hint that lies on the next control goes with the first press, and the second press reaches the control', async ({ page }) => {
+test('a hint that lies on the next control lets the pointer through, so the first press reaches the control', async ({ page }) => {
   // At 420 px the popup of Help finds no free place (no room above the menu bar, none beside it) and stays below Help,
   // over the upper edge of the filter Areas. Raw mouse events, as a person moves (Playwright's click would scroll and
   // wait until the target is free); the pointer rests on Help first, as a person reading it does.
@@ -170,16 +170,72 @@ test('a hint that lies on the next control goes with the first press, and the se
   const y = areas.y + 3;
   await page.mouse.move(x, y, { steps: 4 });
   const under = () => page.evaluate(([px, py]) => document.elementFromPoint(px!, py!)?.id ?? '', [x, y]);
-  expect(await under()).toBe('hint-tip');
-  // The first press takes the popup away: before, it stayed while the pointer was on it and caught every press.
-  await page.mouse.down();
-  await page.mouse.up();
-  await expect(tip).toBeHidden();
-  // The second press reaches the control.
+  // The popup lies on the control but lets the pointer through: the element under the pointer is not the popup (before,
+  // it stayed while the pointer was on it and caught the first press).
+  expect(await under()).not.toBe('hint-tip');
   await page.mouse.down();
   await page.mouse.up();
   await expect(page.getByRole('group', { name: 'Areas' })).toBeVisible();
   await expectAccessible(page, 'the choice of areas opened past the hint of Help');
+});
+
+test('an explanation stays open when it is pressed in (its text can be copied) until a press outside', async ({ page }) => {
+  await pair(page);
+  await closeFloat(page);
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Plan', exact: true }).click();
+  await page.keyboard.press('Escape');
+  const tip = page.locator('#hint-tip');
+  // An explanation that has a place of its own (one that lies on a control lets the pointer through and cannot be
+  // pressed in): the first of the info buttons whose popup does.
+  const infos = page.getByRole('button', { name: /^Explanation: / });
+  await expect(infos.first()).toBeVisible();
+  let found = false;
+  for (let i = 0; i < (await infos.count()) && !found; i++) {
+    await infos.nth(i).hover();
+    await page.waitForTimeout(500);
+    found = (await tip.isVisible()) && (await tip.evaluate((el) => (el as HTMLElement).style.pointerEvents)) !== 'none';
+  }
+  expect(found).toBe(true);
+  await expect(tip).toBeVisible();
+  const box = (await tip.boundingBox())!;
+  // A press on its text, then the pointer goes away: it is still there after the pause it would have gone in.
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.up();
+  await page.mouse.move(2, 400, { steps: 4 });
+  await page.waitForTimeout(600);
+  await expect(tip).toBeVisible();
+  // A press outside takes it away.
+  await page.mouse.move(2, 400);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect(tip).toBeHidden();
+});
+
+test('in a menu the explanation of an entry goes at once when the pointer is on the next entry', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  await page.keyboard.press('Escape');
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  const items = page.getByRole('menu').getByRole('menuitemradio');
+  const first = items.nth(0);
+  const second = items.nth(1);
+  const hintOf = async (item: typeof first) => (await item.getAttribute('data-hint')) ?? '';
+  const firstHint = await hintOf(first);
+  const secondHint = await hintOf(second);
+  expect(firstHint).not.toBe('');
+  expect(firstHint).not.toBe(secondHint);
+  await first.hover();
+  await page.waitForTimeout(600);
+  const tip = page.locator('#hint-tip');
+  await expect(tip).toHaveText(firstHint);
+  const b = (await second.boundingBox())!;
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 6 });
+  // Never the old text on the next entry: either the popup of the second one, or none yet.
+  await expect(tip).not.toHaveText(firstHint);
+  await page.waitForTimeout(600);
+  await expect(tip).toHaveText(secondHint);
 });
 
 async function capture(page: Page, title: string): Promise<void> {
