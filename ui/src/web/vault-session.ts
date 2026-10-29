@@ -14,13 +14,18 @@
 // read (a change that lands while it is read still differs from it), moved on after a write only for the files the write
 // touched: a foreign change to any other file stays a difference, and the watcher reads again.
 //
+// The data classes (`areas.json`, web/classes.ts) are read with the folder and replaced together with the VM's copy, so the
+// classes the page shows are always those of the files the engine works on. A read that fails leaves the classes as none:
+// what cannot be read cannot release anything. `onClasses` tells the page whenever the decisions changed.
+//
 // The engine cannot see a file the reader skipped (over the size cap, unreadable, a name that is not plain). A write
 // then would rebuild the generated index without it and could pick the name of the skipped file for a new one, so while
 // anything is skipped the session does not write.
 
+import { classesOfVault, NO_CLASSES, type AreaClasses } from './classes.ts';
 import type { CallResult } from './engine.ts';
 import type { MountedVault } from './entry.ts';
-import type { OpsOutcome } from './hub.ts';
+import type { DataClass, OpsOutcome } from './hub.ts';
 import {
   readVaultFolder,
   signatureOf,
@@ -57,6 +62,11 @@ export interface SessionDeps {
    * everything else.
    */
   onSignature?(signature: string): void;
+  /**
+   * Told whenever the data classes the folder decides are not the ones the page had (a read found another `areas.json`, or
+   * could not read it): what the page derived from the old ones (the areas it holds, its cache) is out of date.
+   */
+  onClasses?(classes: AreaClasses): void;
 }
 
 /** The date of `now` in the local time zone, `YYYY-MM-DD`. */
@@ -102,6 +112,7 @@ export class VaultSession {
   // Sizes and times of the folder as the page knows them (null: the scan before the last read failed).
   private seen: VaultStamps | null = null;
   private skipped: Skipped[] = [];
+  private classes: AreaClasses = NO_CLASSES;
   private stale = true;
   private tail: Promise<void> = Promise.resolve();
   private busy = 0;
@@ -124,6 +135,27 @@ export class VaultSession {
   /** True while a request of `ops` is waiting or being written: closing the page now could leave the folder half changed. */
   get isWriting(): boolean {
     return this.writing > 0;
+  }
+
+  /** The class an area is shown with: what `areas.json` of the folder says, `unclassified` for an area it does not name. */
+  classOf(area: string): DataClass {
+    return this.classes.shown(area);
+  }
+
+  /** Why the last `areas.json` could not be used (then no area is classified), or null. */
+  get classesProblem(): string | null {
+    return this.classes.problem;
+  }
+
+  private setClasses(next: AreaClasses): void {
+    const changed = next.signature !== this.classes.signature;
+    this.classes = next;
+    if (!changed) return;
+    try {
+      this.deps.onClasses?.(next);
+    } catch {
+      // The page's reaction is its own; a read of the folder is not undone by it.
+    }
   }
 
   /** The files the last read left out (too large, unreadable, a name that is not plain). Writes are off while any. */
@@ -181,9 +213,12 @@ export class VaultSession {
       this.seen = before;
       this.skipped = vault.skipped;
       this.stale = false;
+      this.setClasses(classesOfVault(vault.files, vault.skipped));
       return { files, skipped: vault.skipped };
     } catch (error) {
       this.stale = true;
+      // The copy in the engine may or may not be the new one, and the folder's file was not taken over: release nothing.
+      this.setClasses(NO_CLASSES);
       throw error;
     }
   }

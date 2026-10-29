@@ -155,9 +155,9 @@ test('what is stored is checked: an entry that is no folder is dropped, a failin
   assert.deepEqual(await broken.list(), []);
 });
 
-function entryOver({ win, recent = new RecentFolders(memoryKv()), open, now = () => 7 } = {}) {
+function entryOver({ win, recent = new RecentFolders(memoryKv()), open, now = () => 7, forgotten } = {}) {
   const states = [];
-  const entry = new Entry({ win, recent, open: open ?? (async () => ({ files: 3, skipped: [] })), now });
+  const entry = new Entry({ win, recent, open: open ?? (async () => ({ files: 3, skipped: [] })), now, forgotten });
   entry.subscribe((s) => states.push(s.step));
   return { entry, states, recent };
 }
@@ -194,7 +194,8 @@ test('choosing a folder opens it and remembers it', async () => {
   await entry.start();
   await entry.pick();
   assert.deepEqual(opened, ['vault']);
-  assert.deepEqual(entry.state, { step: 'open', name: 'vault', files: 12, skipped: [{ path: 'big.md', reason: 'too-large' }] });
+  const [remembered] = await recent.list();
+  assert.deepEqual(entry.state, { step: 'open', name: 'vault', files: 12, skipped: [{ path: 'big.md', reason: 'too-large' }], folder: remembered.id });
   assert.deepEqual(states, ['choose', 'opening', 'open']);
   const list = await recent.list();
   assert.deepEqual(list.map((r) => [r.name, r.lastUsed]), [['vault', 4242]]);
@@ -278,6 +279,34 @@ test('forgetting a folder removes it from the list; a listener is told, and stop
   off();
   await entry.start();
   assert.deepEqual(seen, ['choose', 'choose'], 'nothing after unsubscribe');
+});
+
+test('forgetting a folder tells the page, so that it drops what it kept for that folder', async () => {
+  const recent = new RecentFolders(memoryKv(), { newId: (() => { let n = 0; return () => `r${++n}`; })() });
+  await recent.remember(handle('a'), 1);
+  await recent.remember(handle('b'), 2);
+  const told = [];
+  const { entry } = entryOver({ win: SECURE(async () => handle('x')), recent, forgotten: async (id) => void told.push(id) });
+  await entry.start();
+  await entry.forget('r1');
+  assert.deepEqual(told, ['r1']);
+  assert.deepEqual((await recent.list()).map((r) => r.id), ['r2']);
+});
+
+test('a page that cannot drop what it kept does not keep the folder in the list', async () => {
+  const recent = new RecentFolders(memoryKv(), { newId: () => 'only' });
+  await recent.remember(handle('a'), 1);
+  const { entry } = entryOver({
+    win: SECURE(async () => handle('x')),
+    recent,
+    forgotten: async () => {
+      throw new Error('quota');
+    },
+  });
+  await entry.start();
+  await entry.forget('only');
+  assert.deepEqual(await recent.list(), []);
+  assert.equal(entry.state.step, 'choose');
 });
 
 test('mountFolder reads the folder and hands the files to the engine', async () => {
@@ -372,5 +401,19 @@ test('a folder that cannot be remembered is opened all the same', async () => {
   const { entry } = entryOver({ win: SECURE(async () => handle('vault')), recent: failing });
   await entry.start();
   await entry.pick();
-  assert.deepEqual(entry.state, { step: 'open', name: 'vault', files: 3, skipped: [] });
+  assert.deepEqual(entry.state, { step: 'open', name: 'vault', files: 3, skipped: [], folder: null }, 'no id: nothing is kept for it');
+});
+
+test('the same folder chosen again keeps its id, another folder has another', async () => {
+  const recent = new RecentFolders(memoryKv(), { newId: (() => { let n = 0; return () => `r${++n}`; })() });
+  const same = handle('vault');
+  const picks = [same, same, handle('other')];
+  const { entry } = entryOver({ win: SECURE(async () => picks.shift()), recent });
+  const ids = [];
+  for (let i = 0; i < 3; i++) {
+    await entry.start();
+    await entry.pick();
+    ids.push(entry.state.folder);
+  }
+  assert.deepEqual(ids, ['r1', 'r1', 'r2']);
 });

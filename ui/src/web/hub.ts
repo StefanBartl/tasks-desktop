@@ -152,8 +152,12 @@ type CheckState =
 
 export interface WebHub {
   fetch: typeof fetch;
-  /** Tell every open event stream that the vault may have changed: the page reads again (a `resync` event). */
-  notify(): void;
+  /**
+   * Tell every open event stream that the vault may have changed: the page reads again (a `resync` event). With
+   * `classes` the data classes changed too (a `classes` event, which the Rust hub never sends): the page also asks for
+   * the areas again, and with them the classes its cache and its exports rest on.
+   */
+  notify(change?: { classes?: boolean }): void;
   /** End every open event stream. */
   close(): void;
 }
@@ -385,7 +389,7 @@ export function createWebHub(deps: HubDeps): WebHub {
       }
       case 'check': {
         const refused = noQuery(query);
-        return refused ?? respond(200, JSON.stringify(check));
+        return refused ?? respond(200, JSON.stringify({ job: check }));
       }
       case 'search': {
         return search(query);
@@ -546,7 +550,7 @@ export function createWebHub(deps: HubDeps): WebHub {
         } else {
           check = { state: 'done', id, result: JSON.parse(r.text) };
         }
-        return respond(200, JSON.stringify(check));
+        return respond(200, JSON.stringify({ job: check }));
       }
       case 'rescan': {
         await deps.rescan?.();
@@ -590,10 +594,10 @@ export function createWebHub(deps: HubDeps): WebHub {
   };
   return {
     fetch: web,
-    notify: () => {
+    notify: (change) => {
       // The vault was read again: the texts of the search are those of before.
       forgetTexts();
-      tell('event: resync\ndata: {}\n\n');
+      tell(change?.classes ? 'event: classes\ndata: {}\n\n' : 'event: resync\ndata: {}\n\n');
     },
     close: () => {
       for (const controller of [...streams]) {

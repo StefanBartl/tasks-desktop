@@ -223,8 +223,8 @@ built. Its built files go to the private repository [tasks-web](https://github.c
 - **The hub in the page.** `ui/src/web/hub.ts` answers the routes of the Rust hub behind the `fetch` that
   `ui/src/lib/api.ts` takes: the same checks before the engine is asked (a plain query, `<area>/<slug>`, an area
   name, one of five sorts), an engine refusal with its code and the HTTP status the Rust hub gives it, the digest of
-  the snapshot as its tag (304), the `hub.areas` envelope with the class of each area (unclassified until
-  `areas.json` is read), `hub.enums`, the check job. There is no session and no token. `ops` writes (see
+  the snapshot as its tag (304), the `hub.areas` envelope with the class of each area (from the `areas.json` of
+  the folder, see *Data classes and the cache*), `hub.enums`, the check job. There is no session and no token. `ops` writes (see
   *Writing* below); `open` and the vault routes answer a refusal (`not_available`); `search` (`ui/src/web/search.ts`) reads the task
   texts once through the engine's `bodies` (kept until the vault is read again) and ranks and marks matches as the
   Rust hub does; `partial` is true only when the texts exceed 64 MiB. In the web mode the page hides what needs the
@@ -269,14 +269,40 @@ built. Its built files go to the private repository [tasks-web](https://github.c
   seconds, the page asks for the signature of the folder (`vaultSignature`: path, size and time of each file the
   reader would take, no content); if it differs, the vault is read again and the open event streams hear a `resync`
   (`ui/src/web/watch.ts`, `ui/src/web/hub.ts`).
+- **Data classes and the cache.** The page reads the `areas.json` at the root of the folder the person chose
+  (`ui/src/web/classes.ts`), in the two schemas of `crates/tasks-hub/src/classes.rs` and with its refusals, fail
+  closed: an area the file does not name is `unclassified`, and so is every area when the file is missing, is not valid
+  JSON, names a class that does not exist, has a field twice or any other fault of the Rust parser (the page parses
+  as strictly as serde_json: `1.0` is not a schema, a lone surrogate or a byte order mark refuses the file, and so
+  does a file over 256 KiB). The page is the vault `main` of the file. The Rust hub keeps the file in its config
+  folder, outside the vault; here it is in the vault, so a change to it that arrives with a pull counts (see
+  `docs/SECURITY.md`). The classes are read with the folder and replaced together with the engine's copy of it; when the
+  watcher or a conflict makes the page read the folder again and the decisions changed, the hub sends a `classes`
+  event and the app asks for the areas again (a read that fails leaves no class at all). The list cache is the one of
+  the hub-based page (`ui/src/lib/cache.ts`, rule WEB-17, unchanged): only public and internal areas reach IndexedDB,
+  and the tab keeps its session (a word, not a secret: there is no server) in `sessionStorage`. Because the engine's `vault.id` is the same for every
+  folder, `ui/src/web/scoped-cache.ts` keeps the list of one folder only, named by the id of the folders used before,
+  and reads it back only while every area in it is still released; a folder the browser could not remember keeps no
+  list. `web/classes.test.mjs` runs 156 cases (`web/classes-cases.mjs`: the cases of the Rust tests and the edges where
+  a browser's JSON differs from serde's) that were checked against `classes.rs` itself; `ui/e2e-web/classes.spec.ts`
+  watches IndexedDB for every write the page makes. **Open:** a file that cannot be used only shows as "everything is
+  unclassified"; the page does not yet say why.
 - **One file.** `pnpm web:build` runs `vite build --mode web` (`ui/src/main.web.ts`, one script, one style) and
   `web/pack.mjs`, which writes `ui/dist-web/tasks.html` and `SHA256SUMS`: the script and the style inline, the four
   parts of the engine (worker, WASM, Lua sources, vim shim) gzip-compressed as base64, and a policy as a meta tag
   (`default-src 'none'; connect-src 'none'; worker-src blob:` and the like: no request of any kind, no outside
   source). The build refuses a shell that loads something (a `src`, a `href`, a URL, a refresh, a stray script).
-  `pnpm web:e2e` opens the file from disk in Chrome (`ui/e2e-web/`): the engine starts in its worker, a fake folder is
-  chosen, the tasks show, a change of a file shows after a focus event, and not one request and not one violation of
-  the policy happens; a positive test shows the policy does refuse a `fetch` and an image. The workflow `web.yml`
+  `pnpm web:e2e` is a Playwright project of its own (`ui/playwright.web.config.ts`, tests in `ui/e2e-web/`; it needs
+  `pnpm web:build` first and the system's Chrome, no hub, no engine checkout) that opens the built file from disk with a
+  fake folder (`page.ts`: `fakePicker`, `disk`, `editOnDisk`; the fixture vault `e2e/fixture/vault` and the hostile
+  tasks of `e2e/hub.ts`, the same as the hub-based `pnpm e2e`). `opens.spec.ts`: the file starts its engine in a
+  worker, the tasks show, a change of a file shows after a focus event, the search, "About"; a positive test shows the
+  policy does refuse a `fetch` and an image. `flows.spec.ts`: the overview and its tiles, the list and the detail, hostile
+  titles and bodies as text, the search and its reset, the filters, the plan and its graph, the graph of a task, the
+  check job, the board, accessibility (axe, light and dark, German). `writes.spec.ts`: create, `set`, `done`, the
+  conflict. `classes.spec.ts`: what reaches IndexedDB. Every test ends by holding the page to the two rules: no request
+  and no violation of the policy. CI runs the project in `ci.yml` (after the build of the page) and in `web.yml` before
+  the file is published. The workflow `web.yml`
   (tag `v*`, or by hand) builds, tests and commits `tasks.html` to the private repository `WKDSteve/tasks-web` with the
   runner's own git credentials (no deploy key); it is opened there with `file:///.../tasks-web/tasks.html`.
 - The Node tests need `pnpm install` for wasmoon only where they start the engine (`web/engine.test.mjs`,

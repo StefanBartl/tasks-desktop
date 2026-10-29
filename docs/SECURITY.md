@@ -205,6 +205,44 @@ has no class. Both work for the vault the settings name as active; a proposal fo
 The consumers of these rules (another panel, a cloud runner, the client
 cache) do not exist yet; the rules are in place and tested for them.
 
+### In the web variant
+
+The page that runs without a hub has no config folder, so it reads the `areas.json` at the root of the folder the
+person chose (`ui/src/web/classes.ts`). It reads it the way `classes.rs` does, with the same two schemas and the same
+refusals, and a page has one vault, which is `main` of the file: schema 1 is its classes, of schema 2 the entries
+`main:<area>` and the `default` of `main` (the other vaults of a schema 2 file are checked and not used). The text is
+parsed as strictly as serde_json parses it, because a browser's parser is not that strict and the difference would
+release an area: a field twice in an entry (`{"class":"private","class":"public"}`), a schema written `1.0` or `1e0`, a
+lone surrogate in an escape, a byte order mark, text that is not UTF-8 and a file over 256 KiB are all refusals.
+`ui/web/classes-cases.mjs` holds the cases (files, and what `main` shows for each); `pnpm web:test` runs them against the
+page's reader, and `crates/tasks-hub/tests/classes_cases.rs` runs the same list against `classes.rs` itself (it asks Node for
+the cases, so there is one list), in the CI job that runs both. A case the hub answers differently, or a change of
+`classes.rs` the page does not follow, fails there. The reader was also compared once with 64 000 mutated files, which the
+two answered alike.
+
+A file that cannot be used does not keep the page from starting (it is a tool for reading), but it releases nothing: every
+area is unclassified, and so is every area while the folder cannot be read. What the classes decide there is the cache
+(IndexedDB, `lib/cache.ts` unchanged: public and internal only, a reference to a task left out is cut) and the exports.
+The cache holds the list of one folder only, named by the id the folders used before give it, and is read back only while
+every area in it is still released. The same rule holds on the way in: a list that holds a task of an area that is not
+released at that moment is not written (and the record of the older classes is cleared), whatever the page was told when
+it built the list. When the file in the folder changes (the page reads the folder again on focus and every 30 seconds) the
+classes are read again, the page asks for the areas again, and the record in IndexedDB follows; if the new classes cannot be
+read, the record is cleared. A folder that is forgotten ("Forget" in the list of folders used before) takes its record with it.
+
+**The web page is weaker than the hub in one respect.** The hub keeps the file outside the vault because the vault is
+synced and changed by pull requests; the page can only read the folder it was given, so a change to `areas.json` that
+arrives with a pull releases an area for this browser's cache and exports. What that can reach is the browser's own storage
+for this page and the files the person asks to save; nothing leaves the machine by itself (`connect-src 'none'`). Review a
+change to `areas.json` as you review code.
+
+**Chrome gives every page opened from disk the same origin (`file://`).** Measured with two different local HTML files in
+one Chrome: the second reads the `localStorage` and the IndexedDB databases of the first. So another HTML file opened
+from disk in that browser (one downloaded, say) can read what this page keeps there: its choices, the list cache (public
+and internal areas only, which is why the classes matter), and the handles of the folders used before (`tasks-web`
+database), whose permission is the origin's. This is a property of `file://`, not something the page can change; open no
+HTML file of unknown origin in the browser profile that runs the page, or serve the page from a place of its own.
+
 ## The interface
 
 The page and its files are embedded in the binary (`build.rs`) into a table

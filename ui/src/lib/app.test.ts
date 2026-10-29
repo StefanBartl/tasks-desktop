@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, type Hub, type HubArea, type OpsRequest, type VaultList } from './api';
+import { ApiError, type Hub, type HubArea, type HubAreas, type OpsRequest, type VaultList } from './api';
 import { App, type Env } from './app.svelte';
 import type { CachedList, ListStore } from './cache';
 import type { DonePreview, Groupings, Result, Snapshot, TaskDocument, TaskEntry, View, Views } from './contract';
@@ -891,6 +891,124 @@ describe('App, cache and hub', () => {
     expect(hub.nextCalls).toBe(2);
     expect(hub.areasCalls).toBe(1);
     app.stop();
+  });
+
+  describe('when the hub reads the data classes again (the web variant, after areas.json changed)', () => {
+    const tell = (app: App, event: string) =>
+      (app as unknown as { onMessage(message: { event: string; data: string }): void }).onMessage({ event, data: '{}' });
+
+    async function readWithTwoAreas() {
+      const m = make({ token: 't' });
+      m.hub.doc = snapshot([task('pub/a', { etag: 'e1' }), task('sec/b', { etag: 'e2' })]);
+      m.hub.areaList = [
+        { name: 'pub', data_class: 'public' },
+        { name: 'sec', data_class: 'internal' },
+      ];
+      await m.app.start(null);
+      await vi.waitFor(() => expect(m.saved.length).toBe(1));
+      expect(m.saved[0]?.tasks.map((t) => t.id)).toEqual(['pub/a', 'sec/b']);
+      return m;
+    }
+
+    it('asks for the areas again, and the cache keeps only what the new classes permit', async () => {
+      const m = await readWithTwoAreas();
+      expect(m.hub.areasCalls).toBe(1);
+      m.hub.areaList = [
+        { name: 'pub', data_class: 'public' },
+        { name: 'sec', data_class: 'private' },
+      ];
+      tell(m.app, 'classes');
+      await vi.waitFor(() => expect(m.app.hubAreas.find((a) => a.name === 'sec')?.data_class).toBe('private'));
+      expect(m.hub.areasCalls).toBe(2);
+      await vi.waitFor(() => expect(m.saved.length).toBe(2));
+      // The task of the area that became private is not in the list that is kept.
+      expect(m.saved[1]?.tasks.map((t) => t.id)).toEqual(['pub/a']);
+      m.app.stop();
+    });
+
+    it('clears the cache when no area is permitted any more', async () => {
+      const m = await readWithTwoAreas();
+      expect(m.cleared()).toBe(0);
+      m.hub.areaList = [
+        { name: 'pub', data_class: 'unclassified' },
+        { name: 'sec', data_class: 'unclassified' },
+      ];
+      tell(m.app, 'classes');
+      await vi.waitFor(() => expect(m.cleared()).toBe(1));
+      expect(m.app.hubAreas.map((a) => a.data_class)).toEqual(['unclassified', 'unclassified']);
+      m.app.stop();
+    });
+
+    it('does not ask again for a resync, which says only that the tasks may have changed', async () => {
+      const m = await readWithTwoAreas();
+      tell(m.app, 'resync');
+      await m.app.refresh();
+      await new Promise((r) => setTimeout(r, 10));
+      expect(m.hub.areasCalls).toBe(1);
+      m.app.stop();
+    });
+
+    it('lets go of the old classes when the new ones cannot be read, and reads them with the next list', async () => {
+      const m = await readWithTwoAreas();
+      const original = m.hub.areas.bind(m.hub);
+      m.hub.areas = async () => {
+        throw new ApiError(503, 'engine_busy', 'x');
+      };
+      tell(m.app, 'classes');
+      await vi.waitFor(() => expect(m.app.hubAreas).toEqual([]));
+      // Nothing is kept while the classes are not known: no new list, and the list of the old classes is taken away.
+      expect(m.saved.length).toBe(1);
+      expect(m.cleared()).toBe(1);
+      m.hub.areas = original;
+      m.hub.areaList = [
+        { name: 'pub', data_class: 'public' },
+        { name: 'sec', data_class: 'private' },
+      ];
+      await m.app.refresh();
+      await vi.waitFor(() => expect(m.app.hubAreas.find((a) => a.name === 'sec')?.data_class).toBe('private'));
+      m.app.stop();
+    });
+
+    it('asks again also when an older question is still unanswered, and the older answer does not win', async () => {
+      const m = await readWithTwoAreas();
+      let releaseOld: () => void = () => {};
+      const old = new Promise<void>((resolve) => (releaseOld = resolve));
+      const oldAnswer: HubAreas = {
+        areas: [
+          { name: 'pub', data_class: 'public' },
+          { name: 'sec', data_class: 'internal' },
+        ] as HubArea[],
+        unclassified: [],
+        private: [],
+      };
+      const asked: string[] = [];
+      m.hub.areas = async () => {
+        asked.push('old');
+        await old;
+        return oldAnswer as never;
+      };
+      tell(m.app, 'classes');
+      await vi.waitFor(() => expect(asked).toEqual(['old']));
+      // The classes change again while that question is on its way.
+      m.hub.areas = async () => {
+        asked.push('new');
+        return {
+          areas: [
+            { name: 'pub', data_class: 'public' },
+            { name: 'sec', data_class: 'private' },
+          ] as HubArea[],
+          unclassified: [],
+          private: ['sec'],
+        } as never;
+      };
+      tell(m.app, 'classes');
+      await vi.waitFor(() => expect(m.app.hubAreas.find((a) => a.name === 'sec')?.data_class).toBe('private'));
+      releaseOld();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(asked).toEqual(['old', 'new']);
+      expect(m.app.hubAreas.find((a) => a.name === 'sec')?.data_class).toBe('private');
+      m.app.stop();
+    });
   });
 
   it('shows the list before the classes and the next task are known', async () => {

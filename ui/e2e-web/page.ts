@@ -69,15 +69,19 @@ export async function violations(page: Page): Promise<string[]> {
  *
  * The test is the other program that works in the folder: `window.__disk` reads the files, and changes one as an
  * editor would (new text, newer time). `__setFile` is the same change.
+ *
+ * A folder is told by its name (`name`). A real handle comes back from IndexedDB as a handle of the same folder, so the
+ * page knows it again after a reload and gives it the id it had; the structured clone of this fake keeps only `kind` and
+ * `name`, so what the page reads from IndexedDB is made a handle of the folder of this name again.
  */
-export async function fakePicker(page: Page, files: Record<string, string>): Promise<void> {
-  await page.addInitScript((tree: Record<string, string>) => {
+export async function fakePicker(page: Page, files: Record<string, string>, name = 'fixture-vault'): Promise<void> {
+  await page.addInitScript(({ tree, rootName }: { tree: Record<string, string>; rootName: string }) => {
     const enc = new TextEncoder();
     const dec = new TextDecoder();
     type FileNode = { kind: 'file'; name: string; bytes: Uint8Array; time: number };
     type DirNode = { kind: 'directory'; name: string; children: Map<string, FileNode | DirNode> };
     type Node = FileNode | DirNode;
-    const root: DirNode = { kind: 'directory', name: 'fixture-vault', children: new Map() };
+    const root: DirNode = { kind: 'directory', name: rootName, children: new Map() };
     let clock = 1_700_000_000_000;
     const tick = () => (clock += 5000);
 
@@ -140,12 +144,18 @@ export async function fakePicker(page: Page, files: Record<string, string>): Pro
         destination.__node.children.set(name, { ...mine, name } as Node);
       },
     });
-    const dirHandle = (node: DirNode): unknown => ({
-      kind: 'directory',
-      name: node.name,
+    // Only `kind` and `name` are data, the rest is not enumerable: like a real handle, this one can be put into IndexedDB
+    // (structured clone copies the enumerable data and nothing else, a function among them would throw), which the page
+    // does to remember the folder, and the cache of its list is named by that.
+    const dirHandle = (node: DirNode): unknown => {
+      const handle = { kind: 'directory', name: node.name };
+      return Object.defineProperties(handle, Object.fromEntries(Object.entries(dirMembers(node)).map(([key, value]) => [key, { value }])));
+    };
+    const dirMembers = (node: DirNode): Record<string, unknown> => ({
       __node: node,
       queryPermission: async () => 'granted',
       requestPermission: async () => 'granted',
+      isSameEntry: async (other: { __node?: unknown } | null) => other?.__node === node,
       async *values() {
         for (const child of [...node.children.values()]) yield child.kind === 'file' ? fileHandle(node, child) : dirHandle(child);
       },
@@ -199,7 +209,49 @@ export async function fakePicker(page: Page, files: Record<string, string>): Pro
     };
     w['__setFile'] = (path: string, text: string) => put(path, text);
     w['showDirectoryPicker'] = async () => dirHandle(root);
-  }, files);
+
+    // What the page reads back from its store of folders used before (`tasks-web` / `handles`) is made a handle of the
+    // folder of that name again. Installed once; every call of this function (a later one wins) says which folder is there.
+    w['__fakeRoot'] = { name: root.name, handle: () => dirHandle(root) };
+    if (!w['__fakeRevive']) {
+      w['__fakeRevive'] = true;
+      const original = Object.getOwnPropertyDescriptor(IDBRequest.prototype, 'result') as PropertyDescriptor;
+      Object.defineProperty(IDBRequest.prototype, 'result', {
+        configurable: true,
+        get(this: IDBRequest) {
+          const value = (original.get as () => unknown).call(this);
+          const here = w['__fakeRoot'] as { name: string; handle(): unknown };
+          const source = this.source as IDBObjectStore | null;
+          if (!Array.isArray(value) || !source || source.name !== 'handles' || source.transaction.db.name !== 'tasks-web') return value;
+          return value.map((item: { handle?: { kind?: string; name?: string; values?: unknown } }) =>
+            item && item.handle && item.handle.kind === 'directory' && typeof item.handle.values !== 'function' && item.handle.name === here.name
+              ? { ...item, handle: here.handle() }
+              : item,
+          );
+        },
+      });
+    }
+  }, { tree: files, rootName: name });
+}
+
+/**
+ * Record whether `needle` was ever on the page, from now on and across reloads (a text that is there for a moment, such
+ * as the first picture drawn from the cache, is gone by the time a test looks).
+ */
+export async function watchText(page: Page, needle: string): Promise<void> {
+  await page.addInitScript((text: string) => {
+    const w = window as unknown as { __sawText?: string[] };
+    w.__sawText ??= [];
+    const look = () => {
+      if (document.body && document.body.innerText.includes(text) && !w.__sawText?.includes(text)) w.__sawText?.push(text);
+    };
+    new MutationObserver(look).observe(document, { subtree: true, childList: true, characterData: true });
+  }, needle);
+}
+
+/** Whether the text was ever on the page since the last load (see `watchText`). */
+export async function sawText(page: Page, needle: string): Promise<boolean> {
+  return page.evaluate((text) => ((window as unknown as { __sawText?: string[] }).__sawText ?? []).includes(text), needle);
 }
 
 /** The files on the fake disk of the page: path -> text. */
@@ -210,4 +262,74 @@ export async function disk(page: Page): Promise<Record<string, string>> {
 /** Another program writes a file of the folder (the text changes, the time moves on). */
 export async function editOnDisk(page: Page, path: string, text: string): Promise<void> {
   await page.evaluate(([p, t]) => (window as unknown as { __disk: { write(p: string, t: string): void } }).__disk.write(p as string, t as string), [path, text]);
+}
+
+/** Choose the fake folder and wait until the app shows `ready` (by default a task of the fixture vault). */
+export async function openVault(page: Page, files: Record<string, string>, ready = 'Eta tests'): Promise<void> {
+  await fakePicker(page, files);
+  await page.goto(pageUrl());
+  await page.getByRole('button', { name: /Choose folder|Ordner wählen/ }).click();
+  await page.getByText(ready).first().waitFor({ timeout: 30_000 });
+}
+
+/** One write of the page to IndexedDB, as it was made: the database, the object store, what it did and the value. */
+export interface IdbWrite {
+  db: string;
+  store: string;
+  op: 'put' | 'add' | 'clear' | 'delete';
+  json: string;
+}
+
+/**
+ * Record every write the page makes to IndexedDB (before the page's own scripts run). The state of the database at the
+ * end shows only what is left; this shows what was ever tried, which is what "never reaches IndexedDB" is about.
+ */
+export async function spyOnIndexedDb(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const writes: IdbWrite[] = [];
+    (window as unknown as { __idbWrites: IdbWrite[] }).__idbWrites = writes;
+    for (const op of ['put', 'add', 'clear', 'delete'] as const) {
+      const original = IDBObjectStore.prototype[op] as (...args: unknown[]) => IDBRequest;
+      (IDBObjectStore.prototype as unknown as Record<string, unknown>)[op] = function (this: IDBObjectStore, ...args: unknown[]) {
+        let json = '';
+        if (op === 'put' || op === 'add') {
+          try {
+            json = JSON.stringify(args[0]);
+          } catch {
+            json = '<not JSON>';
+          }
+        }
+        writes.push({ db: this.transaction.db.name, store: this.name, op, json });
+        return original.apply(this, args);
+      };
+    }
+  });
+}
+
+/** The writes the spy saw, in order. */
+export async function idbWrites(page: Page): Promise<IdbWrite[]> {
+  return page.evaluate(() => (window as unknown as { __idbWrites: IdbWrite[] }).__idbWrites);
+}
+
+/** What the page keeps of its list in IndexedDB now (`tasks-desktop` / `list` / `current`), or null. */
+export async function storedList(page: Page): Promise<{ tasks: Array<{ id: string; area: string }>; folder?: string } | null> {
+  return page.evaluate(async () => {
+    const known = await indexedDB.databases();
+    if (!known.some((d) => d.name === 'tasks-desktop')) return null;
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('tasks-desktop');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      if (!db.objectStoreNames.contains('list')) return null;
+      return await new Promise((resolve, reject) => {
+        const request = db.transaction('list').objectStore('list').get('current');
+        request.onsuccess = () => resolve(request.result ?? null);
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      db.close();
+    }
+  });
 }

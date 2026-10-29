@@ -68,7 +68,7 @@ describe('the way in', () => {
 
   it('shows the reading, and the files that were left out', () => {
     expect(html({ step: 'opening', name: 'work' })).toContain('Reading work ...');
-    const done = html({ step: 'open', name: 'work', files: 9, skipped: [{ path: 'a', reason: 'too-large' }, { path: 'b', reason: 'unreadable' }] });
+    const done = html({ step: 'open', name: 'work', files: 9, skipped: [{ path: 'a', reason: 'too-large' }, { path: 'b', reason: 'unreadable' }], folder: null });
     expect(done).toContain('2 files were left out');
     expect(html({ step: 'opening', name: 'arbeit' }, 'de')).toContain('Lese arbeit ...');
   });

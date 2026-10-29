@@ -2631,13 +2631,35 @@ export class App {
     await this.loadVaults();
     try {
       // The classes come from `areas.json`, read when the hub started: they
-      // are read once, and again when an area appears that was not there.
+      // are read once, and again when an area appears that was not there, or when the
+      // hub says it read them again (the web variant does, when the file in the folder changed).
       const known = new Set(this.hubAreas.map((a) => a.name));
-      if (this.hubAreas.length === 0 || doc.tasks.some((t) => !known.has(t.area))) {
-        this.areasRead ??= this.env.hub.areas().finally(() => {
+      const moved = this.classesMoved;
+      if (this.hubAreas.length === 0 || moved || doc.tasks.some((t) => !known.has(t.area))) {
+        if (moved) {
+          // A read under way was asked before the classes changed: this asks again instead of joining it.
+          this.classesMoved = false;
           this.areasRead = null;
-        });
-        this.hubAreas = (await this.areasRead).areas;
+        }
+        const reading: Promise<HubAreas> = (this.areasRead ??= this.env.hub.areas().finally(() => {
+          if (this.areasRead === reading) this.areasRead = null;
+        }));
+        this.areasNewest = reading;
+        let read: HubAreas;
+        try {
+          read = await reading;
+        } catch (error) {
+          // The classes changed and the new ones could not be read: the old ones no longer stand, nothing is released
+          // until they are read (an empty list is read again with the next list).
+          // What is kept in the browser rests on the old classes too: it goes, and a list is kept again once they are read.
+          if (moved && this.areasNewest === reading) {
+            this.hubAreas = [];
+            void this.env.cache.clear();
+          }
+          throw error;
+        }
+        // Only the newest question sets the classes: an older one that is answered late carries the classes of before.
+        if (this.areasNewest === reading) this.hubAreas = read.areas;
       }
       const list = cacheableList(doc, this.etag, this.hubAreas, this.env.now());
       // The list is kept with the vault the hub reads, so that a start can tell a list of another vault.
@@ -2806,6 +2828,10 @@ export class App {
   /** The read of the detail under way: the task, and whether it was asked for again meanwhile. */
   private detailRead: { id: string; again: boolean } | null = null;
   private areasRead: Promise<HubAreas> | null = null;
+  /** The last question for the areas that was asked: its answer is the one that counts. */
+  private areasNewest: Promise<HubAreas> | null = null;
+  /** The hub said it read the data classes again: the next read beside the list asks for the areas anew. */
+  private classesMoved = false;
 
   /** The next task, read when the list it belongs to is not the one held. */
   async loadNext(): Promise<void> {
@@ -3028,6 +3054,12 @@ export class App {
 
   private onMessage(message: SseMessage): void {
     if (message.event === 'tasks' || message.event === 'resync') {
+      void this.refresh();
+      return;
+    }
+    if (message.event === 'classes') {
+      // What the cache and the exports rest on may be out of date: the classes are asked again with the list.
+      this.classesMoved = true;
       void this.refresh();
       return;
     }

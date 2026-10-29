@@ -220,11 +220,11 @@ test('estimate: the form is checked like the Rust hub does, the values are the e
   assert.equal(h.calls.length, 1, 'the refused one was not asked');
 });
 
-test('the check job: idle, then done with the engine document, or failed in words', async () => {
+test('the check job: idle, then done with the engine document, or failed in words, always in the envelope `job` of the Rust hub', async () => {
   const h = hub({ check: '{"kind":"tasks.check","findings":[]}' });
-  assert.deepEqual(await (await h.get('check')).json(), { state: 'idle' });
+  assert.deepEqual(await (await h.get('check')).json(), { job: { state: 'idle' } });
   const started = await (await h.post('check', '{"stale":"refs","area":"lib.nvim"}')).json();
-  assert.deepEqual(started, { state: 'done', id: 1, result: { kind: 'tasks.check', findings: [] } });
+  assert.deepEqual(started, { job: { state: 'done', id: 1, result: { kind: 'tasks.check', findings: [] } } });
   assert.deepEqual(await (await h.get('check')).json(), started, 'the state is kept');
   assert.deepEqual(h.calls, [['check', { params: { stale: 'refs', area: 'lib.nvim' } }]]);
   for (const bad of ['{"stale":"all"}', '{"area":".x"}', '{"other":1}', '[]', 'nope']) {
@@ -232,7 +232,7 @@ test('the check job: idle, then done with the engine document, or failed in word
   }
   const broken = hub({}, { check: { code: 'internal', message: 'it broke' } });
   const failed = await (await broken.post('check', '')).json();
-  assert.deepEqual(failed, { state: 'failed', id: 1, error: { code: 'internal', message: 'it broke' } });
+  assert.deepEqual(failed, { job: { state: 'failed', id: 1, error: { code: 'internal', message: 'it broke' } } });
 });
 
 test('what writes or opens something is not answered: a clear refusal, never a silent success', async () => {
@@ -523,6 +523,31 @@ test('the event stream says hello, then tells every page that it should read aga
   assert.deepEqual(await readMessages(a, 1), ['event: resync\ndata: {}']);
   assert.deepEqual(await readMessages(b, 1), ['event: resync\ndata: {}']);
   assert.equal((await h.get('events?x=1')).status, 400, 'the route takes no query');
+});
+
+test('a change of the data classes is told with an event of its own, an ordinary change with the ordinary one', async () => {
+  const h = hub();
+  const stream = (await h.get('events')).body.getReader();
+  await readMessages(stream, 1);
+  h.api.notify({ classes: true });
+  assert.deepEqual(await readMessages(stream, 1), ['event: classes\ndata: {}']);
+  h.api.notify({ classes: false });
+  h.api.notify({});
+  assert.deepEqual(await readMessages(stream, 2), ['event: resync\ndata: {}', 'event: resync\ndata: {}']);
+});
+
+test('the classes are asked of the hub for each request, so a change shows in the next answer', async () => {
+  const docs = { areas: '{"areas":[{"name":"a"},{"name":"b"}]}' };
+  const classes = { a: 'public', b: 'internal' };
+  const h = hub(docs, {}, { classes: (name) => classes[name] ?? 'unclassified' });
+  const first = await (await h.get('areas')).json();
+  assert.deepEqual(first.areas.map((a) => a.data_class), ['public', 'internal']);
+  assert.deepEqual([first.unclassified, first.private], [[], []]);
+  classes.b = 'private';
+  delete classes.a;
+  const second = await (await h.get('areas')).json();
+  assert.deepEqual(second.areas.map((a) => a.data_class), ['unclassified', 'private']);
+  assert.deepEqual([second.unclassified, second.private], [['a'], ['b']]);
 });
 
 test('a stream that was cancelled or aborted hears nothing more, and close ends the rest', async () => {

@@ -33,7 +33,12 @@ export type EntryState =
   | { step: 'unsupported'; reason: 'missing' | 'insecure' }
   | { step: 'choose'; recent: RecentView[]; notice: Notice | null }
   | { step: 'opening'; name: string }
-  | { step: 'open'; name: string; files: number; skipped: Skipped[] };
+  /**
+   * `folder` is the id the folders used before give this one (`null`: the browser could not keep it): what the page keeps
+   * for this folder alone, its list cache, is named by it. The engine's `vault.id` is the name of the mount point and is
+   * the same for every folder, so it cannot tell two folders apart.
+   */
+  | { step: 'open'; name: string; files: number; skipped: Skipped[]; folder: string | null };
 
 export interface MountedVault {
   files: number;
@@ -46,6 +51,11 @@ export interface EntryDeps {
   /** Read the folder and put it into the engine; the page passes `mountFolder` over its worker client. */
   open(handle: DirHandle): Promise<MountedVault>;
   now(): number;
+  /**
+   * A folder used before was forgotten: the page drops what it kept for it besides the handle (its list cache). It is a
+   * convenience like the list of folders: a failure must not keep the folder in the list.
+   */
+  forgotten?(id: string): Promise<void>;
 }
 
 /** Read a folder and mount it at `root` of the engine's file system. */
@@ -122,6 +132,11 @@ export class Entry {
 
   async forget(id: string): Promise<void> {
     await this.deps.recent.forget(id);
+    try {
+      await this.deps.forgotten?.(id);
+    } catch {
+      // the folder is out of the list; what the page kept for it is a miss at worst
+    }
     await this.start();
   }
 
@@ -131,12 +146,13 @@ export class Entry {
       const mounted = await this.deps.open(handle);
       // The list of folders used before is a convenience: a browser that cannot keep it (a private window, a full
       // quota, a handle that does not clone) must not keep the person out of a vault that was read.
+      let folder: string | null = null;
       try {
-        await this.deps.recent.remember(handle, this.deps.now());
+        folder = (await this.deps.recent.remember(handle, this.deps.now())).id;
       } catch {
         // the next start simply does not list this folder
       }
-      this.set({ step: 'open', name: handle.name, files: mounted.files, skipped: mounted.skipped });
+      this.set({ step: 'open', name: handle.name, files: mounted.files, skipped: mounted.skipped, folder });
     } catch (error) {
       const name = typeof error === 'object' && error !== null ? (error as { name?: unknown }).name : undefined;
       if (error instanceof VaultLimitError) return this.start({ code: 'limit', detail: error.message });

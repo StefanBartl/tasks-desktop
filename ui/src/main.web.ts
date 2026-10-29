@@ -9,16 +9,19 @@ import './app.css';
 import App from './App.svelte';
 import { Hub } from './lib/api';
 import { App as AppState, type Env } from './lib/app.svelte';
-import type { ListStore } from './lib/cache';
+import { indexedDbStore } from './lib/cache';
 import { copyText, printSheet, saveText } from './lib/exportDom';
 import { detectLang, translate } from './lib/i18n';
 import { trackHistory } from './lib/trackHistory.svelte';
 import { installTooltips } from 'appkit-ui/tooltip';
 import { createBrowserHub, WorkerClient, type PortLike } from './web/client';
+import { pageCache } from './web/page-cache';
+import { forgetList } from './web/scoped-cache';
 import { loadParts, startBlobWorker, type Parts } from './web/embedded';
 import { Entry } from './web/entry';
 import { idbKeyValue, RecentFolders, type PickerWindow } from './web/folder';
 import { guardUnload, localDay, VaultSession } from './web/vault-session';
+import type { WebHub } from './web/hub';
 import WebEntry from './web/WebEntry.svelte';
 import { watchVault, type Watcher } from './web/watch';
 
@@ -30,9 +33,10 @@ const CODE = 'web';
 const target = document.getElementById('app') as HTMLElement;
 const lang = detectLang(navigator.languages);
 
-// Nothing of the tasks is kept in the browser until the data classes are read (the cache of a class that is not
-// public or internal must not exist): no list cache, and a session that lives in memory only.
-const noCache: ListStore = { load: async () => null, save: async () => {}, clear: async () => {} };
+// What the page keeps in the browser is decided by the data classes of the folder (`areas.json`, web/classes.ts, wired in
+// web/page-cache.ts). The app is made only after the folder and its classes were read (Entry.open, then `begin`), so
+// there is no moment in which it keeps a list under classes it does not know; a folder the browser could not remember
+// has no name to keep a list under and keeps none.
 function memoryStorage(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> {
   const map = new Map<string, string>();
   return {
@@ -40,6 +44,15 @@ function memoryStorage(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> {
     setItem: (key, value) => void map.set(key, String(value)),
     removeItem: (key) => void map.delete(key),
   };
+}
+/** The tab's session storage: it holds a word, not a secret (there is no server), and a tab that is reloaded keeps it. */
+function tabStorage(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> {
+  try {
+    return window.sessionStorage;
+  } catch {
+    // Blocked by the browser: the page works, it just does not remember the tab's session across a reload.
+    return memoryStorage();
+  }
 }
 
 // The engine starts while the person is still choosing a folder.
@@ -60,6 +73,8 @@ let signature = '';
 // The look at the folder (watch.ts). The session tells it the state of the folder after a write of its own, so that
 // the page's own files are not taken for a change from outside.
 let watcher: Watcher | null = null;
+// The hub of the page, once the app runs: the session tells it when the data classes changed.
+let hub: WebHub | null = null;
 
 const entry = new Entry({
   win: window as unknown as PickerWindow,
@@ -72,6 +87,8 @@ const entry = new Entry({
       root: ROOT,
       today: () => localDay(new Date()),
       onSignature: (known) => watcher?.accept(known),
+      // The decisions of `areas.json` changed (or it could not be read): the app asks for the areas again.
+      onClasses: () => hub?.notify({ classes: true }),
     });
     const mounted = await opened.load();
     signature = opened.knownSignature();
@@ -79,6 +96,8 @@ const entry = new Entry({
     return mounted;
   },
   now: () => Date.now(),
+  // A folder that is forgotten takes its list with it (a list is kept per folder, by the id of the folder).
+  forgotten: (id) => forgetList(indexedDbStore(window.indexedDB), id),
 });
 // A write is several calls on several files; closing the page in the middle of one cannot be taken back.
 guardUnload(window, () => vault?.isWriting ?? false);
@@ -89,18 +108,20 @@ let began = false;
 entry.subscribe((state) => {
   if (state.step === 'open' && !began) {
     began = true;
-    void begin();
+    void begin(state.folder);
   }
 });
 void entry.start();
 
-async function begin(): Promise<void> {
+async function begin(folder: string | null): Promise<void> {
   const { client, parts } = await started;
   const session = vault as VaultSession;
   const lock = parts.bundle.engine;
 
   const web = createBrowserHub(client, {
     root: ROOT,
+    // The class of each area, from the `areas.json` of the folder as the session read it last.
+    classes: (area) => session.classOf(area),
     version: __WEB_VERSION__,
     build: __WEB_BUILD__,
     pinned: { engine: lock.commit, lib: lock.lib_commit },
@@ -113,6 +134,7 @@ async function begin(): Promise<void> {
     ops: (request) => session.ops(request),
     idle: () => session.idle(),
   });
+  hub = web;
   watcher = watchVault(signature, {
     signature: () => session.signature(),
     onChange: async () => {
@@ -138,8 +160,9 @@ async function begin(): Promise<void> {
   const fetchFn = web.fetch;
   const env: Env = {
     hub: new Hub(fetchFn),
-    cache: noCache,
-    session: memoryStorage(),
+    // The list of this folder, in IndexedDB, while its areas are released.
+    cache: pageCache(indexedDbStore(window.indexedDB), folder, (area) => session.classOf(area)),
+    session: tabStorage(),
     prefs: window.localStorage,
     preferredLanguages: navigator.languages,
     now: () => Date.now(),

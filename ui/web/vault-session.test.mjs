@@ -451,3 +451,111 @@ test('closing the page is asked about while a write is under way and not otherwi
   assert.equal(writing.prevented, 1, 'writing: the browser asks');
   assert.equal(writing.returnValue, '');
 });
+
+// -- the data classes ------------------------------------------------------------------------------------------------
+
+const CLASSES = (a, b) => JSON.stringify({ schema: 1, areas: { A: { class: a }, B: { class: b } } });
+
+test('the classes are those of the areas.json in the folder, read with it', async () => {
+  const classes = [];
+  const disk = fakeDisk({ 'A/a.md': 'x', 'areas.json': CLASSES('public', 'private') });
+  const session = new VaultSession({ client: client(), handle: disk.root, root: '/vault', today: () => '2026-10-29', onClasses: (c) => classes.push(c.signature) });
+  assert.equal(session.classOf('A'), 'unclassified', 'before the first read nothing is released');
+  assert.equal(session.classesProblem, null);
+  await session.load();
+  assert.equal(session.classOf('A'), 'public');
+  assert.equal(session.classOf('B'), 'private');
+  assert.equal(session.classOf('C'), 'unclassified', 'an area the file does not name');
+  assert.equal(classes.length, 1, 'the page is told once, when the decisions come');
+});
+
+test('a folder without areas.json classifies nothing and tells nothing', async () => {
+  const classes = [];
+  const { session } = await open({ 'A/a.md': 'x' }, {}, { onClasses: (c) => classes.push(c) });
+  assert.equal(session.classOf('A'), 'unclassified');
+  assert.equal(session.classesProblem, null);
+  assert.deepEqual(classes, [], 'no file was no classes before either');
+});
+
+test('a re-read takes the changed classes over and tells the page; an unchanged file tells nothing', async () => {
+  const told = [];
+  const { disk, session } = await open({ 'A/a.md': 'x', 'areas.json': CLASSES('public', 'public') }, {}, { onClasses: (c) => told.push(c.shown('B')) });
+  assert.equal(session.classOf('B'), 'public');
+  told.length = 0; // the first read told the page what the folder says
+  await session.reload();
+  assert.deepEqual(told, [], 'the same decisions: nothing to tell');
+  // The same decisions written another way are the same decisions.
+  disk.write('areas.json', ` ${CLASSES('public', 'public')}\n`);
+  await session.reload();
+  assert.deepEqual(told, []);
+  disk.write('areas.json', CLASSES('public', 'private'));
+  await session.reload();
+  assert.equal(session.classOf('B'), 'private');
+  assert.deepEqual(told, ['private']);
+});
+
+test('a file that is not valid releases nothing, says why, and is told when it is mended', async () => {
+  const told = [];
+  const { disk, session } = await open({ 'A/a.md': 'x', 'areas.json': CLASSES('public', 'public') }, {}, { onClasses: (c) => told.push(c.problem) });
+  told.length = 0;
+  disk.write('areas.json', '{"schema":1,"areas":{"A":{"class":"public","class":"private"}}}');
+  await session.reload();
+  assert.equal(session.classOf('A'), 'unclassified', 'the second class is not the file\'s last word: the file is refused');
+  assert.match(session.classesProblem, /duplicate field class/);
+  assert.equal(told.length, 1);
+  assert.equal(typeof told[0], 'string');
+  disk.write('areas.json', CLASSES('internal', 'public'));
+  await session.reload();
+  assert.equal(session.classOf('A'), 'internal');
+  assert.equal(session.classesProblem, null);
+  assert.equal(told.length, 2);
+});
+
+test('an areas.json the reader had to leave out (too large) releases nothing', async () => {
+  const { session } = await open({ 'A/a.md': 'x', 'areas.json': CLASSES('public', 'public') }, {}, { limits: { maxFileBytes: 20 } });
+  assert.equal(session.classOf('A'), 'unclassified');
+  assert.match(session.classesProblem, /too-large/);
+});
+
+test('a read that fails leaves the page with no classes, and the next read that works brings them back', async () => {
+  const told = [];
+  const { disk, c, session } = await open({ 'A/a.md': 'x', 'areas.json': CLASSES('public', 'public') }, {}, { onClasses: (x) => told.push(x.problem ?? x.size) });
+  assert.equal(session.classOf('A'), 'public');
+  told.length = 0;
+  c.failMount = true;
+  disk.write('areas.json', CLASSES('private', 'private'));
+  await assert.rejects(session.reload(), /mount failed/);
+  assert.equal(session.classOf('A'), 'unclassified', 'what could not be read releases nothing, not even what it said before');
+  assert.equal(told.length, 1);
+  c.failMount = false;
+  await session.reload();
+  assert.equal(session.classOf('A'), 'private');
+  assert.equal(told.length, 2);
+});
+
+test('a conflict that makes the session read the folder again brings the new classes with it', async () => {
+  const told = [];
+  const { disk, c, session } = await open({ 'A/a.md': 'task a', 'areas.json': CLASSES('public', 'public') }, {}, { onClasses: () => told.push('classes') });
+  assert.equal(session.classOf('A'), 'public');
+  told.length = 0;
+  c.pending = { changes: { ...NONE, modified: ['A/a.md'] }, files: new Map([['A/a.md', enc('mine')]]) };
+  // Someone changed the task and the classes while the engine worked.
+  disk.write('A/a.md', 'theirs');
+  disk.write('areas.json', CLASSES('private', 'public'));
+  const outcome = await session.ops(REQUEST);
+  assert.equal(outcome.kind, 'conflict');
+  assert.equal(session.classOf('A'), 'private', 'the page does not go on with the classes of before');
+  assert.deepEqual(told, ['classes']);
+});
+
+test('a page that fails in its reaction to new classes does not undo the read', async () => {
+  const { disk, session } = await open({ 'A/a.md': 'x', 'areas.json': CLASSES('public', 'public') }, {}, {
+    onClasses: () => {
+      throw new Error('the page broke');
+    },
+  });
+  disk.write('areas.json', CLASSES('private', 'public'));
+  await session.reload();
+  assert.equal(session.isStale, false);
+  assert.equal(session.classOf('A'), 'private');
+});
