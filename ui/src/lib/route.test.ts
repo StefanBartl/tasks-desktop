@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { routedTask, taskRoute } from './route';
+import { routedTask, taskRoute, withTaskRoute } from './route';
 
 describe('the route of a task in a window of its own', () => {
   it('names the task in the fragment and reads it back', () => {
@@ -17,5 +17,16 @@ describe('the route of a task in a window of its own', () => {
     expect(routedTask(`#task=${'a'.repeat(301)}`)).toBeNull();
     expect(routedTask('#task=a%0Ab')).toBeNull();
     expect(routedTask('#tasks=pub%2Fa')).toBeNull();
+  });
+
+  it('sets the task of a fragment or takes it out, and keeps the rest of it', () => {
+    expect(withTaskRoute('#task=pub%2Fa', null)).toBe('');
+    expect(withTaskRoute('', null)).toBe('');
+    expect(withTaskRoute('#', null)).toBe('');
+    expect(withTaskRoute('#other=1&task=pub%2Fa', null)).toBe('#other=1');
+    expect(withTaskRoute('#task=pub%2Fa', 'pub/b')).toBe('#task=pub%2Fb');
+    expect(withTaskRoute('#other=1', 'pub/a')).toBe('#task=pub%2Fa&other=1');
+    expect(withTaskRoute('', 'pub/a')).toBe(taskRoute('pub/a'));
+    expect(routedTask(withTaskRoute('#task=pub%2Fa&task=pub%2Fb', 'pub/c'))).toBe('pub/c');
   });
 });

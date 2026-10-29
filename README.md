@@ -391,7 +391,8 @@ and keep place and size per kind in the browser, always inside the window; the f
 window of its own (the same page at `#task=<id>`, paired by the session of the tab; in the web variant the new window
 asks for the folder again, a folder used before is one click; the hub gives one session at most four live event
 streams, so from the fifth window of one tab on the bar says *not live: too many windows*: such a window is read again
-when it gets the focus and goes live once another window of the tab is closed),
+when it gets the focus and goes live once another window of the tab is closed: when it gets the focus, or by itself
+within half a minute),
 follows the hub's event stream and asks for a scan when the window gets the
 focus back. The numbers of the overview on the Today page (ready, doing, blocked, with value) are buttons: a click opens the tasks behind the number, as a list or cut up by priority, area, plan or (for blocked) the task they wait on, a page of fifty at a time; the key `v` on a number walks the views and the choice is kept for each number. The Vaults menu chooses which vault the hub reads (the list is in `config.json`); Options holds the language, the theme and the settings. Help says what this build is (version, the commit of a rolling build, platform, the version and commit of the engine that answers, and the commits `engine.lock` pins, so that two installations can be told apart) and prepares a problem report out of those words and nothing else: no path, no vault, no name; the form opens in the browser and you send it yourself, the app sends nothing. German and English, light and dark.
 

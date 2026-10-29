@@ -381,6 +381,7 @@ function make(
     mode?: 'web';
     openWindow?: (route: string) => boolean;
     fetchFn?: typeof fetch;
+    sleep?: (ms: number) => Promise<void>;
   } = {},
 ) {
   const prefs = overrides.prefs ?? new Map<string, string>();
@@ -415,9 +416,11 @@ function make(
     // The stream is not under test here: it is refused, and the loop stops
     // because the test stops the app.
     fetchFn: overrides.fetchFn ?? ((async () => new Response('', { status: 503 })) as typeof fetch),
-    sleep: async () => {
-      await new Promise((r) => setTimeout(r, 1));
-    },
+    sleep:
+      overrides.sleep ??
+      (async () => {
+        await new Promise((r) => setTimeout(r, 1));
+      }),
     reload: () => void (reloads += 1),
     ...(overrides.mode ? { mode: overrides.mode } : {}),
     ...(overrides.openWindow ? { openWindow: overrides.openWindow } : {}),
@@ -956,6 +959,37 @@ describe('App, cache and hub', () => {
     // Another refusal (the hub is restarting, say) is not that.
     status = 503;
     await vi.waitFor(() => expect(app.streamsFull).toBe(false));
+    app.stop();
+  });
+
+  it('tries the refused stream again when the window gets the focus, not only at the end of its backoff', async () => {
+    let tries = 0;
+    let status = 429;
+    const fetchFn = (async (input: RequestInfo | URL) => {
+      if (String(input).includes('/api/tasks/events')) tries += 1;
+      return new Response(JSON.stringify({ error: { code: 'too_many_streams' } }), { status });
+    }) as typeof fetch;
+    // The backoff never ends by itself here: only the focus can start the next try.
+    const waits: number[] = [];
+    const sleep = (ms: number): Promise<void> => {
+      waits.push(ms);
+      return new Promise<void>(() => {});
+    };
+    const { app } = make({ token: 't', fetchFn, sleep });
+    await app.start(null);
+    await vi.waitFor(() => expect(app.streamsFull).toBe(true));
+    await vi.waitFor(() => expect(waits.length).toBe(1));
+    expect(tries).toBe(1);
+    await app.focused();
+    await vi.waitFor(() => expect(tries).toBe(2));
+    // A stream that is down for another reason keeps its backoff: the focus does not hurry it.
+    status = 503;
+    await app.focused();
+    await vi.waitFor(() => expect(tries).toBe(3));
+    await vi.waitFor(() => expect(app.streamsFull).toBe(false));
+    await app.focused();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(tries).toBe(3);
     app.stop();
   });
 

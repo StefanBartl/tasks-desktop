@@ -448,3 +448,108 @@ test('the detail: the title on a line of its own, a summary of several lines, Do
     removeFile(file);
   }
 });
+
+test('after a write the focus is in the field the person is in: the one moved to meanwhile, the choice after Tab, the note', async ({ page }) => {
+  test.setTimeout(60_000);
+  const slug = `float-focus-e2e-${Date.now().toString(36)}`;
+  const id = `lib.nvim/${slug}`;
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
+  writeFileSync(file, `---\ntitle: Focus probe\nstatus: open\nkind: task\nsummary: First words\n---\n\nThe body.\n`);
+  // Each write is held at the door of the hub until the test lets it through: what the person does meanwhile is done
+  // while it is under way, however fast the engine is.
+  let posts = 0;
+  const waiting: (() => void)[] = [];
+  await page.route('**/api/tasks/ops', async (route) => {
+    posts += 1;
+    await new Promise<void>((resolve) => waiting.push(resolve));
+    await route.continue();
+  });
+  try {
+    const problems = await pair(page);
+    await showList(page);
+    await expect(page.locator('button.row', { hasText: id })).toHaveCount(1, { timeout: WRITE_BUDGET });
+    const f = await openTask(page, id);
+    const title = f.getByLabel('Title', { exact: true });
+    const summary = f.getByLabel('Summary', { exact: true });
+    const status = f.locator('select[data-field="status"]');
+    const note = f.locator('input[data-field="note"]');
+
+    /** Start a write with `start`, do `meanwhile` while it is held, then let it through and wait until it has ended. */
+    const write = async (start: () => Promise<void>, meanwhile: () => Promise<void> = async () => {}): Promise<void> => {
+      const before = posts;
+      const answered = page.waitForResponse(
+        (r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/tasks/ops',
+        { timeout: WRITE_BUDGET },
+      );
+      await start();
+      await expect.poll(() => posts).toBe(before + 1);
+      await expect(title).toHaveJSProperty('readOnly', true);
+      await meanwhile();
+      waiting.shift()?.();
+      await answered;
+      await expect(title).toHaveJSProperty('readOnly', false, { timeout: WRITE_BUDGET });
+    };
+
+    // Enter in the title, and the person goes on into the summary while the write is under way: the summary keeps the
+    // focus when the fields are drawn anew, not the title it was started in.
+    await title.fill('Focus probe renamed');
+    await write(
+      () => title.press('Enter'),
+      () => summary.click(),
+    );
+    await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toMatch(/^title: Focus probe renamed$/m);
+    await expect(summary).toBeFocused();
+    await expect(title).not.toBeFocused();
+
+    // Tab writes the summary and goes on to the status, which is disabled while the write is under way: the status has
+    // the focus when it has ended (on the page, a letter would be a key of the page).
+    await summary.fill('Second words');
+    await write(() => summary.press('Tab'));
+    await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toMatch(/^summary: Second words$/m);
+    await expect(status).toBeFocused();
+
+    // Enter in the note: the line is read-only while the note is written (Enter again writes nothing), and keeps the
+    // focus.
+    await note.fill('A note held at the door');
+    await write(
+      () => note.press('Enter'),
+      async () => {
+        await expect(note).toHaveJSProperty('readOnly', true);
+        await expect(note).toBeFocused();
+        await note.press('Enter');
+      },
+    );
+    await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toContain('A note held at the door');
+    await expect(note).toHaveValue('');
+    await expect(note).toBeFocused();
+
+    // The person leaves the field for the page while the write is under way: the focus is not taken back.
+    await title.fill('Focus probe left');
+    await write(
+      () => title.press('Enter'),
+      () => f.locator('aside.detail .task-title').click(),
+    );
+    await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toMatch(/^title: Focus probe left$/m);
+    await page.waitForTimeout(300);
+    await expect(title).not.toBeFocused();
+    // The same when the focus goes to no control at all (the page itself).
+    await title.fill('Focus probe gone');
+    await write(
+      () => title.press('Enter'),
+      () => title.evaluate((el) => el.blur()),
+    );
+    await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toMatch(/^title: Focus probe gone$/m);
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+
+    // One write each: the second Enter in the note was not one.
+    expect(posts).toBe(5);
+    expect(readFileSync(file, 'utf8').match(/A note held at the door/g)).toHaveLength(1);
+    expect(await violations(page)).toEqual([]);
+    expect(problems).toEqual([]);
+  } finally {
+    for (const go of waiting.splice(0)) go();
+    await page.unroute('**/api/tasks/ops');
+    removeFile(file);
+  }
+});

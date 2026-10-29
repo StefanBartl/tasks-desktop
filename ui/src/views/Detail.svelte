@@ -137,32 +137,51 @@
     if (await app.addNote(task.id, note, detail.doc.task.etag)) note = '';
   }
 
-  // A write disables the choices while it is under way and draws the fields anew when it has ended (the {#key} below):
-  // the field that had the focus would lose it to the page, whose single keys (those of the inbox, j and k under the
-  // float) would then act on what is typed next. It gets the focus back when the write has ended, unless the person
-  // went on to something else meanwhile.
+  // A write makes the text fields read-only and disables the choices while it is under way, and draws the fields anew
+  // when it has ended (the {#key} below): the field that had the focus loses it to the page, whose single keys (those
+  // of the inbox, j and k under the float, c) would then act on what is typed next. The field the person is in is
+  // followed as the focus moves (`data-field`), not taken when the write starts: one clicked or tabbed into meanwhile
+  // is the one that gets the focus back. A field left for another control or for the page is not followed any more.
   let root = $state<HTMLElement | undefined>();
-  let refocus = -1;
-  const fieldsOf = (el: HTMLElement): HTMLElement[] => [
-    ...el.querySelectorAll<HTMLElement>('.edit input, .edit select, .edit textarea'),
-  ];
-  $effect.pre(() => {
-    if (!app.saving || !root) return;
-    const active = document.activeElement;
-    refocus = active instanceof HTMLElement ? fieldsOf(root).indexOf(active) : -1;
-  });
+  let followed: string | null = null;
+  const fieldOf = (target: EventTarget | null): string | null =>
+    target instanceof HTMLElement ? (target.dataset['field'] ?? null) : null;
+  function focusIn(e: FocusEvent): void {
+    followed = fieldOf(e.target);
+  }
+  function focusOut(e: FocusEvent): void {
+    const left = e.target;
+    const field = fieldOf(left);
+    if (!(left instanceof HTMLElement) || field === null) return;
+    const to = e.relatedTarget;
+    if (to !== null) {
+      // To another control: one outside the detail ends it. A field of the detail is followed at once: Tab writes the
+      // field it leaves (change), and the write disables the choice it goes to before the focus lands there, so that
+      // field never sees a focusin. Its focusin says the rest (a control that is no field: nothing is followed).
+      if (!(to instanceof Node) || !root?.contains(to)) followed = null;
+      else followed = fieldOf(to) ?? followed;
+      return;
+    }
+    // To nowhere: a click on the page, or the field was taken away (drawn anew, disabled). Only the first is the
+    // person's; the window losing the focus leaves the field the active element and is neither.
+    queueMicrotask(() => {
+      const gone = !left.isConnected || (left as HTMLInputElement).disabled;
+      if (!gone && document.activeElement !== left && followed === field) followed = null;
+    });
+  }
   $effect(() => {
-    if (app.saving || !root) return;
-    const at = refocus;
-    refocus = -1;
-    if (at < 0) return;
+    // After a write has ended, and after the text of the task was read again (the lines below the fields).
+    void app.writes;
+    void detail.state;
+    if (app.saving || !root || followed === null) return;
     const active = document.activeElement;
     if (active !== null && active !== document.body) return;
-    fieldsOf(root)[at]?.focus();
+    const field = root.querySelector<HTMLElement>(`[data-field="${followed}"]`);
+    if (field && !(field as HTMLInputElement).disabled) field.focus();
   });
 </script>
 
-<aside class="detail" aria-label={t('detail.label')} bind:this={root}>
+<aside class="detail" aria-label={t('detail.label')} bind:this={root} onfocusin={focusIn} onfocusout={focusOut}>
   {#if !task}
     <p class="muted">{t('detail.none')}</p>
   {:else}
@@ -191,6 +210,7 @@
         <input
           type="text"
           value={task.title}
+          data-field="title"
           maxlength="300"
           readonly={app.saving}
           onchange={(e) => {
@@ -213,6 +233,7 @@
           class="summary"
           rows="3"
           value={task.summary ?? ''}
+          data-field="summary"
           maxlength="1000"
           readonly={app.saving}
           onkeydown={(e) => {
@@ -229,6 +250,7 @@
           <span data-hint={hintOf(app.lang, 'hint.field', 'status')}>{t('field.status')}</span>
           <select
             value={task.status ?? ''}
+            data-field="status"
             disabled={app.saving}
             onchange={(e) => void app.setField(task.id, 'status', e.currentTarget.value)}
           >
@@ -245,6 +267,7 @@
           <span data-hint={hintOf(app.lang, 'hint.field', 'prio')}>{t('field.prio')}</span>
           <select
             value={task.prio === undefined ? '' : String(task.prio)}
+            data-field="prio"
             disabled={app.saving}
             onchange={(e) =>
               void app.setField(
@@ -266,6 +289,7 @@
           <span data-hint={hintOf(app.lang, 'hint.field', 'actor')}>{t('field.actor')}</span>
           <select
             value={task.actor ?? ''}
+            data-field="actor"
             disabled={app.saving}
             onchange={(e) =>
               void app.setField(task.id, 'actor', e.currentTarget.value === '' ? null : e.currentTarget.value)}
@@ -283,6 +307,7 @@
           <span data-hint={hintOf(app.lang, 'hint.field', 'kind')}>{t('field.kind')}</span>
           <select
             value={task.kind ?? ''}
+            data-field="kind"
             disabled={app.saving}
             onchange={(e) =>
               void app.setField(task.id, 'kind', e.currentTarget.value === '' ? null : e.currentTarget.value)}
@@ -297,6 +322,7 @@
           <span data-hint={hintOf(app.lang, 'hint.field', 'effort')}>{t('field.effort')}</span>
           <select
             value={task.effort ?? ''}
+            data-field="effort"
             disabled={app.saving}
             onchange={(e) =>
               void app.setField(task.id, 'effort', e.currentTarget.value === '' ? null : e.currentTarget.value)}
@@ -314,6 +340,7 @@
           <span data-hint={hintOf(app.lang, 'hint.field', 'value')}>{t('field.value')}</span>
           <select
             value={task.value === undefined ? '' : String(task.value)}
+            data-field="value"
             disabled={app.saving}
             onchange={(e) =>
               void app.setField(
@@ -332,6 +359,7 @@
           <span>{t('remind.field')}</span>
           <select
             value={task.remind ?? ''}
+            data-field="remind"
             disabled={app.saving}
             onchange={(e) => {
               const value = e.currentTarget.value;
@@ -354,6 +382,7 @@
         <input
           type="text"
           value={task.plan ?? ''}
+          data-field="plan"
           readonly={app.saving}
           onchange={(e) => changeText('plan', task.plan, e.currentTarget.value)}
         />
@@ -363,6 +392,7 @@
         <input
           type="text"
           value={task.phase ?? ''}
+          data-field="phase"
           readonly={app.saving}
           onchange={(e) => changeText('phase', task.phase, e.currentTarget.value)}
         />
@@ -372,6 +402,7 @@
         <input
           type="text"
           value={tagsText(task.tags)}
+          data-field="tags"
           readonly={app.saving}
           disabled={!listEditable(task.tags)}
           title={listEditable(task.tags) ? undefined : t('field.list_plain')}
@@ -395,6 +426,7 @@
         <input
           type="text"
           value={tagsText(task.after)}
+          data-field="after"
           readonly={app.saving}
           disabled={!listEditable(task.after)}
           title={listEditable(task.after) ? undefined : t('field.list_plain')}
@@ -406,6 +438,7 @@
         <input
           type="text"
           value={tagsText(task.refs)}
+          data-field="refs"
           readonly={app.saving}
           disabled={!listEditable(task.refs)}
           title={listEditable(task.refs) ? undefined : t('field.list_plain')}
@@ -417,6 +450,7 @@
         <input
           type="text"
           value={tagsText(task.links)}
+          data-field="links"
           readonly={app.saving}
           disabled={!listEditable(task.links)}
           title={listEditable(task.links) ? undefined : t('field.list_plain')}
@@ -613,12 +647,14 @@
             <input
               type="text"
               bind:value={note}
+              data-field="note"
               maxlength="1000"
-              disabled={app.saving}
+              readonly={app.saving}
               onkeydown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  void addNote();
+                  // Read-only while a write is under way (it keeps the focus): Enter then writes nothing a second time.
+                  if (!app.saving) void addNote();
                 }
               }}
             />
@@ -634,6 +670,7 @@
             <span>{t('move.label')}</span>
             <select
               bind:value={moveTo}
+              data-field="move"
               disabled={app.saving}
               onchange={() => {
                 movePreview = null;
@@ -679,12 +716,13 @@
             <input
               type="text"
               bind:value={reason}
+              data-field="reason"
               maxlength="900"
-              disabled={app.saving}
+              readonly={app.saving}
               onkeydown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  void discard();
+                  if (!app.saving) void discard();
                 }
               }}
             />

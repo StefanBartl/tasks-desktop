@@ -92,6 +92,28 @@ test('a window of one task keeps the keys of the hidden view off its task, and l
   expect(seen.errors).toEqual([]);
 });
 
+test('a window of one task keeps the task in its address until it lets go of it: a reload then shows the views', async ({ page }) => {
+  const seen = await watchPage(page);
+  await page.addInitScript(() => localStorage.setItem('tasks-desktop.view', 'list'));
+  await fakePicker(page, vaultFiles());
+  await page.goto(`${pageUrl()}#task=lib.nvim%2Fbeta`);
+  await page.getByRole('button', { name: /Choose folder/ }).click();
+  const alone = page.locator('main aside.detail .id');
+  await expect(alone).toHaveText('lib.nvim/beta', { timeout: 30_000 });
+  // While it shows the task alone, a reload opens the task again: the fragment stays.
+  expect(new URL(page.url()).hash).toBe('#task=lib.nvim%2Fbeta');
+  await page.locator('main').focus();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('section.list')).toBeVisible();
+  await expect.poll(() => new URL(page.url()).hash).toBe('');
+  await page.reload();
+  await page.getByRole('button', { name: /Choose folder|fixture-vault/ }).first().click({ timeout: 30_000 });
+  await expect(page.locator('section.list')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('aside.detail')).toHaveCount(0);
+  expect(seen.requests).toEqual([]);
+  expect(seen.errors).toEqual([]);
+});
+
 test('Enter in the summary writes it and keeps the focus there; keys that fall onto the page do not reach the list under the float', async ({ page }) => {
   const seen = await watchPage(page);
   await openVault(page, vaultFiles(), 'Next task');

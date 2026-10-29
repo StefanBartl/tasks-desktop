@@ -3114,6 +3114,9 @@ export class App {
   async focused(): Promise<void> {
     // A page that stood open over midnight: a reminder may be due since.
     this.today = localToday();
+    // A window the hub refused a stream (too many windows) tries again now, not at the end of its backoff: the window
+    // that was closed to make room is often what gave this one the focus.
+    if (this.streamsFull) this.#wakeStream?.();
     // Not before the hub has confirmed the session: a page on the cached list holds the token already.
     if (this.phase !== 'ready' || !this.sessionHeld) return;
     try {
@@ -3128,9 +3131,24 @@ export class App {
    * The hub refused this window a live connection because the session holds as many as it allows (`429`, its
    * `too_many_streams`: four per session). The windows a task was detached into share the session of the tab, so the
    * fifth window of a tab lands here. It is told in the bar; the window is read again when it gets the focus, and the
-   * stream is tried again (backing off) until another window lets go of one.
+   * stream is tried again (backing off up to half a minute, at once when the window gets the focus) until another window
+   * lets go of one.
    */
   streamsFull = $state(false);
+  /** Ends the wait of the stream before its next try (`focused`). */
+  #wakeStream: (() => void) | null = null;
+
+  /** The wait of the stream between two tries: the backoff, or less when the window is woken. */
+  private streamSleep(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const wake = (): void => {
+        if (this.#wakeStream === wake) this.#wakeStream = null;
+        resolve();
+      };
+      this.#wakeStream = wake;
+      void this.env.sleep(ms).then(wake);
+    });
+  }
 
   private followStream(): Promise<void> {
     const fetchFn: typeof fetch = (input, init) =>
@@ -3149,7 +3167,7 @@ export class App {
       url: () => this.env.hub.url('/api/tasks/events'),
       bearer: () => this.env.hub.bearer,
       hasToken: () => this.env.hub.hasToken,
-      sleep: (ms) => this.env.sleep(ms),
+      sleep: (ms) => this.streamSleep(ms),
       // What happened while the stream was down.
       onOpen: () => void this.refresh(),
       onMessage: (m) => this.onMessage(m),

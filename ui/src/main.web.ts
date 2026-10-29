@@ -14,6 +14,7 @@ import { copyText, printSheet, saveText } from './lib/exportDom';
 import { detectLang, translate } from './lib/i18n';
 import { trackHistory } from './lib/trackHistory.svelte';
 import { routedTask } from './lib/route';
+import { followTaskRoute } from './lib/followRoute.svelte';
 import { installTooltips } from 'appkit-ui/tooltip';
 import { createBrowserHub, WorkerClient, type PortLike } from './web/client';
 import { pageCache } from './web/page-cache';
@@ -33,8 +34,9 @@ const CODE = 'web';
 
 const target = document.getElementById('app') as HTMLElement;
 const lang = detectLang(navigator.languages);
-// A window a task was detached into names the task in the fragment (route.ts). It stays in the address: there is no
-// code to hide here, and a reload of that window opens the task again (once the folder is open).
+// A window a task was detached into names the task in the fragment (route.ts). It stays in the address while the window
+// shows that task alone: there is no code to hide here, and a reload of that window opens the task again (once the
+// folder is open). It leaves the address when the window lets go of the task (followRoute.svelte.ts).
 const routed = routedTask(window.location.hash);
 
 // What the page keeps in the browser is decided by the data classes of the folder (`areas.json`, web/classes.ts, wired in
@@ -191,4 +193,5 @@ async function begin(folder: string | null): Promise<void> {
   target.replaceChildren();
   mount(App, { target, props: { app: state, code: CODE } });
   trackHistory(state, window);
+  followTaskRoute(state, window);
 }

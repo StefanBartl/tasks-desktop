@@ -460,7 +460,7 @@ const en = {
   'hint.ui.conn.offline': 'The hub does not answer. The page shows what it had last; nothing can be written.',
   'hint.ui.conn.cached': 'These numbers come from the copy kept in this browser, not from the hub. They may be old.',
   'hint.ui.conn.full':
-    'The hub gives the windows of one tab (those its tasks were detached into, too) at most four live connections, and they are taken. This window is read again when it gets the focus, and goes live as soon as another of them is closed.',
+    'The hub gives the windows of one tab (those its tasks were detached into, too) at most four live connections, and they are taken. This window is read again when it gets the focus. Once another of them is closed, it goes live when it gets the focus, or by itself within half a minute.',
   'hint.ui.conflicts': 'Changes the engine refused because the file had moved on. Open the list to try them again or let them go.',
   'hint.ui.brand': 'Back to today, the start view.',
   'hint.ui.menu.tasks': 'Create, find and edit tasks.',
@@ -1643,7 +1643,7 @@ const de: Record<Key, string> = {
   'hint.ui.conn.offline': 'Der Hub antwortet nicht. Die Seite zeigt, was sie zuletzt hatte; schreiben geht nicht.',
   'hint.ui.conn.cached': 'Diese Zahlen stammen aus der Kopie in diesem Browser, nicht vom Hub. Sie können alt sein.',
   'hint.ui.conn.full':
-    'Der Hub gibt den Fenstern eines Tabs (auch denen, in die Tasks abgetrennt wurden) höchstens vier Live-Verbindungen, und die sind belegt. Dieses Fenster wird neu gelesen, wenn es den Fokus bekommt, und ist wieder live, sobald eines der anderen geschlossen wird.',
+    'Der Hub gibt den Fenstern eines Tabs (auch denen, in die Tasks abgetrennt wurden) höchstens vier Live-Verbindungen, und die sind belegt. Dieses Fenster wird neu gelesen, wenn es den Fokus bekommt. Ist eines der anderen geschlossen, wird es live, sobald es den Fokus bekommt, oder von selbst innerhalb einer halben Minute.',
   'hint.ui.conflicts': 'Änderungen, die die Engine abgelehnt hat, weil die Datei sich inzwischen geändert hat. Öffne die Liste, um sie erneut zu versuchen oder zu verwerfen.',
   'hint.ui.brand': 'Zurück zu Heute, der Startansicht.',
   'hint.ui.menu.tasks': 'Tasks anlegen, finden und bearbeiten.',
