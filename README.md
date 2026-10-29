@@ -233,6 +233,14 @@ built. Its built files go to the private repository [tasks-web](https://github.c
   not an absolute folder in the VM, is refused and leaves the vault that is there). `web/worker-client.test.mjs`
   runs the real engine in an in-process worker (it needs `wasmoon` and the engine checkouts, like
   `web/engine.test.mjs`).
+- **The way in.** `ui/src/web/entry.ts` is a small state machine (starting, unsupported, choose, opening, open) behind
+  `ui/src/web/WebEntry.svelte`: "Choose folder" calls `showDirectoryPicker({ id, mode: 'readwrite' })`, the folders
+  used before (their handles in IndexedDB, five at most, `ui/src/web/folder.ts`) are listed with the permission each
+  has now. After a restart of the browser the permission is `prompt`: the click on "Allow access" asks for it again
+  and nothing else comes before that call, because the browser grants it only inside a click. A cancelled or refused
+  picker (a policy of the organisation), a folder that is gone and a folder over the budget come back to the start
+  page with their reason; a browser without the API, or a page that is not a secure context, is told so and offers
+  no picker. `web/entry.test.mjs` and `src/web/WebEntry.test.ts` run it without a browser.
 - Neither needs `pnpm install` or vite: Node strips the types itself, wasmoon is JavaScript and WebAssembly.
 
 What does not depend on tasks (the guard, pairing and sessions, the engine seam, the store, the
