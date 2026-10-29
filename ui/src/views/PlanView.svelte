@@ -6,6 +6,7 @@
   import type { App } from '../lib/app.svelte';
   import { formatNumber, hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import Info from 'appkit-ui/Info.svelte';
+  import { TIP_ID } from 'appkit-ui/tooltip';
   import { stagesLegend } from '../lib/legend';
   import { chosenPlan, criticalIds, firstTasks, phaseCounts, planEmptyKey, stagesOf, warningsOf } from '../lib/plan';
   import { markHidden } from '../lib/text';
@@ -108,6 +109,24 @@
         {/if}
       </div>
       <div class="toolbar">
+        <!-- The same words as the search of the list (one filter for every view): the stages narrow to them. -->
+        <input
+          type="search"
+          class="plan-search"
+          data-hint={t('hint.ui.list.search')}
+          placeholder={t('list.search')}
+          aria-label={t('list.search')}
+          value={app.filter.query}
+          oninput={(e) => app.setQuery(e.currentTarget.value)}
+          onkeydown={(e) => {
+            // An open hint of the field takes this Escape alone (the kit closes it, on the document).
+            const hintOpen = (e.currentTarget.getAttribute('aria-describedby') ?? '').split(' ').includes(TIP_ID);
+            if (e.key === 'Escape' && !e.isComposing && !hintOpen && app.filter.query !== '') {
+              e.preventDefault();
+              app.setQuery('');
+            }
+          }}
+        />
         {#if plans.length > 0}
           <label
             class="plan-select"
@@ -178,13 +197,13 @@
 
     {#if warnings.length > 0 || cycles.length > 0 || sameFile.length > 0}
       <!-- Folded when the page opens: the warnings are there to look at, not to stand over the plan. -->
-      <details class="card warn" aria-label={t('plan.warnings')}>
+      <div class="card warn-tile">
+      <details class="warn" aria-label={t('plan.warnings')}>
         <summary class="headline">
           <h2 class="eyebrow">
             {t('plan.warnings')} ({warnings.length + cycles.length + sameFile.length})
           </h2>
         </summary>
-        <p class="about"><Info hint={t('hint.warnings')} label={t('hint.about', { what: t('plan.warnings') })} /></p>
         <ul class="plain">
           {#each cycles as cycle, i (i)}
             <li>{t('plan.cycle')}: <code>{markHidden(cycle.join(' → '))}</code></li>
@@ -202,6 +221,10 @@
           {/each}
         </ul>
       </details>
+      <!-- Beside the folding part, not in its head (a button in a summary is a nested control): drawn at the head, so
+           that it shows folded too. -->
+      <span class="about"><Info hint={t('hint.warnings')} label={t('hint.about', { what: t('plan.warnings') })} /></span>
+      </div>
     {/if}
 
     <GraphPanel {app} />
@@ -288,7 +311,8 @@
     border-radius: var(--radius);
     padding: 0.9rem 1rem;
   }
-  .card.warn {
+  .card.warn-tile {
+    position: relative;
     border-color: var(--warn);
   }
   /* A summary laid out as flex loses the browser's triangle: the page draws its own. */
@@ -311,7 +335,11 @@
     margin-bottom: 0.5em;
   }
   .about {
-    margin: 0 0 0.3rem;
+    position: absolute;
+    top: 0.9rem;
+    right: 1rem;
+    display: inline-flex;
+    align-items: center;
   }
   /* The plan and its button are one row: the label belongs to the choice, the button comes after it. */
   .toolbar {
@@ -320,6 +348,14 @@
     align-items: center;
     gap: 0.5rem 1rem;
     margin: 0.5rem 0;
+  }
+  .plan-search {
+    min-width: 12rem;
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.3rem 0.5rem;
   }
   .newplan {
     background: var(--surface-2);

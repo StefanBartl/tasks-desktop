@@ -1505,8 +1505,15 @@ test('the warnings of the plan are folded when the page opens, and the stages fo
   await expect(warnings.locator('summary')).toHaveText(/Warnings of the plan \(\d+\)/);
   const cycle = warnings.getByText('lib.nvim/cyc-a', { exact: false }).first();
   await expect(cycle).toBeHidden();
+  // The explaining icon is there while the tile is folded, and it is a small round button, not the width of the tile.
+  const about = page.getByRole('button', { name: 'Explanation: Warnings of the plan' });
+  await expect(about).toBeVisible();
+  const folded = await about.boundingBox();
+  expect(folded!.width).toBeLessThan(40);
   await warnings.locator('summary').click();
   await expect(cycle).toBeVisible();
+  const unfolded = await about.boundingBox();
+  expect(unfolded!.width).toBeLessThan(40);
 
   const stages = page.getByRole('region', { name: 'Stages' });
   const first = stages.locator('.stage').first();
@@ -3841,6 +3848,23 @@ test('the plan view shows the stages and the critical path, and opens a task', a
   await expect(popup).toHaveCount(0);
   await expect(page.locator('button.row[aria-current="true"] .title')).toHaveText(title);
   expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('the plan view has a search for title and id that narrows the stages', async ({ page }) => {
+  await pair(page);
+  await chooseView(page, 'View', 'Plan');
+  const stages = page.getByRole('region', { name: 'Stages' });
+  await expect(stages.getByRole('button', { name: 'Cycle A' })).toBeVisible();
+  const search = page.getByRole('searchbox', { name: 'Search id and title' });
+  await search.fill('Zeta builds');
+  await expect(stages.getByRole('button', { name: 'Zeta builds' })).toBeVisible();
+  await expect(stages.getByRole('button', { name: 'Cycle A' })).toHaveCount(0);
+  // Escape empties the words, and the stages are whole again. The hint of the field, open on its focus, takes the
+  // first one alone.
+  await search.press('Escape');
+  if ((await search.inputValue()) !== '') await search.press('Escape');
+  await expect(search).toHaveValue('');
+  await expect(stages.getByRole('button', { name: 'Cycle A' })).toBeVisible();
 });
 
 test('the plan view narrows to the chosen plan and keeps the choice', async ({ page }) => {
