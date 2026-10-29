@@ -220,6 +220,13 @@ built. Its built files go to the private repository [tasks-web](https://github.c
   (20 000 files, 256 MiB, 32 levels) is refused as a whole, because a vault read in part would show wrong data.
   `VaultMount.changes()` lists what the engine added, changed and removed since the load (for the write-back).
   `pnpm web:test` runs `web/vault-files.test.mjs` with a fake folder, so it needs no browser.
+- **The hub in the page.** `ui/src/web/hub.ts` answers the routes of the Rust hub behind the `fetch` that
+  `ui/src/lib/api.ts` takes: the same checks before the engine is asked (a plain query, `<area>/<slug>`, an area
+  name, one of five sorts), an engine refusal with its code and the HTTP status the Rust hub gives it, the digest of
+  the snapshot as its tag (304), the `hub.areas` envelope with the class of each area (unclassified until
+  `areas.json` is read), `hub.enums`, the check job. There is no session and no token. `ops`, `open` and the vault
+  routes answer a refusal (`read_only`, `not_available`); `search` looks at ids and titles only and says
+  `partial`. `web/hub.test.mjs` runs it over a stand-in for the engine.
 - Neither needs `pnpm install` or vite: Node strips the types itself, wasmoon is JavaScript and WebAssembly.
 
 What does not depend on tasks (the guard, pairing and sessions, the engine seam, the store, the
