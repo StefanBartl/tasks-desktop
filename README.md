@@ -57,6 +57,25 @@ tasks-hub open [--launch]             print a one-time pairing link for the runn
 tasks-hub usage [--days=14]           on how many of the last days the interface was opened
 ```
 
+## In the browser, without installing
+
+For a machine where no program may be installed: the page runs alone in Chrome from one HTML file, `tasks.html`,
+with the tasks.nvim engine inside it. There is no hub, no server and no network request (the page's CSP forbids
+one).
+
+1. Get the file: `git clone` (later `git pull`) of the private repository
+   [tasks-web](https://github.com/WKDSteve/tasks-web); compare `Get-FileHash tasks.html` with `SHA256SUMS`.
+2. Open `file:///<path>/tasks-web/tasks.html` in Chrome.
+3. Press "Choose folder ..." and pick the vault folder. The page reads the `*.md` files, `areas.json` and
+   `vault.json` into memory (`.git` and hidden folders are skipped). After a restart of Chrome, press "Allow
+   access" once for the folder used last.
+4. Changes made on disk (Neovim, git, agents) show up when the tab gets focus, or within 30 seconds. Writing from the
+   page (create, set a field, done, move) compares each file with what was read and writes nothing on a conflict.
+
+What is missing compared to the app: tray, autostart, notifications, "show in Explorer", "open in editor",
+attaching screenshots, several vaults at once, finishing or moving a folder task that holds assets. Details of
+writing, data classes and limits: the web variant section under "Layout" and `docs/SECURITY.md`.
+
 ## Install from a release
 
 There are two channels, and both carry an install script that installs exactly their build:
@@ -197,8 +216,8 @@ ui/src/web/         the engine of the web variant: tasks.nvim in a Lua VM (wasmo
 ui/web/             its Node side: the bundle of the Lua sources, the tests, the engine check page
 ```
 
-The web variant (no install, no server: one HTML file opened from disk, the engine in the browser) is being
-built. Its built files go to the private repository [tasks-web](https://github.com/WKDSteve/tasks-web).
+The web variant (no install, no server: one HTML file opened from disk, the engine in the browser) is built here
+and used as described under "In the browser, without installing". Its built files go to the private repository [tasks-web](https://github.com/WKDSteve/tasks-web).
 
 - **The engine runs unchanged.** `ui/web/engine-bundle.mjs` takes the Lua sources of tasks.nvim and lib.nvim
   from the git objects of the commits in `engine.lock` (never the working tree), follows their requires with a
