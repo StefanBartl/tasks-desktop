@@ -9,16 +9,23 @@
 
 import { LuaFactory } from 'wasmoon';
 import { WebEngine, type EngineBundle } from './engine.ts';
+import { safeName, VaultMount, type VaultChanges } from './vault-files.ts';
 
 export const WASM_URL = 'embedded:glue.wasm';
 
 export type WorkerRequest =
-  | { type: 'init'; wasm: ArrayBuffer; bundle: EngineBundle; shim: string; files: Record<string, string> }
+  /** `files` (path inside the VM -> text) is for the check page; a vault comes with `mount`. */
+  | { type: 'init'; wasm: ArrayBuffer; bundle: EngineBundle; shim: string; files?: Record<string, string> }
+  /** Replace the vault at `root` (an absolute folder inside the VM) with `files` (path relative to it -> bytes). */
+  | { type: 'mount'; id: number; root: string; files: Record<string, Uint8Array> }
+  | { type: 'changes'; id: number }
   | { type: 'call'; id: number; method: string; request: string | null; root: string; today?: string };
 
 export type WorkerReply =
   | { type: 'ready'; ms: number }
   | { type: 'result'; id: number; text: string; code: string | null; ms: number }
+  | { type: 'mounted'; id: number; files: number; ms: number }
+  | { type: 'changes'; id: number; changes: VaultChanges }
   | { type: 'log'; level: number; message: string }
   | { type: 'error'; id?: number; message: string };
 
@@ -40,8 +47,19 @@ type Scope = {
   onmessage: ((event: MessageEvent<WorkerRequest>) => void) | null;
 };
 
-export function startWorker(scope: Scope): void {
+export interface WorkerOptions {
+  /** The VM factory. The default loads the WASM from the bytes of `init`; a test in Node passes the stock one. */
+  factory?: () => LuaFactory;
+}
+
+/** A relative path of the vault: plain segments only, so a name from a folder never leaves the vault's root. */
+function plainPath(path: string): boolean {
+  return path !== '' && path.split('/').every((segment) => safeName(segment));
+}
+
+export function startWorker(scope: Scope, options: WorkerOptions = {}): void {
   let engine: Promise<WebEngine> | null = null;
+  let vault: VaultMount | null = null;
   const post = (reply: WorkerReply) => scope.postMessage(reply);
 
   scope.onmessage = async (event) => {
@@ -55,12 +73,12 @@ export function startWorker(scope: Scope): void {
       const t0 = performance.now();
       serveEmbeddedWasm(scope, msg.wasm);
       engine = WebEngine.create({
-        factory: new LuaFactory(WASM_URL),
+        factory: options.factory ? options.factory() : new LuaFactory(WASM_URL),
         bundle: msg.bundle,
         shim: msg.shim,
         log: (level, message) => post({ type: 'log', level, message }),
       }).then((e) => {
-        e.mount(msg.files);
+        if (msg.files) e.mount(msg.files);
         return e;
       });
       try {
@@ -68,6 +86,33 @@ export function startWorker(scope: Scope): void {
         post({ type: 'ready', ms: Math.round(performance.now() - t0) });
       } catch (err) {
         post({ type: 'error', message: String(err) });
+      }
+      return;
+    }
+    if (msg.type === 'mount' || msg.type === 'changes') {
+      if (!engine) {
+        post({ type: 'error', id: msg.id, message: 'the engine is not started (init first)' });
+        return;
+      }
+      try {
+        const e = await engine;
+        if (msg.type === 'mount') {
+          const t0 = performance.now();
+          const bad = Object.keys(msg.files).find((path) => !plainPath(path));
+          if (bad !== undefined) throw new Error(`not a plain path inside the vault: ${JSON.stringify(bad)}`);
+          // A new mount replaces the vault of the old root too: two vaults never lie in the VM side by side.
+          // The new mount is made first: a root that is refused must leave the vault that is there as it is.
+          const next = new VaultMount(e.fs, msg.root);
+          if (vault && vault.root !== msg.root) vault.load(new Map());
+          next.load(new Map(Object.entries(msg.files)));
+          vault = next;
+          post({ type: 'mounted', id: msg.id, files: Object.keys(msg.files).length, ms: Math.round(performance.now() - t0) });
+        } else {
+          if (!vault) throw new Error('no vault is mounted');
+          post({ type: 'changes', id: msg.id, changes: vault.changes() });
+        }
+      } catch (err) {
+        post({ type: 'error', id: msg.id, message: String(err) });
       }
       return;
     }

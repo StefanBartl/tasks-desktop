@@ -227,6 +227,12 @@ built. Its built files go to the private repository [tasks-web](https://github.c
   `areas.json` is read), `hub.enums`, the check job. There is no session and no token. `ops`, `open` and the vault
   routes answer a refusal (`read_only`, `not_available`); `search` looks at ids and titles only and says
   `partial`. `web/hub.test.mjs` runs it over a stand-in for the engine.
+- **The page and the worker.** `ui/src/web/client.ts` is the page's side of the worker: `WorkerClient` matches each
+  question to its answer by an id (`init`, `mount`, `call`, `changes`), `createBrowserHub` joins it to the hub. The
+  worker mounts a vault with `mount` (a new mount replaces the old one; a path that is not plain, or a root that is
+  not an absolute folder in the VM, is refused and leaves the vault that is there). `web/worker-client.test.mjs`
+  runs the real engine in an in-process worker (it needs `wasmoon` and the engine checkouts, like
+  `web/engine.test.mjs`).
 - Neither needs `pnpm install` or vite: Node strips the types itself, wasmoon is JavaScript and WebAssembly.
 
 What does not depend on tasks (the guard, pairing and sessions, the engine seam, the store, the
