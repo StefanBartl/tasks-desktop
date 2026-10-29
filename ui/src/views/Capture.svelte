@@ -1,5 +1,6 @@
 <script lang="ts">
   import { closeOnBackdrop } from 'appkit-ui/backdrop';
+  import { floating } from '../lib/floating';
   // Quick capture: a title and an area, nothing else is required. The
   // engine gives the task its place and its file; the page selects it.
   import type { App } from '../lib/app.svelte';
@@ -121,7 +122,7 @@
   }
 </script>
 
-<dialog bind:this={dialog} use:closeOnBackdrop={{ closeable: () => [title, context, acceptance, notes, summary, tags, refs, links].every((v) => v.trim() === '') }} aria-labelledby="capture-title" onclose={() => app.closeCapture()}>
+<dialog bind:this={dialog} use:floating={{ kind: 'capture', moveLabel: t('float.move'), moveHint: t('hint.float.move') }} use:closeOnBackdrop={{ closeable: () => [title, context, acceptance, notes, summary, tags, refs, links].every((v) => v.trim() === '') }} aria-labelledby="capture-title" onclose={() => app.closeCapture()}>
   <form onsubmit={submit}>
     <h2 id="capture-title">{t('capture.title')}</h2>
     <label>

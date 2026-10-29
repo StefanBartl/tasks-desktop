@@ -319,7 +319,8 @@ and used as described under "In the browser, without installing". Its built file
   policy does refuse a `fetch` and an image. `flows.spec.ts`: the overview and its tiles, the list and the detail, hostile
   titles and bodies as text, the search and its reset, the filters, the plan and its graph, the graph of a task, the
   check job, the board, accessibility (axe, light and dark, German). `writes.spec.ts`: create, `set`, `done`, the
-  conflict. `classes.spec.ts`: what reaches IndexedDB. Every test ends by holding the page to the two rules: no request
+  conflict. `classes.spec.ts`: what reaches IndexedDB. `floats.spec.ts`: a task of the list in its float, the float
+  moved and kept, a task detached into a window of the same file and the file opened at `#task=<id>`. Every test ends by holding the page to the two rules: no request
   and no violation of the policy. CI runs the project in `ci.yml` (after the build of the page) and in `web.yml` before
   the file is published. The workflow `web.yml`
   (tag `v*`, or by hand) builds, tests and commits `tasks.html` to the private repository `WKDSteve/tasks-web` with the
@@ -381,7 +382,16 @@ plan in a dry run while you type, tells a name that is taken and refuses what is
 find an action or a task in the command palette (`Ctrl`+`K`: a few letters in order are enough, what you chose before comes first; it changes the status or priority of the selected task, goes to a view, and more), finish a task after a preview of
 what it does, and set a reminder (a date on which a task comes back on the
 Today page; also when finishing); the engine makes every change. The interface lists the vault in the engine's own order (it
-never sorts), shows a task with its steps and its text (as text only),
+never sorts), shows a task with its steps and its text (as text only) in a float over the list (a click on a row, or
+`o` on the selected one; the overview and the plan open it the same way), in which the text fields each take a line of
+their own, the summary has several lines (it is kept as one line: a line break becomes a space) and *Done* stands large
+in the lower right corner; the float and the other dialogs are moved by their title or the handle ✥, sized by the
+grip in their lower right corner (or by the arrow keys on the handle, with `Shift` for the size; `Home` puts them back)
+and keep place and size per kind in the browser, always inside the window; the float's button ⧉ opens the task in a
+window of its own (the same page at `#task=<id>`, paired by the session of the tab; in the web variant the new window
+asks for the folder again, a folder used before is one click; the hub gives one session at most four live event
+streams, so from the fifth window of one tab on the bar says *not live: too many windows*: such a window is read again
+when it gets the focus and goes live once another window of the tab is closed),
 follows the hub's event stream and asks for a scan when the window gets the
 focus back. The numbers of the overview on the Today page (ready, doing, blocked, with value) are buttons: a click opens the tasks behind the number, as a list or cut up by priority, area, plan or (for blocked) the task they wait on, a page of fifty at a time; the key `v` on a number walks the views and the choice is kept for each number. The Vaults menu chooses which vault the hub reads (the list is in `config.json`); Options holds the language, the theme and the settings. Help says what this build is (version, the commit of a rolling build, platform, the version and commit of the engine that answers, and the commits `engine.lock` pins, so that two installations can be told apart) and prepares a problem report out of those words and nothing else: no path, no vault, no name; the form opens in the browser and you send it yourself, the app sends nothing. German and English, light and dark.
 

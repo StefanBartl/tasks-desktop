@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_RANGES, badLink, badTag, bodyFromSections, isWebLink, listEditable, parseTags, rangesOf, tagsChanged, tagsText } from './fields';
+import { DEFAULT_RANGES, badLink, badTag, bodyFromSections, isWebLink, listEditable, oneLine, parseTags, rangesOf, tagsChanged, tagsText } from './fields';
+
+describe('a summary of several lines', () => {
+  it('is kept as one line: each line break with the blanks around it is one space', () => {
+    expect(oneLine('First line\nsecond line')).toBe('First line second line');
+    expect(oneLine('a  \r\n\r\n  b\rc')).toBe('a b c');
+    expect(oneLine(`a${String.fromCharCode(0x2028)}b${String.fromCharCode(0x2029)}c`)).toBe('a b c');
+    // Blanks that are not around a line break stay as they were typed.
+    expect(oneLine('one  two')).toBe('one  two');
+    expect(oneLine('no break')).toBe('no break');
+  });
+});
 
 describe('the ranges of the engine', () => {
   it('are taken from hello.enums, and the placeholder of the effort is not a size', () => {

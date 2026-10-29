@@ -1,5 +1,6 @@
 <script lang="ts">
   import { closeOnBackdrop } from 'appkit-ui/backdrop';
+  import { floating } from '../lib/floating';
   // A card that goes to the blocked column: say what blocks it (a task of the vault), or go on without. Without a
   // blocker the engine warns (`blocked-without-blocker`), so the person is asked once.
   import type { App } from '../lib/app.svelte';
@@ -51,7 +52,7 @@
   }
 </script>
 
-<dialog bind:this={dialog} use:closeOnBackdrop aria-labelledby="block-title" onclose={() => app.cancelBlock()}>
+<dialog bind:this={dialog} use:floating={{ kind: 'block', moveLabel: t('float.move'), moveHint: t('hint.float.move') }} use:closeOnBackdrop aria-labelledby="block-title" onclose={() => app.cancelBlock()}>
   {#if asking}
     <h2 id="block-title">{t('board.block.title')}</h2>
     <p class="what">{markHidden(card?.title ?? asking.id)}</p>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { closeOnBackdrop } from 'appkit-ui/backdrop';
+  import { floating } from '../lib/floating';
   // A task dropped on an area (or given an area with the key or the button of its row): what the engine says the move
   // would do (a dry run, nothing written yet), and the choice to go on or to give up. A taken name in the target is
   // told, and then there is nothing to confirm. Marked tasks go together and are told one by one, as in the list.
@@ -64,7 +65,7 @@
   }
 </script>
 
-<dialog bind:this={dialog} use:closeOnBackdrop aria-labelledby="drop-move-title" onclose={closed}>
+<dialog bind:this={dialog} use:floating={{ kind: 'drop-move', moveLabel: t('float.move'), moveHint: t('hint.float.move') }} use:closeOnBackdrop aria-labelledby="drop-move-title" onclose={closed}>
   {#if asking === null && choosing !== null}
     <h2 id="drop-move-title">{t('drop.choose')}</h2>
     <p class="what">{markHidden(chosenTask?.title ?? choosing)}</p>

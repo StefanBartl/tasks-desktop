@@ -373,7 +373,15 @@ class FakeHub {
 }
 
 function make(
-  overrides: { token?: string; cached?: CachedList | null; prefs?: Map<string, string>; now?: number; mode?: 'web' } = {},
+  overrides: {
+    token?: string;
+    cached?: CachedList | null;
+    prefs?: Map<string, string>;
+    now?: number;
+    mode?: 'web';
+    openWindow?: (route: string) => boolean;
+    fetchFn?: typeof fetch;
+  } = {},
 ) {
   const prefs = overrides.prefs ?? new Map<string, string>();
   const hub = new FakeHub();
@@ -406,12 +414,13 @@ function make(
     now: () => overrides.now ?? 1000,
     // The stream is not under test here: it is refused, and the loop stops
     // because the test stops the app.
-    fetchFn: (async () => new Response('', { status: 503 })) as typeof fetch,
+    fetchFn: overrides.fetchFn ?? ((async () => new Response('', { status: 503 })) as typeof fetch),
     sleep: async () => {
       await new Promise((r) => setTimeout(r, 1));
     },
     reload: () => void (reloads += 1),
     ...(overrides.mode ? { mode: overrides.mode } : {}),
+    ...(overrides.openWindow ? { openWindow: overrides.openWindow } : {}),
     out: {
       save: (name, text, type) => {
         files.push({ name, text, type });
@@ -648,7 +657,7 @@ describe('App', () => {
     app.stop();
   });
 
-  it('looks at a task in a popup without leaving the view; showing it in the list closes the popup', async () => {
+  it('looks at a task in a popup without leaving the view; showing it in the list keeps it in the popup over the list', async () => {
     const { app, hub } = make({ token: 't' });
     hub.doc = snapshot([task('pub/a', { etag: 'e1' }), task('pub/b', { etag: 'e2' })], 'rev:1');
     await app.start(null);
@@ -661,12 +670,82 @@ describe('App', () => {
     app.closePeek();
     expect(app.peeking).toBe(false);
     expect(app.selectedId).toBe('pub/b');
-    // "Show in the list" is the old way: the list is shown, the popup is gone.
+    // "Show in the list" (the popup's button and the context menu's entry alike): the list is shown behind, with the row
+    // of the task, and the task stays in the popup (the list has no detail beside it).
     app.peek('pub/a');
     app.reveal('pub/a');
-    expect(app.peeking).toBe(false);
+    expect(app.peeking).toBe(true);
     expect(app.view).toBe('list');
+    expect(app.selectedId).toBe('pub/a');
     app.stop();
+  });
+
+  it('reveals a task in the float over the list: the list has no detail beside it', async () => {
+    const { app, hub } = make({ token: 't' });
+    hub.doc = snapshot([task('pub/a'), task('pub/b')], 'rev:1');
+    await app.start(null);
+    app.setView('plan');
+    app.reveal('pub/b');
+    expect(app.view).toBe('list');
+    expect(app.selectedId).toBe('pub/b');
+    expect(app.peeking).toBe(true);
+    app.stop();
+  });
+
+  it('shows the task the address named alone, once the list has it; a view chosen ends that', async () => {
+    const { app, hub } = make({ token: 't' });
+    hub.doc = snapshot([task('pub/a'), task('pub/b')], 'rev:1');
+    // Named before the list is read (main.ts does it before the start).
+    app.openRoute('pub/b');
+    expect(app.solo).toBe(false);
+    await app.start(null);
+    expect(app.solo).toBe(true);
+    expect(app.selectedId).toBe('pub/b');
+    expect(app.peeking).toBe(false);
+    // Taken once: a later read does not select it again.
+    app.select('pub/a');
+    await app.refresh();
+    expect(app.selectedId).toBe('pub/a');
+    app.setView('list');
+    expect(app.solo).toBe(false);
+    app.stop();
+  });
+
+  it('tells a task the address named that the list does not have, and shows the page as it is', async () => {
+    const { app, hub } = make({ token: 't' });
+    hub.doc = snapshot([task('pub/a')], 'rev:1');
+    app.openRoute('pub/gone');
+    await app.start(null);
+    expect(app.solo).toBe(false);
+    expect(app.selectedId).toBeNull();
+    expect(app.toast?.kind).toBe('error');
+    expect(app.toast?.text).toContain('pub/gone');
+    app.stop();
+  });
+
+  it('detaches a task into a window of its own at its route, and closes the float here', async () => {
+    const opened: string[] = [];
+    const { app, hub } = make({ token: 't', openWindow: (route) => (opened.push(route), true) });
+    hub.doc = snapshot([task('pub/a')], 'rev:1');
+    await app.start(null);
+    expect(app.canDetach).toBe(true);
+    app.peek('pub/a');
+    app.detach('pub/a');
+    expect(opened).toEqual(['#task=pub%2Fa']);
+    expect(app.peeking).toBe(false);
+    app.stop();
+  });
+
+  it('keeps the float and says so when the browser opens no window; without windows nothing is offered', async () => {
+    const { app, hub } = make({ token: 't', openWindow: () => false });
+    hub.doc = snapshot([task('pub/a')], 'rev:1');
+    await app.start(null);
+    app.peek('pub/a');
+    app.detach('pub/a');
+    expect(app.peeking).toBe(true);
+    expect(app.toast?.kind).toBe('error');
+    app.stop();
+    expect(make().app.canDetach).toBe(false);
   });
 
   it('does not search the text of words that a reveal took away', async () => {
@@ -864,6 +943,20 @@ describe('App, cache and hub', () => {
     app.stop();
     hub.hubDown = false;
     await started;
+  });
+
+  it('says when the hub refuses the stream because the session holds too many, and stops saying it once that ends', async () => {
+    let status = 429;
+    const fetchFn = (async () =>
+      new Response(JSON.stringify({ error: { code: 'too_many_streams' } }), { status })) as typeof fetch;
+    const { app } = make({ token: 't', fetchFn });
+    await app.start(null);
+    await vi.waitFor(() => expect(app.streamsFull).toBe(true));
+    expect(app.connection).toBe('reconnecting');
+    // Another refusal (the hub is restarting, say) is not that.
+    status = 503;
+    await vi.waitFor(() => expect(app.streamsFull).toBe(false));
+    app.stop();
   });
 
   it('keeps the session of the tab when the code of the link is no good', async () => {
@@ -3016,6 +3109,62 @@ describe('writing', () => {
       hub.next_ops = answer({ n: 1, op: 'move_area', id: 'pub/a', ok: false, outcome: 'failed', changed_ids: [], error: { code: 'invalid_argument', message: 'taken', retryable: false } });
       expect(await app.moveArea('pub/a', 'inner', 'e1')).toBe(false);
       expect(app.selectedId).toBe('pub/a');
+    });
+
+    it('keeps the float of a task open across its move and the undo of it, under the new id', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
+      app.peek('pub/a');
+      hub.next_ops = answer(entry('move_area', { outcome: 'moved', new_id: 'inner/a', inverse: { op: 'move_area', id: 'inner/a', to_area: 'pub', if_match: 'e2' } }));
+      hub.doc = snapshot([task('inner/a', { etag: 'e2' })]);
+      expect(await app.moveArea('pub/a', 'inner', 'e1')).toBe(true);
+      expect([app.selectedId, app.peeking]).toEqual(['inner/a', true]);
+      hub.doc = snapshot([task('pub/a', { etag: 'e3' })]);
+      hub.next_ops = answer(entry('move_area', { id: 'inner/a', outcome: 'moved', new_id: 'pub/a' }));
+      await app.undo();
+      expect([app.selectedId, app.peeking]).toEqual(['pub/a', true]);
+    });
+
+    it('closes the float of a task that is gone from the list', async () => {
+      const { app, hub } = await ready([task('pub/a'), task('pub/b')]);
+      app.peek('pub/a');
+      hub.doc = snapshot([task('pub/b')], 'rev:9');
+      await app.refresh();
+      expect([app.selectedId, app.peeking]).toEqual([null, false]);
+    });
+
+    it('keeps a window of one task on its task across its move and the undo of it, under the new id', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
+      app.openRoute('pub/a');
+      expect(app.solo).toBe(true);
+      hub.next_ops = answer(entry('move_area', { outcome: 'moved', new_id: 'inner/a', inverse: { op: 'move_area', id: 'inner/a', to_area: 'pub', if_match: 'e2' } }));
+      // A new revision: the read after the write takes the list (and drops the old id from the selection).
+      hub.doc = snapshot([task('inner/a', { etag: 'e2' })], 'rev:2');
+      expect(await app.moveArea('pub/a', 'inner', 'e1')).toBe(true);
+      expect([app.selectedId, app.solo, app.peeking]).toEqual(['inner/a', true, false]);
+      hub.doc = snapshot([task('pub/a', { etag: 'e3' })], 'rev:3');
+      hub.next_ops = answer(entry('move_area', { id: 'inner/a', outcome: 'moved', new_id: 'pub/a' }));
+      await app.undo();
+      expect([app.selectedId, app.solo, app.peeking]).toEqual(['pub/a', true, false]);
+    });
+
+    it('makes a window of one task a page of views again when its task is let go of or gone', async () => {
+      const { app, hub } = await ready([task('pub/a'), task('pub/b')]);
+      // Let go of (Escape): the next task chosen there opens in a float over the view, not alone in place of it.
+      app.openRoute('pub/a');
+      expect(app.solo).toBe(true);
+      app.select(null);
+      expect(app.solo).toBe(false);
+      app.peek('pub/b');
+      expect([app.solo, app.peeking]).toEqual([false, true]);
+      app.closePeek();
+      // Gone from the list (finished in that window): the same.
+      app.openRoute('pub/a');
+      expect(app.solo).toBe(true);
+      hub.doc = snapshot([task('pub/b')], 'rev:9');
+      await app.refresh();
+      expect([app.selectedId, app.solo]).toEqual([null, false]);
+      app.select('pub/b');
+      expect(app.solo).toBe(false);
     });
 
     it('asks what a move would break as a dry run and writes nothing', async () => {

@@ -13,6 +13,7 @@ import { indexedDbStore } from './lib/cache';
 import { copyText, printSheet, saveText } from './lib/exportDom';
 import { detectLang, translate } from './lib/i18n';
 import { trackHistory } from './lib/trackHistory.svelte';
+import { routedTask } from './lib/route';
 import { installTooltips } from 'appkit-ui/tooltip';
 import { createBrowserHub, WorkerClient, type PortLike } from './web/client';
 import { pageCache } from './web/page-cache';
@@ -32,6 +33,9 @@ const CODE = 'web';
 
 const target = document.getElementById('app') as HTMLElement;
 const lang = detectLang(navigator.languages);
+// A window a task was detached into names the task in the fragment (route.ts). It stays in the address: there is no
+// code to hide here, and a reload of that window opens the task again (once the folder is open).
+const routed = routedTask(window.location.hash);
 
 // What the page keeps in the browser is decided by the data classes of the folder (`areas.json`, web/classes.ts, wired in
 // web/page-cache.ts). The app is made only after the folder and its classes were read (Entry.open, then `begin`), so
@@ -169,6 +173,9 @@ async function begin(folder: string | null): Promise<void> {
     fetchFn,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     reload: () => window.location.reload(),
+    // The same file in a new window, at the task. The new window has its own engine: it asks for the folder again (a
+    // folder used before is one click) and then shows the task.
+    openWindow: (route) => window.open(`${window.location.pathname}${window.location.search}${route}`, '_blank') !== null,
     // Known here, not asked of the hub: nothing that needs the machine is shown, not even until an answer comes.
     mode: 'web',
     out: {
@@ -178,6 +185,7 @@ async function begin(folder: string | null): Promise<void> {
     },
   };
   const state = new AppState(env);
+  if (routed !== null) state.openRoute(routed);
   installTooltips(document, window, { regionLabel: () => translate(state.lang, 'hint.region') });
   void unmount(entryUi);
   target.replaceChildren();

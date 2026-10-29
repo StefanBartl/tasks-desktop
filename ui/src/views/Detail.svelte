@@ -12,6 +12,7 @@
     badTag,
     isWebLink,
     listEditable,
+    oneLine,
     parseList,
     parseTags,
     tagsChanged,
@@ -135,9 +136,33 @@
     if (!task || detail.state !== 'ok' || note.trim() === '') return;
     if (await app.addNote(task.id, note, detail.doc.task.etag)) note = '';
   }
+
+  // A write disables the choices while it is under way and draws the fields anew when it has ended (the {#key} below):
+  // the field that had the focus would lose it to the page, whose single keys (those of the inbox, j and k under the
+  // float) would then act on what is typed next. It gets the focus back when the write has ended, unless the person
+  // went on to something else meanwhile.
+  let root = $state<HTMLElement | undefined>();
+  let refocus = -1;
+  const fieldsOf = (el: HTMLElement): HTMLElement[] => [
+    ...el.querySelectorAll<HTMLElement>('.edit input, .edit select, .edit textarea'),
+  ];
+  $effect.pre(() => {
+    if (!app.saving || !root) return;
+    const active = document.activeElement;
+    refocus = active instanceof HTMLElement ? fieldsOf(root).indexOf(active) : -1;
+  });
+  $effect(() => {
+    if (app.saving || !root) return;
+    const at = refocus;
+    refocus = -1;
+    if (at < 0) return;
+    const active = document.activeElement;
+    if (active !== null && active !== document.body) return;
+    fieldsOf(root)[at]?.focus();
+  });
 </script>
 
-<aside class="detail" aria-label={t('detail.label')}>
+<aside class="detail" aria-label={t('detail.label')} bind:this={root}>
   {#if !task}
     <p class="muted">{t('detail.none')}</p>
   {:else}
@@ -158,14 +183,16 @@
     {#if task.summary}<p>{markHidden(task.summary)}</p>{/if}
 
     {#key `${task.id}:${app.writes}`}
+    <!-- The fields with a text of their own each take a whole line (a title, a summary is seldom short); the choices
+         from a few values share the lines between them, each at a width its values fit in. -->
     <div class="edit" role="group" aria-label={t('detail.edit')}>
-      <label class="wide">
+      <label class="line">
         <span>{t('field.title')}</span>
         <input
           type="text"
           value={task.title}
           maxlength="300"
-          disabled={app.saving}
+          readonly={app.saving}
           onchange={(e) => {
             const next = e.currentTarget.value.trim();
             if (next === task.title) return;
@@ -178,125 +205,175 @@
           }}
         />
       </label>
-      <label class="wide">
+      <label class="line">
         <span>{t('field.summary')}</span>
+        <!-- Several lines to read and write in; the engine keeps the summary as one line, so Enter writes it (as in a
+             field of one line, the focus stays in it) and a line break that was pasted becomes a space. -->
+        <textarea
+          class="summary"
+          rows="3"
+          value={task.summary ?? ''}
+          maxlength="1000"
+          readonly={app.saving}
+          onkeydown={(e) => {
+            if (e.key === 'Enter' && !e.isComposing) {
+              e.preventDefault();
+              if (!app.saving) changeText('summary', task.summary, oneLine(e.currentTarget.value));
+            }
+          }}
+          onchange={(e) => changeText('summary', task.summary, oneLine(e.currentTarget.value))}
+        ></textarea>
+      </label>
+      <div class="picks">
+        <label>
+          <span data-hint={hintOf(app.lang, 'hint.field', 'status')}>{t('field.status')}</span>
+          <select
+            value={task.status ?? ''}
+            disabled={app.saving}
+            onchange={(e) => void app.setField(task.id, 'status', e.currentTarget.value)}
+          >
+            <!-- A status the file has and the engine does not name (an older engine) is shown as it is. -->
+            {#if task.status && !app.ranges.statuses.includes(task.status)}
+              <option value={task.status}>{labelOf(app.lang, 'status', task.status)}</option>
+            {/if}
+            {#each app.ranges.statuses as s (s)}
+              <option value={s}>{labelOf(app.lang, 'status', s)}</option>
+            {/each}
+          </select>
+        </label>
+        <label>
+          <span data-hint={hintOf(app.lang, 'hint.field', 'prio')}>{t('field.prio')}</span>
+          <select
+            value={task.prio === undefined ? '' : String(task.prio)}
+            disabled={app.saving}
+            onchange={(e) =>
+              void app.setField(
+                task.id,
+                'prio',
+                e.currentTarget.value === '' ? null : Number(e.currentTarget.value),
+              )}
+          >
+            <option value="">{t('field.none')}</option>
+            {#if task.prio !== undefined && !app.ranges.prios.includes(task.prio)}
+              <option value={String(task.prio)}>{task.prio}</option>
+            {/if}
+            {#each app.ranges.prios as p (p)}
+              <option value={String(p)}>{p}</option>
+            {/each}
+          </select>
+        </label>
+        <label>
+          <span data-hint={hintOf(app.lang, 'hint.field', 'actor')}>{t('field.actor')}</span>
+          <select
+            value={task.actor ?? ''}
+            disabled={app.saving}
+            onchange={(e) =>
+              void app.setField(task.id, 'actor', e.currentTarget.value === '' ? null : e.currentTarget.value)}
+          >
+            <option value="">{t('field.none')}</option>
+            {#if task.actor && !app.ranges.actors.includes(task.actor)}
+              <option value={task.actor}>{labelOf(app.lang, 'actor', task.actor)}</option>
+            {/if}
+            {#each app.ranges.actors as a (a)}
+              <option value={a}>{labelOf(app.lang, 'actor', a)}</option>
+            {/each}
+          </select>
+        </label>
+        <label>
+          <span data-hint={hintOf(app.lang, 'hint.field', 'kind')}>{t('field.kind')}</span>
+          <select
+            value={task.kind ?? ''}
+            disabled={app.saving}
+            onchange={(e) =>
+              void app.setField(task.id, 'kind', e.currentTarget.value === '' ? null : e.currentTarget.value)}
+          >
+            <option value="">{t('field.none')}</option>
+            {#each app.ranges.kinds as k (k)}
+              <option value={k}>{k}</option>
+            {/each}
+          </select>
+        </label>
+        <label>
+          <span data-hint={hintOf(app.lang, 'hint.field', 'effort')}>{t('field.effort')}</span>
+          <select
+            value={task.effort ?? ''}
+            disabled={app.saving}
+            onchange={(e) =>
+              void app.setField(task.id, 'effort', e.currentTarget.value === '' ? null : e.currentTarget.value)}
+          >
+            <option value="">{t('field.none')}</option>
+            {#if task.effort && !app.ranges.efforts.includes(task.effort)}
+              <option value={task.effort}>{task.effort}</option>
+            {/if}
+            {#each app.ranges.efforts as size (size)}
+              <option value={size}>{size}</option>
+            {/each}
+          </select>
+        </label>
+        <label>
+          <span data-hint={hintOf(app.lang, 'hint.field', 'value')}>{t('field.value')}</span>
+          <select
+            value={task.value === undefined ? '' : String(task.value)}
+            disabled={app.saving}
+            onchange={(e) =>
+              void app.setField(
+                task.id,
+                'value',
+                e.currentTarget.value === '' ? null : Number(e.currentTarget.value),
+              )}
+          >
+            <option value="">{t('field.none')}</option>
+            {#each app.ranges.values as v (v)}
+              <option value={String(v)}>{v}</option>
+            {/each}
+          </select>
+        </label>
+        <label>
+          <span>{t('remind.field')}</span>
+          <select
+            value={task.remind ?? ''}
+            disabled={app.saving}
+            onchange={(e) => {
+              const value = e.currentTarget.value;
+              if (value !== (task.remind ?? '')) void app.setField(task.id, 'remind', value === '' ? null : value);
+            }}
+          >
+            <option value="">{t('remind.none')}</option>
+            {#if task.remind}<option value={task.remind}>{task.remind}</option>{/if}
+            {#each REMIND_CHOICES as choice (choice)}
+              <option value={choice}
+                >{choice === '+0d' ? t('remind.today') : t('remind.in', { n: choice.slice(1, -1) })}</option
+              >
+            {/each}
+          </select>
+        </label>
+      </div>
+      <!-- The plan and the phase are free text, often a long name: a line each, as the title. -->
+      <label class="line">
+        <span data-hint={hintOf(app.lang, 'hint.field', 'plan')}>{t('field.plan')}</span>
         <input
           type="text"
-          value={task.summary}
-          maxlength="1000"
-          disabled={app.saving}
-          onchange={(e) => changeText('summary', task.summary, e.currentTarget.value)}
+          value={task.plan ?? ''}
+          readonly={app.saving}
+          onchange={(e) => changeText('plan', task.plan, e.currentTarget.value)}
         />
       </label>
-      <label>
-        <span data-hint={hintOf(app.lang, 'hint.field', 'status')}>{t('field.status')}</span>
-        <select
-          value={task.status ?? ''}
-          disabled={app.saving}
-          onchange={(e) => void app.setField(task.id, 'status', e.currentTarget.value)}
-        >
-          <!-- A status the file has and the engine does not name (an older engine) is shown as it is. -->
-          {#if task.status && !app.ranges.statuses.includes(task.status)}
-            <option value={task.status}>{labelOf(app.lang, 'status', task.status)}</option>
-          {/if}
-          {#each app.ranges.statuses as s (s)}
-            <option value={s}>{labelOf(app.lang, 'status', s)}</option>
-          {/each}
-        </select>
+      <label class="line">
+        <span data-hint={hintOf(app.lang, 'hint.field', 'phase')}>{t('field.phase')}</span>
+        <input
+          type="text"
+          value={task.phase ?? ''}
+          readonly={app.saving}
+          onchange={(e) => changeText('phase', task.phase, e.currentTarget.value)}
+        />
       </label>
-      <label>
-        <span data-hint={hintOf(app.lang, 'hint.field', 'prio')}>{t('field.prio')}</span>
-        <select
-          value={task.prio === undefined ? '' : String(task.prio)}
-          disabled={app.saving}
-          onchange={(e) =>
-            void app.setField(
-              task.id,
-              'prio',
-              e.currentTarget.value === '' ? null : Number(e.currentTarget.value),
-            )}
-        >
-          <option value="">{t('field.none')}</option>
-          {#if task.prio !== undefined && !app.ranges.prios.includes(task.prio)}
-            <option value={String(task.prio)}>{task.prio}</option>
-          {/if}
-          {#each app.ranges.prios as p (p)}
-            <option value={String(p)}>{p}</option>
-          {/each}
-        </select>
-      </label>
-      <label>
-        <span data-hint={hintOf(app.lang, 'hint.field', 'actor')}>{t('field.actor')}</span>
-        <select
-          value={task.actor ?? ''}
-          disabled={app.saving}
-          onchange={(e) =>
-            void app.setField(task.id, 'actor', e.currentTarget.value === '' ? null : e.currentTarget.value)}
-        >
-          <option value="">{t('field.none')}</option>
-          {#if task.actor && !app.ranges.actors.includes(task.actor)}
-            <option value={task.actor}>{labelOf(app.lang, 'actor', task.actor)}</option>
-          {/if}
-          {#each app.ranges.actors as a (a)}
-            <option value={a}>{labelOf(app.lang, 'actor', a)}</option>
-          {/each}
-        </select>
-      </label>
-      <label>
-        <span data-hint={hintOf(app.lang, 'hint.field', 'kind')}>{t('field.kind')}</span>
-        <select
-          value={task.kind ?? ''}
-          disabled={app.saving}
-          onchange={(e) =>
-            void app.setField(task.id, 'kind', e.currentTarget.value === '' ? null : e.currentTarget.value)}
-        >
-          <option value="">{t('field.none')}</option>
-          {#each app.ranges.kinds as k (k)}
-            <option value={k}>{k}</option>
-          {/each}
-        </select>
-      </label>
-      <label>
-        <span data-hint={hintOf(app.lang, 'hint.field', 'effort')}>{t('field.effort')}</span>
-        <select
-          value={task.effort ?? ''}
-          disabled={app.saving}
-          onchange={(e) =>
-            void app.setField(task.id, 'effort', e.currentTarget.value === '' ? null : e.currentTarget.value)}
-        >
-          <option value="">{t('field.none')}</option>
-          {#if task.effort && !app.ranges.efforts.includes(task.effort)}
-            <option value={task.effort}>{task.effort}</option>
-          {/if}
-          {#each app.ranges.efforts as size (size)}
-            <option value={size}>{size}</option>
-          {/each}
-        </select>
-      </label>
-      <label>
-        <span data-hint={hintOf(app.lang, 'hint.field', 'value')}>{t('field.value')}</span>
-        <select
-          value={task.value === undefined ? '' : String(task.value)}
-          disabled={app.saving}
-          onchange={(e) =>
-            void app.setField(
-              task.id,
-              'value',
-              e.currentTarget.value === '' ? null : Number(e.currentTarget.value),
-            )}
-        >
-          <option value="">{t('field.none')}</option>
-          {#each app.ranges.values as v (v)}
-            <option value={String(v)}>{v}</option>
-          {/each}
-        </select>
-      </label>
-      <label class="wide">
+      <label class="line">
         <span data-hint={hintOf(app.lang, 'hint.field', 'tags')}>{t('field.tags')} <small>({t('field.tags_hint')})</small></span>
         <input
           type="text"
           value={tagsText(task.tags)}
-          disabled={app.saving || !listEditable(task.tags)}
+          readonly={app.saving}
+          disabled={!listEditable(task.tags)}
           title={listEditable(task.tags) ? undefined : t('field.list_plain')}
           onchange={(e) => {
             const text = e.currentTarget.value;
@@ -313,50 +390,35 @@
           }}
         />
       </label>
-      <label>
-        <span data-hint={hintOf(app.lang, 'hint.field', 'plan')}>{t('field.plan')}</span>
-        <input
-          type="text"
-          value={task.plan ?? ''}
-          disabled={app.saving}
-          onchange={(e) => changeText('plan', task.plan, e.currentTarget.value)}
-        />
-      </label>
-      <label>
-        <span data-hint={hintOf(app.lang, 'hint.field', 'phase')}>{t('field.phase')}</span>
-        <input
-          type="text"
-          value={task.phase ?? ''}
-          disabled={app.saving}
-          onchange={(e) => changeText('phase', task.phase, e.currentTarget.value)}
-        />
-      </label>
-      <label class="wide">
+      <label class="line">
         <span data-hint={hintOf(app.lang, 'hint.field', 'after')}>{t('field.after')} <small>({t('field.tags_hint')})</small></span>
         <input
           type="text"
           value={tagsText(task.after)}
-          disabled={app.saving || !listEditable(task.after)}
+          readonly={app.saving}
+          disabled={!listEditable(task.after)}
           title={listEditable(task.after) ? undefined : t('field.list_plain')}
           onchange={(e) => changeList('after', task.after, e.currentTarget.value)}
         />
       </label>
-      <label class="wide">
+      <label class="line">
         <span data-hint={hintOf(app.lang, 'hint.field', 'refs')}>{t('field.refs')} <small>({t('field.tags_hint')})</small></span>
         <input
           type="text"
           value={tagsText(task.refs)}
-          disabled={app.saving || !listEditable(task.refs)}
+          readonly={app.saving}
+          disabled={!listEditable(task.refs)}
           title={listEditable(task.refs) ? undefined : t('field.list_plain')}
           onchange={(e) => changeList('refs', task.refs, e.currentTarget.value)}
         />
       </label>
-      <label class="wide">
+      <label class="line">
         <span data-hint={hintOf(app.lang, 'hint.field', 'links')}>{t('field.links')} <small>({t('field.tags_hint')})</small></span>
         <input
           type="text"
           value={tagsText(task.links)}
-          disabled={app.saving || !listEditable(task.links)}
+          readonly={app.saving}
+          disabled={!listEditable(task.links)}
           title={listEditable(task.links) ? undefined : t('field.list_plain')}
           placeholder="https://"
           onchange={(e) => changeList('links', task.links ?? [], e.currentTarget.value)}
@@ -364,34 +426,12 @@
       </label>
       <!-- outside the label: a link inside it would become part of the accessible name of the field -->
       {#if webLinks.length > 0}
-        <div class="wide weblinks">
+        <div class="weblinks">
           {#each webLinks as link (link)}
             <a href={link} target="_blank" rel="noopener noreferrer">{link}</a>
           {/each}
         </div>
       {/if}
-      <label>
-        <span>{t('remind.field')}</span>
-        <select
-          value={task.remind ?? ''}
-          disabled={app.saving}
-          onchange={(e) => {
-            const value = e.currentTarget.value;
-            if (value !== (task.remind ?? '')) void app.setField(task.id, 'remind', value === '' ? null : value);
-          }}
-        >
-          <option value="">{t('remind.none')}</option>
-          {#if task.remind}<option value={task.remind}>{task.remind}</option>{/if}
-          {#each REMIND_CHOICES as choice (choice)}
-            <option value={choice}
-              >{choice === '+0d' ? t('remind.today') : t('remind.in', { n: choice.slice(1, -1) })}</option
-            >
-          {/each}
-        </select>
-      </label>
-      <button type="button" class="finish" data-hint={t('hint.ui.detail.finish')} disabled={app.saving} onclick={() => void app.startFinish(task.id)}
-        >{t('done.button')}</button
-      >
     </div>
     {/key}
 
@@ -545,6 +585,8 @@
             onkeydown={(e) => {
               if (e.key === 'Escape') {
                 e.stopPropagation();
+                // Not the float's Escape either: it would close the float with the draft in it.
+                e.preventDefault();
                 if (draft === draftStart) editing = false;
               }
             }}
@@ -558,7 +600,9 @@
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
         <pre class="body" tabindex="0">{markHidden(body)}</pre>
       {:else}
-        <div class="body prose"><Blocks {blocks} headingBase={2} /></div>
+        <!-- A long text scrolls in its box: the box takes the focus, so the keyboard can scroll it (as the plain text). -->
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <div class="body prose" tabindex="0"><Blocks {blocks} headingBase={2} /></div>
       {/if}
       {#if detail.doc.body_truncated}<p class="muted">{t('detail.body_truncated')}</p>{/if}
       {#if app.can('append_note')}
@@ -692,32 +736,52 @@
         <button type="button" class="open-editor" onclick={() => void copyLink(link)}>{t('attach.copy')}</button>
       </p>
     {/if}
+    <!-- The step that ends the task: larger than the other buttons, in the lower right corner of the card (it stays
+         there while the card scrolls), last in the order of the keyboard. -->
+    <div class="finish-row">
+      <button type="button" class="finish" data-hint={t('hint.ui.detail.finish')} disabled={app.saving} onclick={() => void app.startFinish(task.id)}
+        ><span class="finish-icon" aria-hidden="true">✓</span> {t('done.button')}</button
+      >
+    </div>
   {/if}
 </aside>
 
 <style>
+  /* One field per line for the texts, then the choices in columns that fit their values: nothing is cut to share a
+     line with its neighbour. */
   .edit {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    gap: 0.6rem;
+    margin: 0.5rem 0 0.75rem;
+  }
+  .picks {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
     gap: 0.6rem;
     align-items: end;
-    margin: 0.5rem 0 0.75rem;
   }
   .edit label {
     display: grid;
     gap: 0.15rem;
+    min-width: 0;
     font-size: 0.8rem;
     color: var(--muted);
   }
   .edit select,
   .edit input,
-  .edit .finish {
+  .edit textarea {
+    min-width: 0;
     background: var(--surface-2);
     color: var(--text);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 0.25rem 0.5rem;
     font-size: 0.9rem;
+  }
+  .edit textarea.summary {
+    font: inherit;
+    font-size: 0.9rem;
+    resize: vertical;
   }
   .findings {
     margin: 0 0 0.6rem;
@@ -743,9 +807,6 @@
     padding: 0.25rem 0.7rem;
     cursor: pointer;
   }
-  .edit .wide {
-    flex: 1 1 14rem;
-  }
   .weblinks {
     display: flex;
     flex-wrap: wrap;
@@ -753,8 +814,45 @@
     font-size: 0.85em;
     overflow-wrap: anywhere;
   }
-  .edit .finish {
+  /* The row is as wide as the card but lets the pointer through beside the button: it stands over the text it sticks
+     to. */
+  .finish-row {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1rem;
+    pointer-events: none;
+  }
+  .finish {
+    pointer-events: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-width: 9rem;
+    min-height: 2.75rem;
+    padding: 0.5rem 1.4rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+    background: var(--surface-2);
+    color: var(--text);
+    border: 2px solid var(--accent);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
     cursor: pointer;
+  }
+  .finish:hover:not(:disabled) {
+    background: var(--accent-soft);
+  }
+  .finish-icon {
+    color: var(--ok);
+    font-size: 1.2em;
+    line-height: 1;
+  }
+  .finish:disabled {
+    opacity: 0.6;
+    cursor: default;
   }
   .edit :disabled {
     opacity: 0.6;

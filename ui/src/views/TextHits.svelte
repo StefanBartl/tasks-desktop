@@ -43,7 +43,7 @@
               class="hit"
               class:selected={hit.id === app.selectedId}
               aria-current={hit.id === app.selectedId ? 'true' : undefined}
-              onclick={() => app.select(hit.id)}
+              onclick={() => app.peek(hit.id)}
             >
               <span class="title">{markHidden(byId.get(hit.id)?.title ?? hit.id)}</span>
               <span class="id">{hit.id}</span>

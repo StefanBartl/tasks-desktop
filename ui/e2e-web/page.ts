@@ -264,6 +264,23 @@ export async function editOnDisk(page: Page, path: string, text: string): Promis
   await page.evaluate(([p, t]) => (window as unknown as { __disk: { write(p: string, t: string): void } }).__disk.write(p as string, t as string), [path, text]);
 }
 
+/**
+ * Close the float of a task when one is open (by its Close button, in whatever language): it is modal, the page behind
+ * it is not reached while it is.
+ */
+export async function closeFloat(page: Page): Promise<void> {
+  const float = page.locator('dialog.peek[open]');
+  // A float that closes by itself meanwhile (its task was finished) is closed too.
+  for (let tries = 0; tries < 10 && (await float.count()) > 0; tries += 1) {
+    await float
+      .locator('button[data-close]')
+      .click({ timeout: 1000 })
+      .catch(() => undefined);
+    await float.waitFor({ state: 'detached', timeout: 1000 }).catch(() => undefined);
+  }
+  if ((await float.count()) > 0) throw new Error('the float of the task did not close');
+}
+
 /** Choose the fake folder and wait until the app shows `ready` (by default a task of the fixture vault). */
 export async function openVault(page: Page, files: Record<string, string>, ready = 'Eta tests'): Promise<void> {
   await fakePicker(page, files);

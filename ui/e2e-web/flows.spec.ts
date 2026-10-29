@@ -8,7 +8,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { expectAccessible } from '../e2e/a11y';
 import { HOSTILE } from '../e2e/hub';
-import { editOnDisk, openVault, vaultFiles, violations, watchPage, type Watch } from './page';
+import { closeFloat, editOnDisk, openVault, vaultFiles, violations, watchPage, type Watch } from './page';
 
 test.use({ locale: 'en-US' });
 
@@ -54,6 +54,7 @@ async function reopen(page: Page): Promise<void> {
 }
 
 async function chooseView(page: Page, menu: string, item: string): Promise<void> {
+  await closeFloat(page);
   await page.getByRole('menuitem', { name: menu, exact: true }).click();
   await page.getByRole('menuitemradio', { name: item, exact: true }).click();
 }
@@ -63,9 +64,12 @@ async function showList(page: Page): Promise<void> {
   await expect(page.locator('button.row').first()).toBeVisible();
 }
 
-/** Open a task from the list: the detail of THIS task, read. */
+/** Open a task from the list: the detail of THIS task, read, in the float over the list (another one is closed first). */
 async function open(page: Page, id: string): Promise<void> {
+  const float = page.locator('dialog.peek[open]');
+  await closeFloat(page);
   await page.locator('button.row', { hasText: id }).first().click();
+  await expect(float).toBeVisible();
   await expect(page.locator('aside.detail .id')).toHaveText(id);
   await expect(page.locator('aside.detail .muted', { hasText: /Reading the task/ })).toHaveCount(0);
   await expect(page.locator('aside.detail .prose, aside.detail pre.body')).toBeVisible();
@@ -249,7 +253,8 @@ test('a word only the text of a task has finds it with the place, an area narrow
   // Text only: the match is not an element of the attacker's.
   await expect(page.locator('section.hits img, section.hits script, section.hits a')).toHaveCount(0);
   await hit.click();
-  await expect(page.locator('aside.detail .id')).toHaveText('lib.nvim/xss-body-links');
+  await expect(page.locator('dialog.peek[open] aside.detail .id')).toHaveText('lib.nvim/xss-body-links');
+  await closeFloat(page);
 
   // The area that was chosen holds for the text as well; a second area added, any of them counts.
   await box.fill('tracker.invalid');

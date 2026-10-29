@@ -1,5 +1,6 @@
 <script lang="ts">
   import { closeOnBackdrop } from 'appkit-ui/backdrop';
+  import { floating } from '../lib/floating';
   // What this build is and which engine answers (rule APP-09), and the bug report: a text without any path that the
   // person reads here, copies, or takes to a new issue in the browser. The page sends nothing.
   import { tick } from 'svelte';
@@ -50,6 +51,7 @@
 
 <dialog
   bind:this={dialog}
+  use:floating={{ kind: 'about', moveLabel: t('float.move'), moveHint: t('hint.float.move') }}
   use:closeOnBackdrop
   aria-labelledby="about-title"
   onclose={() => {

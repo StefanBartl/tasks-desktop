@@ -110,6 +110,14 @@ export function tagsText(tags: readonly string[] | undefined): string {
   return (tags ?? []).join(', ');
 }
 
+/**
+ * A text of several lines as the one line the engine keeps (the summary is one line in the file): each line break,
+ * with the blanks around it, becomes one space.
+ */
+export function oneLine(text: string): string {
+  return text.replace(/\s*[\r\n\p{Zl}\p{Zp}]\s*/gu, ' ');
+}
+
 /** Whether typing `text` would change the tags that are there (the form writes nothing when it would not). */
 export function tagsChanged(current: readonly string[] | undefined, text: string): boolean {
   const next = parseTags(text);

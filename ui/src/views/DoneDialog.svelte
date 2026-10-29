@@ -1,5 +1,6 @@
 <script lang="ts">
   import { closeOnBackdrop } from 'appkit-ui/backdrop';
+  import { floating } from '../lib/floating';
   // Finishing a task takes two steps on purpose: this shows what it would do
   // (the engine's preview) and asks.
   import type { App } from '../lib/app.svelte';
@@ -38,7 +39,7 @@
   }
 </script>
 
-<dialog bind:this={dialog} use:closeOnBackdrop aria-labelledby="done-title" onclose={() => app.cancelFinish()}>
+<dialog bind:this={dialog} use:floating={{ kind: 'done', moveLabel: t('float.move'), moveHint: t('hint.float.move') }} use:closeOnBackdrop aria-labelledby="done-title" onclose={() => app.cancelFinish()}>
   {#if finishing}
     <h2 id="done-title">{t('done.title')}</h2>
     <p class="what">{markHidden(title)}</p>

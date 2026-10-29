@@ -3,7 +3,7 @@
 // person); its files are the fixture vault of the hub's tests.
 
 import { expect, test } from '@playwright/test';
-import { fakePicker, pageUrl, vaultFiles, violations, watchPage } from './page';
+import { closeFloat, fakePicker, pageUrl, vaultFiles, violations, watchPage } from './page';
 
 test('the file opens from disk, starts its engine and asks for a folder, without a request', async ({ page }) => {
   const seen = await watchPage(page);
@@ -86,6 +86,7 @@ test('the search finds a word only the text holds, and the page names the web mo
   await expect(page.locator('aside.detail')).toContainText('cascade.nvim/ROADMAP/tasks/web-search-e2e.md');
   await expect(page.locator('aside.detail')).not.toContainText('Neovim');
   await expect(page.locator('aside.detail')).not.toContainText(/Attach screenshot|Screenshot anhängen/);
+  await closeFloat(page);
 
   // The menu of the project has no entry that shows the folder in the file explorer.
   await page.getByRole('menuitem', { name: /^(Project|Projekt)$/ }).click();

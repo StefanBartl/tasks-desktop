@@ -44,8 +44,9 @@ async function prepare(page: Page): Promise<void> {
 }
 
 
-/** Choose a view in the menu bar (the labels are the page's own language). */
+/** Choose a view in the menu bar (the labels are the page's own language); a float of a task is closed first. */
 async function chooseView(page: Page, menu: string, item: string): Promise<void> {
+  await closeFloat(page);
   await page.getByRole('menuitem', { name: menu, exact: true }).click();
   await page.getByRole('menuitemradio', { name: item, exact: true }).click();
 }
@@ -75,8 +76,12 @@ async function drag(
   await page.mouse.up();
 }
 
-/** Make a task through the capture dialog; the key is pressed again until the dialog is there (the menu may hold the focus). */
-async function capture(page: Page, title: string): Promise<void> {
+/**
+ * Make a task through the capture dialog; the key is pressed again until the dialog is there (the menu may hold the
+ * focus). The new task opens in its float over the list; it is closed again unless `keep` asks for it.
+ */
+async function capture(page: Page, title: string, { keep = false }: { keep?: boolean } = {}): Promise<void> {
+  await closeFloat(page);
   const dialog = page.getByRole('dialog', { name: 'New task' });
   await expect(async () => {
     if (!(await dialog.isVisible())) await page.keyboard.press('c');
@@ -89,6 +94,8 @@ async function capture(page: Page, title: string): Promise<void> {
   // and a write may first wait for the engine behind another call: on a busy runner that is more than the 5 s of an
   // expect (CI, a8827db).
   await expect(dialog).toHaveCount(0, { timeout: WRITE_BUDGET });
+  await expect(taskFloat(page).locator('aside.detail .task-title')).toHaveText(title, { timeout: WRITE_BUDGET });
+  if (!keep) await closeFloat(page);
 }
 
 /** How long a test waits for a write to be answered: the engine's 5 s for a call, and a call it may wait behind. */
@@ -113,7 +120,8 @@ async function settled(page: Page): Promise<void> {
   const view = page.locator('section.open[aria-busy]');
   await expect(cards.or(title).or(view).first(), 'settled() needs a card, the title of the detail or an open view').toBeAttached();
   await expect(page.locator('.card:not([draggable="true"])')).toHaveCount(0, { timeout: WRITE_BUDGET });
-  await expect(title.and(page.locator(':disabled'))).toHaveCount(0, { timeout: WRITE_BUDGET });
+  // The title is read-only while a write is on its way (it keeps the focus; the choices are disabled).
+  await expect(title.and(page.locator(':disabled, [readonly]'))).toHaveCount(0, { timeout: WRITE_BUDGET });
   await expect(page.locator('section.open[aria-busy="true"]')).toHaveCount(0, { timeout: WRITE_BUDGET });
 }
 
@@ -177,8 +185,27 @@ async function holdNextWrite(page: Page): Promise<() => void> {
   return release;
 }
 
+/** The float a task opens in, over the list (and the overview, the plan). */
+function taskFloat(page: Page): Locator {
+  return page.locator('dialog.peek[open]');
+}
+
+/** Close the float of a task when one is open: the list behind it is not reached while it is. */
+async function closeFloat(page: Page): Promise<void> {
+  const float = taskFloat(page);
+  if ((await float.count()) === 0) return;
+  // Its Close button, in whatever language the page speaks. A float that closes by itself meanwhile (its task was
+  // finished) is closed too.
+  await expect(async () => {
+    if ((await float.count()) > 0) await float.locator('button[data-close]').click({ timeout: 1000 });
+    await expect(float).toHaveCount(0, { timeout: 1000 });
+  }).toPass({ timeout: 10_000 });
+}
+
 async function open(page: Page, id: string): Promise<void> {
+  await closeFloat(page);
   await page.locator('button.row', { hasText: id }).first().click();
+  await expect(taskFloat(page)).toBeVisible();
   // The detail of THIS task, read: the id is there and the reading is over.
   await expect(page.locator('aside.detail .id')).toHaveText(id);
   await expect(page.locator('aside.detail .muted', { hasText: /Reading the task/ })).toHaveCount(0);
@@ -883,9 +910,10 @@ test('a word that is only in the text of a task finds the task, with the place',
   await expect(hit.locator('mark')).toContainText('tracker.invalid');
   // Text only: the match is not an element of the attacker's.
   await expect(page.locator('section.hits img, section.hits script, section.hits a')).toHaveCount(0);
-  // The hit opens the task.
+  // The hit opens the task, in the float over the list.
   await hit.click();
-  await expect(page.locator('aside.detail .id')).toHaveText('lib.nvim/xss-body-links');
+  await expect(taskFloat(page).locator('aside.detail .id')).toHaveText('lib.nvim/xss-body-links');
+  await closeFloat(page);
   // The area that was chosen holds for the text as well.
   await page.getByPlaceholder('Search id and title').fill('tracker.invalid');
   await expect(hit).toBeVisible();
@@ -1031,9 +1059,13 @@ test('the export: the button of a view, the View menu and the palette take what 
     const button = page.locator('.filters details.export summary');
     await expect(button).toHaveText(/Export/);
     await expect(button).toHaveAttribute('aria-label', 'Export the tasks of this view');
-    // A task is selected: the Escape that closes the popup is the popup's, and the selection stays.
+    // A task is selected (its float closed again): the Escape that closes the popup is the popup's, and the selection
+    // stays.
     await page.locator('button.row', { hasText: `export-e2e-${tag}-one` }).click();
     await expect(page.locator('aside.detail .id')).toHaveText(lib[0]!);
+    await closeFloat(page);
+    const chosen = page.locator('button.row[aria-current="true"] .id');
+    await expect(chosen).toHaveText(lib[0]!);
     await button.focus();
     await page.keyboard.press('Enter');
     const popup = page.getByRole('group', { name: 'Ways to export' });
@@ -1044,7 +1076,7 @@ test('the export: the button of a view, the View menu and the palette take what 
     await page.keyboard.press('Escape');
     await expect(popup).toBeHidden();
     await expect(button).toBeFocused();
-    await expect(page.locator('aside.detail .id')).toHaveText(lib[0]!);
+    await expect(chosen).toHaveText(lib[0]!);
     // A press elsewhere closes it too (it would cover the rows below it).
     await button.click();
     await expect(popup).toBeVisible();
@@ -1442,7 +1474,9 @@ test('the columns of the list take the width they are dragged to, and a cut text
   await marks.focus();
   for (let i = 0; i < 4; i += 1) await page.keyboard.press('ArrowRight');
   expect((await title.boundingBox())!.width).toBeGreaterThan(titleBefore);
-  // A title that is cut shows all of it in the hint popup.
+  // A title that is cut shows all of it in the hint popup. (The list takes the whole width of the page, no detail
+  // beside it: a window of the width it had then cuts the titles.)
+  await page.setViewportSize({ width: 800, height: 720 });
   await page.getByRole('separator', { name: 'Width of the column ID' }).focus();
   for (let i = 0; i < 30; i += 1) await page.keyboard.press('ArrowRight');
   const cut = page.locator('button.row .title').filter({ hasText: /.{20,}/ }).first();
@@ -1873,7 +1907,8 @@ test('the start page has a small summary of today: tasks finished, made and chan
   await dialog.locator('select').first().selectOption('lib.nvim');
   await dialog.getByRole('button', { name: 'Create' }).click();
   await expect(dialog).toHaveCount(0);
-  // Making a task shows it in the list: back to the start page.
+  // Making a task shows it in the list, in its float: back to the start page.
+  await closeFloat(page);
   await page.getByRole('menuitem', { name: 'View', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'Today', exact: true }).click();
   await expect.poll(() => figure('created')).toBe(before.created + 1);
@@ -1881,7 +1916,7 @@ test('the start page has a small summary of today: tasks finished, made and chan
   // ... and finished today when it is finished (the engine counts the Backlog).
   await showList(page);
   await page.locator('button.row', { hasText: title }).first().click();
-  await page.locator('aside.detail').getByRole('button', { name: 'Finish ...' }).click();
+  await page.locator('aside.detail').getByRole('button', { name: 'Done', exact: true }).click();
   const done = page.getByRole('dialog', { name: 'Finish this task?' });
   await done.getByRole('button', { name: 'Finish', exact: true }).click();
   await expect(done).toHaveCount(0);
@@ -2077,8 +2112,9 @@ test('the menus are Tasks, Project, View, Options and Help, with sections and th
   await menu.getByRole('menuitem', { name: /Find a task/ }).click();
   await expect(page.locator('input[type="search"], input[role="searchbox"]').first()).toBeFocused();
 
-  // A task that is selected can have its ID copied.
+  // A task that is selected (its float closed again) can have its ID copied.
   await page.locator('button.row').first().click();
+  await closeFloat(page);
   await page.getByRole('menuitem', { name: 'Tasks', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: /Copy the ID/ })).toBeEnabled();
   await page.getByRole('menuitem', { name: /Copy the ID/ }).click();
@@ -2117,7 +2153,7 @@ test('the menu bar opens with the keyboard, switches views, language and theme',
   await expect(page.getByRole('menuitemradio', { name: 'Today' })).toHaveAttribute('aria-checked', 'true');
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
-  await expect(page.locator('.split')).toBeVisible();
+  await expect(page.locator('section.list')).toBeVisible();
   await page.getByRole('menuitem', { name: 'View' }).focus();
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Escape');
@@ -2213,7 +2249,7 @@ test('a task is created, changed, taken back and finished through the engine', a
   await expect(detail.getByLabel('Value')).toHaveValue('4');
 
   // Finishing shows what it does and asks.
-  await page.locator('aside.detail').getByRole('button', { name: 'Finish ...' }).click();
+  await page.locator('aside.detail').getByRole('button', { name: 'Done', exact: true }).click();
   const done = page.getByRole('dialog', { name: 'Finish this task?' });
   await expect(done).toBeVisible();
   await expect(done.getByText(id)).toBeVisible();
@@ -2236,6 +2272,9 @@ test('marked tasks are changed in one batch, with the keys and the button', asyn
     await capture.locator('select').first().selectOption('lib.nvim');
     await capture.getByRole('button', { name: 'Create' }).click();
     await expect(capture).toHaveCount(0);
+    // The new task opens in its float over the list.
+    await expect(taskFloat(page)).toBeVisible();
+    await closeFloat(page);
   }
 
   // Narrow the list to the three, mark them all, change the status once.
@@ -2342,6 +2381,8 @@ test('a task that changed meanwhile fails alone in a batch; the others are saved
     await capture.locator('select').first().selectOption('lib.nvim');
     await capture.getByRole('button', { name: 'Create' }).click();
     await expect(capture).toHaveCount(0);
+    // The new task opens in its float over the list.
+    await closeFloat(page);
   }
   await page.getByRole('searchbox', { name: /search/i }).first().fill('Partial e2e');
   const rows = page.locator('.rows .line');
@@ -2382,6 +2423,8 @@ test('a list that typing it back would clean up is not edited as one line', asyn
   await capture.locator('select').first().selectOption('lib.nvim');
   await capture.getByRole('button', { name: 'Create' }).click();
   await expect(capture).toHaveCount(0);
+  // The new task opens in its float over the list.
+  await closeFloat(page);
   // Someone wrote the same tag twice in the file: the line would be cleaned up if it were typed back.
   const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', 'dup-tags-e2e.md');
   writeFileSync(file, readFileSync(file, 'utf8').replace(/^status: .*$/m, (line) => `${line}
@@ -2512,6 +2555,8 @@ test('the estimate matrix sets effort and value of several tasks, with the figur
     await capture.locator('select').first().selectOption('lib.nvim');
     await capture.getByRole('button', { name: 'Create' }).click();
     await expect(capture).toHaveCount(0);
+    // The new task opens in its float over the list.
+    await closeFloat(page);
   }
   await page.getByRole('searchbox', { name: /search/i }).first().fill('Matrix e2e');
   await expect(page.locator('.rows .line')).toHaveCount(2);
@@ -2740,7 +2785,7 @@ test('the inbox keeps the selection at the place of a task that was sorted, and 
   await slow(page, '/api/tasks/snapshot', 1_500);
   release();
   await answer;
-  await expect(detailTitle(page)).toBeDisabled();
+  await expect(detailTitle(page)).not.toBeEditable();
   await settled(page);
   await write(page, () => page.keyboard.press('s'));
   await expect(middle).not.toContainText('no effort');
@@ -2778,6 +2823,8 @@ test('a tag that was refused does not travel to the next task', async ({ page })
     await capture.locator('select').first().selectOption('lib.nvim');
     await capture.getByRole('button', { name: 'Create' }).click();
     await expect(capture).toHaveCount(0);
+    // The new task opens in its float over the list.
+    await closeFloat(page);
   }
   await page.getByRole('searchbox', { name: /search/i }).first().fill('Travel e2e');
   await open(page, 'lib.nvim/travel-e2e-1');
@@ -3658,7 +3705,7 @@ test('a finished task with a reminder comes back on Today and the reminder can b
   const id = (await page.locator('aside.detail .id').innerText()).trim();
 
   // Finish it and ask to be reminded: the task leaves the list, the reminder does not.
-  await page.locator('aside.detail').getByRole('button', { name: 'Finish ...' }).click();
+  await page.locator('aside.detail').getByRole('button', { name: 'Done', exact: true }).click();
   const done = page.getByRole('dialog', { name: 'Finish this task?' });
   await done.getByLabel('Remind me about the result').selectOption('+0d');
   await done.getByRole('button', { name: 'Finish', exact: true }).click();
@@ -3765,8 +3812,17 @@ test('the plan view shows the stages and the critical path, and opens a task', a
   await expect(page.getByRole('region', { name: 'Stages' })).toBeVisible();
   await first.click();
   await popup.getByRole('button', { name: 'Show in the list' }).click();
+  // The list behind, with the row of the task chosen, and the task still in its float over it (as the entry of the
+  // context menu of that name does): the list has no detail beside it. The focus stays in the float.
+  await expect(page.locator('section.list')).toBeAttached();
+  await expect(page.locator('button.row[aria-current="true"] .title')).toHaveText(title);
+  await expect(popup.locator('aside.detail .task-title')).toHaveText(title);
+  await expect(popup.getByRole('button', { name: 'Show in the list' })).toHaveCount(0);
+  await expect(popup.locator('button[data-close]')).toBeFocused();
+  // Closed, the row stays chosen.
+  await page.keyboard.press('Escape');
   await expect(popup).toHaveCount(0);
-  await expect(page.locator('.split aside.detail .task-title')).toHaveText(title);
+  await expect(page.locator('button.row[aria-current="true"] .title')).toHaveText(title);
   expect(consoleProblems.get(page)).toEqual([]);
 });
 
@@ -3965,6 +4021,7 @@ test('the bulk bar sets effort, a reminder and tags, takes a tag off, and the fi
   // The page holds the new version of the file when its tags show in the form (the version is what is checked on writing).
   await page.locator('button.row', { hasText: 'Bulk more e2e 2' }).click();
   await expect(page.locator('aside.detail').getByLabel(/Tags/)).toHaveValue('old, shared');
+  await closeFloat(page);
   await page.getByRole('button', { name: 'Mark all shown' }).click();
   const bar = page.getByRole('group', { name: 'Change the marked tasks' });
   await expectAccessible(page, 'the bulk bar');
@@ -4080,7 +4137,8 @@ test('the command palette: Ctrl+K, an action by a few letters, a task by its wor
   await expect(palette.getByText('Nothing matches')).toBeVisible();
   await page.keyboard.press('Escape');
 
-  // Ctrl+K works from the menu, too, and the page is quiet.
+  // Ctrl+K works from the menu, too (the float of the task that was chosen closed first), and the page is quiet.
+  await closeFloat(page);
   await page.getByRole('menuitem', { name: 'Tasks', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Command palette ...' }).click();
   await expect(palette).toBeVisible();
@@ -4116,7 +4174,9 @@ test('the conflict center keeps a refused change, shows wanted and now, and trie
     await route.continue();
   });
   await detail.getByLabel('Status').selectOption('parked');
-  const button = page.getByRole('button', { name: /Refused changes: 1/ });
+  // The float of the task is modal: it has the button of the bar of the page too, which could not be reached from it.
+  const button = taskFloat(page).getByRole('button', { name: /Refused changes: 1/ });
+  await expect(page.getByRole('banner').getByRole('button', { name: /Refused changes: 1/ })).toBeAttached();
   await expect(button).toBeVisible();
   expect(readFileSync(file, 'utf8')).not.toMatch(/^status: parked$/m);
 
@@ -4140,8 +4200,8 @@ test('the conflict center keeps a refused change, shows wanted and now, and trie
   // A second refusal, let go of: nothing is written and the button is gone.
   spoiled = false;
   await detail.getByLabel('Status').selectOption('doing');
-  await expect(page.getByRole('button', { name: /Refused changes: 1/ })).toBeVisible();
-  await page.getByRole('button', { name: /Refused changes: 1/ }).click();
+  await expect(button).toBeVisible();
+  await button.click();
   await center.getByRole('button', { name: 'Let go' }).click();
   await expect(center).toBeHidden();
   await expect(page.getByRole('button', { name: /Refused changes/ })).toHaveCount(0);
@@ -4308,6 +4368,7 @@ test('the marked tasks are moved to another area in one batch: a dry run first, 
     // The page holds the new version of the first file when its relation shows (the version is what is checked on writing).
     await page.locator('button.row', { hasText: `${title} 1` }).click();
     await expect(page.locator('aside.detail').getByLabel('After')).toHaveValue(new RegExp(`${slug}-2`));
+    await closeFloat(page);
     // Marked in the order 2, 1, 3: the second's move rewrites the first, so the page has to move the first before it.
     for (const n of [2, 1, 3]) await page.getByRole('checkbox', { name: `Mark lib.nvim/${slug}-${n}` }).check();
     await expect(page.getByText('3 marked')).toBeVisible();
@@ -4354,7 +4415,10 @@ test('the marked tasks are moved to another area in one batch: a dry run first, 
       writes += 1;
       await route.continue();
     });
-    await write(page, () => bar.getByRole('button', { name: 'Move 2' }).click());
+    // (No detail is open beside the list to say when the write is over: the answer and the toast are waited for.)
+    const moved = nextAnswer(page);
+    await bar.getByRole('button', { name: 'Move 2' }).click();
+    await moved;
     await expect(page.getByRole('status').getByText('Moved: 2.')).toBeVisible();
     expect(writes).toBe(1);
     for (const n of [1, 2]) {
@@ -4364,19 +4428,21 @@ test('the marked tasks are moved to another area in one batch: a dry run first, 
     expect(existsSync(file('lib.nvim', 3))).toBe(true);
     expect(afterOf(file('cascade.nvim', 1))).toBe(`cascade.nvim/${slug}-2`);
     // The marks and the selection follow the new ids: nothing points at an id that is gone.
-    await expect(page.locator('aside.detail .id')).toHaveText(`cascade.nvim/${slug}-1`);
+    await expect(page.locator('button.row[aria-current="true"] .id')).toHaveText(`cascade.nvim/${slug}-1`);
     await expect(page.getByText('3 marked')).toBeVisible();
     await expect(page.getByRole('checkbox', { name: `Mark cascade.nvim/${slug}-2` })).toBeChecked();
 
     // Taken back: both files and the reference where they were, the selection with them.
-    await write(page, () => page.getByRole('status').getByRole('button', { name: 'Undo' }).click());
+    const undone = nextAnswer(page);
+    await page.getByRole('status').getByRole('button', { name: 'Undo' }).click();
+    await undone;
     await expect(page.getByRole('status').getByText('Undone.')).toBeVisible();
     for (const n of [1, 2]) {
       expect(existsSync(file('lib.nvim', n))).toBe(true);
       expect(existsSync(file('cascade.nvim', n))).toBe(false);
     }
     expect(afterOf(file('lib.nvim', 1))).toBe(`lib.nvim/${slug}-2`);
-    await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/${slug}-1`);
+    await expect(page.locator('button.row[aria-current="true"] .id')).toHaveText(`lib.nvim/${slug}-1`);
     expect(await violations(page)).toEqual([]);
     expect(consoleProblems.get(page)).toEqual([]);
   } finally {
@@ -4729,7 +4795,7 @@ test('a finished task is brought back by the undo of the finish and from the rem
   await pair(page);
   await showList(page);
 
-  await capture(page, 'Finished and back again');
+  await capture(page, 'Finished and back again', { keep: true });
   const id = (await page.locator('aside.detail .id').innerText()).trim();
   const slug = id.split('/')[1] ?? '';
   const open = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${slug}.md`);
@@ -4737,7 +4803,7 @@ test('a finished task is brought back by the undo of the finish and from the rem
   expect(existsSync(open)).toBe(true);
 
   // Finish: the file leaves ROADMAP, the README gets a row.
-  await page.locator('aside.detail').getByRole('button', { name: 'Finish ...' }).click();
+  await page.locator('aside.detail').getByRole('button', { name: 'Done', exact: true }).click();
   const done = page.getByRole('dialog', { name: 'Finish this task?' });
   await done.getByRole('button', { name: 'Finish', exact: true }).click();
   await expect(done).toHaveCount(0);
@@ -4755,7 +4821,7 @@ test('a finished task is brought back by the undo of the finish and from the rem
 
   // Finish again with a reminder: the reminder of a finished task has a button to bring it back.
   await page.locator('button.row', { hasText: id }).click();
-  await page.locator('aside.detail').getByRole('button', { name: 'Finish ...' }).click();
+  await page.locator('aside.detail').getByRole('button', { name: 'Done', exact: true }).click();
   await done.getByLabel('Remind me about the result').selectOption('+0d');
   await done.getByRole('button', { name: 'Finish', exact: true }).click();
   await expect(done).toHaveCount(0);
@@ -4806,9 +4872,9 @@ test('a note that is being typed survives a change of the vault that arrives mea
   await expect(detail.locator('.task-title')).toContainText('TOUCHED', { timeout: 8000 });
   await expect(box).toHaveValue('half a thought');
 
-  // Another task: the draft belongs to the one it was typed for, so it goes.
-  await page.locator('button.row', { hasText: 'lib.nvim/gamma' }).click();
-  await expect(detail.locator('.id')).toHaveText('lib.nvim/gamma');
+  // Another task in the same float (the one beta waits on): the draft belongs to the one it was typed for, so it goes.
+  await detail.getByRole('button', { name: 'lib.nvim/alpha', exact: true }).click();
+  await expect(detail.locator('.id')).toHaveText('lib.nvim/alpha');
   await expect(detail.getByRole('textbox', { name: /Add a note/ })).toHaveValue('');
   writeFileSync(file, text);
 });
@@ -4842,6 +4908,7 @@ test('a filter that is emptied leaves the page where it was: the selected row fa
     await expect(page.locator('.rows .line')).toHaveCount(1);
     await page.locator('button.row', { hasText: `jump-e2e-${tag}-300` }).click();
     await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/jump-e2e-${tag}-300`);
+    await closeFloat(page);
     await page.evaluate(() => window.scrollTo(0, 0));
     await box.focus();
     await page.keyboard.press('Control+a');
@@ -4853,7 +4920,7 @@ test('a filter that is emptied leaves the page where it was: the selected row fa
     await expect(box).toBeFocused();
     await expect(box).toBeInViewport();
     // The selection is kept, and j still brings its row into view.
-    await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/jump-e2e-${tag}-300`);
+    await expect(page.locator('button.row[aria-current="true"] .id')).toHaveText(`lib.nvim/jump-e2e-${tag}-300`);
     await page.locator('button.row[aria-current="true"]').focus();
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.keyboard.press('j');
@@ -4869,6 +4936,7 @@ test('a filter that is emptied leaves the page where it was: the selected row fa
     }).toPass({ timeout: WRITE_BUDGET });
     await page.locator('button.hit', { hasText: `jump-e2e-${tag}-250` }).click();
     await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/jump-e2e-${tag}-250`);
+    await closeFloat(page);
     await page.evaluate(() => window.scrollTo(0, 0));
     await box.focus();
     await page.keyboard.press('Control+a');
@@ -5357,14 +5425,19 @@ test('the context menu of a task changes its status and priority and shows it in
   await expect(menu.getByRole('menuitemradio', { name: 'P1' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'New task ...' })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: 'Columns' })).toBeVisible();
-  // The priority is written by the engine; the radio shows what the file says.
-  await write(page, () => menu.getByRole('menuitemradio', { name: 'P1' }).click());
+  // The priority is written by the engine; the radio shows what the file says. (The list has no detail open whose
+  // fields would say when the write is over: the answer and the file are waited for.)
+  const prio = nextAnswer(page);
+  await menu.getByRole('menuitemradio', { name: 'P1' }).click();
+  await prio;
   await expect(menu).toHaveCount(0);
   const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', 'ctxmenu-r001-task.md');
   await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toMatch(/^prio: 1$/m);
   await row.click({ button: 'right' });
   await expect(menu.getByRole('menuitemradio', { name: 'P1' })).toHaveAttribute('aria-checked', 'true');
-  await write(page, () => menu.getByRole('menuitemradio', { name: 'doing' }).click());
+  const status = nextAnswer(page);
+  await menu.getByRole('menuitemradio', { name: 'doing' }).click();
+  await status;
   await expect.poll(() => readFileSync(file, 'utf8'), { timeout: WRITE_BUDGET }).toMatch(/^status: doing$/m);
 
   // A view has entries of its own: the board offers the task menu on a card too, and the plan has no "new task".

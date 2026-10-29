@@ -1,5 +1,6 @@
 <script lang="ts">
   import { closeOnBackdrop } from 'appkit-ui/backdrop';
+  import { floating } from '../lib/floating';
   // The estimate matrix: effort and value of many tasks side by side. The figures under the table are the engine's
   // answer to what is chosen (`lib/estimate.ts`); this view only shows them.
   import type { App } from '../lib/app.svelte';
@@ -32,7 +33,7 @@
   }
 </script>
 
-<dialog bind:this={dialog} use:closeOnBackdrop aria-labelledby="matrix-title" onclose={() => app.closeMatrix()}>
+<dialog bind:this={dialog} use:floating={{ kind: 'matrix', moveLabel: t('float.move'), moveHint: t('hint.float.move') }} use:closeOnBackdrop aria-labelledby="matrix-title" onclose={() => app.closeMatrix()}>
   {#if app.matrix}
     <h2 id="matrix-title">{t('matrix.title')}</h2>
     <p class="help">{t('matrix.help')}</p>

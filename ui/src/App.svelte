@@ -13,6 +13,7 @@
   import ViewsView from './views/ViewsView.svelte';
   import Matrix from './views/Matrix.svelte';
   import TaskDialog from './views/TaskDialog.svelte';
+  import Detail from './views/Detail.svelte';
   import CheckDialog from './views/CheckDialog.svelte';
   import { triageKey } from './lib/inbox';
   import { copyText } from './lib/exportDom';
@@ -88,6 +89,25 @@
     if (on) chordTimer = setTimeout(() => (chord = false), keymap.chord.timeoutMs);
   }
 
+  /** The page is a window of one task (detached from a float): its detail stands alone, in place of the view. */
+  const alone = $derived(app.solo && app.selected !== null);
+
+  /**
+   * The key `c` in the float of a task, on one of its buttons (not in a field): a new task, as from the page. The
+   * capture opens over the float, and the task it makes is shown in the float after it, so that one task after the
+   * other is captured with c, its title and Enter.
+   */
+  function captureFromFloat(event: KeyboardEvent): boolean {
+    const target = event.target;
+    if (event.key !== 'c' || event.repeat || !(target instanceof HTMLElement)) return false;
+    if (!target.closest('dialog')?.classList.contains('peek')) return false;
+    if (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return false;
+    if (target.closest('[role="menu"]') !== null) return false;
+    event.preventDefault();
+    app.openCapture();
+    return true;
+  }
+
   function onKey(event: KeyboardEvent): void {
     // The palette is not a single-key shortcut: it opens with Ctrl or Cmd and K, also in a field and with the keys off.
     if (app.phase === 'ready' && matches(keymap.palette, pressOf(event))) {
@@ -99,7 +119,9 @@
     if (!app.shortcuts || app.phase !== 'ready') return;
     // A key an element of the page already took (the Escape that closed a popup) is not also a key of the page.
     if (event.defaultPrevented) return;
-    if (event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) return;
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    if (!event.shiftKey && captureFromFloat(event)) return;
+    if (typing(event.target)) return;
     if (MODIFIERS.has(event.key)) return;
     if (chord) {
       setChord(false);
@@ -112,9 +134,13 @@
         return;
       }
     }
+    // The detail of a window of one task stands in place of the view, and the float of a task over it: the keys of
+    // the view do not reach what is hidden behind them (a focus that fell out of the float onto the page would move the
+    // list under it, or write a field of the inbox).
+    const view = alone || app.taskFloatOpen ? null : app.view;
     // The board: Shift with j, k, h or l writes (reorder inside the group, set the status). The letter's case is not
     // trusted: CapsLock turns a plain j into 'J'.
-    if (app.view === 'board' && event.shiftKey && /^[jkhl]$/i.test(event.key)) {
+    if (view === 'board' && event.shiftKey && /^[jkhl]$/i.test(event.key)) {
       event.preventDefault();
       const id = app.selectedId;
       if (id !== null && !event.repeat) {
@@ -125,7 +151,7 @@
       return;
     }
     // The inbox: a single key writes a field of the selected task. Holding a key does not write it again.
-    if (app.view === 'inbox') {
+    if (view === 'inbox') {
       // The letter's case is not trusted here either: with CapsLock on, j and u arrive as J and U (without Shift).
       const letter = event.key.length === 1 && !event.shiftKey ? event.key.toLowerCase() : event.key;
       if (letter === 'j' || letter === 'k') {
@@ -139,7 +165,7 @@
         return;
       }
     }
-    if (app.view === 'inbox' && event.key !== 'g' && event.key !== 'G') {
+    if (view === 'inbox' && event.key !== 'g' && event.key !== 'G') {
       if (triageKey(event.key, event.shiftKey)) {
         event.preventDefault();
         if (!event.repeat) void app.triage(event.key, event.shiftKey);
@@ -155,44 +181,54 @@
         app.openCapture();
         break;
       case 'j':
-        if (app.view === 'list') app.moveSelection(1);
-        else if (app.view === 'inbox') app.moveSelectionInbox(1);
-        else if (app.view === 'board') app.moveSelectionInColumn(1);
+        if (view === 'list') app.moveSelection(1);
+        else if (view === 'inbox') app.moveSelectionInbox(1);
+        else if (view === 'board') app.moveSelectionInColumn(1);
         break;
       case 'k':
-        if (app.view === 'list') app.moveSelection(-1);
-        else if (app.view === 'inbox') app.moveSelectionInbox(-1);
-        else if (app.view === 'board') app.moveSelectionInColumn(-1);
+        if (view === 'list') app.moveSelection(-1);
+        else if (view === 'inbox') app.moveSelectionInbox(-1);
+        else if (view === 'board') app.moveSelectionInColumn(-1);
         break;
       // The board: h and l change the column (Shift with j, k, h, l writes, above).
       case 'h':
-        if (app.view === 'board') app.moveSelectionAcross(-1);
+        if (view === 'board') app.moveSelectionAcross(-1);
         break;
       case 'l':
-        if (app.view === 'board') app.moveSelectionAcross(1);
+        if (view === 'board') app.moveSelectionAcross(1);
+        break;
+      case 'o':
+        // The list has no detail beside it: the selected task opens in the float.
+        if (view === 'list' && app.selectedId !== null && !event.repeat) {
+          event.preventDefault();
+          app.peek(app.selectedId);
+        }
         break;
       case 'x':
         // Holding the key does not flip the mark back and forth.
-        if (app.view === 'list' && app.selectedId !== null && !event.repeat) {
+        if (view === 'list' && app.selectedId !== null && !event.repeat) {
           const id = app.selectedId;
           if (app.shown.some((t) => t.id === id)) app.toggleMark(id);
         }
         break;
       case 'e':
-        if (app.view === 'list' && !event.repeat) {
+        if (view === 'list' && !event.repeat) {
           event.preventDefault();
           app.openMatrix();
         }
         break;
       case '/':
-        if (app.view === 'list') {
+        if (view === 'list') {
           event.preventDefault();
           searchBox?.focus();
         }
         break;
       case 'Escape':
-        // In the list the marks go first; elsewhere there are none to see.
-        if (app.view === 'list' && app.marks.length > 0) app.clearMarks();
+        // The float of a task closes itself (the dialog takes its Escape); the selection and the marks behind it stay.
+        if (app.taskFloatOpen) break;
+        // In the list the marks go first; elsewhere there are none to see. A window of one task lets go of it and shows
+        // its view.
+        if (view === 'list' && app.marks.length > 0) app.clearMarks();
         else app.select(null);
         break;
     }
@@ -206,6 +242,11 @@
   });
 
   const age = $derived(app.cachedAt === null ? '' : ago(app.lang, Date.now() - app.cachedAt));
+
+  /** What the bar says of the connection: the list from the cache, a stream the hub refused (too many windows), or the stream. */
+  const connState = $derived(
+    app.cachedAt !== null ? 'cached' : app.streamsFull && app.connection !== 'live' ? 'full' : app.connection,
+  );
 
   /** The entries of the menu that export what the view shows: a file for each format, then the clipboard. */
   const exportItems = (ready: boolean) =>
@@ -531,8 +572,8 @@
       >
     {/if}
     {#if app.phase === 'ready'}
-      <span class="conn conn-{app.connection}" role="status" data-hint={t(`hint.ui.conn.${app.cachedAt !== null ? 'cached' : app.connection}` as Key)}>
-        {app.cachedAt !== null ? t('conn.cached') : t(`conn.${app.connection}` as Key)}
+      <span class="conn conn-{app.connection}" class:conn-full={connState === 'full'} role="status" data-hint={t(`hint.ui.conn.${connState}` as Key)}>
+        {t(`conn.${connState}` as Key)}
       </span>
     {/if}
   </header>
@@ -572,7 +613,9 @@
           <p class="banner" role="alert">{t('data.incomplete')}</p>
         {/if}
         <h1 class="sr-only">
-          {app.view === 'today'
+          {alone
+            ? t('peek.label')
+            : app.view === 'today'
             ? t('nav.today')
             : app.view === 'plan'
               ? t('nav.plan')
@@ -588,7 +631,10 @@
                         ? t('nav.views')
                         : t('nav.list')}
         </h1>
-        {#if app.view === 'today'}
+        {#if alone}
+          <!-- A window of one task (detached from a float): its detail, alone, as wide as the window allows. -->
+          <div class="solo"><Detail {app} /></div>
+        {:else if app.view === 'today'}
           <Today {app} />
         {:else if app.view === 'plan'}
           <PlanView {app} />
@@ -655,7 +701,9 @@
   {/if}
   <!-- Outside the ready block: the Info dialog and its report are there when the engine is not (app.canAbout). -->
   <AboutDialog {app} />
-  <Toast {app} />
+  <!-- While the float of a task is open the toast is drawn inside it: the float is modal, and the Undo out here could not
+       be reached. -->
+  {#if !app.taskFloatOpen}<Toast {app} />{/if}
 </div>
 
 <style>
@@ -695,6 +743,9 @@
   .conn-offline {
     color: var(--bad);
   }
+  .conn-full {
+    color: var(--warn);
+  }
   main {
     flex: 1;
     min-height: 0;
@@ -704,6 +755,15 @@
   .note,
   .muted {
     color: var(--muted);
+  }
+  .solo {
+    max-width: 60rem;
+    margin: 0 auto;
+  }
+  /* The page scrolls, not the card: the button that finishes the task sticks to the lower edge of the window. */
+  .solo :global(aside.detail) {
+    max-height: none;
+    overflow: visible;
   }
   .card {
     background: var(--surface);

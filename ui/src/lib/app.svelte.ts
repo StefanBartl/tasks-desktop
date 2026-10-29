@@ -94,6 +94,7 @@ import { localToday } from './remind';
 import { defaultColumns, parseColumns, serializeColumns, type ListColumns } from './columns';
 import { emptyFolds, foldOf, parseFolds, serializeFolds, type FoldMemory, type Folds, type FoldView } from './fold';
 import { parseSizes, serializeSizes, withSize, type Size, type Sizes } from './sizes';
+import { taskRoute } from './route';
 
 /** The longest line of the notes the engine takes (`append_note`), in characters. */
 const NOTE_MAX = 1000;
@@ -136,6 +137,11 @@ export interface Env {
   reload?(): void;
   /** `web`: the page is the web variant (`main.web.ts`), with no hub and nothing of the machine. The hub's page leaves it out. */
   mode?: 'web';
+  /**
+   * Open the page again in a window of its own, at the fragment `route` (route.ts); false when the browser refused
+   * (a blocked popup). Left out where the page cannot open windows: a task then cannot be detached.
+   */
+  openWindow?(route: string): boolean;
   /** The ways out of the page for an export: a file the browser saves, the clipboard, the printer. Replaced in tests. */
   out: {
     save(name: string, text: string, type: string): boolean;
@@ -1199,6 +1205,8 @@ export class App {
     this.toast = null;
     // The list is read again inside the write and drops a selection that has no task any more: look before.
     const selectedBefore = this.selectedId;
+    const peekingBefore = this.peeking;
+    const soloBefore = this.solo;
     // A click while the write under way still re-reads the list is queued, not lost.
     if (this.settling) await this.settling;
     const result = await this.write(ops, {
@@ -1215,7 +1223,12 @@ export class App {
       const op = ops[r.n - 1];
       return r.ok && r.outcome === 'moved' && typeof r.new_id === 'string' && op?.op === 'move_area' && op.id === selectedBefore;
     });
-    if (back?.new_id) this.select(back.new_id);
+    if (back?.new_id) {
+      this.select(back.new_id);
+      // And the float it was open in opens again on it (or the window of it alone shows it again).
+      this.peeking = peekingBefore;
+      this.solo = soloBefore;
+    }
     // Not sent at all (the page is not ready any more): say so, the toast is gone.
     if (!result && !this.toast) this.say('error', 'write.failed', { code: 'offline' });
   }
@@ -1392,12 +1405,20 @@ export class App {
    */
   async moveArea(id: string, toArea: string, etag?: string): Promise<boolean> {
     const selectedBefore = this.selectedId;
+    const peekingBefore = this.peeking;
+    const soloBefore = this.solo;
     const result = await this.write([
       { op: 'move_area', id, to_area: toArea, ...(etag ? { if_match: etag } : {}) },
     ]);
     const entry = result?.results[0];
     if (!entry?.ok || entry.outcome !== 'moved' || typeof entry.new_id !== 'string') return false;
-    if (selectedBefore === id) this.select(entry.new_id);
+    if (selectedBefore === id) {
+      this.select(entry.new_id);
+      // The float the task was moved from shows it again under its new id (the read of the list closed it), and so
+      // does a window of that task alone.
+      this.peeking = peekingBefore;
+      this.solo = soloBefore;
+    }
     return true;
   }
 
@@ -1922,6 +1943,8 @@ export class App {
 
   /** Show what `id` needs (or what waits for it) in the plan view. */
   openGraph(id: string, direction: 'needs' | 'unlocks' = 'needs'): void {
+    // The graph is shown in the plan view: the float the button was pressed in closes, or it would stand over it.
+    this.closePeek();
     this.graphState.open(id, direction);
   }
 
@@ -2162,6 +2185,8 @@ export class App {
     );
     const created = result?.results.find((r) => r.ok && r.outcome === 'created')?.id;
     this.capturing = false;
+    // The new task in its float over the list; `c` there captures the next one (App.svelte), so that one task after the
+    // other is written with c, its title and Enter.
     if (created) {
       this.reveal(created);
     }
@@ -2305,16 +2330,65 @@ export class App {
    * away first, or the detail would stand without its row.
    */
   reveal(id: string): void {
-    this.peeking = false;
     if (this.tasks.some((t) => t.id === id) && !this.shown.some((t) => t.id === id)) {
       this.resetFilter();
     }
     this.select(id);
     this.setView('list');
+    // The list has no detail beside it: the task opens in the float over it, its row chosen behind it.
+    this.peeking = true;
   }
 
-  /** A task is looked at in a popup over the view the person is in (the overview, the plan), not in the list. */
+  /** A task is looked at in a float over the view the person is in (the list, the overview, the plan). */
   peeking = $state(false);
+
+  /**
+   * The float of a task is open. It is modal: what is outside it cannot be reached, so the toast with its Undo is
+   * drawn inside it while it is (TaskDialog), and at its usual place otherwise (App).
+   */
+  get taskFloatOpen(): boolean {
+    return this.phase === 'ready' && this.peeking && this.selectedId !== null;
+  }
+
+  /**
+   * The page is a window of one task (detached from the float of another window, route.ts): it shows that task's
+   * detail alone, until a view is chosen.
+   */
+  solo = $state(false);
+  /** The task the address named, waiting for the list to know it. */
+  #route: string | null = null;
+
+  /** The address named a task (`#task=<id>`): it is shown alone as soon as the list has it. */
+  openRoute(id: string): void {
+    this.#route = id;
+    if (this.tasks.some((t) => t.id === id)) this.takeRoute();
+  }
+
+  /** After a read of the list: the task the address named is shown, or told to be gone. */
+  private takeRoute(): void {
+    const id = this.#route;
+    if (id === null) return;
+    this.#route = null;
+    if (!this.tasks.some((t) => t.id === id)) {
+      this.say('error', 'peek.missing', { id });
+      return;
+    }
+    this.peeking = false;
+    this.select(id);
+    this.solo = true;
+  }
+
+  /** A task can be detached into a window of its own (the page can open one). */
+  get canDetach(): boolean {
+    return this.env.openWindow !== undefined;
+  }
+
+  /** Open the task in a window of its own; the float here closes. A browser that refuses the window is told. */
+  detach(id: string): void {
+    const opened = this.env.openWindow?.(taskRoute(id)) ?? false;
+    if (opened) this.closePeek();
+    else this.say('error', 'peek.detach_failed');
+  }
 
   /** Look at a task without leaving the view: it is selected (its detail is read) and the popup opens over the view. */
   peek(id: string): void {
@@ -2600,6 +2674,7 @@ export class App {
       this.phase = 'ready';
       if (this.connection === 'offline') this.connection = 'reconnecting';
       this.keepSelection();
+      this.takeRoute();
       if (this.#arriving && seq > this.#arriving.before) {
         const have = new Set(this.tasks.map((t) => t.id));
         this.#arriving.late += 1;
@@ -2850,6 +2925,8 @@ export class App {
     if (view === 'board' && !this.can('reorder')) return;
     // The views are the vault's: an engine that keeps none has no tab of them.
     if (view === 'views' && !this.can('views')) return;
+    // A window of one task becomes a page of views when one is chosen.
+    this.solo = false;
     this.view = view;
     if (view === 'inbox') this.ensureInboxSelection(true);
     // The board is the built-in view of the tab: its bar makes views, which need the fields of the engine.
@@ -2870,6 +2947,10 @@ export class App {
     if (!task) {
       this.selectedId = null;
       this.detail = { state: 'none' };
+      // Its float closes with it: the next task chosen with j and k is not opened in one by surprise.
+      this.peeking = false;
+      // A window of one task whose task is gone (finished there, moved away) shows its view again, for good.
+      this.solo = false;
       return;
     }
     // The file changed under the open detail: read it again.
@@ -2918,6 +2999,9 @@ export class App {
   select(id: string | null): void {
     this.selectedId = id;
     if (id === null) {
+      // A window of one task that lets go of its task is a page of views again: the next task chosen there opens in a
+      // float over its view, not alone in place of it.
+      this.solo = false;
       this.detailAbort?.abort();
       this.detailRead = null;
       this.detail = { state: 'none' };
@@ -3038,9 +3122,28 @@ export class App {
     await this.refresh();
   }
 
+  /**
+   * The hub refused this window a live connection because the session holds as many as it allows (`429`, its
+   * `too_many_streams`: four per session). The windows a task was detached into share the session of the tab, so the
+   * fifth window of a tab lands here. It is told in the bar; the window is read again when it gets the focus, and the
+   * stream is tried again (backing off) until another window lets go of one.
+   */
+  streamsFull = $state(false);
+
   private followStream(): Promise<void> {
+    const fetchFn: typeof fetch = (input, init) =>
+      this.env.fetchFn(input, init).then(
+        (response) => {
+          this.streamsFull = response.status === 429;
+          return response;
+        },
+        (error: unknown) => {
+          this.streamsFull = false;
+          throw error;
+        },
+      );
     return this.stream.follow({
-      fetchFn: this.env.fetchFn,
+      fetchFn,
       url: () => this.env.hub.url('/api/tasks/events'),
       bearer: () => this.env.hub.bearer,
       hasToken: () => this.env.hub.hasToken,

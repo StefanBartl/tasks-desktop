@@ -3,7 +3,6 @@
   import type { App } from '../lib/app.svelte';
   import { hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
-  import Detail from './Detail.svelte';
   import FinishedList from './FinishedList.svelte';
   import TextHits from './TextHits.svelte';
   import TaskRow from './TaskRow.svelte';
@@ -312,438 +311,425 @@
 
 </script>
 
-<div class="split">
-  <section
-    class="list"
-    aria-label={t('nav.list')}
-    use:sizeable={{
-      size: app.tileSizes['list'] ?? null,
-      active: app.sizing === 'list',
-      onsize: (size) => app.setTileSize('list', size),
-    }}
-  >
-    <div class="filters">
-      <span class="search">
+<!-- Only the list: a task opens in the float over it (TaskDialog), as in the plan and the overview. -->
+<section
+  class="list"
+  aria-label={t('nav.list')}
+  use:sizeable={{
+    size: app.tileSizes['list'] ?? null,
+    active: app.sizing === 'list',
+    onsize: (size) => app.setTileSize('list', size),
+  }}
+>
+  <div class="filters">
+    <span class="search">
+      <input
+        bind:this={searchBox}
+        type="search"
+        data-hint={t('hint.ui.list.search')}
+        placeholder={t('list.search')}
+        aria-label={t('list.search')}
+        value={app.filter.query}
+        oninput={(e) => app.setQuery(e.currentTarget.value)}
+        onkeydown={(e) => {
+          // Escape empties the words (Firefox would not); an empty field leaves Escape to the browser. An open hint
+          // of the field takes this Escape alone (the kit closes it, on the document), and so does a composition.
+          const hintOpen = (e.currentTarget.getAttribute('aria-describedby') ?? '').split(' ').includes(TIP_ID);
+          if (e.key === 'Escape' && !e.isComposing && !hintOpen && app.filter.query !== '') {
+            e.preventDefault();
+            clearQuery();
+          }
+        }}
+      />
+      {#if app.filter.query !== ''}
+        <button
+          type="button"
+          class="search-clear"
+          aria-label={t('list.search_clear')}
+          title={t('list.search_clear')}
+          onmousedown={(e) => e.preventDefault()}
+          onclick={clearQuery}>×</button
+        >
+      {/if}
+    </span>
+    <MultiSelect
+      label={t('nav.areas')}
+      hint={t('hint.ui.list.areas')}
+      note={t('multi.note.areas')}
+      options={areaOptions}
+      selected={app.filter.areas}
+      onchange={(areas) => (app.filter = { ...app.filter, areas })}
+      resetLabel={t('multi.reset')}
+      searchLabel={t('multi.search')}
+    />
+    <MultiSelect
+      label={t('list.filter.status')}
+      hint={t('hint.ui.list.status')}
+      note={t('multi.note.any_one')}
+      options={statuses.map((s) => ({ value: s, label: labelOf(app.lang, 'status', s) }))}
+      selected={app.filter.statuses}
+      onchange={(statuses) => (app.filter = { ...app.filter, statuses })}
+      resetLabel={t('multi.reset')}
+      searchLabel={t('multi.search')}
+    />
+    <MultiSelect
+      label={t('list.filter.actor')}
+      hint={t('hint.ui.list.actor')}
+      note={t('multi.note.any_one')}
+      options={actors.map((a) => ({
+        value: a,
+        label: labelOf(app.lang, 'actor', a),
+        title: hintOf(app.lang, 'actor', `${a}.hint`),
+      }))}
+      selected={app.filter.actors}
+      onchange={(actors) => (app.filter = { ...app.filter, actors })}
+      resetLabel={t('multi.reset')}
+      searchLabel={t('multi.search')}
+    />
+    <label class="pick sort" data-hint={t('hint.ui.list.sort')}>
+      <span>{t('sort.label')}</span>
+      <select data-sort value={app.sort} onchange={(e) => app.setSort(parseSort(e.currentTarget.value))}>
+        {#each SORTS as word (word)}<option value={word}>{t(`sort.${word}` as Key)}</option>{/each}
+      </select>
+    </label>
+    <SizeToggle
+      lang={app.lang}
+      what={t('size.list')}
+      active={app.sizing === 'list'}
+      sized={app.tileSizes['list'] !== undefined}
+      ontoggle={() => app.toggleSizing('list')}
+      onreset={() => app.setTileSize('list', null)}
+    />
+    <ExportMenu {app} />
+    <label class="pick lists" data-hint={t('hint.ui.list.lists')}>
+      <span>{t('lists.label')}</span>
+      <select
+        data-lists
+        value={app.shownList ? `mine:${app.shownList.name}` : ''}
+        onchange={(e) => {
+          const value = e.currentTarget.value;
+          if (value.startsWith('mine:')) app.applyList(value.slice(5));
+          else if (value.startsWith('engine:')) {
+            app.applyEngineList(value.slice(7));
+            // The list of the engine is not kept as the chosen one: the choice goes back to what is shown.
+            e.currentTarget.value = app.shownList ? `mine:${app.shownList.name}` : '';
+          }
+        }}
+      >
+        <option value="">{t('lists.none')}</option>
+        {#if app.lists.length > 0}
+          <optgroup label={t('lists.mine')}>
+            {#each app.lists as list (list.name)}<option value={`mine:${list.name}`}>{list.name}</option>{/each}
+          </optgroup>
+        {/if}
+        {#if app.engineLists.length > 0}
+          <optgroup label={t('lists.engine')}>
+            {#each app.engineLists as list (list.name)}
+              <option value={`engine:${list.name}`} title={list.summary}>{list.name}</option>
+            {/each}
+          </optgroup>
+        {/if}
+      </select>
+    </label>
+    {#if app.shownList}
+      {@const shown = app.shownList}
+      <button
+        type="button"
+        class="list-delete"
+        aria-label={t('lists.delete', { name: shown.name })}
+        title={t('lists.delete', { name: shown.name })}
+        onclick={() => app.deleteList(shown.name)}>×</button
+      >
+    {/if}
+    <details class="save-list" bind:open={saveListOpen}>
+      <summary data-hint={t('hint.ui.list.save')}>{t('lists.save')}</summary>
+      <!-- Not a form: a page of tasks has none (the tests of markup count them), and Enter does the same. -->
+      <div class="save-row" role="group" aria-label={t('lists.save')}>
         <input
-          bind:this={searchBox}
-          type="search"
-          data-hint={t('hint.ui.list.search')}
-          placeholder={t('list.search')}
-          aria-label={t('list.search')}
-          value={app.filter.query}
-          oninput={(e) => app.setQuery(e.currentTarget.value)}
+          type="text"
+          aria-label={t('lists.name')}
+          placeholder={t('lists.name')}
+          maxlength="40"
+          bind:value={listName}
           onkeydown={(e) => {
-            // Escape empties the words (Firefox would not); an empty field leaves Escape to the browser. An open hint
-            // of the field takes this Escape alone (the kit closes it, on the document), and so does a composition.
-            const hintOpen = (e.currentTarget.getAttribute('aria-describedby') ?? '').split(' ').includes(TIP_ID);
-            if (e.key === 'Escape' && !e.isComposing && !hintOpen && app.filter.query !== '') {
+            if (e.key === 'Enter') {
               e.preventDefault();
-              clearQuery();
+              keepList();
             }
           }}
         />
-        {#if app.filter.query !== ''}
-          <button
-            type="button"
-            class="search-clear"
-            aria-label={t('list.search_clear')}
-            title={t('list.search_clear')}
-            onmousedown={(e) => e.preventDefault()}
-            onclick={clearQuery}>×</button
-          >
-        {/if}
-      </span>
-      <MultiSelect
-        label={t('nav.areas')}
-        hint={t('hint.ui.list.areas')}
-        note={t('multi.note.areas')}
-        options={areaOptions}
-        selected={app.filter.areas}
-        onchange={(areas) => (app.filter = { ...app.filter, areas })}
-        resetLabel={t('multi.reset')}
-        searchLabel={t('multi.search')}
-      />
-      <MultiSelect
-        label={t('list.filter.status')}
-        hint={t('hint.ui.list.status')}
-        note={t('multi.note.any_one')}
-        options={statuses.map((s) => ({ value: s, label: labelOf(app.lang, 'status', s) }))}
-        selected={app.filter.statuses}
-        onchange={(statuses) => (app.filter = { ...app.filter, statuses })}
-        resetLabel={t('multi.reset')}
-        searchLabel={t('multi.search')}
-      />
-      <MultiSelect
-        label={t('list.filter.actor')}
-        hint={t('hint.ui.list.actor')}
-        note={t('multi.note.any_one')}
-        options={actors.map((a) => ({
-          value: a,
-          label: labelOf(app.lang, 'actor', a),
-          title: hintOf(app.lang, 'actor', `${a}.hint`),
-        }))}
-        selected={app.filter.actors}
-        onchange={(actors) => (app.filter = { ...app.filter, actors })}
-        resetLabel={t('multi.reset')}
-        searchLabel={t('multi.search')}
-      />
-      <label class="pick sort" data-hint={t('hint.ui.list.sort')}>
-        <span>{t('sort.label')}</span>
-        <select data-sort value={app.sort} onchange={(e) => app.setSort(parseSort(e.currentTarget.value))}>
-          {#each SORTS as word (word)}<option value={word}>{t(`sort.${word}` as Key)}</option>{/each}
-        </select>
-      </label>
-      <SizeToggle
-        lang={app.lang}
-        what={t('size.list')}
-        active={app.sizing === 'list'}
-        sized={app.tileSizes['list'] !== undefined}
-        ontoggle={() => app.toggleSizing('list')}
-        onreset={() => app.setTileSize('list', null)}
-      />
-      <ExportMenu {app} />
-      <label class="pick lists" data-hint={t('hint.ui.list.lists')}>
-        <span>{t('lists.label')}</span>
-        <select
-          data-lists
-          value={app.shownList ? `mine:${app.shownList.name}` : ''}
-          onchange={(e) => {
-            const value = e.currentTarget.value;
-            if (value.startsWith('mine:')) app.applyList(value.slice(5));
-            else if (value.startsWith('engine:')) {
-              app.applyEngineList(value.slice(7));
-              // The list of the engine is not kept as the chosen one: the choice goes back to what is shown.
-              e.currentTarget.value = app.shownList ? `mine:${app.shownList.name}` : '';
-            }
-          }}
-        >
-          <option value="">{t('lists.none')}</option>
-          {#if app.lists.length > 0}
-            <optgroup label={t('lists.mine')}>
-              {#each app.lists as list (list.name)}<option value={`mine:${list.name}`}>{list.name}</option>{/each}
-            </optgroup>
-          {/if}
-          {#if app.engineLists.length > 0}
-            <optgroup label={t('lists.engine')}>
-              {#each app.engineLists as list (list.name)}
-                <option value={`engine:${list.name}`} title={list.summary}>{list.name}</option>
-              {/each}
-            </optgroup>
-          {/if}
-        </select>
-      </label>
-      {#if app.shownList}
-        {@const shown = app.shownList}
-        <button
-          type="button"
-          class="list-delete"
-          aria-label={t('lists.delete', { name: shown.name })}
-          title={t('lists.delete', { name: shown.name })}
-          onclick={() => app.deleteList(shown.name)}>×</button
-        >
-      {/if}
-      <details class="save-list" bind:open={saveListOpen}>
-        <summary data-hint={t('hint.ui.list.save')}>{t('lists.save')}</summary>
-        <!-- Not a form: a page of tasks has none (the tests of markup count them), and Enter does the same. -->
-        <div class="save-row" role="group" aria-label={t('lists.save')}>
-          <input
-            type="text"
-            aria-label={t('lists.name')}
-            placeholder={t('lists.name')}
-            maxlength="40"
-            bind:value={listName}
-            onkeydown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                keepList();
-              }
-            }}
-          />
-          <button type="button" disabled={listName.trim() === ''} onclick={keepList}>{t('lists.save_go')}</button>
-        </div>
-      </details>
-    </div>
-    <details class="more" open={moreOpen} ontoggle={(e) => (moreOpen = e.currentTarget.open)}>
-      <summary bind:this={moreSummary} data-hint={t('hint.ui.list.more')}>{t('filter.more')}{extraOn > 0 ? ` (${extraOn})` : ''}</summary>
-      <div class="more-body">
-        {#each fieldChoices as f (f.key)}
-          <MultiSelect
-            label={fieldLabel(f.key)}
-            options={f.options}
-            selected={app.filter.fields[f.key] ?? []}
-            onchange={(next) => (app.filter = { ...app.filter, fields: { ...app.filter.fields, [f.key]: next } })}
-            note={isMultiKey(f.key) ? '' : t('multi.note.any_one')}
-            match={isMultiKey(f.key)
-              ? {
-                  value: wantsAll(app.filter, f.key) ? 'all' : 'any',
-                  anyLabel: t('filter.match.any'),
-                  allLabel: t('filter.match.all'),
-                  onchange: (value) => {
-                    if (isMultiKey(f.key)) app.filter = withMatch(app.filter, f.key, value);
-                  },
-                }
-              : undefined}
-            resetLabel={t('multi.reset')}
-            searchLabel={t('multi.search')}
-          />
-        {/each}
-        {#if app.quickWinSet !== undefined || app.filter.quickWin}
-          <label class="pick" data-hint={t('hint.quick_win')}>
-            <input
-              type="checkbox"
-              checked={app.filter.quickWin}
-              onchange={(e) => (app.filter = { ...app.filter, quickWin: e.currentTarget.checked })}
-            />
-            <span>{t('filter.quick_win')}</span>
-          </label>
-        {/if}
-        <label class="pick" data-hint={t('hint.cross')}>
-          <input
-            type="checkbox"
-            checked={app.filter.cross}
-            onchange={(e) => (app.filter = { ...app.filter, cross: e.currentTarget.checked })}
-          />
-          <span>{t('filter.cross')}</span>
-        </label>
-        <label class="pick">
-          <span>{t('filter.updated')}</span>
-          <select
-            value={app.filter.updated}
-            onchange={(e) => (app.filter = { ...app.filter, updated: e.currentTarget.value as UpdatedWindow })}
-          >
-            <option value="">{t('filter.whatever')}</option>
-            {#each UPDATED_WINDOWS as w (w)}<option value={w}>{t(`filter.updated.${w}` as Key)}</option>{/each}
-          </select>
-        </label>
-        <label class="pick">
-          <span>{t('filter.reminder')}</span>
-          <select
-            value={app.filter.reminder}
-            onchange={(e) => (app.filter = { ...app.filter, reminder: e.currentTarget.value as ReminderChoice })}
-          >
-            <option value="">{t('filter.whatever')}</option>
-            {#each REMINDER_CHOICES as r (r)}<option value={r}>{t(`filter.reminder.${r}` as Key)}</option>{/each}
-          </select>
-        </label>
-        {#each rangeChoices as r (r.key)}
-          {#each ['min', 'max'] as const as end (end)}
-            <label class="pick" data-hint={r.key === 'prio' ? t('filter.range.prio_hint') : r.key === 'effort' ? t('filter.range.effort_hint') : undefined}>
-              <span>{t(`filter.range.${end}` as Key, { field: t(`filter.field.${r.key}` as Key) })}</span>
-              <select
-                data-range={`${r.key}-${end}`}
-                value={app.filter.ranges[r.key]?.[end]?.label ?? ''}
-                onchange={(e) => setBound(r.key, end, r.options, e.currentTarget.value)}
-              >
-                <option value="">{t('filter.whatever')}</option>
-                {#each boundsWith(r.options, app.filter.ranges[r.key]?.[end]) as o (o.label)}
-                  <option value={o.label}>{boundLabel(r.key, o.label)}</option>
-                {/each}
-              </select>
-            </label>
-          {/each}
-        {/each}
-        {#each DATE_KEYS as key (key)}
-          {#each ['from', 'to'] as const as end (end)}
-            <label class="pick">
-              <span>{t(`filter.date.${end}` as Key, { field: t(`filter.date.${key}` as Key) })}</span>
-              <input
-                type="date"
-                data-date={`${key}-${end}`}
-                value={app.filter.dates[key]?.[end] ?? ''}
-                onchange={(e) => setDay(key, end, e.currentTarget.value)}
-              />
-            </label>
-          {/each}
-        {/each}
+        <button type="button" disabled={listName.trim() === ''} onclick={keepList}>{t('lists.save_go')}</button>
       </div>
     </details>
-    <!-- Words alone are no chip, but they narrow the list as much: reset is offered for them too (in a list that does
-         not then call itself the filters that are on). -->
-    {#if narrows(app.filter)}
-      <ul class="active" aria-label={chips.length > 0 ? t('filter.active') : undefined} bind:this={chipList}>
-        {#each chips as c, index (c.item.kind + ':' + c.item.value)}
-          <li>
-            {#if c.join}<span class="join">{t(`filter.join.${c.join}`)}</span>{/if}
-            <span>{c.label}</span>
-            <button
-              type="button"
-              aria-label={t('filter.remove', { what: c.label })}
-              onclick={() => void removeChip(c.item, index)}>×</button
-            >
-          </li>
-        {/each}
-        <li><button type="button" class="linkish" onclick={() => void clearFilters()}>{t('filter.clear')}</button></li>
-      </ul>
-    {/if}
-    <!-- Only the count is a live region: the buttons and the key help beside it are not to be read out again on every change. -->
-    <p class="count">
-      <span role="status" data-hint={t('hint.ui.list.count')}>{t('list.count', { shown: shown.length, total: app.tasks.length })}</span>
-      <span class="help"
-        ><button type="button" class="linkish" data-hint={t('hint.ui.list.mark_all')} onclick={() => app.markShown()}>{t('bulk.all')}</button> ·
-        {#if app.can('check')}<button type="button" class="linkish" data-hint={t('hint.ui.list.check')} onclick={() => void app.openChecks()}>{t('check.open')}</button> ·{/if}
-        {#if app.can('estimate')}<button type="button" class="linkish" data-hint={t('hint.ui.list.estimate')} onclick={() => app.openMatrix()}>{t('matrix.open')}</button> ·{/if}
-        {t('list.help')}</span
-      >
-      <!-- The marks of the rows, explained with one tab stop (the rows themselves would be hundreds). -->
-      <Info hint={marksLegend(app.lang)} label={t('hint.about', { what: t('mark.legend.what') })} />
-    </p>
-    {#if app.can('finished')}
-      <label class="show-finished" data-hint={t('hint.ui.list.show_finished')}
-        ><input type="checkbox" bind:checked={app.showFinished} /> {t('list.show_finished')}</label
-      >
-    {/if}
-    {#if app.marks.length > 0}
-      <div class="bulk" role="group" aria-label={t('bulk.change')}>
-        <strong aria-live="polite">{t('bulk.count', { n: app.marks.length })}</strong>
-        <label>
-          <span class="sr-only">{t('field.status')}</span>
-          <select bind:value={draft.status} disabled={app.saving}>
-            <option value="">{t('field.status')}: {t('bulk.keep')}</option>
-            {#each statuses as s (s)}<option value={s}>{labelOf(app.lang, 'status', s)}</option>{/each}
-          </select>
-        </label>
-        <label>
-          <span class="sr-only">{t('field.prio')}</span>
-          <select bind:value={draft.prio} disabled={app.saving}>
-            <option value="">{t('field.prio')}: {t('bulk.keep')}</option>
-            {#each app.ranges.prios as p (p)}<option value={String(p)}>P{p}</option>{/each}
-          </select>
-        </label>
-        <label>
-          <span class="sr-only">{t('field.actor')}</span>
-          <select bind:value={draft.actor} disabled={app.saving}>
-            <option value="">{t('field.actor')}: {t('bulk.keep')}</option>
-            {#each app.ranges.actors as a (a)}<option value={a}>{labelOf(app.lang, 'actor', a)}</option>{/each}
-          </select>
-        </label>
-        <label>
-          <span class="sr-only">{t('field.effort')}</span>
-          <select bind:value={draft.effort} disabled={app.saving}>
-            <option value="">{t('field.effort')}: {t('bulk.keep')}</option>
-            <option value="-">{t('field.effort')}: {t('bulk.unset')}</option>
-            {#each app.ranges.efforts as size (size)}<option value={size}>{size}</option>{/each}
-          </select>
-        </label>
-        <label>
-          <span class="sr-only">{t('remind.field')}</span>
-          <select bind:value={draft.remind} disabled={app.saving}>
-            <option value="">{t('remind.field')}: {t('bulk.keep')}</option>
-            <option value="-">{t('remind.field')}: {t('bulk.unset')}</option>
-            {#each REMIND_CHOICES as choice (choice)}
-              <option value={choice}
-                >{choice === '+0d' ? t('remind.today') : t('remind.in', { n: choice.slice(1, -1) })}</option
-              >
-            {/each}
-          </select>
-        </label>
-        <label>
-          <span class="sr-only">{t('bulk.tags_add')}</span>
-          <input type="text" placeholder={t('bulk.tags_add')} bind:value={draft.addTags} disabled={app.saving} onkeydown={applyOnEnter} />
-        </label>
-        <label>
-          <span class="sr-only">{t('bulk.tags_remove')}</span>
-          <input type="text" placeholder={t('bulk.tags_remove')} bind:value={draft.removeTags} disabled={app.saving} onkeydown={applyOnEnter} />
-        </label>
-        <button
-          type="button"
-          class="apply"
-          disabled={app.saving || !chosen}
-          onclick={applyDraft}>{t('bulk.apply')}</button
-        >
-        <button type="button" onclick={() => app.clearMarks()}>{t('bulk.clear')}</button>
-        {#if app.can('move_area')}
-          <div class="bulk-move" role="group" aria-label={t('bulk.move_label')}>
-            <label>
-              <span class="sr-only">{t('bulk.move_label')}</span>
-              <select bind:this={moveSelect} bind:value={moveTo} disabled={app.saving}>
-                <option value="">{t('bulk.move_label')}: {t('bulk.keep')}</option>
-                {#each app.allAreaNames as area (area)}<option value={area}>{area}</option>{/each}
-              </select>
-            </label>
-            <!-- One button for both steps: the same element keeps the focus when "Check the moves" becomes "Move n". -->
-            <button
-              type="button"
-              class:apply={moveShown && movable > 0}
-              disabled={app.saving || moveTo === ''}
-              aria-disabled={checking}
-              aria-busy={checking}
-              onclick={() => void (moveShown && movable > 0 ? doMoves() : checkMoves())}
-              >{moveShown && movable > 0 ? t('bulk.move_go', { n: movable }) : t('bulk.move_check')}</button
-            >
-          </div>
-          <!-- Always there, so that a screen reader has the region before it gets its text. -->
-          <div class="bulk-move-result" role="status" aria-label={t('bulk.move_result')}>
-            {#if moveShown}
-              <ul>
-                {#each moveShown as c (c.id)}
-                  <li class:bad={c.reasons.length > 0}>
-                    {#if c.reasons.length > 0}
-                      {t('bulk.move_refused', { id: c.id, reason: markHidden(c.reasons.join(' ')) })}
-                    {:else}
-                      {t('bulk.move_ok', { id: c.id, new_id: c.newId, n: c.references })}
-                    {/if}
-                  </li>
-                {:else}
-                  <li>{t('bulk.nothing')}</li>
-                {/each}
-              </ul>
-              {#each moveClasses as m (m.from)}<p>{t('bulk.move_class', m)}</p>{/each}
-            {/if}
-          </div>
-        {/if}
-      </div>
-    {/if}
-    <TextHits {app} />
-    <div class="table" style={columnStyle(app.listColumns)}>
-    <ListColumnsHead
-      lang={app.lang}
-      columns={app.listColumns}
-      onlive={(columns) => (app.listColumns = columns)}
-      oncommit={(columns) => app.setListColumns(columns)}
-    />
-    <div class="rows">
-      {#each visible as task (task.file)}
-        <TaskRow
-          {task}
-          lang={app.lang}
-          today={app.today}
-          selected={task.id === app.selectedId}
-          marked={app.marks.includes(task.id)}
-          onselect={(id) => app.select(id)}
-          onmark={(id) => app.toggleMark(id)}
-          markLabel={t('bulk.mark', { id: task.id })}
-          flagged={app.findingsFor(task.id).length}
-          flagTitle={t('check.flag', { n: app.findingsFor(task.id).length })}
-          crossAreas={app.crossAreas(task.id)}
-          crossTitle={t('cross.mark', { n: app.crossAreas(task.id).length, areas: app.crossAreas(task.id).join(', ') })}
-          target={taskTarget(task)}
+  </div>
+  <details class="more" open={moreOpen} ontoggle={(e) => (moreOpen = e.currentTarget.open)}>
+    <summary bind:this={moreSummary} data-hint={t('hint.ui.list.more')}>{t('filter.more')}{extraOn > 0 ? ` (${extraOn})` : ''}</summary>
+    <div class="more-body">
+      {#each fieldChoices as f (f.key)}
+        <MultiSelect
+          label={fieldLabel(f.key)}
+          options={f.options}
+          selected={app.filter.fields[f.key] ?? []}
+          onchange={(next) => (app.filter = { ...app.filter, fields: { ...app.filter.fields, [f.key]: next } })}
+          note={isMultiKey(f.key) ? '' : t('multi.note.any_one')}
+          match={isMultiKey(f.key)
+            ? {
+                value: wantsAll(app.filter, f.key) ? 'all' : 'any',
+                anyLabel: t('filter.match.any'),
+                allLabel: t('filter.match.all'),
+                onchange: (value) => {
+                  if (isMultiKey(f.key)) app.filter = withMatch(app.filter, f.key, value);
+                },
+              }
+            : undefined}
+          resetLabel={t('multi.reset')}
+          searchLabel={t('multi.search')}
         />
-      {:else}
-        <p class="empty">{t('list.none')}</p>
       {/each}
-      {#if app.showFinished && app.can('finished')}
-        <FinishedList {app} />
+      {#if app.quickWinSet !== undefined || app.filter.quickWin}
+        <label class="pick" data-hint={t('hint.quick_win')}>
+          <input
+            type="checkbox"
+            checked={app.filter.quickWin}
+            onchange={(e) => (app.filter = { ...app.filter, quickWin: e.currentTarget.checked })}
+          />
+          <span>{t('filter.quick_win')}</span>
+        </label>
+      {/if}
+      <label class="pick" data-hint={t('hint.cross')}>
+        <input
+          type="checkbox"
+          checked={app.filter.cross}
+          onchange={(e) => (app.filter = { ...app.filter, cross: e.currentTarget.checked })}
+        />
+        <span>{t('filter.cross')}</span>
+      </label>
+      <label class="pick">
+        <span>{t('filter.updated')}</span>
+        <select
+          value={app.filter.updated}
+          onchange={(e) => (app.filter = { ...app.filter, updated: e.currentTarget.value as UpdatedWindow })}
+        >
+          <option value="">{t('filter.whatever')}</option>
+          {#each UPDATED_WINDOWS as w (w)}<option value={w}>{t(`filter.updated.${w}` as Key)}</option>{/each}
+        </select>
+      </label>
+      <label class="pick">
+        <span>{t('filter.reminder')}</span>
+        <select
+          value={app.filter.reminder}
+          onchange={(e) => (app.filter = { ...app.filter, reminder: e.currentTarget.value as ReminderChoice })}
+        >
+          <option value="">{t('filter.whatever')}</option>
+          {#each REMINDER_CHOICES as r (r)}<option value={r}>{t(`filter.reminder.${r}` as Key)}</option>{/each}
+        </select>
+      </label>
+      {#each rangeChoices as r (r.key)}
+        {#each ['min', 'max'] as const as end (end)}
+          <label class="pick" data-hint={r.key === 'prio' ? t('filter.range.prio_hint') : r.key === 'effort' ? t('filter.range.effort_hint') : undefined}>
+            <span>{t(`filter.range.${end}` as Key, { field: t(`filter.field.${r.key}` as Key) })}</span>
+            <select
+              data-range={`${r.key}-${end}`}
+              value={app.filter.ranges[r.key]?.[end]?.label ?? ''}
+              onchange={(e) => setBound(r.key, end, r.options, e.currentTarget.value)}
+            >
+              <option value="">{t('filter.whatever')}</option>
+              {#each boundsWith(r.options, app.filter.ranges[r.key]?.[end]) as o (o.label)}
+                <option value={o.label}>{boundLabel(r.key, o.label)}</option>
+              {/each}
+            </select>
+          </label>
+        {/each}
+      {/each}
+      {#each DATE_KEYS as key (key)}
+        {#each ['from', 'to'] as const as end (end)}
+          <label class="pick">
+            <span>{t(`filter.date.${end}` as Key, { field: t(`filter.date.${key}` as Key) })}</span>
+            <input
+              type="date"
+              data-date={`${key}-${end}`}
+              value={app.filter.dates[key]?.[end] ?? ''}
+              onchange={(e) => setDay(key, end, e.currentTarget.value)}
+            />
+          </label>
+        {/each}
+      {/each}
+    </div>
+  </details>
+  <!-- Words alone are no chip, but they narrow the list as much: reset is offered for them too (in a list that does
+       not then call itself the filters that are on). -->
+  {#if narrows(app.filter)}
+    <ul class="active" aria-label={chips.length > 0 ? t('filter.active') : undefined} bind:this={chipList}>
+      {#each chips as c, index (c.item.kind + ':' + c.item.value)}
+        <li>
+          {#if c.join}<span class="join">{t(`filter.join.${c.join}`)}</span>{/if}
+          <span>{c.label}</span>
+          <button
+            type="button"
+            aria-label={t('filter.remove', { what: c.label })}
+            onclick={() => void removeChip(c.item, index)}>×</button
+          >
+        </li>
+      {/each}
+      <li><button type="button" class="linkish" onclick={() => void clearFilters()}>{t('filter.clear')}</button></li>
+    </ul>
+  {/if}
+  <!-- Only the count is a live region: the buttons and the key help beside it are not to be read out again on every change. -->
+  <p class="count">
+    <span role="status" data-hint={t('hint.ui.list.count')}>{t('list.count', { shown: shown.length, total: app.tasks.length })}</span>
+    <span class="help"
+      ><button type="button" class="linkish" data-hint={t('hint.ui.list.mark_all')} onclick={() => app.markShown()}>{t('bulk.all')}</button> ·
+      {#if app.can('check')}<button type="button" class="linkish" data-hint={t('hint.ui.list.check')} onclick={() => void app.openChecks()}>{t('check.open')}</button> ·{/if}
+      {#if app.can('estimate')}<button type="button" class="linkish" data-hint={t('hint.ui.list.estimate')} onclick={() => app.openMatrix()}>{t('matrix.open')}</button> ·{/if}
+      {t('list.help')}</span
+    >
+    <!-- The marks of the rows, explained with one tab stop (the rows themselves would be hundreds). -->
+    <Info hint={marksLegend(app.lang)} label={t('hint.about', { what: t('mark.legend.what') })} />
+  </p>
+  {#if app.can('finished')}
+    <label class="show-finished" data-hint={t('hint.ui.list.show_finished')}
+      ><input type="checkbox" bind:checked={app.showFinished} /> {t('list.show_finished')}</label
+    >
+  {/if}
+  {#if app.marks.length > 0}
+    <div class="bulk" role="group" aria-label={t('bulk.change')}>
+      <strong aria-live="polite">{t('bulk.count', { n: app.marks.length })}</strong>
+      <label>
+        <span class="sr-only">{t('field.status')}</span>
+        <select bind:value={draft.status} disabled={app.saving}>
+          <option value="">{t('field.status')}: {t('bulk.keep')}</option>
+          {#each statuses as s (s)}<option value={s}>{labelOf(app.lang, 'status', s)}</option>{/each}
+        </select>
+      </label>
+      <label>
+        <span class="sr-only">{t('field.prio')}</span>
+        <select bind:value={draft.prio} disabled={app.saving}>
+          <option value="">{t('field.prio')}: {t('bulk.keep')}</option>
+          {#each app.ranges.prios as p (p)}<option value={String(p)}>P{p}</option>{/each}
+        </select>
+      </label>
+      <label>
+        <span class="sr-only">{t('field.actor')}</span>
+        <select bind:value={draft.actor} disabled={app.saving}>
+          <option value="">{t('field.actor')}: {t('bulk.keep')}</option>
+          {#each app.ranges.actors as a (a)}<option value={a}>{labelOf(app.lang, 'actor', a)}</option>{/each}
+        </select>
+      </label>
+      <label>
+        <span class="sr-only">{t('field.effort')}</span>
+        <select bind:value={draft.effort} disabled={app.saving}>
+          <option value="">{t('field.effort')}: {t('bulk.keep')}</option>
+          <option value="-">{t('field.effort')}: {t('bulk.unset')}</option>
+          {#each app.ranges.efforts as size (size)}<option value={size}>{size}</option>{/each}
+        </select>
+      </label>
+      <label>
+        <span class="sr-only">{t('remind.field')}</span>
+        <select bind:value={draft.remind} disabled={app.saving}>
+          <option value="">{t('remind.field')}: {t('bulk.keep')}</option>
+          <option value="-">{t('remind.field')}: {t('bulk.unset')}</option>
+          {#each REMIND_CHOICES as choice (choice)}
+            <option value={choice}
+              >{choice === '+0d' ? t('remind.today') : t('remind.in', { n: choice.slice(1, -1) })}</option
+            >
+          {/each}
+        </select>
+      </label>
+      <label>
+        <span class="sr-only">{t('bulk.tags_add')}</span>
+        <input type="text" placeholder={t('bulk.tags_add')} bind:value={draft.addTags} disabled={app.saving} onkeydown={applyOnEnter} />
+      </label>
+      <label>
+        <span class="sr-only">{t('bulk.tags_remove')}</span>
+        <input type="text" placeholder={t('bulk.tags_remove')} bind:value={draft.removeTags} disabled={app.saving} onkeydown={applyOnEnter} />
+      </label>
+      <button
+        type="button"
+        class="apply"
+        disabled={app.saving || !chosen}
+        onclick={applyDraft}>{t('bulk.apply')}</button
+      >
+      <button type="button" onclick={() => app.clearMarks()}>{t('bulk.clear')}</button>
+      {#if app.can('move_area')}
+        <div class="bulk-move" role="group" aria-label={t('bulk.move_label')}>
+          <label>
+            <span class="sr-only">{t('bulk.move_label')}</span>
+            <select bind:this={moveSelect} bind:value={moveTo} disabled={app.saving}>
+              <option value="">{t('bulk.move_label')}: {t('bulk.keep')}</option>
+              {#each app.allAreaNames as area (area)}<option value={area}>{area}</option>{/each}
+            </select>
+          </label>
+          <!-- One button for both steps: the same element keeps the focus when "Check the moves" becomes "Move n". -->
+          <button
+            type="button"
+            class:apply={moveShown && movable > 0}
+            disabled={app.saving || moveTo === ''}
+            aria-disabled={checking}
+            aria-busy={checking}
+            onclick={() => void (moveShown && movable > 0 ? doMoves() : checkMoves())}
+            >{moveShown && movable > 0 ? t('bulk.move_go', { n: movable }) : t('bulk.move_check')}</button
+          >
+        </div>
+        <!-- Always there, so that a screen reader has the region before it gets its text. -->
+        <div class="bulk-move-result" role="status" aria-label={t('bulk.move_result')}>
+          {#if moveShown}
+            <ul>
+              {#each moveShown as c (c.id)}
+                <li class:bad={c.reasons.length > 0}>
+                  {#if c.reasons.length > 0}
+                    {t('bulk.move_refused', { id: c.id, reason: markHidden(c.reasons.join(' ')) })}
+                  {:else}
+                    {t('bulk.move_ok', { id: c.id, new_id: c.newId, n: c.references })}
+                  {/if}
+                </li>
+              {:else}
+                <li>{t('bulk.nothing')}</li>
+              {/each}
+            </ul>
+            {#each moveClasses as m (m.from)}<p>{t('bulk.move_class', m)}</p>{/each}
+          {/if}
+        </div>
       {/if}
     </div>
-    </div>
-  </section>
-  <Detail {app} />
-</div>
+  {/if}
+  <TextHits {app} />
+  <div class="table" style={columnStyle(app.listColumns)}>
+  <ListColumnsHead
+    lang={app.lang}
+    columns={app.listColumns}
+    onlive={(columns) => (app.listColumns = columns)}
+    oncommit={(columns) => app.setListColumns(columns)}
+  />
+  <div class="rows">
+    {#each visible as task (task.file)}
+      <TaskRow
+        {task}
+        lang={app.lang}
+        today={app.today}
+        selected={task.id === app.selectedId}
+        marked={app.marks.includes(task.id)}
+        onselect={(id) => app.peek(id)}
+        onmark={(id) => app.toggleMark(id)}
+        markLabel={t('bulk.mark', { id: task.id })}
+        flagged={app.findingsFor(task.id).length}
+        flagTitle={t('check.flag', { n: app.findingsFor(task.id).length })}
+        crossAreas={app.crossAreas(task.id)}
+        crossTitle={t('cross.mark', { n: app.crossAreas(task.id).length, areas: app.crossAreas(task.id).join(', ') })}
+        target={taskTarget(task)}
+      />
+    {:else}
+      <p class="empty">{t('list.none')}</p>
+    {/each}
+    {#if app.showFinished && app.can('finished')}
+      <FinishedList {app} />
+    {/if}
+  </div>
+  </div>
+</section>
 
 <style>
-  .split {
-    display: grid;
-    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-    gap: 1rem;
-    height: 100%;
-    min-height: 0;
-  }
-  @media (max-width: 52rem) {
-    .split {
-      grid-template-columns: 1fr;
-    }
-  }
   .list {
+    height: 100%;
     display: flex;
     flex-direction: column;
     min-height: 0;

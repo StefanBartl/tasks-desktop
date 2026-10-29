@@ -1,5 +1,6 @@
 <script lang="ts">
   import { closeOnBackdrop } from 'appkit-ui/backdrop';
+  import { floating } from '../lib/floating';
   // The plan wizard: a title and an area are enough; the rest (the areas it covers, the phases, the target, the gate)
   // is optional. While the person types, the engine is asked for a dry run: it names the plan, says when the name is
   // taken and refuses a form that is not one, so the rules are not written a second time here.
@@ -80,7 +81,7 @@
   }
 </script>
 
-<dialog bind:this={dialog} use:closeOnBackdrop={{ closeable: () => form.title.trim() === '' }} aria-labelledby="plan-title" onclose={() => app.closePlanWizard()}>
+<dialog bind:this={dialog} use:floating={{ kind: 'plan-wizard', moveLabel: t('float.move'), moveHint: t('hint.float.move') }} use:closeOnBackdrop={{ closeable: () => form.title.trim() === '' }} aria-labelledby="plan-title" onclose={() => app.closePlanWizard()}>
   <form onsubmit={submit}>
     <h2 id="plan-title">{t('plan.new.title')}</h2>
     <label>

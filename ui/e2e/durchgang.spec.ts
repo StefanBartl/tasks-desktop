@@ -22,7 +22,18 @@ test.afterEach(async ({ page }) => {
   expect(await violations(page)).toEqual([]);
 });
 
+/** Close the float of a task when one is open: it is modal, the page behind it is not reached while it is. */
+async function closeFloat(page: Page): Promise<void> {
+  const float = page.locator('dialog.peek[open]');
+  if ((await float.count()) === 0) return;
+  await expect(async () => {
+    if ((await float.count()) > 0) await float.locator('button[data-close]').click({ timeout: 1000 });
+    await expect(float).toHaveCount(0, { timeout: 1000 });
+  }).toPass({ timeout: 10_000 });
+}
+
 async function showList(page: Page): Promise<void> {
+  await closeFloat(page);
   await page.getByRole('menuitem', { name: 'View', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'List', exact: true }).click();
   await expect(page.locator('button.row').first()).toBeVisible();
@@ -181,6 +192,9 @@ async function capture(page: Page, title: string): Promise<void> {
   await dialog.locator('select').first().selectOption('lib.nvim');
   await dialog.getByRole('button', { name: 'Create' }).click();
   await expect(dialog).toHaveCount(0);
+  // The new task opens in its float over the list.
+  await expect(page.locator('dialog.peek[open]')).toBeVisible();
+  await closeFloat(page);
 }
 
 test('a sign on a row has a word for the screen reader, the count alone is live, the detail is a named landmark', async ({

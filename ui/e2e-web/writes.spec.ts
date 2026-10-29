@@ -3,7 +3,7 @@
 // reads (the files on the fake disk are what the person's git would see).
 
 import { expect, test, type Page } from '@playwright/test';
-import { disk, editOnDisk, fakePicker, pageUrl, vaultFiles, violations, watchPage } from './page';
+import { closeFloat, disk, editOnDisk, fakePicker, pageUrl, vaultFiles, violations, watchPage } from './page';
 
 async function openVault(page: Page, files: Record<string, string> = vaultFiles()): Promise<void> {
   await fakePicker(page, files);
@@ -13,6 +13,8 @@ async function openVault(page: Page, files: Record<string, string> = vaultFiles(
 }
 
 async function showList(page: Page): Promise<void> {
+  // The task just made opens in its float over the list: it is closed first.
+  await closeFloat(page);
   await page.getByRole('menuitem', { name: /^(View|Ansicht)$/ }).click();
   await page.getByRole('menuitemradio', { name: /^(List|Liste)$/ }).click();
   await expect(page.locator('button.row').first()).toBeVisible();
@@ -56,7 +58,7 @@ test('a task is made, a field is set and the task is finished: the files on the 
   expect(Object.keys(set).filter((p) => set[p] !== made[p]).sort()).toEqual(['lib.nvim/ROADMAP/TASKS.md', file]);
 
   // 3. finished: the file moves into the Backlog
-  await detail.getByRole('button', { name: /Finish \.\.\.|Erledigen \.\.\./ }).click();
+  await detail.getByRole('button', { name: /^(Done|Erledigt)$/ }).click();
   const done = page.getByRole('dialog', { name: /Finish this task\?|Diesen Task erledigen\?/ });
   await expect(done).toBeVisible();
   await done.getByRole('button', { name: /^(Finish|Erledigen)$/ }).click();
