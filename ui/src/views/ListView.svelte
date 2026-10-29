@@ -153,7 +153,7 @@
     app.setQuery('');
     searchBox?.focus();
   }
-  const extraOn = $derived(extraCount(app.filter));
+  const extraOn = $derived(extraCount(app.filter) + (app.showFinished && app.can('finished') ? 1 : 0));
   const areaOptions = $derived(
     app.areaNames
       .map((name) => ({
@@ -541,6 +541,12 @@
           </label>
         {/each}
       {/each}
+      {#if app.can('finished')}
+        <label class="pick" data-hint={t('hint.ui.list.show_finished')}>
+          <input type="checkbox" bind:checked={app.showFinished} />
+          <span>{t('list.show_finished')}</span>
+        </label>
+      {/if}
       {#each DATE_KEYS as key (key)}
         {#each ['from', 'to'] as const as end (end)}
           <label class="pick">
@@ -586,11 +592,6 @@
     <!-- The marks of the rows, explained with one tab stop (the rows themselves would be hundreds). -->
     <Info hint={marksLegend(app.lang)} label={t('hint.about', { what: t('mark.legend.what') })} />
   </p>
-  {#if app.can('finished')}
-    <label class="show-finished" data-hint={t('hint.ui.list.show_finished')}
-      ><input type="checkbox" bind:checked={app.showFinished} /> {t('list.show_finished')}</label
-    >
-  {/if}
   {#if app.marks.length > 0}
     <div class="bulk" role="group" aria-label={t('bulk.change')}>
       <strong aria-live="polite">{t('bulk.count', { n: app.marks.length })}</strong>
@@ -692,7 +693,6 @@
       {/if}
     </div>
   {/if}
-  <TextHits {app} />
   <div class="table" style={columnStyle(app.listColumns)}>
   <ListColumnsHead
     lang={app.lang}
@@ -720,6 +720,7 @@
     {:else}
       <p class="empty">{t('list.none')}</p>
     {/each}
+    <TextHits {app} />
     {#if app.showFinished && app.can('finished')}
       <FinishedList {app} />
     {/if}
@@ -741,6 +742,7 @@
     display: flex;
     gap: 0.5rem;
     padding: 0.5rem;
+    background: var(--surface-2);
     border-bottom: 1px solid var(--border);
     flex-wrap: wrap;
   }
@@ -948,10 +950,6 @@
   .bulk-move-result .bad {
     color: var(--bad);
   }
-  .show-finished {
-    display: block;
-    padding: 0 0.75rem 0.5rem;
-  }
   /* The head of the columns and the rows: the widths of the columns hold for both. */
   .table {
     display: flex;
@@ -963,6 +961,7 @@
     overflow: auto;
     flex: 1;
     min-height: 0;
+    border-top: 1px solid var(--border);
   }
   .empty {
     padding: 1rem;

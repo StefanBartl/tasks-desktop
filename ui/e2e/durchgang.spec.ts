@@ -272,6 +272,7 @@ test('words that only match tasks the filters keep out say so', async ({ page })
 test('the finished tasks under the list say "none of this area" for one area, not "none at all"', async ({ page }) => {
   await pair(page);
   await showList(page);
+  await page.getByText('More filters', { exact: false }).first().click();
   await page.getByLabel('Show finished tasks under the list').check();
   const finished = page.getByRole('region', { name: 'Finished' });
   await expect(finished).toBeVisible();

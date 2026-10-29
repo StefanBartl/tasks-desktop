@@ -2355,6 +2355,8 @@ export class App {
    * detail alone, until a view is chosen.
    */
   solo = $state(false);
+  /** A finished task that is looked at (read only: the engine reads open tasks only). */
+  finishedPeek = $state<Finished['items'][number] | null>(null);
   /** The task the address named, waiting for the list to know it. */
   #route: string | null = null;
 

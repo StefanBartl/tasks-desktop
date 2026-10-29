@@ -68,11 +68,14 @@
 {/if}
 
 <style>
+  /* A block of its own below the rows of the list: a tinted ground and a bar at its side set it off from them. */
   .hits {
-    border-bottom: 1px solid var(--border);
+    margin: 0.75rem 0.5rem;
     padding: 0.25rem 0;
-    max-height: 40%;
-    overflow: auto;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
   }
   .eyebrow {
     font-size: 0.8rem;

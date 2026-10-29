@@ -13,6 +13,7 @@
   import ViewsView from './views/ViewsView.svelte';
   import Matrix from './views/Matrix.svelte';
   import TaskDialog from './views/TaskDialog.svelte';
+  import FinishedDialog from './views/FinishedDialog.svelte';
   import Detail from './views/Detail.svelte';
   import CheckDialog from './views/CheckDialog.svelte';
   import { triageKey } from './lib/inbox';
@@ -678,6 +679,7 @@
     <PrioDialog {app} />
     <Matrix {app} />
     <TaskDialog {app} />
+    <FinishedDialog {app} />
     <CheckDialog {app} />
     <BlockDialog {app} />
     <DropMoveDialog {app} />

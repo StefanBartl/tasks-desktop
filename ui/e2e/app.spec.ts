@@ -910,6 +910,13 @@ test('a word that is only in the text of a task finds the task, with the place',
   await expect(hit.locator('mark')).toContainText('tracker.invalid');
   // Text only: the match is not an element of the attacker's.
   await expect(page.locator('section.hits img, section.hits script, section.hits a')).toHaveCount(0);
+  // The block stands below the rows of the list, not above them.
+  const table = await page.locator('.table').boundingBox();
+  const block = await page.locator('.table section.hits').boundingBox();
+  expect(table).not.toBeNull();
+  expect(block).not.toBeNull();
+  // Inside the table of the list, under its head of columns (the rows come first, then the block).
+  expect(block!.y).toBeGreaterThan(table!.y + 20);
   // The hit opens the task, in the float over the list.
   await hit.click();
   await expect(taskFloat(page).locator('aside.detail .id')).toHaveText('lib.nvim/xss-body-links');
@@ -3202,12 +3209,22 @@ test('finished: the list shows them under the open ones, narrowed by the area an
   await showList(page);
   const finished = page.getByRole('region', { name: 'Finished' });
   await expect(finished).toHaveCount(0);
+  // The switch is among the further filters, not under the count.
+  await page.getByText('More filters', { exact: false }).first().click();
   await page.getByLabel('Show finished tasks under the list').check();
   await expect(finished).toBeVisible();
   // All time, so that the dates of the fixture (2025-12-30 ... 2026-01-02) are in.
   await finished.getByLabel('Period').selectOption('all');
   await expect(finished).toContainText('Shipped bug');
   await expect(finished).toContainText('Shipped feature');
+  // A finished task opens, read only: a click shows what the Backlog list knows of it.
+  await finished.getByRole('button', { name: /Shipped bug/ }).click();
+  const shipped = page.getByRole('dialog', { name: 'Finished task' });
+  await expect(shipped).toBeVisible();
+  await expect(shipped).toContainText('Shipped bug');
+  await expect(shipped).toContainText('Read only');
+  await page.keyboard.press('Escape');
+  await expect(shipped).toBeHidden();
   // The text of the list narrows them, the same text that narrows the open tasks.
   await page.getByRole('searchbox').fill('feature');
   await expect(finished).toContainText('Shipped feature');

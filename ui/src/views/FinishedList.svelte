@@ -91,11 +91,13 @@
     <ul class="plain">
       {#each shown as item (item.file)}
         <li>
-          <span class="when">{item.done ?? t('done.undated_row')}</span>
-          <span class="title">{markHidden(item.title)}</span>
-          <span class="muted">{markHidden(nameOf(item.area))}</span>
-          {#if item.kind}<span class="muted">{labelOf(app.lang, 'kind', item.kind)}</span>{/if}
-          {#if item.effort}<span class="muted">{item.effort}</span>{/if}
+          <button type="button" class="open" onclick={() => (app.finishedPeek = item)}>
+            <span class="when">{item.done ?? t('done.undated_row')}</span>
+            <span class="title">{markHidden(item.title)}</span>
+            <span class="muted">{markHidden(nameOf(item.area))}</span>
+            {#if item.kind}<span class="muted">{labelOf(app.lang, 'kind', item.kind)}</span>{/if}
+            {#if item.effort}<span class="muted">{item.effort}</span>{/if}
+          </button>
         </li>
       {:else}
         <!-- The period had tasks, the areas or the words of the list keep them out: another sentence than "none".
@@ -113,10 +115,14 @@
 </section>
 
 <style>
+  /* A block of its own under the list: a tinted ground and a bar at its side set it off from the open tasks. */
   .finished {
-    margin-top: 1rem;
-    border-top: 1px solid var(--border);
-    padding-top: 0.75rem;
+    margin: 1rem 0.5rem 0.5rem;
+    padding: 0.75rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
   }
   .head {
     display: flex;
@@ -137,11 +143,26 @@
     margin: 0.5rem 0;
   }
   li {
+    border-bottom: 1px solid var(--border);
+  }
+  li.muted {
+    padding: 0.3rem 0;
+  }
+  .open {
     display: flex;
     flex-wrap: wrap;
     gap: 0.25rem 0.75rem;
+    width: 100%;
     padding: 0.3rem 0;
-    border-bottom: 1px solid var(--border);
+    background: none;
+    border: 0;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .open:hover {
+    background: var(--surface);
   }
   .title {
     overflow-wrap: anywhere;
