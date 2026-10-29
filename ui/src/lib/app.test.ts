@@ -81,6 +81,7 @@ class FakeHub {
       build: null,
       os: 'test',
       arch: 'x',
+      mode: null,
       engine: this.engineReady ? { version: '0', git: 'abc1234', nvim: '0' } : null,
       engineProblem: null,
       pinned: { engine: 'abc1234abc1234abc1234abc1234abc1234abc12', lib: null },
@@ -372,7 +373,7 @@ class FakeHub {
 }
 
 function make(
-  overrides: { token?: string; cached?: CachedList | null; prefs?: Map<string, string>; now?: number } = {},
+  overrides: { token?: string; cached?: CachedList | null; prefs?: Map<string, string>; now?: number; mode?: 'web' } = {},
 ) {
   const prefs = overrides.prefs ?? new Map<string, string>();
   const hub = new FakeHub();
@@ -410,6 +411,7 @@ function make(
       await new Promise((r) => setTimeout(r, 1));
     },
     reload: () => void (reloads += 1),
+    ...(overrides.mode ? { mode: overrides.mode } : {}),
     out: {
       save: (name, text, type) => {
         files.push({ name, text, type });
@@ -3849,6 +3851,27 @@ describe('the Info dialog', () => {
     releaseB();
     await vi.waitFor(() => expect(app.about.state).toBe('ok'));
     expect(app.about).toMatchObject({ state: 'ok', focus: 'info' });
+  });
+
+  it('knows how the page runs from the page that made it, before the first read and without asking the hub', async () => {
+    const hubPage = make({ token: 't' });
+    expect(hubPage.app.mode).toBeNull();
+    expect(hubPage.app.machineActions).toBe(true);
+    await hubPage.app.start(null);
+    hubPage.app.stop();
+    expect(hubPage.app.phase).toBe('ready');
+    expect(hubPage.hub.aboutCalls).toBe(0);
+
+    // The web variant: nothing that starts or reads something of the machine, from the first moment on (a detail that
+    // is open at once never shows it).
+    const web = make({ token: 't', mode: 'web' });
+    expect(web.app.mode).toBe('web');
+    expect(web.app.machineActions).toBe(false);
+    expect(web.app.canAttach).toBe(false);
+    await web.app.start(null);
+    web.app.stop();
+    expect(web.app.machineActions).toBe(false);
+    expect(web.hub.aboutCalls).toBe(0);
   });
 
   it('is there for the page whose engine is not, with the session of the tab, and not before the pairing', async () => {

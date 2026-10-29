@@ -134,6 +134,7 @@ export class Hub extends HubClient<Snapshot> {
       build: text(doc['build']),
       os: text(doc['os']) ?? '',
       arch: text(doc['arch']) ?? '',
+      mode: text(doc['mode']),
       engine:
         typeof engine === 'object' && engine !== null
           ? { version: part(engine, 'version'), git: part(engine, 'git'), nvim: part(engine, 'nvim') }

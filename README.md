@@ -225,8 +225,11 @@ built. Its built files go to the private repository [tasks-web](https://github.c
   name, one of five sorts), an engine refusal with its code and the HTTP status the Rust hub gives it, the digest of
   the snapshot as its tag (304), the `hub.areas` envelope with the class of each area (unclassified until
   `areas.json` is read), `hub.enums`, the check job. There is no session and no token. `ops`, `open` and the vault
-  routes answer a refusal (`read_only`, `not_available`); `search` looks at ids and titles only and says
-  `partial`. `web/hub.test.mjs` runs it over a stand-in for the engine.
+  routes answer a refusal (`read_only`, `not_available`); `search` (`ui/src/web/search.ts`) reads the task
+  texts once through the engine's `bodies` (kept until the vault is read again) and ranks and marks matches as the
+  Rust hub does; `partial` is true only when the texts exceed 64 MiB. In the web mode the page hides what needs the
+  machine ("open in Neovim", "show vault folder", attaching a screenshot), and "About" names the engine in the
+  browser. `web/hub.test.mjs` runs it over a stand-in for the engine.
 - **The page and the worker.** `ui/src/web/client.ts` is the page's side of the worker: `WorkerClient` matches each
   question to its answer by an id (`init`, `mount`, `call`, `changes`), `createBrowserHub` joins it to the hub. The
   worker mounts a vault with `mount` (a new mount replaces the old one; a path that is not plain, or a root that is

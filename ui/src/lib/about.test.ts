@@ -7,6 +7,7 @@ const about: About = {
   build: 'abc1234',
   os: 'windows',
   arch: 'x86_64',
+  mode: null,
   engine: { version: '0.9.0', git: 'faf2078', nvim: '0.12.2' },
   engineProblem: null,
   pinned: { engine: 'faf2078d08ee7632a884bde2b2dee95fef7dfe25', lib: '6f302183bd289417de806aaed11a5a6a4b4724ab' },
@@ -33,6 +34,15 @@ describe('reportText', () => {
     expect(text).toContain('Engine: running, but it did not answer (engine_timeout)');
     expect(text).not.toContain('none is running');
     expect(reportText('de', { ...about, engine: null, engineProblem: 'engine_busy' })).toContain('hat aber nicht geantwortet (engine_busy)');
+  });
+  it('names the web variant and the runtime of the browser, never a Neovim it does not run in', () => {
+    const web: About = { ...about, os: 'web', arch: 'wasm', mode: 'web', engine: { version: '0.9.0', git: 'faf2078', nvim: 'web+Lua5.4' } };
+    const text = reportText('en', web);
+    expect(text).toContain('Mode: web variant (in the browser, no hub)');
+    expect(text).toContain('Engine: tasks.nvim 0.9.0, commit faf2078, in the browser (web+Lua5.4)');
+    expect(text).not.toContain('Neovim');
+    expect(reportText('de', web)).toContain('Modus: Web-Variante');
+    expect(reportText('en', about)).not.toContain('Mode:');
   });
   it('keeps every value on one line and short, whatever the hub said', () => {
     const text = reportText('en', { ...about, version: ' 1.0\n\u0000evil' + String.fromCharCode(0x200b) + ' ' + 'x'.repeat(500) });

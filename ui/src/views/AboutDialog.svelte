@@ -4,7 +4,7 @@
   // person reads here, copies, or takes to a new issue in the browser. The page sends nothing.
   import { tick } from 'svelte';
   import type { App } from '../lib/app.svelte';
-  import { REPORT_REPOS, engineMatchesPin, issueUrl, reportText } from '../lib/about';
+  import { REPORT_REPOS, engineMatchesPin, isWebMode, issueUrl, reportText } from '../lib/about';
   import AboutLinks from 'appkit-ui/AboutLinks.svelte';
   import { LICENSE, REPO_URL } from '../lib/docs';
   import { hintOf, translate, type Key } from '../lib/i18n';
@@ -21,6 +21,8 @@
   const report = $derived(doc ? reportText(app.lang, doc) : '');
   const url = $derived(doc ? issueUrl(app.lang, doc) : '');
   const match = $derived(doc ? engineMatchesPin(doc) : null);
+  // The web variant has no Neovim: the engine runs in the page, and what it names is that runtime.
+  const web = $derived(doc ? isWebMode(doc) : false);
   const unknown = $derived(t('about.unknown'));
 
   $effect(() => {
@@ -79,9 +81,15 @@
       <dd>{#if doc.build}<code>{doc.build}</code>{:else}{t('about.build_release')}{/if}</dd>
       <dt>{t('about.platform')}</dt>
       <dd>{doc.os} {doc.arch}</dd>
+      <dt>{t('about.mode')}</dt>
+      <dd data-mode={web ? 'web' : 'hub'}>{web ? t('about.mode_web') : t('about.mode_hub')}</dd>
       <dt>{t('about.engine')}</dt>
       <dd>
-        {#if doc.engine}
+        {#if doc.engine && web}
+          {doc.engine.version ?? unknown}, <code>{doc.engine.git ?? unknown}</code>, {t('about.runtime_web', {
+            runtime: doc.engine.nvim ?? unknown,
+          })}
+        {:else if doc.engine}
           {doc.engine.version ?? unknown}, <code>{doc.engine.git ?? unknown}</code>, Neovim {doc.engine.nvim ?? unknown}
         {:else if doc.engineProblem}
           {t('about.engine_failed', { problem: doc.engineProblem })}

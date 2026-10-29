@@ -15,13 +15,45 @@ export interface Parts {
 /** The ids of the elements that hold the parts. */
 export const PART_IDS = ['worker', 'wasm', 'bundle', 'shim'] as const;
 
-/** gzip + base64 -> bytes. `atob` ignores the line breaks the packer puts into the text. */
-export async function unpack(base64: string): Promise<Uint8Array<ArrayBuffer>> {
-  const binary = atob(base64);
+type FromBase64 = (text: string) => Uint8Array<ArrayBuffer>;
+
+/** `Uint8Array.fromBase64` where the browser has it (Chrome 140 and later), else null. */
+const nativeFromBase64 = (Uint8Array as unknown as { fromBase64?: FromBase64 }).fromBase64 ?? null;
+
+/** base64 -> bytes through `atob`: a string of one character per byte, copied over byte by byte. */
+export function base64ByAtob(text: string): Uint8Array<ArrayBuffer> {
+  const binary = atob(text);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  return bytes;
+}
+
+/**
+ * base64 -> bytes: `Uint8Array.fromBase64` where there is one (no string in between, no loop), else `atob`. Both skip
+ * the line breaks the packer puts into the text and give the same bytes; `fromBase64` refuses a text that is no base64
+ * as `atob` does. `fromBase64` is for a test: null takes the way of a browser without it.
+ */
+export function base64Bytes(text: string, fromBase64: FromBase64 | null = nativeFromBase64): Uint8Array<ArrayBuffer> {
+  return fromBase64 ? fromBase64(text) : base64ByAtob(text);
+}
+
+/**
+ * gzip -> bytes. The bytes go into the decompression as the one chunk of a stream made here: a `Blob` around them would
+ * be one more copy, and in Chrome its stream is read back from the browser's blob store piece by piece.
+ */
+export async function gunzip(bytes: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
+  const source = new ReadableStream<Uint8Array<ArrayBuffer>>({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+  return new Uint8Array(await new Response(source.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+}
+
+/** gzip + base64 -> bytes. */
+export function unpack(base64: string): Promise<Uint8Array<ArrayBuffer>> {
+  return gunzip(base64Bytes(base64));
 }
 
 /**
@@ -31,7 +63,8 @@ export async function unpack(base64: string): Promise<Uint8Array<ArrayBuffer>> {
 export async function loadParts(read: (id: string) => string | null): Promise<Parts> {
   const raw = (id: string): string => {
     const text = read(id);
-    if (text === null || text.trim() === '') throw new Error(`the page lacks its part "${id}"`);
+    // A look for the first character that is not white space; `trim()` would make another string of the whole part.
+    if (text === null || !/\S/.test(text)) throw new Error(`the page lacks its part "${id}"`);
     return text;
   };
   const decoder = new TextDecoder();

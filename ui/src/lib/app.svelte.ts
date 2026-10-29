@@ -134,6 +134,8 @@ export interface Env {
   sleep(ms: number): Promise<void>;
   /** Load the page again (after another vault was chosen); replaced in tests. */
   reload?(): void;
+  /** `web`: the page is the web variant (`main.web.ts`), with no hub and nothing of the machine. The hub's page leaves it out. */
+  mode?: 'web';
   /** The ways out of the page for an export: a file the browser saves, the clipboard, the printer. Replaced in tests. */
   out: {
     save(name: string, text: string, type: string): boolean;
@@ -446,6 +448,23 @@ export class App {
   get about(): AboutDialog {
     return this.aboutState.dialog;
   }
+  /**
+   * How the page runs, as the page that made the app says it (`Env.mode`): `web` for the web variant, `null` for the
+   * page of the hub. Known before the first read, so nothing the web variant cannot do is ever shown there.
+   */
+  readonly mode: 'web' | null;
+  /**
+   * The page can start something on the machine or read from it: show the vault's folder in the file explorer, open a
+   * task's file in the editor, attach a screenshot from the clipboard or the screenshot folder. The web variant cannot
+   * (it has no hub), so it does not offer them.
+   */
+  get machineActions(): boolean {
+    return this.mode !== 'web';
+  }
+  /** A screenshot can be attached to a task: the engine can, and the page has a machine to take it from. */
+  get canAttach(): boolean {
+    return this.machineActions && this.can('attach');
+  }
   readonly conflictsState = new ConflictsState((mode) => safe(() => this.env.prefs.setItem('tasks-desktop.conflict-mode', mode)));
   get conflicts(): Conflict[] {
     return this.conflictsState.list;
@@ -508,6 +527,7 @@ export class App {
   private dirty = false;
 
   constructor(private readonly env: Env) {
+    this.mode = env.mode ?? null;
     // Made here, not as a field: it reads the profile at once, and the fields are made before `env` is held.
     this.todayState = new TodayState({
       lang: () => this.lang,

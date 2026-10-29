@@ -11,7 +11,8 @@ import type { WorkerReply, WorkerRequest } from './worker.ts';
 
 /** What the client needs of a `Worker`; a test passes a pair of plain objects. */
 export interface PortLike {
-  postMessage(message: WorkerRequest): void;
+  /** `transfer`: buffers that move to the worker instead of being copied (`Worker.postMessage`). */
+  postMessage(message: WorkerRequest, transfer?: Transferable[]): void;
   onmessage: ((event: { data: WorkerReply }) => void) | null;
 }
 
@@ -72,7 +73,10 @@ export class WorkerClient {
     });
   }
 
-  /** Start the engine in the worker. Resolves with the milliseconds it took. */
+  /**
+   * Start the engine in the worker. Resolves with the milliseconds it took. The WASM moves to the worker (it is not
+   * copied): `wasm` is empty afterwards.
+   */
   init(opts: { wasm: ArrayBuffer; bundle: EngineBundle; shim: string }): Promise<number> {
     if (this.closed) return Promise.reject(new Error('the worker is closed'));
     if (this.starting) return Promise.reject(new Error('the engine is already starting'));
@@ -81,7 +85,7 @@ export class WorkerClient {
         resolve: (reply) => resolve(reply.type === 'ready' ? reply.ms : 0),
         reject,
       };
-      this.port.postMessage({ type: 'init', ...opts });
+      this.port.postMessage({ type: 'init', ...opts }, [opts.wasm]);
     });
   }
 

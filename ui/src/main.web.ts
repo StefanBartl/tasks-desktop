@@ -127,6 +127,8 @@ async function begin(): Promise<void> {
     fetchFn,
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     reload: () => window.location.reload(),
+    // Known here, not asked of the hub: nothing that needs the machine is shown, not even until an answer comes.
+    mode: 'web',
     out: {
       save: (name, text, type) => saveText(document, name, text, type),
       copy: (text) => copyText(navigator.clipboard, text),

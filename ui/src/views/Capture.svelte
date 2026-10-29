@@ -243,7 +243,7 @@
       <span>{t('capture.notes')}</span>
       <textarea bind:value={notes} rows="2" maxlength="20000"></textarea>
     </label>
-    {#if app.can('attach')}
+    {#if app.canAttach}
       <label class="check">
         <input type="checkbox" bind:checked={attach} />
         <span>{t('capture.attach')}</span>

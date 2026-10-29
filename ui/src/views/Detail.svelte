@@ -664,13 +664,15 @@
     <h3>{t('detail.file')}</h3>
     <p><code class="file">{task.file}</code></p>
     <p>
-      <button type="button" class="open-editor" data-hint={t('hint.ui.detail.open_editor')} onclick={() => void app.openInEditor(task.id)}
-        >{t('editor.button')}</button
-      >
+      {#if app.machineActions}
+        <button type="button" class="open-editor" data-hint={t('hint.ui.detail.open_editor')} onclick={() => void app.openInEditor(task.id)}
+          >{t('editor.button')}</button
+        >
+      {/if}
       {#if app.can('plan_for')}
         <button type="button" class="open-editor" data-hint={t('hint.ui.detail.graph')} onclick={() => app.openGraph(task.id)}>{t('graph.button')}</button>
       {/if}
-      {#if app.can('attach')}
+      {#if app.canAttach}
         <button
           type="button"
           class="open-editor"

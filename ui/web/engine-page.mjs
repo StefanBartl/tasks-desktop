@@ -71,7 +71,8 @@ function main() {
   let html = readFileSync(join(here, 'engine-page.src.html'), 'utf8')
     .replaceAll('__BUILD__', commit())
     .replace('__ENGINE__', `tasks.nvim ${engineCommit.slice(0, 7)}, lib.nvim ${libCommit.slice(0, 7)}`)
-    .replace('__SIZES__', () => JSON.stringify(sizes));
+    .replace('__SIZES__', () => JSON.stringify(sizes))
+    .replace('__EMBEDDED_JS__', () => classic(src('embedded.ts')));
   for (const [name, data] of Object.entries(parts)) html = html.replace(`__${name.toUpperCase()}_GZ__`, () => gz(data));
   const problems = verify(html);
   if (problems.length) {

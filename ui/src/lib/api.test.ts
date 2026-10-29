@@ -57,3 +57,16 @@ describe('the order of the list', () => {
     await expect(hub.order('roi')).rejects.toBeDefined();
   });
 });
+
+describe('what the hub says about itself', () => {
+  const answering = (doc: unknown): typeof fetch =>
+    (async () => new Response(JSON.stringify(doc), { status: 200, headers: { 'Content-Type': 'application/json' } })) as typeof fetch;
+
+  it('takes the mode of the web variant over, and has none when the hub names none', async () => {
+    const web = await new Hub(answering({ version: '1', os: 'web', arch: 'wasm', mode: 'web', engine: { nvim: 'web+Lua5.4' } })).about();
+    expect(web.mode).toBe('web');
+    expect(web.engine?.nvim).toBe('web+Lua5.4');
+    expect((await new Hub(answering({ version: '1', os: 'windows', arch: 'x86_64' })).about()).mode).toBeNull();
+    expect((await new Hub(answering({ version: '1', mode: 3 })).about()).mode).toBeNull();
+  });
+});

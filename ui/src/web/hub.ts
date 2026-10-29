@@ -8,6 +8,7 @@
 // (the page reads again on focus), and everything that writes or opens something on the machine (step 8 and later).
 
 import type { CallResult } from './engine.ts';
+import { parseQuery as parseSearchQuery, parseRequest, readCorpus, search as searchCorpus, type Corpus } from './search.ts';
 
 export interface HubDeps {
   /** One method of the engine over the vault in the worker, as `engine.call` answers it. */
@@ -21,6 +22,8 @@ export interface HubDeps {
   classes?: (area: string) => DataClass;
   /** Called by `POST rescan`: the page asks to read the folder again. */
   rescan?: () => Promise<void>;
+  /** The bytes of text the search reads at most (`MAX_INDEX_BYTES` of web/search.ts when left out); smaller in a test. */
+  maxIndexBytes?: number;
 }
 
 export type DataClass = 'public' | 'internal' | 'private' | 'unclassified';
@@ -378,43 +381,60 @@ export function createWebHub(deps: HubDeps): WebHub {
   }
 
   /**
-   * The words of the query must all be in the id or the title of a task (case-insensitive). The texts of the tasks
-   * are not read, so the answer says `partial`: a task whose words are only in its text is not found.
+   * The texts of the tasks, read once with the engine's `bodies` and kept until the vault is read again (`notify`,
+   * which drops them: a reading that is still under way then serves only the searches that asked before).
+   */
+  let corpus: Promise<Corpus> | null = null;
+
+  function texts(): Promise<Corpus> {
+    if (corpus) return corpus;
+    const reading = readCorpus(async (params) => {
+      const r = await engine('bodies', params);
+      if (r instanceof Response) throw new Error('the engine did not hand over the texts');
+      return r.text;
+    }, deps.maxIndexBytes);
+    corpus = reading;
+    // A failed reading is tried again on the next search; one that failed after the vault was read again leaves the
+    // newer reading alone.
+    reading.catch(() => {
+      if (corpus === reading) corpus = null;
+    });
+    return reading;
+  }
+
+  function forgetTexts(): void {
+    corpus = null;
+  }
+
+  /**
+   * `GET search`: the tasks whose text holds every word of the query, best first, each with a piece of the text around
+   * the match, as the Rust hub answers it (web/search.ts). While the texts cannot be read, `status` says so.
    */
   async function search(query: string): Promise<Response> {
-    const q = parseSearch(query);
+    const request = parseRequest(query);
+    if (typeof request === 'string') return errorBody(400, 'bad_query', request);
+    const q = parseSearchQuery(request.text);
     if (typeof q === 'string') return errorBody(400, 'bad_query', q);
-    const r = await engine('snapshot');
-    if (r instanceof Response) return r;
-    const tasks = (JSON.parse(r.text) as { tasks?: Array<{ id?: unknown; title?: unknown }> }).tasks ?? [];
-    const words = q.text.toLowerCase().split(/\s+/).filter(Boolean);
-    const hits: Array<{ id: string; score: number; snippet: unknown }> = [];
-    for (const t of tasks) {
-      if (typeof t.id !== 'string' || typeof t.title !== 'string') continue;
-      const hay = t.title.toLowerCase();
-      const hayId = t.id.toLowerCase();
-      if (!words.every((w) => hay.includes(w) || hayId.includes(w))) continue;
-      const marks: Array<[number, number]> = [];
-      for (const w of words) {
-        const at = hay.indexOf(w);
-        if (at >= 0) marks.push([at, at + w.length]);
-      }
-      hits.push({
-        id: t.id,
-        score: words.length,
-        snippet: { text: t.title, marks, more_before: false, more_after: false },
-      });
+    let found: Corpus;
+    try {
+      found = await texts();
+    } catch {
+      return respond(
+        200,
+        JSON.stringify({ schema: 1, kind: 'hub.search', status: 'failed', indexed: 0, partial: false, total: 0, hits: [] }),
+      );
     }
+    const outcome = searchCorpus(found, q, request.limit);
     return respond(
       200,
       JSON.stringify({
         schema: 1,
         kind: 'hub.search',
         status: 'ready',
-        indexed: tasks.length,
-        partial: true,
-        total: hits.length,
-        hits: hits.slice(0, q.limit),
+        indexed: found.entries.length,
+        partial: found.partial,
+        total: outcome.total,
+        hits: outcome.hits,
       }),
     );
   }
@@ -500,7 +520,11 @@ export function createWebHub(deps: HubDeps): WebHub {
   };
   return {
     fetch: web,
-    notify: () => tell('event: resync\ndata: {}\n\n'),
+    notify: () => {
+      // The vault was read again: the texts of the search are those of before.
+      forgetTexts();
+      tell('event: resync\ndata: {}\n\n');
+    },
     close: () => {
       for (const controller of [...streams]) {
         try {
@@ -512,31 +536,6 @@ export function createWebHub(deps: HubDeps): WebHub {
       streams.clear();
     },
   };
-}
-
-function parseSearch(query: string): { text: string; limit: number } | string {
-  let text: string | null = null;
-  let limit = 20;
-  if (query !== '') {
-    for (const pair of query.split('&')) {
-      const cut = pair.indexOf('=');
-      if (cut < 0) return 'a query part has no value';
-      const key = pair.slice(0, cut);
-      let value: string;
-      try {
-        value = decodeURIComponent(pair.slice(cut + 1).replace(/\+/g, ' '));
-      } catch {
-        return 'the query is not valid text';
-      }
-      if (key === 'q') text = value;
-      else if (key === 'limit') {
-        if (!/^[0-9]{1,2}$/.test(value) || Number(value) < 1 || Number(value) > 50) return 'limit is 1 to 50';
-        limit = Number(value);
-      } else return 'unknown query parameter';
-    }
-  }
-  if (text === null || text.trim() === '' || text.length > 200) return 'q is the text to find (1 to 200 characters)';
-  return { text, limit };
 }
 
 /** The form and size of a question of `estimate`, before the engine is asked (`check_estimate_request`). */

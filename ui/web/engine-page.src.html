@@ -67,11 +67,12 @@ function set(id, label, state, detail) {
 const err = (e) => (e && e.name ? e.name + ": " + e.message : String(e));
 const ms = (t) => Math.round(performance.now() - t) + " ms";
 
-async function unpack(id) {
-  const b64 = document.getElementById(id).textContent.replace(/\s+/g, "");
-  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
-  return { gz: bytes.length, data: await new Response(stream).arrayBuffer() };
+// The decoding of the real page (src/web/embedded.ts, as a classic script), so that this page measures what that one does.
+__EMBEDDED_JS__
+
+async function unpackPart(id) {
+  const bytes = base64Bytes(document.getElementById(id).textContent);
+  return { gz: bytes.length, data: (await gunzip(bytes)).buffer };
 }
 
 function startWorker(source) {
@@ -115,7 +116,7 @@ async function main() {
   try {
     const t = performance.now();
     const names = ["worker", "wasm", "bundle", "shim", "vault"];
-    const got = await Promise.all(names.map(unpack));
+    const got = await Promise.all(names.map(unpackPart));
     parts = Object.fromEntries(names.map((n, i) => [n, got[i].data]));
     set("unpack", "Unpack (gzip, DecompressionStream)", "ok", ms(t) + ", gzip " + got.map((g, i) => names[i] + "=" + g.gz).join(" "));
   } catch (e) {

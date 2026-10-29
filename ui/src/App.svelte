@@ -32,6 +32,7 @@
   import ContextMenu from 'appkit-ui/ContextMenu.svelte';
   import { contextTarget } from 'appkit-ui/contextmenu';
   import { createContextRegistry, viewTarget } from './lib/context';
+  import { vaultMenuItems } from './lib/vaultMenu';
   import ConflictCenter from './views/ConflictCenter.svelte';
   import VaultsDialog from './views/VaultsDialog.svelte';
   import AboutDialog from './views/AboutDialog.svelte';
@@ -230,7 +231,6 @@
 
   /** The task the engine names as the next one to take: the one the tile of that name shows. */
   const nextTaskId = $derived(app.next?.task?.id ?? null);
-  const areaCount = $derived(new Set(app.tasks.map((x) => x.area)).size);
 
   /** The list with the cursor in its search box. */
   async function findTask(): Promise<void> {
@@ -250,7 +250,6 @@
   // The menu bar of the page (the native shell shows the same entries).
   const menus = $derived.by((): Menu[] => {
     const ready = app.phase === 'ready';
-    const vault = app.snapshot?.vault?.id;
     return [
       {
         id: 'tasks',
@@ -312,31 +311,7 @@
         label: t('menu.project'),
         hint: t('hint.ui.menu.project'),
         items: [
-          { kind: 'section', label: t('menu.sec.vault') },
-          ...(vault ? [{ kind: 'info' as const, label: t('menu.vault', { name: vault }) }] : []),
-          ...(ready ? [{ kind: 'info' as const, label: t('menu.vault_info', { areas: areaCount, tasks: app.tasks.length }) }] : []),
-          ...(app.vaultList?.vaults ?? []).map((v) => ({
-            kind: 'radio' as const,
-            label: v.name === 'main' ? `${v.label} (main)` : `${v.name} (${v.label})`,
-            checked: v.name === app.vaultList?.active,
-            disabled: !ready || app.vaultBusy,
-            hint: t('hint.item.menu.vault_switch'),
-            onselect: () => void app.selectVault(v.name),
-          })),
-          {
-            kind: 'action' as const,
-            label: t('menu.vault_reveal'),
-            hint: t('hint.item.menu.vault_reveal'),
-            disabled: !ready || app.vaultBusy,
-            onselect: () => void app.revealVault(),
-          },
-          {
-            kind: 'action' as const,
-            label: t('menu.vaults_manage'),
-            hint: t('hint.item.menu.vaults_manage'),
-            disabled: !ready || !app.vaultList,
-            onselect: () => app.openVaults(),
-          },
+          ...vaultMenuItems(app),
           {
             kind: 'action',
             label: t('menu.rescan'),

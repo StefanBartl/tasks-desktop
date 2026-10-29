@@ -161,3 +161,49 @@ test('a second init is refused by the worker and the first engine keeps answerin
   await assert.rejects(client.init(INIT()), /already started/);
   assert.equal((await client.call('hello', null, { root: ROOT })).code, null);
 });
+
+test('the search of the page finds a word of a text, and the new text once the vault was read again', async () => {
+  const client = new WorkerClient(pair());
+  await client.init(INIT());
+  const files = vaultFiles();
+  const path = 'cascade.nvim/ROADMAP/tasks/eta.md';
+  const original = new TextDecoder().decode(files.get(path));
+  assert.match(original, /A summary line for eta\./);
+  await client.mount(ROOT, files);
+  const lock = readLock();
+  const hub = createBrowserHub(client, { root: ROOT, version: '0.0.0-test', build: null, pinned: { engine: lock.commit, lib: lock.lib_commit } });
+  const find = async (q) => (await hub.fetch(`/api/tasks/search?q=${encodeURIComponent(q)}`)).json();
+
+  const before = await find('SUMMARY LINE for eta');
+  assert.equal(before.status, 'ready');
+  assert.equal(before.partial, false, 'every text was searched');
+  const tasks = JSON.parse((await client.call('list', null, { root: ROOT })).text).items.length;
+  assert.equal(before.indexed, tasks, 'every open task is in');
+  // `eta` is in zeta and theta too: a word is found inside a word, as the Rust hub finds it. The whole phrase ranks first.
+  assert.equal(before.hits[0].id, 'cascade.nvim/eta');
+  assert.ok(before.hits.slice(1).every((h) => h.score < before.hits[0].score));
+  assert.deepEqual(before.hits[0].snippet.marks.map(([a, b]) => before.hits[0].snippet.text.slice(a, b)), ['summary', 'line', 'for', 'eta']);
+  assert.equal((await find('zanzibar')).total, 0);
+
+  files.set(path, new TextEncoder().encode(original.replace('A summary line for eta.', 'A zanzibar line for eta.')));
+  await client.mount(ROOT, files);
+  hub.notify();
+  const after = await find('zanzibar');
+  assert.deepEqual(after.hits.map((h) => h.id), ['cascade.nvim/eta'], 'the changed file is searched with its new text');
+  assert.ok(!(await find('summary line for eta')).hits.some((h) => h.id === 'cascade.nvim/eta'), 'and not with the old one');
+  client.close();
+});
+
+test('init moves the WASM to the worker instead of copying it', async () => {
+  const sent = [];
+  const port = { onmessage: null, postMessage: (message, transfer) => sent.push([message, transfer]) };
+  const client = new WorkerClient(port);
+  const wasm = new ArrayBuffer(8);
+  const starting = client.init({ wasm, bundle: { engine: { commit: 'c', lib_commit: 'l' }, modules: {} }, shim: '' });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0][0].type, 'init');
+  assert.equal(sent[0][0].wasm, wasm);
+  assert.deepEqual(sent[0][1], [wasm], 'the buffer is in the transfer list');
+  port.onmessage({ data: { type: 'ready', ms: 1 } });
+  assert.equal(await starting, 1);
+});

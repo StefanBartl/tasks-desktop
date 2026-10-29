@@ -25,6 +25,11 @@ export interface About {
   build: string | null;
   os: string;
   arch: string;
+  /**
+   * How the page runs: `web` for the web variant (one file in the browser, the engine inside the page, no hub and so
+   * nothing that opens a program of the machine); `null` when the hub does not say, which is the hub itself.
+   */
+  mode: string | null;
   /** `null` while no engine runs, or while the one that runs did not answer (then `engineProblem` says why). */
   engine: { version: string | null; git: string | null; nvim: string | null } | null;
   /** The code of the hub when an engine is there but did not answer `hello` (`engine_timeout`, `engine_busy`, ...). */
@@ -59,6 +64,11 @@ export function engineMatchesPin(about: About): boolean | null {
   return b.startsWith(a) || a.startsWith(b);
 }
 
+/** The page is the web variant: no hub, the engine runs in the browser (its `nvim` names the runtime, not Neovim). */
+export function isWebMode(about: Pick<About, 'mode'>): boolean {
+  return about.mode === 'web';
+}
+
 /** The report as a text: the versions, then the three questions the person answers. */
 export function reportText(lang: Lang, about: About): string {
   const t = (key: Parameters<typeof translate>[1], params: Record<string, string | number> = {}) =>
@@ -72,12 +82,19 @@ export function reportText(lang: Lang, about: About): string {
       os: word(about.os, unknown),
       arch: word(about.arch, unknown),
     }),
+    ...(isWebMode(about) ? [t('about.report.line_mode_web')] : []),
     about.engine
-      ? t('about.report.line_engine', {
-          version: word(about.engine.version, unknown),
-          git: word(about.engine.git, unknown),
-          nvim: word(about.engine.nvim, unknown),
-        })
+      ? isWebMode(about)
+        ? t('about.report.line_engine_web', {
+            version: word(about.engine.version, unknown),
+            git: word(about.engine.git, unknown),
+            runtime: word(about.engine.nvim, unknown),
+          })
+        : t('about.report.line_engine', {
+            version: word(about.engine.version, unknown),
+            git: word(about.engine.git, unknown),
+            nvim: word(about.engine.nvim, unknown),
+          })
       : about.engineProblem
         ? t('about.report.line_engine_failed', { problem: word(about.engineProblem, unknown) })
         : t('about.report.line_engine_none'),
