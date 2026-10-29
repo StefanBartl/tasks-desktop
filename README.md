@@ -224,8 +224,8 @@ built. Its built files go to the private repository [tasks-web](https://github.c
   `ui/src/lib/api.ts` takes: the same checks before the engine is asked (a plain query, `<area>/<slug>`, an area
   name, one of five sorts), an engine refusal with its code and the HTTP status the Rust hub gives it, the digest of
   the snapshot as its tag (304), the `hub.areas` envelope with the class of each area (unclassified until
-  `areas.json` is read), `hub.enums`, the check job. There is no session and no token. `ops`, `open` and the vault
-  routes answer a refusal (`read_only`, `not_available`); `search` (`ui/src/web/search.ts`) reads the task
+  `areas.json` is read), `hub.enums`, the check job. There is no session and no token. `ops` writes (see
+  *Writing* below); `open` and the vault routes answer a refusal (`not_available`); `search` (`ui/src/web/search.ts`) reads the task
   texts once through the engine's `bodies` (kept until the vault is read again) and ranks and marks matches as the
   Rust hub does; `partial` is true only when the texts exceed 64 MiB. In the web mode the page hides what needs the
   machine ("open in Neovim", "show vault folder", attaching a screenshot), and "About" names the engine in the
@@ -244,6 +244,27 @@ built. Its built files go to the private repository [tasks-web](https://github.c
   picker (a policy of the organisation), a folder that is gone and a folder over the budget come back to the start
   page with their reason; a browser without the API, or a page that is not a secure context, is told so and offers
   no picker. `web/entry.test.mjs` and `src/web/WebEntry.test.ts` run it without a browser.
+- **Writing.** A request of `ops` goes through the engine, which changes its copy of the vault in the VM; the files
+  it changed, added or removed are then written to the folder (`ui/src/web/vault-session.ts`, `write-back.ts`).
+  Nothing is written over something the page has not seen: every file the change touches must still have the time,
+  the size and the content it had when the page read it (SHA-256), and a new file must not exist. Any difference is a
+  conflict: nothing is written, the answer is HTTP 409, the page reads the folder again and shows what is on the
+  disk, and a retry works on that. The same look is taken once more right before each file is written, removed or
+  moved, and before a new file is made; a change found then is also a conflict, and what had been written is taken
+  back. A file is written through `createWritable`, which the browser commits atomically on close, so a file is
+  never half written; every file written is read back and compared. A failure in the middle takes back what was done
+  (and says by name what it could not). Requests run one at a time, and a read waits for a write that is under way.
+  The page asks the browser to confirm closing while a write is under way. **Limits:** the File System Access API has
+  no compare-and-swap, so a program that changes a file in the milliseconds between the last look and the write
+  still wins silently; a write of several files is not atomic as a whole (closing the tab in the middle, or a crash,
+  can leave a task both in the roadmap and the Backlog; the next session sees that as a normal state); a folder task
+  that holds files the page does not read (an image) is not moved by halves but refused; the clipboard attach is not
+  available. While the reader skipped a file (over 4 MiB, unreadable, a name that is not plain) the page does not
+  write, because the engine cannot see that file and would rebuild the generated index without it; a dry run still
+  works. The watcher is told what the page knows of the folder (the scan taken before the read, moved on only for
+  the files the write touched), so a change from outside to any other file is still found and read.
+  `web/write-back.test.mjs`, `web/vault-session.test.mjs` and `web/ops.test.mjs` run it on a fake folder (the last
+  with the real engine); `ui/e2e-web/writes.spec.ts` in Chrome.
 - **Reading again.** There is no server to say that a file changed. When the window gets the focus back, and every 30
   seconds, the page asks for the signature of the folder (`vaultSignature`: path, size and time of each file the
   reader would take, no content); if it differs, the vault is read again and the open event streams hear a `resync`

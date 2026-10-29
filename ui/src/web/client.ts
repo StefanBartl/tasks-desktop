@@ -5,7 +5,7 @@
 // engine in the worker over the vault that was mounted.
 
 import type { CallResult, EngineBundle } from './engine.ts';
-import { createWebHub, type DataClass, type WebHub } from './hub.ts';
+import { createWebHub, type DataClass, type HubDeps, type WebHub } from './hub.ts';
 import type { VaultChanges } from './vault-files.ts';
 import type { WorkerReply, WorkerRequest } from './worker.ts';
 
@@ -110,6 +110,19 @@ export class WorkerClient {
     return reply.changes;
   }
 
+  /** What the engine changed, with the bytes of each file it added or changed: the input of the write-back. */
+  async pendingFiles(): Promise<{ changes: VaultChanges; files: Map<string, Uint8Array> }> {
+    const reply = await this.ask((id) => ({ type: 'pending', id }));
+    if (reply.type !== 'pending') throw new Error(`unexpected reply ${reply.type}`);
+    return { changes: reply.changes, files: new Map(Object.entries(reply.files)) };
+  }
+
+  /** These changes are in the folder now: they are the loaded state of the VM's vault, other changes stay pending. */
+  async accept(changes: VaultChanges): Promise<void> {
+    const reply = await this.ask((id) => ({ type: 'accept', id, changes }));
+    if (reply.type !== 'accepted') throw new Error(`unexpected reply ${reply.type}`);
+  }
+
   /** Reject everything that waits, and ask nothing more. */
   close(): void {
     this.closed = true;
@@ -130,6 +143,10 @@ export interface BrowserHubOptions {
   pinned: { engine: string | null; lib: string | null };
   classes?: (area: string) => DataClass;
   rescan?: () => Promise<void>;
+  /** The write path (`VaultSession.ops`). Without it the hub answers every write with a refusal. */
+  ops?: HubDeps['ops'];
+  /** Resolves when no write or re-read is under way (`VaultSession.idle`): a read waits for it. */
+  idle?: HubDeps['idle'];
 }
 
 /** The hub of the page: the routes of the Rust hub over the engine in the worker. */
@@ -141,5 +158,7 @@ export function createBrowserHub(client: WorkerClient, opts: BrowserHubOptions):
     pinned: opts.pinned,
     classes: opts.classes,
     rescan: opts.rescan,
+    ops: opts.ops,
+    idle: opts.idle,
   });
 }

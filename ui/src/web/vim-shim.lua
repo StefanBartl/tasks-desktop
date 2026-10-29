@@ -648,16 +648,18 @@ function fs.joinpath(...)
   return (table.concat(parts, "/"):gsub("//+", "/"))
 end
 
--- `web.stat(path)` answers "file <size> <mtime_sec> <mtime_nsec>", "directory ...", or nil.
+-- `web.stat(path)` answers "file <size> <mtime_sec> <mtime_nsec> <mode>", "directory ...", or nil.
 local function stat(path)
   local line = web.stat(path)
   if line == nil then
     return nil
   end
-  local kind, size, sec, nsec = line:match("^(%a+) (%d+) (%d+) (%d+)$")
+  local kind, size, sec, nsec, mode = line:match("^(%a+) (%d+) (%d+) (%d+) (%d+)$")
   return {
     type = kind,
     size = math.tointeger(tonumber(size)),
+    -- the file type and permission bits, as libuv's `mode`: `write_atomic` hands the old permissions to fs_fchmod
+    mode = math.tointeger(tonumber(mode)),
     mtime = { sec = math.tointeger(tonumber(sec)), nsec = math.tointeger(tonumber(nsec)) },
     ctime = { sec = math.tointeger(tonumber(sec)), nsec = math.tointeger(tonumber(nsec)) },
   }
@@ -767,6 +769,185 @@ function uv.fs_rmdir(path)
     return true
   end
   return nil, "ENOTEMPTY: directory not empty: " .. path
+end
+
+-- ── file descriptors over the VM's file system ─────────────────────────────────
+-- libuv hands out numbers; here a number stands for a Lua file of the VM's in-memory file system (`io.open` works on
+-- it byte for byte). What the engine's writes use: open ("r", "wx", "w", "a", their "+" forms), read, write, fsync,
+-- close, and copyfile. A flag given as a number is refused by name, not guessed.
+
+local fds = {}
+local next_fd = 3
+
+local function uv_error(code, text, path)
+  return nil, code .. ": " .. text .. ": " .. tostring(path), code
+end
+
+-- Why `path` cannot be created or opened for writing: a missing or non-folder parent, or a folder in its place.
+local function open_blocker(path, creating)
+  local st = stat(path)
+  if st and st.type == "directory" then
+    return "EISDIR", "illegal operation on a directory"
+  end
+  if creating and not st then
+    local parent = fs.dirname(path)
+    local pst = stat(parent)
+    if not pst then
+      return "ENOENT", "no such file or directory"
+    elseif pst.type ~= "directory" then
+      return "ENOTDIR", "not a directory"
+    end
+  end
+  return nil
+end
+
+local OPEN_MODES = {
+  r = { lua = "rb", read = true },
+  ["r+"] = { lua = "r+b", read = true, write = true },
+  w = { lua = "wb", write = true, create = true },
+  ["w+"] = { lua = "w+b", read = true, write = true, create = true },
+  wx = { lua = "wb", write = true, create = true, excl = true },
+  ["wx+"] = { lua = "w+b", read = true, write = true, create = true, excl = true },
+  a = { lua = "ab", write = true, create = true, append = true },
+  ["a+"] = { lua = "a+b", read = true, write = true, create = true, append = true },
+  ax = { lua = "ab", write = true, create = true, append = true, excl = true },
+  ["ax+"] = { lua = "a+b", read = true, write = true, create = true, append = true, excl = true },
+}
+
+function uv.fs_open(path, flags, _mode, callback)
+  assert(callback == nil, "uv.fs_open: callbacks are not available in the browser")
+  assert(type(path) == "string", "uv.fs_open: the path must be a string")
+  local mode = type(flags) == "string" and OPEN_MODES[flags]
+  assert(mode, "uv.fs_open: unsupported flags " .. tostring(flags))
+  local st = stat(path)
+  if mode.excl and st then
+    return uv_error("EEXIST", "file already exists", path)
+  end
+  if not st and not mode.create then
+    return enoent(path)
+  end
+  local code, text = open_blocker(path, mode.create)
+  if code then
+    return uv_error(code, text, path)
+  end
+  local fh, err = io.open(path, mode.lua)
+  if not fh then
+    return uv_error("EIO", tostring(err), path)
+  end
+  local fd = next_fd
+  next_fd = next_fd + 1
+  fds[fd] = { fh = fh, path = path, mode = mode }
+  return fd
+end
+
+local function bad_fd()
+  return nil, "EBADF: bad file descriptor", "EBADF"
+end
+
+-- A negative or missing offset means "where the file is now", as in libuv.
+function uv.fs_write(fd, data, offset, callback)
+  assert(callback == nil, "uv.fs_write: callbacks are not available in the browser")
+  local f = fds[fd]
+  if not f then
+    return bad_fd()
+  end
+  if not f.mode.write then
+    return nil, "EBADF: bad file descriptor (not open for writing)", "EBADF"
+  end
+  if type(data) ~= "string" then
+    assert(false, "uv.fs_write: only a string is written")
+  end
+  if offset ~= nil and offset >= 0 and not f.mode.append then
+    f.fh:seek("set", offset)
+  end
+  local ok, err = f.fh:write(data)
+  if not ok then
+    return uv_error("EIO", tostring(err), f.path)
+  end
+  return #data
+end
+
+function uv.fs_read(fd, size, offset, callback)
+  assert(callback == nil, "uv.fs_read: callbacks are not available in the browser")
+  local f = fds[fd]
+  if not f then
+    return bad_fd()
+  end
+  if not f.mode.read then
+    return nil, "EBADF: bad file descriptor (not open for reading)", "EBADF"
+  end
+  if offset ~= nil and offset >= 0 then
+    f.fh:seek("set", offset)
+  end
+  -- nil is the end of the file; libuv answers it with an empty string
+  return f.fh:read(size) or ""
+end
+
+function uv.fs_fsync(fd, callback)
+  assert(callback == nil, "uv.fs_fsync: callbacks are not available in the browser")
+  local f = fds[fd]
+  if not f then
+    return bad_fd()
+  end
+  f.fh:flush()
+  return true
+end
+
+function uv.fs_close(fd, callback)
+  assert(callback == nil, "uv.fs_close: callbacks are not available in the browser")
+  local f = fds[fd]
+  if not f then
+    return bad_fd()
+  end
+  fds[fd] = nil
+  local ok, err = f.fh:close()
+  if not ok then
+    return uv_error("EIO", tostring(err), f.path)
+  end
+  return true
+end
+
+-- `flags` is a number (COPYFILE_EXCL is 1) or, as Neovim's libuv binding takes it, a table with `excl`.
+function uv.fs_copyfile(from, to, flags, callback)
+  assert(callback == nil, "uv.fs_copyfile: callbacks are not available in the browser")
+  local excl = flags == 1 or (type(flags) == "table" and flags.excl == true)
+  local src = stat(from)
+  if not src then
+    return enoent(from)
+  end
+  if src.type ~= "file" then
+    return uv_error("EISDIR", "illegal operation on a directory", from)
+  end
+  local dst = stat(to)
+  if dst and excl then
+    return uv_error("EEXIST", "file already exists", to)
+  end
+  local code, text = open_blocker(to, true)
+  if code then
+    return uv_error(code, text, to)
+  end
+  local input = io.open(from, "rb")
+  if not input then
+    return enoent(from)
+  end
+  local content = input:read("a")
+  input:close()
+  local output, err = io.open(to, "wb")
+  if not output then
+    return uv_error("EIO", tostring(err), to)
+  end
+  local wrote, werr = output:write(content)
+  local closed = output:close()
+  if not wrote or not closed then
+    pcall(os.remove, to)
+    return uv_error("EIO", tostring(werr), to)
+  end
+  return true
+end
+
+-- There is no process of the machine: a fixed number stands for it (the engine puts it into its lock files).
+function uv.os_getpid()
+  return 1
 end
 
 function uv.hrtime()

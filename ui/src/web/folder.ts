@@ -6,13 +6,13 @@
 // reload and a restart of Chrome, the permission is `granted` after a reload and `prompt` after a restart, and only a
 // click (`requestPermission` inside a user gesture) brings it back.
 
-import type { DirHandleLike } from './vault-files.ts';
+import type { WritableDirHandle } from './write-back.ts';
 
 export type PermissionState = 'granted' | 'prompt' | 'denied';
 export type AccessMode = 'read' | 'readwrite';
 
 /** A `FileSystemDirectoryHandle`, as far as this module uses one. */
-export interface DirHandle extends DirHandleLike {
+export interface DirHandle extends WritableDirHandle {
   queryPermission(descriptor: { mode: AccessMode }): Promise<PermissionState>;
   requestPermission(descriptor: { mode: AccessMode }): Promise<PermissionState>;
   isSameEntry?(other: DirHandle): Promise<boolean>;

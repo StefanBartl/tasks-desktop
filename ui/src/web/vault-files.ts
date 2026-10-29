@@ -46,9 +46,19 @@ export interface Skipped {
   reason: 'name' | 'too-large' | 'unreadable';
 }
 
+/** What the folder said about a file when it was read: the write-back compares the file on disk with it. */
+export interface FileStamp {
+  /** The size of the bytes that were read. */
+  size: number;
+  /** `File.lastModified` of the file those bytes came from; undefined when the handle does not tell. */
+  lastModified: number | undefined;
+}
+
 export interface LoadedVault {
   /** Path relative to the vault folder, `/` separated -> bytes. */
   files: Map<string, Uint8Array>;
+  /** The stamp each file of `files` had when it was read. */
+  stamps: Map<string, FileStamp>;
   skipped: Skipped[];
   totalBytes: number;
 }
@@ -90,7 +100,7 @@ export function wantedDir(name: string): boolean {
 /** Read the vault in `root` into memory. Throws `VaultLimitError` when it is over a budget. */
 export async function readVaultFolder(root: DirHandleLike, limits: Partial<LoadLimits> = {}): Promise<LoadedVault> {
   const lim = { ...DEFAULT_LIMITS, ...limits };
-  const out: LoadedVault = { files: new Map(), skipped: [], totalBytes: 0 };
+  const out: LoadedVault = { files: new Map(), stamps: new Map(), skipped: [], totalBytes: 0 };
 
   async function walk(dir: DirHandleLike, prefix: string, depth: number): Promise<void> {
     if (depth > lim.maxDepth) {
@@ -119,12 +129,14 @@ export async function readVaultFolder(root: DirHandleLike, limits: Partial<LoadL
       throw new VaultLimitError('maxFiles', `the folder holds more than ${lim.maxFiles} files to read`);
     }
     let bytes: Uint8Array;
+    let lastModified: number | undefined;
     try {
       const file = await handle.getFile();
       if (file.size > lim.maxFileBytes) {
         out.skipped.push({ path, reason: 'too-large' });
         return;
       }
+      lastModified = file.lastModified;
       bytes = new Uint8Array(await file.arrayBuffer());
     } catch {
       out.skipped.push({ path, reason: 'unreadable' });
@@ -140,6 +152,7 @@ export async function readVaultFolder(root: DirHandleLike, limits: Partial<LoadL
       throw new VaultLimitError('maxTotalBytes', `the files to read are larger than ${lim.maxTotalBytes} bytes together`);
     }
     out.files.set(path, bytes);
+    out.stamps.set(path, { size: bytes.byteLength, lastModified });
   }
 
   await walk(root, '', 0);
@@ -166,11 +179,24 @@ function hash53(text: string): string {
  * files. A folder over a budget is the reader's to refuse, here it only makes a signature of what it saw.
  */
 export async function vaultSignature(root: DirHandleLike, limits: Partial<LoadLimits> = {}): Promise<string> {
+  return signatureOf(await vaultStamps(root, limits));
+}
+
+/** What a signature is made of: every file the reader would take -> its size and time (or `unreadable`). */
+export type VaultStamps = Map<string, string>;
+
+/** One file as a stamp: its size and the time it was changed (empty when the handle does not tell). */
+export function stampText(size: number, lastModified: number | undefined): string {
+  return `${size}\0${lastModified ?? ''}`;
+}
+
+/** The stamps of the folder now (sizes and times, no content). */
+export async function vaultStamps(root: DirHandleLike, limits: Partial<LoadLimits> = {}): Promise<VaultStamps> {
   const lim = { ...DEFAULT_LIMITS, ...limits };
-  const lines: string[] = [];
+  const stamps: VaultStamps = new Map();
 
   async function walk(dir: DirHandleLike, prefix: string, depth: number): Promise<void> {
-    if (depth > lim.maxDepth || lines.length > lim.maxFiles) return;
+    if (depth > lim.maxDepth || stamps.size > lim.maxFiles) return;
     for await (const entry of dir.values()) {
       if (!safeName(entry.name)) continue;
       const path = prefix + entry.name;
@@ -179,17 +205,23 @@ export async function vaultSignature(root: DirHandleLike, limits: Partial<LoadLi
       } else if (entry.kind === 'file' && wantedFile(entry.name, depth === 0)) {
         try {
           const file = await entry.getFile();
-          lines.push(`${path}\0${file.size}\0${file.lastModified ?? ''}`);
+          stamps.set(path, stampText(file.size, file.lastModified));
         } catch {
-          lines.push(`${path}\0unreadable`);
+          stamps.set(path, 'unreadable');
         }
       }
     }
   }
 
   await walk(root, '', 0);
+  return stamps;
+}
+
+/** The signature of a set of stamps: the same files with the same sizes and times give the same text. */
+export function signatureOf(stamps: VaultStamps): string {
   // The order a file system lists in is not the same twice; the signature must not depend on it.
-  return `${lines.length}:${hash53(lines.sort().join('\n'))}`;
+  const lines = [...stamps].map(([path, stamp]) => `${path}\0${stamp}`).sort();
+  return `${lines.length}:${hash53(lines.join('\n'))}`;
 }
 
 export interface VaultChanges {
@@ -197,6 +229,11 @@ export interface VaultChanges {
   added: string[];
   modified: string[];
   removed: string[];
+  /**
+   * Folders the engine got rid of (renamed or removed) that held files of the loaded state: the folder of a folder task
+   * that moved. Paths relative to the vault root, sorted.
+   */
+  removedDirs: string[];
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
@@ -250,7 +287,21 @@ export class VaultMount {
       else if (!sameBytes(before, bytes)) modified.push(rel);
     }
     for (const rel of this.loaded.keys()) if (!now.has(rel)) removed.push(rel);
-    return { added: added.sort(), modified: modified.sort(), removed: removed.sort() };
+    // A folder the loaded files lay in that is not in the VM any more. Folders the engine left alone stay, also empty.
+    const dirs = new Set<string>();
+    for (const rel of this.loaded.keys()) {
+      for (let at = rel.lastIndexOf('/'); at > 0; at = rel.lastIndexOf('/', at - 1)) dirs.add(rel.slice(0, at));
+    }
+    const removedDirs = [...dirs].filter((dir) => !this.isFolder(`${this.root}/${dir}`));
+    return { added: added.sort(), modified: modified.sort(), removed: removed.sort(), removedDirs: removedDirs.sort() };
+  }
+
+  private isFolder(path: string): boolean {
+    try {
+      return isDir(this.fs.stat(path).mode);
+    } catch {
+      return false;
+    }
   }
 
   /** The current bytes of a file in the VM (to write it back), or undefined when there is none. */
@@ -263,9 +314,21 @@ export class VaultMount {
     }
   }
 
-  /** The current state is now the loaded one: call it after the changes are written to the folder on disk. */
-  accept(): void {
-    this.loaded = this.current();
+  /**
+   * The current state is now the loaded one: call it after the changes are written to the folder on disk. With
+   * `only`, just those files are taken over (the ones that were written) and any other change stays pending.
+   */
+  accept(only?: VaultChanges): void {
+    if (!only) {
+      this.loaded = this.current();
+      return;
+    }
+    for (const rel of [...only.added, ...only.modified]) {
+      const bytes = this.read(rel);
+      if (bytes) this.loaded.set(rel, bytes.slice());
+      else this.loaded.delete(rel);
+    }
+    for (const rel of only.removed) this.loaded.delete(rel);
   }
 
   private exists(path: string): boolean {

@@ -6,7 +6,7 @@ max_line_length = false
 -- door the page calls.
 files["ui/src/web/vim-shim.lua"] = {
   std = "lua54",
-  globals = { "vim", "unpack", "loadstring", "__web_call", "os", "math", "table" },
+  globals = { "vim", "unpack", "loadstring", "__web_call", "os", "math", "table", "tonumber" },
   read_globals = { "__web" },
 }
 -- Neovim's inspect.lua, kept as it is (see its head).

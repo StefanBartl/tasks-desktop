@@ -138,6 +138,19 @@ const NVIM_ANSWERS = {
   'inspect.6': '"vim\\x2eempty\\x5fdict\\x28\\x29"',
   'tolower.text':
     '"\\xc3\\xa4\\xc3\\xb6\\xc3\\xbc\\xc3\\x9f \\xc3\\xbcbersicht i \\xe2\\xb1\\xa5 k \\xc3\\xa6\\xc3\\xb8\\xc3\\xa5 \\xcf\\x83\\xce\\xb1\\xce\\xb2 \\xd0\\xb4\\xd0\\xb6"',
+  // the file descriptors the engine's writes use (fs_open, fs_write, fs_read, fs_fsync, fs_close, fs_copyfile)
+  'fd.roundtrip': '{1=8,2=true,3=true,4="abc\\x00def\\xff",5=8}',
+  'fd.exclusive': '{2="EEXIST",3="EEXIST",4="first"}',
+  'fd.missing': '{2="ENOENT",3="ENOENT"}',
+  'fd.truncate': '"new"',
+  'fd.offset': '"abXYef"',
+  'fd.sequential': '"one\\x2ctwo"',
+  'fd.append': '"first\\x3bsecond"',
+  'fd.read': '{1="0123",2="567",3="89",4=""}',
+  'fd.closed': '{2="EBADF",3="EBADF",5="EBADF",6="EBADF"}',
+  copyfile: '{10="ENOENT",1=true,2="payload\\x00\\xff",4="EEXIST",5="EEXIST",6=true,7="second",9="ENOENT"}',
+  'fd.stat': '{1="file",2="number",3=true,4="number",6="ENOENT",7="ENOENT"}',
+  pid: '{1="number",2=true,3=true}',
 };
 const NVIM_DIGESTS = {
   'tolower.codepoints': '9dc03dd7443b0304bd1836202fb2910fd5cf1f73e8778d130e0fe990bf21762b',
@@ -272,4 +285,41 @@ test('an unknown method is a tasks.error, not a throw', async () => {
   const result = e.call('no_such_method', null, { root: ROOT });
   assert.notEqual(result.code, null);
   assert.equal(JSON.parse(result.text).kind, 'tasks.error');
+});
+
+test('the write functions of the shim fail by name and like libuv: a callback, a number as flags, an unknown function, a folder', async () => {
+  await engine();
+  const fail = async (code) => String(await lua(`return select(2, pcall(function() ${code} end))`));
+  for (const call of ['fs_open("/vault/x.md", "r", 438, function() end)', 'fs_write(1, "x", 0, function() end)', 'fs_read(1, 1, 0, function() end)', 'fs_close(1, function() end)', 'fs_fsync(1, function() end)', 'fs_copyfile("/a", "/b", 0, function() end)']) {
+    assert.match(await fail(`vim.uv.${call}`), /callbacks are not available/, call);
+  }
+  assert.match(await fail('vim.uv.fs_open("/vault/x.md", 577, 438)'), /unsupported flags 577/);
+  assert.match(await fail('vim.uv.fs_chmod("/vault/x.md", 438)'), /vim\.uv\.fs_chmod is not available in the browser/);
+  assert.match(await fail('vim.uv.fs_fchmod(1, 438)'), /vim\.uv\.fs_fchmod is not available/, 'the engine asks inside pcall; the gap still has its name');
+  // a folder is not opened for writing, a missing parent is ENOENT, a file where a folder is needed is ENOTDIR
+  assert.equal(await lua('local fd, err, code = vim.uv.fs_open("/vault", "w", 420); return tostring(fd) .. "|" .. code'), 'nil|EISDIR');
+  assert.equal(await lua('local fd, err, code = vim.uv.fs_open("/vault/nodir/x.md", "wx", 420); return tostring(fd) .. "|" .. code'), 'nil|ENOENT');
+  await lua('local fd = vim.uv.fs_open("/vault/plainfile.md", "w", 420); vim.uv.fs_write(fd, "x", 0); vim.uv.fs_close(fd)');
+  assert.equal(await lua('local fd, err, code = vim.uv.fs_open("/vault/plainfile.md/x.md", "wx", 420); return tostring(fd) .. "|" .. code'), 'nil|ENOTDIR');
+  // a descriptor that was closed is gone, one that was opened to read cannot write
+  assert.equal(await lua('local fd = vim.uv.fs_open("/vault/plainfile.md", "r", 438); local ok, err, code = vim.uv.fs_write(fd, "y", 0); vim.uv.fs_close(fd); return tostring(ok) .. "|" .. code'), 'nil|EBADF');
+  assert.equal(await lua('return select(3, vim.uv.fs_read(9999, 1, 0))'), 'EBADF');
+  // the file that was written is whole after the close, byte for byte
+  assert.equal(await lua('local fd = vim.uv.fs_open("/vault/plainfile.md", "r", 438); local s = vim.uv.fs_read(fd, 10, 0); vim.uv.fs_close(fd); return s'), 'x');
+});
+
+test('a write of the engine through its own functions leaves the files as the engine meant: atomic write over an existing file, exclusive create, lock released', async () => {
+  await engine();
+  const result = await lua(`
+    local fsio = require("tasks_nvim.fsio")
+    local path = "/vault/atomic/over.md"
+    local made = { fsio.create_exclusive(path, "first\\n") }
+    local again = { fsio.create_exclusive(path, "second\\n") }
+    local over = { fsio.write_atomic(path, "third\\0\\255\\n") }
+    local locked = { fsio.with_lock(path, function() return "inside", fsio.read(path) end) }
+    local names = {}
+    for _, n in ipairs(vim.fn.readdir("/vault/atomic")) do names[#names + 1] = n end
+    return table.concat({ tostring(made[1]), tostring(again[1]), tostring(again[2]), tostring(over[1]), locked[1], #locked[2], table.concat(names, ",") }, "|")
+  `);
+  assert.equal(result, 'true|false|exists|true|inside|8|over.md', 'no temporary file and no lock file stays behind');
 });

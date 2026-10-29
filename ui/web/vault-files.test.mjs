@@ -177,7 +177,7 @@ test('a loaded vault shows no changes, and then exactly what the engine added, c
   const m = new VaultMount(fs, '/vault');
   m.load(new Map([['A/ROADMAP/tasks/a.md', enc('one')], ['A/ROADMAP/tasks/b.md', enc('two')], ['areas.json', enc('{}')]]));
   assert.equal(dec(fs.readFile('/vault/A/ROADMAP/tasks/a.md')), 'one', 'the files are in the VM');
-  assert.deepEqual(m.changes(), { added: [], modified: [], removed: [] });
+  assert.deepEqual(m.changes(), { added: [], modified: [], removed: [], removedDirs: [] });
 
   fs.mkdir('/vault/A/Backlog');
   fs.writeFile('/vault/A/Backlog/done.md', 'new');
@@ -187,13 +187,14 @@ test('a loaded vault shows no changes, and then exactly what the engine added, c
     added: ['A/Backlog/done.md'],
     modified: ['A/ROADMAP/tasks/a.md'],
     removed: ['A/ROADMAP/tasks/b.md'],
+    removedDirs: [],
   });
   assert.equal(dec(m.read('A/ROADMAP/tasks/a.md')), 'one!');
   assert.equal(m.read('A/ROADMAP/tasks/b.md'), undefined);
   assert.equal(m.read('A/ROADMAP'), undefined, 'a folder is not a file to write back');
 
   m.accept();
-  assert.deepEqual(m.changes(), { added: [], modified: [], removed: [] }, 'after the write-back there is nothing left');
+  assert.deepEqual(m.changes(), { added: [], modified: [], removed: [], removedDirs: [] }, 'after the write-back there is nothing left');
 });
 
 test('a write of the same bytes is no change, a write of other bytes of the same size is', () => {
@@ -212,7 +213,7 @@ test('the loaded state is a copy: changing the caller\'s array later is no engin
   const bytes = enc('abc');
   m.load(new Map([['a.md', bytes]]));
   bytes[0] = 0;
-  assert.deepEqual(m.changes(), { added: [], modified: [], removed: [] });
+  assert.deepEqual(m.changes(), { added: [], modified: [], removed: [], removedDirs: [] });
 });
 
 test('loading again replaces the vault, and a root outside the VM is refused', () => {
@@ -222,6 +223,50 @@ test('loading again replaces the vault, and a root outside the VM is refused', (
   m.load(new Map([['new/y.md', enc('y')]]));
   assert.equal(m.read('old/x.md'), undefined, 'the old vault is gone from the VM');
   assert.equal(dec(m.read('new/y.md')), 'y');
-  assert.deepEqual(m.changes(), { added: [], modified: [], removed: [] });
+  assert.deepEqual(m.changes(), { added: [], modified: [], removed: [], removedDirs: [] });
   for (const bad of ['vault', '/', '/vault/']) assert.throws(() => new VaultMount(fs, bad), /absolute folder/, bad);
+});
+
+test('a folder the engine took away is told, a folder it left alone is not, also when it is empty now', () => {
+  const fs = memfs();
+  const m = new VaultMount(fs, '/vault');
+  m.load(new Map([['A/tasks/keep/k.md', enc('k')], ['A/tasks/fold/f.md', enc('f')], ['A/tasks/fold/sub/s.md', enc('s')], ['A/tasks/x.md', enc('x')]]));
+  fs.unlink('/vault/A/tasks/x.md');
+  assert.deepEqual(m.changes().removedDirs, [], 'a file removed from a folder that stays');
+  fs.unlink('/vault/A/tasks/keep/k.md');
+  assert.deepEqual(m.changes().removedDirs, [], 'a folder that is empty but still there');
+  fs.unlink('/vault/A/tasks/fold/f.md');
+  fs.unlink('/vault/A/tasks/fold/sub/s.md');
+  fs.rmdir('/vault/A/tasks/fold/sub');
+  fs.rmdir('/vault/A/tasks/fold');
+  assert.deepEqual(m.changes().removedDirs, ['A/tasks/fold', 'A/tasks/fold/sub']);
+});
+
+test('accept with a list takes over just those files and leaves every other change pending', () => {
+  const fs = memfs();
+  const m = new VaultMount(fs, '/vault');
+  m.load(new Map([['a.md', enc('a')], ['b.md', enc('b')], ['c.md', enc('c')]]));
+  fs.writeFile('/vault/a.md', 'a2');
+  fs.writeFile('/vault/b.md', 'b2');
+  fs.writeFile('/vault/new.md', 'n');
+  fs.unlink('/vault/c.md');
+  m.accept({ added: ['new.md'], modified: ['a.md'], removed: ['c.md'], removedDirs: [] });
+  assert.deepEqual(m.changes(), { added: [], modified: ['b.md'], removed: [], removedDirs: [] }, 'only b.md is still to write');
+  m.accept();
+  assert.deepEqual(m.changes().modified, []);
+});
+
+test('the reader notes the time and the size of every file it took', async () => {
+  const dir = {
+    kind: 'directory',
+    name: 'v',
+    async *values() {
+      yield { kind: 'file', name: 'a.md', async getFile() { return { size: 3, lastModified: 1234, arrayBuffer: async () => enc('abc').buffer }; } };
+      yield { kind: 'file', name: 'b.md', async getFile() { return { size: 1, arrayBuffer: async () => enc('b').buffer }; } };
+    },
+  };
+  const got = await readVaultFolder(dir);
+  assert.deepEqual(got.stamps.get('a.md'), { size: 3, lastModified: 1234 });
+  assert.deepEqual(got.stamps.get('b.md'), { size: 1, lastModified: undefined }, 'a handle that tells no time gives none');
+  assert.deepEqual([...got.stamps.keys()], [...got.files.keys()]);
 });

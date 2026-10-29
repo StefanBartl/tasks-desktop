@@ -5,14 +5,31 @@
 // What the Rust hub checks before it asks the engine is checked here the same way (the query is plain, an id is
 // `<area>/<slug>`, an area is a name, a sort is one of five words), and an engine refusal keeps its code and message
 // and gets the same HTTP status. Left out on purpose: the session (there is no server and no token), the event stream
-// (the page reads again on focus), and everything that writes or opens something on the machine (step 8 and later).
+// (the page reads again on focus), and everything that opens something on the machine. A write (`ops`) is checked the
+// way the Rust hub checks it and then handed to `deps.ops`, which asks the engine and writes the folder; a hub without
+// that answers every write with a refusal.
 
 import type { CallResult } from './engine.ts';
 import { parseQuery as parseSearchQuery, parseRequest, readCorpus, search as searchCorpus, type Corpus } from './search.ts';
 
+/** How a request of `ops` ended (`VaultSession.ops`). */
+export type OpsOutcome =
+  /** The engine's `tasks.result`, and what it changed is in the folder. */
+  | { kind: 'done'; text: string }
+  /** The engine refused the request as a whole (a code of the contract); nothing was written. */
+  | { kind: 'refused'; result: CallResult }
+  /** The folder changed on disk since it was read: nothing was written, the page shows the disk state again. */
+  | { kind: 'conflict'; message: string }
+  /** The folder could not be written (or not safely): `code` is `io` or `rollback_incomplete`. */
+  | { kind: 'failed'; code: string; message: string };
+
 export interface HubDeps {
   /** One method of the engine over the vault in the worker, as `engine.call` answers it. */
   call(method: string, request: string | null): Promise<CallResult>;
+  /** The write path: the validated JSON of a request of `ops` in, how it ended out. Without it every write is refused. */
+  ops?(request: string): Promise<OpsOutcome>;
+  /** Resolves when no write or re-read of the folder is under way: a read waits for it, so it never sees half of one. */
+  idle?(): Promise<void>;
   /** The version of this build (the page's `package.json`) and its build id, for `about`. */
   version: string;
   build: string | null;
@@ -180,6 +197,8 @@ export function createWebHub(deps: HubDeps): WebHub {
   async function engine(method: string, params?: Record<string, unknown>): Promise<CallResult | Response> {
     let result: CallResult;
     try {
+      // A read never sees half of a write: it waits until the write (or the re-read after a failed one) is over.
+      await deps.idle?.();
       result = await deps.call(method, params ? JSON.stringify({ params }) : null);
     } catch {
       return errorBody(502, 'engine_failed', 'the engine could not answer');
@@ -439,6 +458,57 @@ export function createWebHub(deps: HubDeps): WebHub {
     );
   }
 
+  /**
+   * `POST ops`: the form of the request is judged as the Rust hub judges it, the rules of the tasks are the engine's.
+   * A request that ended with a changed folder tells the open streams (a `resync` event) and drops the texts of the
+   * search; a dry run changes nothing and tells nobody.
+   */
+  async function ops(body: string): Promise<Response> {
+    if (!deps.ops) {
+      return errorBody(405, 'read_only', 'this page cannot write: change tasks in Neovim or the app');
+    }
+    const request = checkOpsRequest(body);
+    if (typeof request === 'string') return errorBody(400, 'bad_request', request);
+    // The clipboard and the screenshot folders of the machine are out of reach of a page.
+    if (request.ops.some((op) => op['op'] === 'attach')) {
+      return errorBody(400, 'not_available', 'attach reads the clipboard of the machine, which this page cannot do');
+    }
+    const dry = request.value['dry_run'] === true;
+    let outcome: OpsOutcome;
+    try {
+      outcome = await deps.ops(JSON.stringify(request.value));
+    } catch {
+      // The write may have been carried out in part: the page reads again either way.
+      if (!dry) changed();
+      return errorBody(502, 'engine_failed', 'the write could not be carried out; read the vault again');
+    }
+    switch (outcome.kind) {
+      case 'done': {
+        if (!dry && wrote(outcome.text)) changed();
+        return respond(200, outcome.text);
+      }
+      case 'refused':
+        return failureResponse(outcome.result);
+      case 'conflict':
+        changed();
+        return respond(409, JSON.stringify({ error: { code: 'conflict', message: clipMessage(outcome.message), retryable: true } }));
+      case 'failed': {
+        changed();
+        const code = plainCode(outcome.code);
+        return respond(
+          STATUS_OF_CODE[code] ?? 502,
+          JSON.stringify({ error: { code, message: clipMessage(outcome.message), retryable: false } }),
+        );
+      }
+    }
+  }
+
+  /** The vault is not what the texts of the search and the page's list were read from. */
+  function changed(): void {
+    forgetTexts();
+    tell('event: resync\ndata: {}\n\n');
+  }
+
   async function post(name: string, body: string): Promise<Response> {
     switch (name) {
       case 'estimate': {
@@ -483,7 +553,7 @@ export function createWebHub(deps: HubDeps): WebHub {
         return respond(200, '{}');
       }
       case 'ops':
-        return errorBody(405, 'read_only', 'the web variant reads only for now: change tasks in Neovim or the app');
+        return ops(body);
       default:
         return errorBody(404, 'not_available', 'this route does not exist in the web variant');
     }
@@ -578,4 +648,86 @@ export function checkEstimateRequest(body: string): Record<string, unknown> | st
     }
   }
   return map;
+}
+
+/** The operations a page may ask for (`OPS_ALLOWED` of the Rust hub). */
+export const OPS_ALLOWED = [
+  'set',
+  'new',
+  'reorder',
+  'done',
+  'move_area',
+  'plan_new',
+  'tick_step',
+  'answer',
+  'append_note',
+  'reopen',
+  'set_body',
+  'view_save',
+  'view_delete',
+  'attach',
+];
+const OPS_FIELDS = ['schema', 'client_op_id', 'dry_run', 'ops'];
+/** The most operations in one request (the engine's limit). */
+export const OPS_MAX = 100;
+
+/**
+ * The form and the size of a request of `ops`, before the engine is asked: what is plainly not one is refused here, the
+ * rules of the tasks are the engine's (`check_ops_request`). Returns the request, or the reason it is refused.
+ */
+export function checkOpsRequest(body: string): { value: Record<string, unknown>; ops: Array<Record<string, unknown>> } | string {
+  let value: unknown;
+  try {
+    value = JSON.parse(body);
+  } catch {
+    return 'the body is not JSON';
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return 'the request must be a JSON object';
+  const map = value as Record<string, unknown>;
+  // The Rust hub names the first unknown key in the order of its (sorted) map.
+  const unknown = Object.keys(map)
+    .sort()
+    .find((k) => !OPS_FIELDS.includes(k));
+  if (unknown !== undefined) return `unknown field ${unknown.slice(0, 40)} in the request`;
+  const ops = map['ops'];
+  if (!Array.isArray(ops)) return 'ops must be a list';
+  if (ops.length === 0 || ops.length > OPS_MAX) return `ops holds 1 to ${OPS_MAX} operations`;
+  const named: Array<Record<string, unknown>> = [];
+  for (let i = 0; i < ops.length; i++) {
+    const op: unknown = ops[i];
+    const name = typeof op === 'object' && op !== null && !Array.isArray(op) ? (op as Record<string, unknown>)['op'] : undefined;
+    if (typeof name !== 'string') return `ops[${i + 1}] has no op`;
+    if (!OPS_ALLOWED.includes(name)) return `ops[${i + 1}]: unknown operation`;
+    named.push(op as Record<string, unknown>);
+  }
+  if (named.filter((op) => op['op'] === 'attach').length > 1) return 'at most one attach in a request';
+  if ('client_op_id' in map) {
+    const id = map['client_op_id'];
+    if (typeof id !== 'string' || !/^[A-Za-z0-9._:-]{1,64}$/.test(id)) {
+      return 'client_op_id is 1 to 64 letters, digits and . _ : -';
+    }
+  }
+  if ('dry_run' in map && typeof map['dry_run'] !== 'boolean') return 'dry_run must be true or false';
+  return { value: map, ops: named };
+}
+
+/** Whether an answer of `ops` says that a file was written (some entry names changed ids). Unreadable: assume so. */
+function wrote(text: string): boolean {
+  try {
+    const results = (JSON.parse(text) as { results?: unknown }).results;
+    if (!Array.isArray(results)) return true;
+    return results.some((e) => Array.isArray((e as { changed_ids?: unknown }).changed_ids) && (e as { changed_ids: unknown[] }).changed_ids.length > 0);
+  } catch {
+    return true;
+  }
+}
+
+/** One short line without control characters, as the engine's messages are told. */
+function clipMessage(message: string): string {
+  // eslint-disable-next-line no-control-regex
+  return message.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').slice(0, 512);
+}
+
+function plainCode(code: string): string {
+  return /^[a-z_]{1,48}$/.test(code) ? code : 'engine_failed';
 }

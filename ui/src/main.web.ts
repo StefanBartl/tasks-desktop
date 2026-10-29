@@ -16,11 +16,11 @@ import { trackHistory } from './lib/trackHistory.svelte';
 import { installTooltips } from 'appkit-ui/tooltip';
 import { createBrowserHub, WorkerClient, type PortLike } from './web/client';
 import { loadParts, startBlobWorker, type Parts } from './web/embedded';
-import { Entry, mountFolder } from './web/entry';
-import { idbKeyValue, RecentFolders, type DirHandle, type PickerWindow } from './web/folder';
-import { vaultSignature } from './web/vault-files';
+import { Entry } from './web/entry';
+import { idbKeyValue, RecentFolders, type PickerWindow } from './web/folder';
+import { guardUnload, localDay, VaultSession } from './web/vault-session';
 import WebEntry from './web/WebEntry.svelte';
-import { watchVault } from './web/watch';
+import { watchVault, type Watcher } from './web/watch';
 
 /** Where the vault lies in the engine's file system. */
 const ROOT = '/vault';
@@ -53,21 +53,36 @@ const started: Promise<{ client: WorkerClient; parts: Parts }> = (async () => {
 // A failed start is told where the person looks; this keeps it from being an unhandled rejection too.
 started.catch(() => {});
 
-let chosen: DirHandle | null = null;
+// The vault the person opened: the folder, its copy in the engine and what the page knows of the files on disk.
+let vault: VaultSession | null = null;
+// The signature of the folder as the page knows it (taken before it was read): where the look at the folder starts.
 let signature = '';
+// The look at the folder (watch.ts). The session tells it the state of the folder after a write of its own, so that
+// the page's own files are not taken for a change from outside.
+let watcher: Watcher | null = null;
 
 const entry = new Entry({
   win: window as unknown as PickerWindow,
   recent: new RecentFolders(idbKeyValue(window.indexedDB)),
   open: async (handle) => {
     const { client } = await started;
-    const mounted = await mountFolder(client, ROOT, handle);
-    chosen = handle;
-    signature = await vaultSignature(handle);
+    const opened = new VaultSession({
+      client,
+      handle,
+      root: ROOT,
+      today: () => localDay(new Date()),
+      onSignature: (known) => watcher?.accept(known),
+    });
+    const mounted = await opened.load();
+    signature = opened.knownSignature();
+    vault = opened;
     return mounted;
   },
   now: () => Date.now(),
 });
+// A write is several calls on several files; closing the page in the middle of one cannot be taken back.
+guardUnload(window, () => vault?.isWriting ?? false);
+
 const entryUi = mount(WebEntry, { target, props: { entry, lang } });
 
 let began = false;
@@ -81,7 +96,7 @@ void entry.start();
 
 async function begin(): Promise<void> {
   const { client, parts } = await started;
-  const handle = chosen as DirHandle;
+  const session = vault as VaultSession;
   const lock = parts.bundle.engine;
 
   const web = createBrowserHub(client, {
@@ -91,13 +106,17 @@ async function begin(): Promise<void> {
     pinned: { engine: lock.commit, lib: lock.lib_commit },
     // The app asks to read again when the window gets the focus back: the same look as the timer's.
     rescan: async () => {
-      await watcher.check();
+      await watcher?.check();
     },
+    // Changes go through the engine into the folder (nothing is written when the folder moved on since it was read),
+    // and a read waits for a write that is under way.
+    ops: (request) => session.ops(request),
+    idle: () => session.idle(),
   });
-  const watcher = watchVault(signature, {
-    signature: () => vaultSignature(handle),
+  watcher = watchVault(signature, {
+    signature: () => session.signature(),
     onChange: async () => {
-      await mountFolder(client, ROOT, handle);
+      await session.reload();
       web.notify();
     },
     onError: () => {},

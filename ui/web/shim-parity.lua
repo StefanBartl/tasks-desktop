@@ -356,4 +356,163 @@ case("sha256", function()
   }
 end)
 
+-- ── file descriptors: what the engine's writes (create_exclusive, write_atomic, with_lock, copy) rely on ──────
+-- A fresh path per case (the temp folder of nvim, /tmp of the VM); every case removes what it made.
+local uv = vim.uv or vim.loop
+local function fresh()
+  return vim.fn.tempname()
+end
+
+-- the error word before the colon of a libuv message ("EEXIST: file already exists: <path>"): the engine matches it
+local function word(err)
+  return type(err) == "string" and err:match("^(%u+):") or tostring(err)
+end
+
+local function slurp(path)
+  local fd = uv.fs_open(path, "r", 438)
+  if not fd then
+    return nil
+  end
+  local text = uv.fs_read(fd, 1000, 0)
+  uv.fs_close(fd)
+  return text
+end
+
+case("fd.roundtrip", function()
+  local path = fresh()
+  local fd = uv.fs_open(path, "wx", 420)
+  local wrote = uv.fs_write(fd, "abc\0def\255", 0)
+  local synced = uv.fs_fsync(fd)
+  local closed = uv.fs_close(fd)
+  local text = slurp(path)
+  local size = uv.fs_stat(path).size
+  os.remove(path)
+  return { wrote, synced, closed, text, size }
+end)
+
+case("fd.exclusive", function()
+  local path = fresh()
+  local fd = uv.fs_open(path, "wx", 420)
+  uv.fs_write(fd, "first", 0)
+  uv.fs_close(fd)
+  local again, err, code = uv.fs_open(path, "wx", 420)
+  local kept = slurp(path)
+  os.remove(path)
+  return { again, word(err), code, kept }
+end)
+
+case("fd.missing", function()
+  local path = fresh()
+  local fd, err, code = uv.fs_open(path, "r", 438)
+  return { fd, word(err), code }
+end)
+
+case("fd.truncate", function()
+  local path = fresh()
+  local fd = uv.fs_open(path, "w", 420)
+  uv.fs_write(fd, "long old text", 0)
+  uv.fs_close(fd)
+  fd = uv.fs_open(path, "w", 420)
+  uv.fs_write(fd, "new", 0)
+  uv.fs_close(fd)
+  local text = slurp(path)
+  os.remove(path)
+  return text
+end)
+
+case("fd.offset", function()
+  local path = fresh()
+  local fd = uv.fs_open(path, "w", 420)
+  uv.fs_write(fd, "abcdef", 0)
+  uv.fs_write(fd, "XY", 2)
+  uv.fs_close(fd)
+  local text = slurp(path)
+  os.remove(path)
+  return text
+end)
+
+case("fd.sequential", function()
+  local path = fresh()
+  local fd = uv.fs_open(path, "w", 420)
+  uv.fs_write(fd, "one,", -1)
+  uv.fs_write(fd, "two", -1)
+  uv.fs_close(fd)
+  local text = slurp(path)
+  os.remove(path)
+  return text
+end)
+
+case("fd.append", function()
+  local path = fresh()
+  local fd = uv.fs_open(path, "w", 420)
+  uv.fs_write(fd, "first;", 0)
+  uv.fs_close(fd)
+  fd = uv.fs_open(path, "a", 420)
+  uv.fs_write(fd, "second", -1)
+  uv.fs_close(fd)
+  local text = slurp(path)
+  os.remove(path)
+  return text
+end)
+
+case("fd.read", function()
+  local path = fresh()
+  local fd = uv.fs_open(path, "w", 420)
+  uv.fs_write(fd, "0123456789", 0)
+  uv.fs_close(fd)
+  fd = uv.fs_open(path, "r", 438)
+  local head = uv.fs_read(fd, 4, 0)
+  local middle = uv.fs_read(fd, 3, 5)
+  local tail = uv.fs_read(fd, 100, 8)
+  local eof = uv.fs_read(fd, 10, 10)
+  uv.fs_close(fd)
+  os.remove(path)
+  return { head, middle, tail, eof }
+end)
+
+case("fd.closed", function()
+  local path = fresh()
+  local fd = uv.fs_open(path, "w", 420)
+  uv.fs_close(fd)
+  local ok, err, code = uv.fs_close(fd)
+  local w, werr, wcode = uv.fs_write(fd, "x", 0)
+  os.remove(path)
+  return { ok, word(err), code, w, word(werr), wcode }
+end)
+
+case("copyfile", function()
+  local from, to = fresh(), fresh()
+  local fd = uv.fs_open(from, "w", 420)
+  uv.fs_write(fd, "payload\0\255", 0)
+  uv.fs_close(fd)
+  local copied = uv.fs_copyfile(from, to, { excl = true })
+  local same = slurp(to)
+  local again, err, code = uv.fs_copyfile(from, to, { excl = true })
+  fd = uv.fs_open(from, "w", 420)
+  uv.fs_write(fd, "second", 0)
+  uv.fs_close(fd)
+  local over = uv.fs_copyfile(from, to)
+  local replaced = slurp(to)
+  local none, nerr, ncode = uv.fs_copyfile(fresh(), fresh())
+  os.remove(from)
+  os.remove(to)
+  return { copied, same, again, word(err), code, over, replaced, none, word(nerr), ncode }
+end)
+
+case("fd.stat", function()
+  local path = fresh()
+  local fd = uv.fs_open(path, "w", 420)
+  uv.fs_close(fd)
+  local st = uv.fs_stat(path)
+  os.remove(path)
+  local gone, err, code = uv.fs_stat(path)
+  -- the permission bits differ between machines; that there are some, and the type, do not
+  return { st.type, type(st.mode), st.mode % 4096 > 0, type(st.mtime.sec), gone, word(err), code }
+end)
+
+case("pid", function()
+  local pid = uv.os_getpid()
+  return { type(pid), pid > 0, pid == math.floor(pid) }
+end)
+
 return table.concat(out, "\n")

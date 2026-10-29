@@ -117,7 +117,7 @@ test('the hub of the page serves the routes over the worker', async () => {
 
 test('nothing changed after the mount, and a second mount replaces the vault', async () => {
   const client = await ready();
-  assert.deepEqual(await client.changes(), { added: [], modified: [], removed: [] });
+  assert.deepEqual(await client.changes(), { added: [], modified: [], removed: [], removedDirs: [] });
   const before = JSON.parse((await client.call('list', null, { root: ROOT })).text).items.length;
   assert.ok(before > 1);
 
@@ -206,4 +206,45 @@ test('init moves the WASM to the worker instead of copying it', async () => {
   assert.deepEqual(sent[0][1], [wasm], 'the buffer is in the transfer list');
   port.onmessage({ data: { type: 'ready', ms: 1 } });
   assert.equal(await starting, 1);
+});
+
+test('pending lists what the engine changed with the bytes to write, and accept takes over just what was written', async () => {
+  const client = await ready();
+  await client.mount(ROOT, vaultFiles());
+  const request = JSON.stringify({ client_op_id: 'w1', ops: [{ op: 'new', area: 'lib.nvim', title: 'Pending probe' }] });
+  const answer = await client.call('ops', request, { root: ROOT, today: '2026-10-29' });
+  assert.equal(answer.code, null, answer.text);
+
+  const first = await client.pendingFiles();
+  assert.deepEqual(first.changes, {
+    added: ['lib.nvim/ROADMAP/TASKS.md', 'lib.nvim/ROADMAP/tasks/pending-probe.md'],
+    modified: [],
+    removed: [],
+    removedDirs: [],
+  });
+  assert.deepEqual([...first.files.keys()].sort(), first.changes.added);
+  const text = new TextDecoder().decode(first.files.get('lib.nvim/ROADMAP/tasks/pending-probe.md'));
+  assert.match(text, /^---\ntitle: Pending probe\n/);
+
+  // the task file was written to the folder, the index was not: only the first is the loaded state now
+  await client.accept({ added: ['lib.nvim/ROADMAP/tasks/pending-probe.md'], modified: [], removed: [], removedDirs: [] });
+  const second = await client.pendingFiles();
+  assert.deepEqual(second.changes.added, ['lib.nvim/ROADMAP/TASKS.md']);
+  assert.deepEqual([...second.files.keys()], ['lib.nvim/ROADMAP/TASKS.md']);
+
+  await client.accept(second.changes);
+  assert.deepEqual((await client.pendingFiles()).changes, { added: [], modified: [], removed: [], removedDirs: [] });
+  await client.mount(ROOT, vaultFiles());
+});
+
+test('accept refuses a path that leaves the vault, and pending and accept need a mounted vault', async () => {
+  const client = await ready();
+  for (const bad of ['../x.md', 'a/../b.md', '/abs.md']) {
+    await assert.rejects(client.accept({ added: [bad], modified: [], removed: [], removedDirs: [] }), /not a plain path/, bad);
+  }
+  const fresh = new WorkerClient(pair());
+  await fresh.init(INIT());
+  await assert.rejects(fresh.pendingFiles(), /no vault is mounted/);
+  await assert.rejects(fresh.accept({ added: [], modified: [], removed: [], removedDirs: [] }), /no vault is mounted/);
+  fresh.close();
 });

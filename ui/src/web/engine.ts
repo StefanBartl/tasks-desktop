@@ -103,7 +103,7 @@ export class WebEngine {
           const st = fs.stat(path);
           const kind = isDir(st.mode) ? 'directory' : isFile(st.mode) ? 'file' : 'other';
           const ms = st.mtime.getTime();
-          return `${kind} ${st.size} ${Math.floor(ms / 1000)} ${(ms % 1000) * 1_000_000}`;
+          return `${kind} ${st.size} ${Math.floor(ms / 1000)} ${(ms % 1000) * 1_000_000} ${st.mode}`;
         } catch {
           return undefined;
         }

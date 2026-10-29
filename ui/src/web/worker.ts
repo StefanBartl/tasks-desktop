@@ -19,6 +19,10 @@ export type WorkerRequest =
   /** Replace the vault at `root` (an absolute folder inside the VM) with `files` (path relative to it -> bytes). */
   | { type: 'mount'; id: number; root: string; files: Record<string, Uint8Array> }
   | { type: 'changes'; id: number }
+  /** What the engine changed, with the bytes of every file it added or changed (the write-back writes them). */
+  | { type: 'pending'; id: number }
+  /** The page wrote exactly these changes to the folder: they are the loaded state now, others stay pending. */
+  | { type: 'accept'; id: number; changes: VaultChanges }
   | { type: 'call'; id: number; method: string; request: string | null; root: string; today?: string };
 
 export type WorkerReply =
@@ -26,6 +30,8 @@ export type WorkerReply =
   | { type: 'result'; id: number; text: string; code: string | null; ms: number }
   | { type: 'mounted'; id: number; files: number; ms: number }
   | { type: 'changes'; id: number; changes: VaultChanges }
+  | { type: 'pending'; id: number; changes: VaultChanges; files: Record<string, Uint8Array> }
+  | { type: 'accepted'; id: number }
   | { type: 'log'; level: number; message: string }
   | { type: 'error'; id?: number; message: string };
 
@@ -89,7 +95,7 @@ export function startWorker(scope: Scope, options: WorkerOptions = {}): void {
       }
       return;
     }
-    if (msg.type === 'mount' || msg.type === 'changes') {
+    if (msg.type === 'mount' || msg.type === 'changes' || msg.type === 'pending' || msg.type === 'accept') {
       if (!engine) {
         post({ type: 'error', id: msg.id, message: 'the engine is not started (init first)' });
         return;
@@ -107,9 +113,26 @@ export function startWorker(scope: Scope, options: WorkerOptions = {}): void {
           next.load(new Map(Object.entries(msg.files)));
           vault = next;
           post({ type: 'mounted', id: msg.id, files: Object.keys(msg.files).length, ms: Math.round(performance.now() - t0) });
-        } else {
+        } else if (msg.type === 'changes') {
           if (!vault) throw new Error('no vault is mounted');
           post({ type: 'changes', id: msg.id, changes: vault.changes() });
+        } else if (msg.type === 'pending') {
+          if (!vault) throw new Error('no vault is mounted');
+          const changes = vault.changes();
+          const files: Record<string, Uint8Array> = {};
+          for (const rel of [...changes.added, ...changes.modified]) {
+            const bytes = vault.read(rel);
+            if (!bytes) throw new Error(`a changed file is gone from the VM: ${JSON.stringify(rel)}`);
+            files[rel] = bytes;
+          }
+          post({ type: 'pending', id: msg.id, changes, files });
+        } else {
+          if (!vault) throw new Error('no vault is mounted');
+          const listed = [...msg.changes.added, ...msg.changes.modified, ...msg.changes.removed];
+          const bad = listed.find((path) => !plainPath(path));
+          if (bad !== undefined) throw new Error(`not a plain path inside the vault: ${JSON.stringify(bad)}`);
+          vault.accept(msg.changes);
+          post({ type: 'accepted', id: msg.id });
         }
       } catch (err) {
         post({ type: 'error', id: msg.id, message: String(err) });
