@@ -9,6 +9,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+use hub_testkit::scratch::Scratch;
 use serde_json::Value;
 use tasks_hub::classes::{path, AreaPolicy, Shown};
 
@@ -66,12 +67,7 @@ fn cases() -> Option<Vec<Value>> {
 fn the_hub_answers_every_case_of_the_web_page_alike() {
     let Some(cases) = cases() else { return };
     assert!(cases.len() >= 150, "{} cases", cases.len());
-    let dir = std::env::temp_dir().join(format!(
-        "tasks-desktop-classes-cases-{}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new("classes-cases");
 
     let mut wrong = Vec::new();
     for case in &cases {
@@ -102,7 +98,6 @@ fn the_hub_answers_every_case_of_the_web_page_alike() {
             }
         }
     }
-    let _ = std::fs::remove_dir_all(&dir);
     assert!(
         wrong.is_empty(),
         "the page and the hub differ:\n{}",

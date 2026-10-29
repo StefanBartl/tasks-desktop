@@ -87,16 +87,13 @@ fn is_bare_vault(path: &Path, area: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use hub_testkit::scratch::Scratch;
+
     use super::*;
 
-    fn scratch(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "tasks-desktop-newvault-{name}-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    /// A folder of its own, removed when the value drops.
+    fn scratch(name: &str) -> Scratch {
+        Scratch::new(&format!("newvault-{name}"))
     }
 
     #[test]

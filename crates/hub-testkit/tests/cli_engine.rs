@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use hub_testkit::scratch::Scratch;
 use serde_json::{json, Value};
 use tasks_hub::config::Env;
 use tasks_hub::engine::{probe, Calls, CliEngine, CliEngineConfig, Engine, EngineError, Method};
@@ -36,14 +37,12 @@ fn fake(value: Value) -> Value {
     json!({ "fake": value })
 }
 
-/// A marker file name no other test uses, removed if it is left over.
-fn marker(name: &str) -> PathBuf {
-    let path = std::env::temp_dir().join(format!(
-        "tasks-desktop-marker-{name}-{}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_file(&path);
-    path
+/// A marker file path in a folder of its own, which is removed when the first part drops: keep it until the
+/// test ends. The file is not there until the fake engine writes it.
+fn marker(name: &str) -> (Scratch, PathBuf) {
+    let dir = Scratch::new(&format!("marker-{name}"));
+    let path = dir.join("marker");
+    (dir, path)
 }
 
 /// Wait until `queued()` reaches `n`, or fail after a few seconds.
@@ -143,7 +142,7 @@ async fn a_question_that_takes_too_long_is_killed() {
     cfg.timeout = Duration::from_millis(400);
     let engine = CliEngine::new(cfg);
     // The fake writes its marker after the wait: if the kill worked it never does.
-    let ran_on = marker("killed");
+    let (_ran_on_dir, ran_on) = marker("killed");
     let params = fake(json!({ "sleep_ms": 1_500, "marker": ran_on }));
     let started = Instant::now();
     let err = engine
@@ -316,7 +315,7 @@ fn only_the_listed_methods_exist() {
 #[tokio::test]
 async fn a_write_runs_to_its_end_when_the_caller_gives_up() {
     let engine = CliEngine::new(config(Env::from_process()));
-    let done = marker("write-survives");
+    let (_done_dir, done) = marker("write-survives");
     let request = json!({ "schema": 1, "ops": [], "fake": { "sleep_ms": 400, "marker": done } });
     // The caller is dropped while the child is running: that must not kill it.
     let call = engine.call(Calls::Ops, Some(&request));
@@ -331,7 +330,7 @@ async fn a_read_nobody_waits_for_is_never_started() {
     let engine = CliEngine::new(config(Env::from_process()));
     let blocker = fake(json!({ "sleep_ms": 600 }));
     let first = engine.call(Calls::List, Some(&blocker));
-    let never = marker("abandoned-read");
+    let (_never_dir, never) = marker("abandoned-read");
     let params = fake(json!({ "marker": never }));
     let second = engine.call(Calls::List, Some(&params));
     // Start both so both hold a place, then drop the second while it waits.
@@ -349,7 +348,7 @@ async fn a_dry_run_nobody_waits_for_is_never_started() {
     let engine = CliEngine::new(config(Env::from_process()));
     let blocker = fake(json!({ "sleep_ms": 600 }));
     let first = engine.call(Calls::List, Some(&blocker));
-    let never = marker("abandoned-dry-run");
+    let (_never_dir, never) = marker("abandoned-dry-run");
     let request = json!({ "schema": 1, "dry_run": true, "ops": [], "fake": { "marker": never } });
     let second = engine.call(Calls::Ops, Some(&request));
     let (_, outcome) = tokio::join!(first, async {
@@ -449,21 +448,19 @@ async fn an_answer_is_returned_without_its_line_ending() {
     assert!(reply.text.starts_with('{') && reply.text.ends_with('}'));
 }
 
-/// A vault folder of its own (the fake reads `.fake-check-ms` in it), and an engine on it with `timeout`.
-fn check_engine(name: &str, timeout: Duration) -> (CliEngine, PathBuf) {
-    let dir =
-        std::env::temp_dir().join(format!("tasks-desktop-check-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+/// A vault folder of its own (the fake reads `.fake-check-ms` in it), and an engine on it with `timeout`. The folder
+/// comes first: the engine goes before it.
+fn check_engine(name: &str, timeout: Duration) -> (Scratch, CliEngine) {
+    let dir = Scratch::new(&format!("check-{name}"));
     let mut cfg = config(Env::from_process());
-    cfg.vault = dir.clone();
+    cfg.vault = dir.to_path_buf();
     cfg.timeout = timeout;
-    (CliEngine::new(cfg), dir)
+    (dir, CliEngine::new(cfg))
 }
 
 #[tokio::test]
 async fn a_check_may_take_ten_times_the_usual_time() {
-    let (engine, dir) = check_engine("factor", Duration::from_millis(500));
+    let (dir, engine) = check_engine("factor", Duration::from_millis(500));
     std::fs::write(dir.join(".fake-check-ms"), "1200").unwrap();
     // 1.2 s is more than the usual 0.5 s ...
     let check = engine.call(Calls::Check, Some(&json!({}))).await;
@@ -479,7 +476,7 @@ async fn a_check_may_take_ten_times_the_usual_time() {
 
 #[tokio::test]
 async fn a_check_that_is_given_up_is_stopped_with_its_process() {
-    let (engine, dir) = check_engine("given-up", Duration::from_secs(10));
+    let (dir, engine) = check_engine("given-up", Duration::from_secs(10));
     std::fs::write(dir.join(".fake-check-ms"), "1500").unwrap();
     let engine = std::sync::Arc::new(engine);
     let runner = std::sync::Arc::clone(&engine);

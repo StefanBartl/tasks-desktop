@@ -3,23 +3,21 @@
 // Nothing of a real vault is ever used (concept 5.7).
 
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { removeTree, tempDir, tempRoot } from '../web/tmp.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '..', '..');
 export const PORT = 17698;
 export const ORIGIN = `http://127.0.0.1:${PORT}`;
+
+/**
+ * The root of the temp folders of one run of these tests: the folder of the hub, the file the workers read their state
+ * from. `global.ts` removes it when the run is over (`cleanUp`), and the end of the process does it if that never ran.
+ */
+export const RUN_ROOT_NAME = 'tasks-desktop-e2e';
 
 const exe = join(repo, 'target', 'debug', process.platform === 'win32' ? 'tasks-hub.exe' : 'tasks-hub');
 
@@ -141,7 +139,8 @@ export interface Running {
   child: ChildProcess;
   config: string;
   vault: string;
-  stop(): void;
+  /** Ends the hub and removes its folder. Rejects when the folder cannot be removed: a leftover is an error. */
+  stop(): Promise<void>;
 }
 
 function frontmatterTitle(title: string): string {
@@ -150,7 +149,7 @@ function frontmatterTitle(title: string): string {
 }
 
 export function prepareVault(): { root: string; vault: string; config: string } {
-  const root = mkdtempSync(join(tmpdir(), 'tasks-desktop-e2e-'));
+  const root = tempDir('hub', tempRoot(RUN_ROOT_NAME));
   const vault = join(root, 'vault');
   cpSync(join(repo, 'e2e', 'fixture', 'vault'), vault, { recursive: true });
   const tasks = join(vault, 'lib.nvim', 'ROADMAP', 'tasks');
@@ -216,17 +215,58 @@ export function env(config: string): NodeJS.ProcessEnv {
   };
 }
 
-export async function startHub(): Promise<Running & { root: string }> {
-  // Something already answers on the port: those tests would run against
-  // another hub and another vault.
-  const taken = await fetch(`${ORIGIN}/api/tasks/hello`).then(
+/**
+ * End the hub and remove its folder. The hub is waited for first: on Windows a folder with a running process in it
+ * (its watcher, the engine it started) cannot be removed. What is still busy after that is tried again for a few
+ * seconds, and then it is an error, never a silent leftover.
+ */
+async function endHub(child: ChildProcess, root: string): Promise<void> {
+  if (child.exitCode === null && child.signalCode === null) {
+    const gone = new Promise<void>((done) => child.once('exit', () => done()));
+    child.kill();
+    let giveUp: NodeJS.Timeout | undefined;
+    await Promise.race([gone, new Promise((done) => (giveUp = setTimeout(done, 10_000)))]);
+    clearTimeout(giveUp);
+  }
+  removeTree(root, { retries: 30, delay: 200 });
+}
+
+/** For the tests of web/ (e2e-cleanup.test.mjs): another program for the hub, and how long to wait for it. */
+export interface StartOptions {
+  /** the program, and the arguments that go before `serve` */
+  exe?: string;
+  args?: string[];
+  /** ms the hub has to be ready in */
+  readyTimeout?: number;
+}
+
+/** Is something answering on the port of the hub? */
+export async function portTaken(): Promise<boolean> {
+  return fetch(`${ORIGIN}/api/tasks/hello`).then(
     () => true,
     () => false,
   );
-  if (taken) throw new Error(`port ${PORT} is in use: stop the hub that runs there`);
+}
+
+export async function startHub(options: StartOptions = {}): Promise<Running & { root: string }> {
+  // Something already answers on the port: those tests would run against
+  // another hub and another vault.
+  if (await portTaken()) throw new Error(`port ${PORT} is in use: stop the hub that runs there`);
   const { root, vault, config } = prepareVault();
-  const child = spawn(exe, ['serve'], { env: env(config), stdio: 'ignore' });
-  const deadline = Date.now() + 20_000;
+  const child = spawn(options.exe ?? exe, [...(options.args ?? []), 'serve'], { env: env(config), stdio: 'ignore' });
+  const running = { child, config, vault, root, stop: () => endHub(child, root) };
+  try {
+    await waitUntilReady(config, options.readyTimeout ?? 20_000);
+  } catch (error) {
+    // The first error is the one to report; a folder that cannot be removed on top of it is told as well.
+    await running.stop().catch((again: unknown) => console.error(String(again)));
+    throw error;
+  }
+  return running;
+}
+
+async function waitUntilReady(config: string, timeout: number): Promise<void> {
+  const deadline = Date.now() + timeout;
   for (;;) {
     try {
       const r = await fetch(`${ORIGIN}/api/tasks/hello`);
@@ -236,42 +276,17 @@ export async function startHub(): Promise<Running & { root: string }> {
         throw new Error('the engine is not ready: set TASKS_ENGINE_DIR and LIB_NVIM_DIR');
       }
     } catch (error) {
-      if (Date.now() > deadline || (error instanceof Error && error.message.includes('engine'))) {
-        child.kill();
-        throw error;
-      }
+      if (Date.now() > deadline || (error instanceof Error && error.message.includes('engine'))) throw error;
     }
     await new Promise((r) => setTimeout(r, 200));
   }
   // The port answers before `hub.json` is written, and `tasks-hub open` (the
   // pairing of the tests) needs that file.
   while (!existsSync(join(config, 'hub.json'))) {
-    if (Date.now() > deadline) {
-      child.kill();
-      throw new Error('the hub answers but wrote no hub.json');
-    }
+    if (Date.now() > deadline) throw new Error('the hub answers but wrote no hub.json');
     await new Promise((r) => setTimeout(r, 100));
   }
-  try {
-    await assertFreshBinary();
-  } catch (error) {
-    child.kill();
-    throw error;
-  }
-  return {
-    child,
-    config,
-    vault,
-    root,
-    stop() {
-      child.kill();
-      try {
-        rmSync(root, { recursive: true, force: true });
-      } catch {
-        // a file the engine still holds; the temp folder is cleaned later
-      }
-    },
-  };
+  await assertFreshBinary();
 }
 
 /**
@@ -300,8 +315,8 @@ export function pairingLink(config: string): string {
 
 /**
  * Remove a file the hub may still hold for a moment (its watcher or the engine reading it). On Windows that fails with
- * EBUSY; Node retries only when `recursive` is set, so it is set here (for a file it changes nothing else).
+ * EBUSY or EPERM; `removeTree` tries again (the `maxRetries` of `fs.rmSync` retries nothing on this Node) and then fails.
  */
 export function removeFile(file: string): void {
-  rmSync(file, { force: true, recursive: true, maxRetries: 10, retryDelay: 100 });
+  removeTree(file, { retries: 10, delay: 100 });
 }

@@ -60,15 +60,18 @@ jobs:
         working-directory: ui
         env:
           TASKS_WEB_COMPARE: "1"
-        run: pnpm web:test
+        run: node ../tools/run-with-temp.mjs -- pnpm web:test
       - name: Build the page
         working-directory: ui
         env:
           WEB_BUILD: ${{ github.ref_name }}
         run: pnpm web:build
+      # The same project as in ci.yml (ui/e2e-web/): the built file itself, from disk, in Chrome. What is published is
+      # what was tested. Both test steps run through tools/run-with-temp.mjs, as in ci.yml: a temp dir of their own, and
+      # the step fails when a test left a folder of its own in it.
       - name: Open the file from disk in Chrome
         working-directory: ui
-        run: pnpm web:e2e
+        run: node ../tools/run-with-temp.mjs -- pnpm web:e2e
       - name: Traces of failed browser tests
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1 (node24)

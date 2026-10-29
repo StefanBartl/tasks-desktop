@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use appkit_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
 use common::Sse;
+use hub_testkit::scratch::Scratch;
 use serde_json::Value;
 use tasks_hub::classes::AreaPolicy;
 use tasks_hub::client;
@@ -169,25 +170,24 @@ struct Rig {
     token: String,
     fake: Arc<Fake>,
     folder: String,
+    // Last: the folders are removed after the server, which reads them.
+    _dirs: (Scratch, Scratch),
 }
 
-fn vault(name: &str, n: u32) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "tasks-desktop-vaults-{name}-{}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
+fn vault(name: &str, n: u32) -> Scratch {
+    let dir = Scratch::new(&format!("vaults-{name}"));
     std::fs::create_dir_all(dir.join("alpha.nvim").join("ROADMAP").join("tasks")).unwrap();
     std::fs::write(dir.join(".fake-n"), n.to_string()).unwrap();
     dir
 }
 
 async fn rig(name: &str, with_admin: bool) -> Rig {
-    let a = vault(&format!("{name}-a"), 1);
-    let b = vault(&format!("{name}-b"), 4);
+    let a_dir = vault(&format!("{name}-a"), 1);
+    let b_dir = vault(&format!("{name}-b"), 4);
+    let a = a_dir.to_path_buf();
     let fake = Arc::new(Fake {
         a: a.clone(),
-        b,
+        b: b_dir.to_path_buf(),
         active: Mutex::new("main".to_owned()),
         added: Mutex::new(Vec::new()),
         moved: Mutex::new(Vec::new()),
@@ -275,6 +275,7 @@ async fn rig(name: &str, with_admin: bool) -> Rig {
         token,
         fake,
         folder,
+        _dirs: (a_dir, b_dir),
     }
 }
 

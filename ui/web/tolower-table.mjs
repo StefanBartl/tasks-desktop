@@ -7,9 +7,9 @@
 // put the rows between `local LOWER = {` and `}` in the shim.
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { removeTree, tempDir } from './tmp.mjs';
 
 const DUMP = `
 local function utf8char(cp)
@@ -54,7 +54,7 @@ export function runs(pairs) {
 }
 
 function main() {
-  const dir = mkdtempSync(join(tmpdir(), 'tasks-web-tolower-'));
+  const dir = tempDir('tolower');
   try {
     const script = join(dir, 'dump.lua');
     writeFileSync(script, DUMP);
@@ -72,7 +72,7 @@ function main() {
     for (const r of runs(pairs)) console.log(`  { ${hex(r.first)}, ${hex(r.last)}, ${r.step}, ${r.delta} },`);
     console.error(`${pairs.length} code points, ${runs(pairs).length} runs`);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    removeTree(dir);
   }
 }
 

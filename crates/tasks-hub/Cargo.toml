@@ -31,3 +31,6 @@ tokio = { version = "1", default-features = false, features = ["sync", "rt", "rt
 
 [dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros"] }
+# Folders of the tests come from its `Scratch` (removed on drop). It depends on this crate; Cargo allows that cycle for
+# dev-dependencies.
+hub-testkit = { path = "../hub-testkit" }

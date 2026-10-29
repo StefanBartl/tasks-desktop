@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use appkit_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
+use hub_testkit::scratch::Scratch;
 use serde_json::Value;
 use tasks_hub::classes::AreaPolicy;
 use tasks_hub::client;
@@ -19,9 +20,8 @@ use tokio::net::TcpStream;
 
 #[tokio::test]
 async fn a_request_that_is_dropped_while_it_waits_never_reaches_the_engine() {
-    let vault = std::env::temp_dir().join(format!("tasks-desktop-dropped-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&vault);
-    std::fs::create_dir_all(&vault).unwrap();
+    let dir = Scratch::new("dropped");
+    let vault = dir.to_path_buf();
     // Every `task` read takes 400 ms and is counted when it starts.
     std::fs::write(vault.join(".fake-task-ms"), "400").unwrap();
 
@@ -140,5 +140,4 @@ async fn a_request_that_is_dropped_while_it_waits_never_reaches_the_engine() {
     let calls =
         std::fs::read_to_string(vault.join(".fake-task-calls")).map_or(0, |t| t.lines().count());
     assert_eq!(calls, 2, "reads that nobody waited for were started");
-    let _ = std::fs::remove_dir_all(&vault);
 }

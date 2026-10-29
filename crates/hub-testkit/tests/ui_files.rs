@@ -1,22 +1,18 @@
 //! The interface files: served from a table by name, with the headers of the
 //! page, and nothing else is reachable through them.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use appkit_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
+use hub_testkit::scratch::Scratch;
 use tasks_hub::classes::AreaPolicy;
 use tasks_hub::client;
 use tasks_hub::server::{start, HubStatus, Limits, RunningServer, ServerConfig};
 use tasks_hub::ui::UiFiles;
 
-fn build_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "tasks-desktop-uifiles-{name}-{}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
+fn build_dir(name: &str) -> Scratch {
+    let dir = Scratch::new(&format!("uifiles-{name}"));
     std::fs::create_dir_all(dir.join("assets")).unwrap();
     std::fs::write(dir.join("index.html"), "<!doctype html><title>ui</title>").unwrap();
     std::fs::write(dir.join("assets").join("app-1.js"), "console.log(1)").unwrap();
@@ -88,7 +84,6 @@ async fn the_page_and_its_assets_are_served_with_the_page_headers() {
         .await
         .unwrap();
     assert_eq!(css.status, 200);
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[tokio::test]
@@ -120,7 +115,6 @@ async fn nothing_outside_the_table_is_reachable() {
     .await
     .unwrap();
     assert!(r.status == 405 || r.status == 403, "{r:?}");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[tokio::test]

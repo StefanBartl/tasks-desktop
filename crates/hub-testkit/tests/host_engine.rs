@@ -4,14 +4,14 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use hub_testkit::scratch::Scratch;
 use serde_json::json;
 use tasks_hub::config::Env;
 use tasks_hub::engine::{Calls, CliEngine, CliEngineConfig, Engine, EngineError};
 
-fn vault(name: &str) -> PathBuf {
-    let vault =
-        std::env::temp_dir().join(format!("tasks-desktop-host-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&vault);
+/// A vault folder of its own, removed when the value drops. Declare it before the engine that runs in it.
+fn vault(name: &str) -> Scratch {
+    let vault = Scratch::new(&format!("host-{name}"));
     std::fs::create_dir_all(vault.join("scripts")).unwrap();
     // The host script has to be there; the fake does not read it.
     std::fs::write(vault.join("scripts").join("tasks-host.lua"), "").unwrap();

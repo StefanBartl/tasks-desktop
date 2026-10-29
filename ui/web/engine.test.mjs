@@ -9,8 +9,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +17,7 @@ import { LuaFactory } from 'wasmoon';
 import { WebEngine } from '../src/web/engine.ts';
 import { serveEmbeddedWasm, startWorker, WASM_URL } from '../src/web/worker.ts';
 import { bundle, checkout, gitFiles, readLock } from './engine-bundle.mjs';
+import { testDir } from './tmp.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = resolve(here, '..', '..', 'e2e', 'fixture', 'vault');
@@ -65,13 +65,6 @@ async function lua(code) {
 function decode(result) {
   assert.equal(result.code, null, `error document: ${result.text}`);
   return JSON.parse(result.text);
-}
-
-/** A temporary folder that is gone after the test, also when it fails. */
-function tempDir(t, prefix) {
-  const dir = mkdtempSync(join(tmpdir(), prefix));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  return dir;
 }
 
 /** The files of `commit` under `prefixes`, written below `target` from the git objects (no archive, no tar). */
@@ -167,7 +160,7 @@ test('the shim answers the recorded cases as nvim does', async () => {
 });
 
 test('every case of shim-parity.lua answers as nvim does', { skip: NEEDS_NVIM }, async (t) => {
-  const dir = tempDir(t, 'tasks-web-parity-');
+  const dir = testDir(t, 'parity');
   const runner = join(dir, 'run.lua');
   writeFileSync(runner, 'io.stdout:write(dofile(arg[1]), "\\n")\n');
   const nvim = parseCases(execFileSync('nvim', ['--headless', '-u', 'NONE', '-l', runner, join(here, 'shim-parity.lua')], { encoding: 'utf8' }));
@@ -258,7 +251,7 @@ const mask = (text) =>
 
 test('every read method answers as nvim does on the same commit', { skip: NEEDS_NVIM }, async (t) => {
   const lock = readLock();
-  const dir = tempDir(t, 'tasks-web-compare-');
+  const dir = testDir(t, 'compare');
   const engineDir = materialize(checkout('TASKS_ENGINE_DIR', 'tasks.nvim'), lock.commit, ['lua/', 'scripts/'], join(dir, 'tasks.nvim'));
   const libDir = materialize(checkout('LIB_NVIM_DIR', 'lib.nvim'), lock.lib_commit, ['lua/'], join(dir, 'lib.nvim'));
   const nvim = (method, params) => {

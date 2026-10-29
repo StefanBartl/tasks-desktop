@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use appkit_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
+use hub_testkit::scratch::Scratch;
 use serde_json::Value;
 use tasks_hub::classes::AreaPolicy;
 use tasks_hub::client;
@@ -22,6 +23,8 @@ struct Rig {
     server: RunningServer,
     vault: PathBuf,
     token: String,
+    // Last: the folder is removed after the server, which has the vault open.
+    _dir: Scratch,
 }
 
 async fn rig(name: &str) -> Rig {
@@ -34,9 +37,8 @@ async fn rig_with(name: &str, limits: Limits) -> Rig {
 
 /// A rig whose settings name `attach_dirs`.
 async fn rig_full(name: &str, limits: Limits, attach_dirs: Vec<PathBuf>) -> Rig {
-    let vault =
-        std::env::temp_dir().join(format!("tasks-desktop-write-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&vault);
+    let dir = Scratch::new(&format!("write-{name}"));
+    let vault = dir.to_path_buf();
     std::fs::create_dir_all(vault.join("alpha.nvim").join("ROADMAP").join("tasks")).unwrap();
     std::fs::write(vault.join(".fake-n"), "2").unwrap();
     let engine: Arc<dyn Engine> = Arc::new(CliEngine::new(CliEngineConfig {
@@ -125,6 +127,7 @@ async fn rig_full(name: &str, limits: Limits, attach_dirs: Vec<PathBuf>) -> Rig 
         server,
         vault,
         token,
+        _dir: dir,
     }
 }
 
@@ -225,7 +228,8 @@ async fn the_newest_screenshot_is_taken_only_from_the_folders_of_the_settings() 
     );
 
     // Set: the request reaches the engine with exactly those folders.
-    let shots = std::env::temp_dir().join("tasks-desktop-shots");
+    let shots_dir = Scratch::new("shots");
+    let shots = shots_dir.to_path_buf();
     let r = rig_full("attach-set", Limits::default(), vec![shots.clone()]).await;
     let (status, doc) = post(&r, "/api/tasks/ops", latest, JSON, true).await;
     assert_eq!(status, 200, "{doc}");

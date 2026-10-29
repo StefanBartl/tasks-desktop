@@ -108,6 +108,8 @@ pub fn save_file(dir: &Path, cfg: &FileConfig) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    use hub_testkit::scratch::Scratch;
+
     use super::*;
 
     #[test]
@@ -147,7 +149,8 @@ mod tests {
 
     #[test]
     fn a_missing_file_is_an_empty_config() {
-        let dir = std::env::temp_dir().join("tasks-desktop-no-such-config-dir");
+        let parent = Scratch::new("no-such-config-dir");
+        let dir = parent.join("absent");
         let cfg = load_file(&dir).expect("missing file is fine");
         assert!(cfg.vault.is_none() && cfg.app.extra_areas.is_empty());
     }
@@ -206,9 +209,9 @@ mod tests {
         );
     }
 
-    fn temp_config(name: &str, bytes: &[u8]) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("tasks-desktop-{name}-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+    /// A config folder holding `config.json` with `bytes`; it is removed when the value drops.
+    fn temp_config(name: &str, bytes: &[u8]) -> Scratch {
+        let dir = Scratch::new(name);
         std::fs::write(dir.join("config.json"), bytes).unwrap();
         dir
     }

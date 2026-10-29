@@ -9,8 +9,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +18,7 @@ import { isDir } from '../src/web/engine.ts';
 import { WebEngine } from '../src/web/engine.ts';
 import { VaultMount } from '../src/web/vault-files.ts';
 import { bundle, checkout, gitFiles, readLock } from './engine-bundle.mjs';
+import { testDir } from './tmp.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = resolve(here, '..', '..', 'e2e', 'fixture', 'vault');
@@ -68,8 +68,7 @@ function filesInVm(fs, root) {
 
 test('every kind of write answers and writes as nvim does on the same commit', { skip: !COMPARE && 'set TASKS_WEB_COMPARE=1 (needs nvim)' }, async (t) => {
   const lock = readLock();
-  const dir = mkdtempSync(join(tmpdir(), 'tasks-web-ops-compare-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const dir = testDir(t, 'ops-compare');
   const engineDir = materialize(checkout('TASKS_ENGINE_DIR', 'tasks.nvim'), lock.commit, ['lua/', 'scripts/'], join(dir, 'tasks.nvim'));
   const libDir = materialize(checkout('LIB_NVIM_DIR', 'lib.nvim'), lock.lib_commit, ['lua/'], join(dir, 'lib.nvim'));
   // the vault is called "vault" on both sides: the id in every document is the name of the folder

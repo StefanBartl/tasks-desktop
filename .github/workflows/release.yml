@@ -136,8 +136,9 @@ jobs:
             echo "::error::the program in the archive says '$got', the tag says $VERSION"
             exit 1
           fi
-          pwsh -NoProfile -File scripts/test-install.ps1 target/release/tasks-hub.exe
-          sh scripts/test-install.sh target/release/tasks-hub.exe
+          # through tools/run-with-temp.mjs: a folder of the scripts that stays in their temp dir fails the step
+          node tools/run-with-temp.mjs -- pwsh -NoProfile -File scripts/test-install.ps1 target/release/tasks-hub.exe
+          node tools/run-with-temp.mjs -- sh scripts/test-install.sh target/release/tasks-hub.exe
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-windows

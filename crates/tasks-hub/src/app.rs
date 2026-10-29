@@ -936,12 +936,14 @@ mod tests {
 
 #[cfg(test)]
 mod vault_tests {
+    use hub_testkit::scratch::Scratch;
+
     use super::*;
 
-    fn admin(name: &str) -> (ConfigVaults, PathBuf, PathBuf) {
-        let base =
-            std::env::temp_dir().join(format!("tasks-desktop-cv-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
+    /// The vaults of a config folder of its own. The last one is the folder all of it lives in: keep it until the test
+    /// ends, it is removed when it drops.
+    fn admin(name: &str) -> (ConfigVaults, PathBuf, PathBuf, Scratch) {
+        let base = Scratch::new(&format!("cv-{name}"));
         let cfg = base.join("cfg");
         let vault = base.join("vault-two");
         std::fs::create_dir_all(&vault).unwrap();
@@ -958,6 +960,7 @@ mod vault_tests {
             ConfigVaults::new(cfg.clone(), Env::default(), file),
             cfg,
             vault,
+            base,
         )
     }
 
@@ -970,7 +973,7 @@ mod vault_tests {
 
     #[test]
     fn the_hub_starts_with_the_classes_of_the_vault_it_reads() {
-        let (_, cfg, _) = admin("start-policy");
+        let (_, cfg, _, _base) = admin("start-policy");
         std::fs::write(
             classes::path(&cfg),
             r#"{"schema":2,"areas":{
@@ -989,7 +992,7 @@ mod vault_tests {
 
     #[test]
     fn the_classes_of_a_vault_come_from_the_file_as_it_is_when_the_vault_is_chosen() {
-        let (admin, cfg, _) = admin("policy");
+        let (admin, cfg, _, _base) = admin("policy");
         let write = |text: &str| std::fs::write(classes::path(&cfg), text).unwrap();
         write(
             r#"{"schema":2,"areas":{
@@ -1012,7 +1015,7 @@ mod vault_tests {
 
     #[tokio::test]
     async fn adding_checks_the_name_the_folder_and_writes_the_file_once() {
-        let (admin, cfg, vault) = admin("add");
+        let (admin, cfg, vault, _base) = admin("add");
         let path = vault.to_string_lossy().into_owned();
         // A share is refused for what it is, before anything looks at it (a lookup is what makes Windows sign in).
         for share in [
@@ -1059,7 +1062,7 @@ mod vault_tests {
 
     #[tokio::test]
     async fn two_names_never_read_one_folder() {
-        let (admin, cfg, vault) = admin("same");
+        let (admin, cfg, vault, _base) = admin("same");
         let main = config::load_file(&cfg).unwrap().vault.unwrap();
         let path = vault.to_string_lossy().into_owned();
         // The folder of the main vault, spelled as it is and spelled round the corner.
@@ -1104,7 +1107,7 @@ mod vault_tests {
 
     #[tokio::test]
     async fn a_setting_changed_by_hand_meanwhile_is_not_written_over() {
-        let (admin, cfg, vault) = admin("hand");
+        let (admin, cfg, vault, _base) = admin("hand");
         // The person edits the file while the hub runs: the port is new.
         let mut edited = config::load_file(&cfg).unwrap();
         edited.port = Some(23456);
@@ -1124,7 +1127,7 @@ mod vault_tests {
 
     #[tokio::test]
     async fn the_vault_that_is_read_cannot_be_removed_and_an_unknown_one_cannot_be_chosen() {
-        let (admin, cfg, vault) = admin("remove");
+        let (admin, cfg, vault, _base) = admin("remove");
         admin.add("two", &vault.to_string_lossy()).await.unwrap();
         assert!(admin.remove("main").await.is_err(), "the active vault");
         assert!(admin.remove("nope").await.is_err());
@@ -1135,7 +1138,7 @@ mod vault_tests {
 
     #[tokio::test]
     async fn the_vault_the_hub_reads_cannot_be_removed_even_if_the_file_names_another() {
-        let (admin, cfg, vault) = admin("remove-read");
+        let (admin, cfg, vault, _base) = admin("remove-read");
         admin.add("two", &vault.to_string_lossy()).await.unwrap();
         // The hub reads "two" (as kept in memory) ...
         let mut reading = admin.current();
@@ -1153,7 +1156,7 @@ mod vault_tests {
     #[tokio::test]
     async fn a_hand_edit_of_the_active_vault_does_not_move_the_one_the_hub_reads_over_several_changes(
     ) {
-        let (admin, cfg, vault) = admin("remove-twice");
+        let (admin, cfg, vault, _base) = admin("remove-twice");
         let path = vault.to_string_lossy().into_owned();
         admin.add("two", &path).await.unwrap();
         let third = vault.parent().unwrap().join("vault-three");
@@ -1185,7 +1188,7 @@ mod vault_tests {
 
     #[tokio::test]
     async fn the_vault_that_is_read_keeps_its_entry_when_the_file_forgets_or_moves_it() {
-        let (admin, cfg, vault) = admin("entry");
+        let (admin, cfg, vault, _base) = admin("entry");
         let path = vault.to_string_lossy().into_owned();
         admin.add("two", &path).await.unwrap();
         let mut reading = admin.current();
@@ -1216,9 +1219,7 @@ mod vault_tests {
     /// so it is skipped without one (CI sets `TASKS_DESKTOP_REQUIRE_ENGINE` and makes that a failure).
     #[tokio::test]
     async fn a_choice_moves_the_vault_that_is_read_and_a_later_change_does_not_move_it_back() {
-        let base =
-            std::env::temp_dir().join(format!("tasks-desktop-cv-choice-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
+        let base = Scratch::new("cv-choice");
         let cfg = base.join("cfg");
         let main = base.join("main-vault");
         std::fs::create_dir_all(&cfg).unwrap();
@@ -1278,7 +1279,7 @@ mod vault_tests {
 
     #[tokio::test]
     async fn a_vault_the_file_forgot_that_is_not_read_may_be_added_again() {
-        let (admin, cfg, vault) = admin("ghost");
+        let (admin, cfg, vault, _base) = admin("ghost");
         let path = vault.to_string_lossy().into_owned();
         admin.add("two", &path).await.unwrap();
         // A hand edit drops "two" from the file; the hub reads the main vault, so "two" is no vault of the hub's.
@@ -1291,7 +1292,7 @@ mod vault_tests {
 
     #[tokio::test]
     async fn a_name_the_hub_reads_from_is_taken_even_when_the_file_forgot_it() {
-        let (admin, cfg, vault) = admin("taken");
+        let (admin, cfg, vault, _base) = admin("taken");
         let path = vault.to_string_lossy().into_owned();
         admin.add("two", &path).await.unwrap();
         let mut reading = admin.current();

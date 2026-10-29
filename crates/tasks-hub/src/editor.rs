@@ -374,6 +374,8 @@ fn is_plain_name(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use hub_testkit::scratch::Scratch;
+
     use super::*;
 
     fn none(_: &str) -> Option<PathBuf> {
@@ -419,8 +421,7 @@ mod tests {
 
     #[test]
     fn a_file_name_that_climbs_or_names_a_drive_is_refused() {
-        let dir = std::env::temp_dir().join(format!("tasks-desktop-editor-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir = Scratch::new("editor");
         std::fs::create_dir_all(dir.join("a")).unwrap();
         std::fs::write(dir.join("a").join("x.md"), "x").unwrap();
         let ok = file_in_vault(&dir, "a/x.md").unwrap();
@@ -514,11 +515,8 @@ mod tests {
 
     #[test]
     fn the_test_seam_writes_the_file_it_would_have_opened() {
-        let dir =
-            std::env::temp_dir().join(format!("tasks-desktop-editor-log-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new("editor-log");
         let log = dir.join("opened.log");
-        let _ = std::fs::remove_file(&log);
         let env = Env::from_pairs([(
             "TASKS_DESKTOP_EDITOR_LOG",
             log.to_string_lossy().into_owned(),

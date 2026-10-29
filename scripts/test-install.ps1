@@ -189,7 +189,20 @@ finally {
     foreach ($name in $saved.Keys) {
         [Environment]::SetEnvironmentVariable($name, $saved[$name])
     }
-    Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    # A folder that stays is a failure of the run, not a silent leftover (a file held for a moment is tried again).
+    for ($attempt = 1; Test-Path -LiteralPath $tmp; $attempt++) {
+        try {
+            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction Stop
+        }
+        catch {
+            if ($attempt -ge 10) {
+                Write-Output "FAIL could not remove $tmp : $($_.Exception.Message)"
+                $script:failures++
+                break
+            }
+            Start-Sleep -Milliseconds 200
+        }
+    }
 }
 
 if ($script:failures -ne 0) {

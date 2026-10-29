@@ -23,6 +23,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use appkit_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
+use hub_testkit::scratch::Scratch;
 use serde_json::Value;
 use tasks_hub::classes::AreaPolicy;
 use tasks_hub::client;
@@ -120,23 +121,16 @@ struct Rig {
     vault: PathBuf,
     token: String,
     sse: Sse,
-}
-
-impl Drop for Rig {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.vault);
-    }
+    // Last: the folder is removed after the hub and the engine, which have the vault open.
+    _dir: Scratch,
 }
 
 /// The rig, or None when no engine is usable here (red when
 /// `TASKS_DESKTOP_REQUIRE_ENGINE` is set). `prepare` changes the copy of the
 /// vault before the hub reads it.
 async fn rig(name: &str, prepare: impl FnOnce(&Path)) -> Option<Rig> {
-    let vault = std::env::temp_dir().join(format!(
-        "tasks-desktop-real-events-{name}-{}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&vault);
+    let dir = Scratch::new(&format!("real-events-{name}"));
+    let vault = dir.to_path_buf();
     copy_dir(&fixture(), &vault);
     prepare(&vault);
 
@@ -166,7 +160,6 @@ async fn rig(name: &str, prepare: impl FnOnce(&Path)) -> Option<Rig> {
                 "the engine is required but not usable: {p}"
             );
             eprintln!("skipped: {p}");
-            let _ = std::fs::remove_dir_all(&vault);
             return None;
         }
         Err(other) => panic!("{other}"),
@@ -213,6 +206,7 @@ async fn rig(name: &str, prepare: impl FnOnce(&Path)) -> Option<Rig> {
         vault,
         token,
         sse,
+        _dir: dir,
     })
 }
 

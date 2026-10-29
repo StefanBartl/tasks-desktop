@@ -518,15 +518,13 @@ fn proposal_map<'a>(
 
 #[cfg(test)]
 mod tests {
+    use hub_testkit::scratch::Scratch;
+
     use super::*;
 
-    fn temp(name: &str, text: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "tasks-desktop-classes-{name}-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+    /// A folder holding `areas.json` with `text`; it is removed when the value drops.
+    fn temp(name: &str, text: &str) -> Scratch {
+        let dir = Scratch::new(&format!("classes-{name}"));
         std::fs::write(path(&dir), text).unwrap();
         dir
     }
@@ -538,7 +536,7 @@ mod tests {
 
     #[test]
     fn a_missing_file_classifies_nothing() {
-        let dir = std::env::temp_dir().join("tasks-desktop-classes-none");
+        let dir = Scratch::new("classes-none");
         let policy = AreaPolicy::load(&dir).unwrap();
         assert!(policy.is_empty());
         assert_eq!(policy.shown("anything"), Shown::Unclassified);

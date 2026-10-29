@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use appkit_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
+use hub_testkit::scratch::Scratch;
 use serde_json::Value;
 use tasks_hub::classes::AreaPolicy;
 use tasks_hub::client;
@@ -20,14 +21,13 @@ struct Rig {
     server: RunningServer,
     vault: PathBuf,
     token: String,
+    // Last: the folder is removed after the server, which has the vault open.
+    _dir: Scratch,
 }
 
 async fn rig(name: &str) -> Rig {
-    let vault = std::env::temp_dir().join(format!(
-        "tasks-desktop-search-{name}-{}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&vault);
+    let dir = Scratch::new(&format!("search-{name}"));
+    let vault = dir.to_path_buf();
     std::fs::create_dir_all(vault.join("alpha.nvim").join("ROADMAP").join("tasks")).unwrap();
     std::fs::write(vault.join(".fake-n"), "2").unwrap();
     let engine: Arc<dyn Engine> = Arc::new(CliEngine::new(CliEngineConfig {
@@ -110,6 +110,7 @@ async fn rig(name: &str) -> Rig {
         server,
         vault,
         token,
+        _dir: dir,
     }
 }
 

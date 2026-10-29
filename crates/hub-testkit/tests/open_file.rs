@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use appkit_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
+use hub_testkit::scratch::Scratch;
 use serde_json::Value;
 use tasks_hub::classes::AreaPolicy;
 use tasks_hub::client;
@@ -23,6 +24,8 @@ struct Rig {
     vault: PathBuf,
     log: PathBuf,
     token: String,
+    // Last: the folder is removed after the server, which has the vault open.
+    _base: Scratch,
 }
 
 async fn rig(name: &str, with_opener: bool) -> Rig {
@@ -31,9 +34,7 @@ async fn rig(name: &str, with_opener: bool) -> Rig {
 
 /// `pick`: the folder the folder dialog "returns" (`None`: the dialog is closed without a choice).
 async fn rig_with(name: &str, with_opener: bool, pick: Option<&str>) -> Rig {
-    let base =
-        std::env::temp_dir().join(format!("tasks-desktop-open-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&base);
+    let base = Scratch::new(&format!("open-{name}"));
     let vault = base.join("vault");
     let tasks = vault.join("alpha.nvim").join("ROADMAP").join("tasks");
     std::fs::create_dir_all(&tasks).unwrap();
@@ -147,6 +148,7 @@ async fn rig_with(name: &str, with_opener: bool, pick: Option<&str>) -> Rig {
         vault,
         log,
         token,
+        _base: base,
     }
 }
 

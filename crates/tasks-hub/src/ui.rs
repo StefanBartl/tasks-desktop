@@ -169,14 +169,13 @@ fn content_type(path: &Path) -> Option<&'static str> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use hub_testkit::scratch::Scratch;
 
     use super::*;
 
-    fn temp(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("tasks-desktop-ui-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+    /// A folder with an empty `assets` inside, removed when the value drops.
+    fn temp(name: &str) -> Scratch {
+        let dir = Scratch::new(&format!("ui-{name}"));
         std::fs::create_dir_all(dir.join("assets")).unwrap();
         dir
     }

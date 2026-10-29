@@ -4,11 +4,11 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { lex, luaFiles, requiresOf, stripComments } from './engine-bundle.mjs';
+import { testDir } from './tmp.mjs';
 
 const SOURCE = [
   'local a = "--" .. require("a.b")',
@@ -43,8 +43,7 @@ test('comments go, every line stays where it was', () => {
 });
 
 test('a module path outside ASCII is found, x.lua wins over x/init.lua', (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'tasks-web-bundle-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const dir = testDir(t, 'bundle');
   const put = (path, text) => {
     mkdirSync(dirname(join(dir, path)), { recursive: true });
     writeFileSync(join(dir, path), text);

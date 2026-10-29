@@ -2,7 +2,6 @@
 //! apps are the tasks hub and `Demo`, which share nothing but `appkit-hub`.
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,6 +16,7 @@ use appkit_hub::{instance, HubStatus, Limits, RunningServer};
 use appkit_testkit::subject::{StartConfig, Subject};
 use appkit_testkit::subjects::{Demo, DEMO_IDENTITY};
 use appkit_testkit::wire::{request, send, Reply};
+use hub_testkit::scratch::Scratch;
 use hub_testkit::subjects::Tasks;
 
 /// A running hub, and the secret that lets a program ask it for a pairing code.
@@ -111,11 +111,9 @@ impl Running {
     }
 }
 
-fn temp(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("hub-testkit-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+/// A folder of its own, removed when the value drops.
+fn temp(name: &str) -> Scratch {
+    Scratch::new(name)
 }
 
 #[tokio::test]

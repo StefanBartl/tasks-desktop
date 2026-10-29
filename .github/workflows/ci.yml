@@ -73,27 +73,56 @@ jobs:
           pnpm build
       # The engine of the web variant: tasks.nvim in wasmoon (Lua 5.4) must answer every read method byte for byte as
       # nvim does on the pinned commits (ui/web/engine.test.mjs).
+      #
+      # The Node and browser steps run through tools/run-with-temp.mjs: the command gets a temp dir of its own, empty at
+      # the start, and the step fails when a test left a folder of its own in it (`tasks-desktop-*`, `tasks-web-*`; the
+      # tests get theirs from ui/web/tmp.mjs, which removes them also after a failure). Not strict: Chrome, Playwright and
+      # Node keep caches in the temp dir (chrome_chrome_url_fetcher_*, playwright-transform-cache, node-compile-cache)
+      # that are theirs and not the tests'. Rust is checked strict, below.
       - name: Web engine against nvim
         working-directory: ui
         env:
           TASKS_WEB_COMPARE: "1"
-        run: pnpm web:test
-      # The page of the web variant as one file: built, opened from disk in Chrome, the engine started in its worker, a
-      # folder chosen (a fake one), the tasks shown, and not one request, not one violation of its own policy.
-      - name: Web page (one file) opens from disk and makes no request
+        run: node ../tools/run-with-temp.mjs -- pnpm web:test
+      # The page of the web variant as one file: built, opened from disk in Chrome (the project of ui/playwright.web.config.ts,
+      # tests in ui/e2e-web/), the engine started in its worker, a folder chosen (a fake one, the same fixture vault and the
+      # same hostile tasks as the hub's browser tests below): the overview, a task, the search, the filters, the plan, the
+      # check, accessibility, writing with its conflict check, and what the data classes keep in IndexedDB. Every test holds
+      # the page to the same two rules: not one request, not one violation of its own policy.
+      - name: Web page (one file) in Chrome from disk, without a request
         working-directory: ui
         run: |
           pnpm web:build
-          pnpm web:e2e
+          node ../tools/run-with-temp.mjs -- pnpm web:e2e
+      # The tests of this job get a temp dir of its own, empty at the start: the shared one of the runner (the author's
+      # machine) holds the leftovers of every earlier run, 24918 folders at the last count, and of other jobs, so a count
+      # in it would never be zero. TEMP and TMP are read on Windows, TMPDIR elsewhere. `New-Item` fails when the folder is
+      # there already, so "empty at the start" is checked, not assumed. The check that counts what is in it runs after
+      # `cargo test`. It starts after the web steps above, which have temp dirs of their own (see there): those run Node
+      # tools and Chrome with caches in the temp dir, and a strict count would take them for the tests' leftovers.
+      - name: Temp dir of this job
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "job-temp-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          New-Item -ItemType Directory -Path $dir -ErrorAction Stop | Out-Null
+          "TEMP=$dir", "TMP=$dir", "TMPDIR=$dir", "JOB_TEMP=$dir" | Add-Content -Path $env:GITHUB_ENV
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
+      # No test leaves a folder in the temp dir of this job (a test makes its folder with `Scratch`, which removes it
+      # also after a failure). Strict: whatever name a test gave its folder counts; `nvim` and `nvim.0` are what the real
+      # Neovim of the engine tests makes itself. The browser tests below have their own check (run-with-temp.mjs).
+      - name: The tests left nothing in the temp dir
+        run: node tools/check-temp-leftovers.mjs --dir "$JOB_TEMP" --strict --allow nvim --allow nvim.0
       # The install and uninstall scripts (NREL-16) against this build, in folders of their own:
-      # the login entry and the link of the runner are left alone, nothing is downloaded.
+      # the login entry and the link of the runner are left alone, nothing is downloaded. Each script makes a folder of its
+      # own in the temp dir (`tasks-desktop-test-install-*`) and removes it when it is over; they run through
+      # tools/run-with-temp.mjs, so a folder that stays (a failed removal) fails the step. The strict count of the job
+      # above ran before them and would never have seen it.
       - name: Install and uninstall scripts (PowerShell and sh)
         run: |
-          pwsh -NoProfile -File scripts/test-install.ps1 target/debug/tasks-hub.exe
-          sh scripts/test-install.sh target/debug/tasks-hub.exe
+          node tools/run-with-temp.mjs -- pwsh -NoProfile -File scripts/test-install.ps1 target/debug/tasks-hub.exe
+          node tools/run-with-temp.mjs -- sh scripts/test-install.sh target/debug/tasks-hub.exe
       - name: PSScriptAnalyzer on the scripts
         shell: pwsh
         run: |
@@ -104,7 +133,7 @@ jobs:
       # The browser tests: the binary, the real engine, the system's Chrome.
       - name: Browser tests (Playwright, axe, XSS corpus)
         working-directory: ui
-        run: pnpm e2e
+        run: node ../tools/run-with-temp.mjs -- pnpm e2e
       # A failed browser test leaves its trace (network, DOM, console) to read instead of a guess.
       - name: Traces of failed browser tests
         if: failure()
@@ -138,7 +167,8 @@ jobs:
       # ui/pnpm-workspace.yaml. pnpm is the runner's own (a global install would change this machine on every run).
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
-      - run: pnpm test
+      # The same temp dir of its own and the same count as for the browser tests above (tools/run-with-temp.mjs).
+      - run: node ../tools/run-with-temp.mjs -- pnpm test
       - run: pnpm build
       - run: pnpm audit --audit-level high
 
@@ -152,6 +182,8 @@ jobs:
         with:
           persist-credentials: false
       - run: python -m unittest discover tools
+      # The leftover check of the temp dir (tools/check-temp-leftovers.mjs) tests itself, and ci.yml is held to run it.
+      - run: node --test "tools/*.test.mjs"
       - run: python tools/check-control-chars.py
       # A colour the CSS of the page states is a token of appkit-ui (the same check runs in appkit).
       - run: python tools/check-color-literals.py

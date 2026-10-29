@@ -407,6 +407,25 @@ lib.nvim checkout (found through `REPOS_DIR`, or `TASKS_ENGINE_DIR` and
 `LIB_NVIM_DIR`). Without them they skip; `TASKS_DESKTOP_REQUIRE_ENGINE=1` makes
 that a failure, as CI does.
 
+A Rust test gets its folder in the temp dir from `Scratch` (`crates/hub-testkit/src/scratch.rs`), which removes it
+when it drops, also after a failure or a panic; never from `std::env::temp_dir()` and a name of its own.
+`node tools/check-temp-leftovers.mjs` counts what is left of `tasks-desktop-*`, `hub-testkit-*` and `tasks-web-*` in the
+temp dir (`--dir` names another, which must exist) and fails if there is anything. CI gives the Rust job a temp dir of its
+own (`TEMP`, `TMP`, `TMPDIR`) and runs the check on it with `--strict` after `cargo test`: then every entry counts,
+whatever a test called its folder, except the `--allow`ed `nvim` and `nvim.0` that the real Neovim makes.
+
+The Node and Playwright tests get their folders from `ui/web/tmp.mjs` (`testDir(t, label)` for one test, `tempDir`,
+`tempRoot`), never from `mkdtemp` or a name of their own in `tmpdir()` (`ui/web/tmp.test.mjs` checks the sources). A
+process makes one root (`tasks-web-run-XXXXXX`, `tasks-desktop-e2e-XXXXXX` for the hub's browser tests) and removes it
+when it ends, however it ends (exit, uncaught error, SIGINT, SIGTERM; under Playwright, which handles Ctrl-C itself and
+runs the global teardown, the root goes in the `exit` event that follows); a folder that cannot be removed is retried (in
+a loop of `removeTree`: the `maxRetries` of `fs.rmSync` does nothing on this Node) and then an error, not a silent
+leftover. `ui/web/e2e-cleanup.test.mjs` holds the cleanup of the hub's browser tests (a hub that does not start, a setup
+that fails, the state file) to that without a real hub. CI runs these steps, and the install tests of `scripts/`, through
+`node tools/run-with-temp.mjs -- COMMAND`: the command gets a new empty temp dir (removed also after a Ctrl-C or SIGTERM,
+which the wrapper waits out), and the step fails when a `tasks-desktop-*`, `tasks-web-*` or `hub-testkit-*` is left in it.
+That count is not strict, because Chrome, Playwright and Node keep caches of their own in the temp dir.
+
 ## Settings
 
 `config.json` in the config folder (`%APPDATA%\tasks-desktop` on Windows, or

@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use hub_testkit::scratch::Scratch;
 use serde_json::Value;
 use tasks_hub::client;
 
@@ -20,11 +21,9 @@ fn fixture_vault() -> PathBuf {
         .join("vault")
 }
 
-fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("tasks-desktop-cli-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+/// A folder of its own, removed when the value drops (see `Scratch`). Declare it before the `Hub` that works in it.
+fn temp_dir(name: &str) -> Scratch {
+    Scratch::new(&format!("cli-{name}"))
 }
 
 /// A port nobody uses right now (best effort: it is released again).
@@ -324,7 +323,7 @@ fn a_rolling_build_says_its_commit_and_a_release_does_not() {
 fn a_double_click_starts_the_hub_in_the_background_and_a_second_one_finds_it() {
     let config = temp_dir("click");
     let port = free_port();
-    let _guard = Background(config.clone());
+    let _guard = Background(config.to_path_buf());
 
     let first = command(&config)
         .env("TASKS_DESKTOP_PORT", port.to_string())
@@ -416,8 +415,7 @@ fn program_name() -> &'static str {
 fn a_first_double_click_asks_for_the_vault_and_the_install_and_a_second_asks_nothing() {
     let config = temp_dir("first-click");
     let bin = temp_dir("first-click-bin");
-    let _bin = RemoveDir(bin.clone());
-    let _guard = Background(config.clone());
+    let _guard = Background(config.to_path_buf());
     let port = free_port();
     let vault = fixture_vault();
 
@@ -471,8 +469,7 @@ n
 fn a_declined_install_and_a_skipped_vault_are_not_asked_again() {
     let config = temp_dir("declined-click");
     let bin = temp_dir("declined-click-bin");
-    let _bin = RemoveDir(bin.clone());
-    let _guard = Background(config.clone());
+    let _guard = Background(config.to_path_buf());
     let port = free_port();
 
     // An empty line skips the vault, `n` declines the install.
@@ -504,8 +501,7 @@ n
 fn nothing_is_asked_when_no_one_is_at_the_console() {
     let config = temp_dir("pipe-click");
     let bin = temp_dir("pipe-click-bin");
-    let _bin = RemoveDir(bin.clone());
-    let _guard = Background(config.clone());
+    let _guard = Background(config.to_path_buf());
     // No ASSUME_TERMINAL: stdin is a pipe, so the program only starts the hub.
     let out = command(&config)
         .env("TASKS_DESKTOP_NO_LAUNCH", "1")
@@ -525,8 +521,8 @@ fn the_program_is_installed_under_one_name_whatever_the_download_was_called() {
     // The rolling build is `tasks-hub-windows-x86_64.exe`; the scripts, the link and `uninstall` look for `tasks-hub.exe`.
     let config = temp_dir("install-name");
     let bin = temp_dir("install-name-bin");
-    let _bin = RemoveDir(bin.clone());
-    let downloaded = temp_dir("install-name-download").join(if cfg!(windows) {
+    let download = temp_dir("install-name-download");
+    let downloaded = download.join(if cfg!(windows) {
         "tasks-hub-windows-x86_64.exe"
     } else {
         "tasks-hub-linux-x86_64"
@@ -677,21 +673,11 @@ impl Drop for Background {
     }
 }
 
-/// Removes a folder when the test ends. Declared before a [`Background`], so
-/// that it goes after the hub: a program that runs cannot be deleted.
-struct RemoveDir(PathBuf);
-
-impl Drop for RemoveDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
 #[test]
 fn start_runs_the_hub_in_the_background_and_stop_ends_it() {
     let config = temp_dir("background");
     let port = free_port();
-    let _guard = Background(config.clone());
+    let _guard = Background(config.to_path_buf());
 
     let started = command(&config)
         .env("TASKS_DESKTOP_PORT", port.to_string())
@@ -733,9 +719,8 @@ fn start_runs_the_hub_in_the_background_and_stop_ends_it() {
 fn install_copies_the_program_and_brings_a_running_hub_back_from_there() {
     let config = temp_dir("install");
     let bin = temp_dir("install-bin");
-    let _bin = RemoveDir(bin.clone());
     let port = free_port();
-    let _guard = Background(config.clone());
+    let _guard = Background(config.to_path_buf());
     let with_dir = |cmd: &mut Command| {
         cmd.env("TASKS_DESKTOP_INSTALL_DIR", &bin);
     };
@@ -795,7 +780,7 @@ fn install_copies_the_program_and_brings_a_running_hub_back_from_there() {
 fn uninstall_stops_the_hub_keeps_the_settings_unless_asked_and_leaves_the_program() {
     let config = temp_dir("uninstall");
     let port = free_port();
-    let _guard = Background(config.clone());
+    let _guard = Background(config.to_path_buf());
     std::fs::write(config.join("config.json"), "{}").unwrap();
     std::fs::write(config.join("usage.json"), "{}").unwrap();
     std::fs::write(config.join("notes.txt"), "mine").unwrap();
@@ -848,8 +833,7 @@ fn uninstall_stops_the_hub_keeps_the_settings_unless_asked_and_leaves_the_progra
 fn install_fails_and_says_what_it_did_when_the_hub_does_not_come_back() {
     let config = temp_dir("install-down");
     let bin = temp_dir("install-down-bin");
-    let _bin = RemoveDir(bin.clone());
-    let _guard = Background(config.clone());
+    let _guard = Background(config.to_path_buf());
     let _hub = start_hub(&config, free_port());
     // The installed program cannot start a hub: its log is not a file.
     std::fs::create_dir(config.join("hub.log")).unwrap();
@@ -874,9 +858,8 @@ fn install_fails_and_says_what_it_did_when_the_hub_does_not_come_back() {
 fn install_starts_a_hub_again_that_it_stopped_when_the_program_cannot_be_replaced() {
     let config = temp_dir("install-keep");
     let bin = temp_dir("install-keep-bin");
-    let _bin = RemoveDir(bin.clone());
     let port = free_port();
-    let _guard = Background(config.clone());
+    let _guard = Background(config.to_path_buf());
     let _hub = start_hub(&config, free_port());
     // A folder where the program goes: the move over it fails.
     let name = binary().file_name().unwrap().to_owned();
@@ -912,7 +895,7 @@ fn start_works_in_a_config_folder_with_a_non_ascii_name() {
     let base = temp_dir("umlaut-base");
     let config = base.join("Müller äöü");
     std::fs::create_dir_all(&config).unwrap();
-    let _guard = Background(config.clone());
+    let _guard = Background(config.to_path_buf());
     let port = free_port();
     let started = command(&config)
         .env("TASKS_DESKTOP_PORT", port.to_string())

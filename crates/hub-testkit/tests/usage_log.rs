@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use appkit_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
+use hub_testkit::scratch::Scratch;
 use serde_json::Value;
 use tasks_hub::classes::AreaPolicy;
 use tasks_hub::client;
@@ -19,16 +20,14 @@ use common::Sse;
 
 #[tokio::test]
 async fn a_stream_is_a_visit_and_the_file_holds_counts_only() {
-    let dir = std::env::temp_dir().join(format!("tasks-desktop-usage-it-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = Scratch::new("usage-it");
     let log_path = dir.join("usage.json");
 
     let engine: Arc<dyn Engine> = Arc::new(CliEngine::new(CliEngineConfig {
         dialect: tasks_hub::engine::DIALECT,
         nvim: PathBuf::from(env!("CARGO_BIN_EXE_fake-nvim")),
         script: dir.join("scripts").join("tasks.lua"),
-        vault: dir.clone(),
+        vault: dir.to_path_buf(),
         lib_dir: None,
         extra_areas: vec![],
         env: Env::from_process(),
@@ -116,5 +115,4 @@ async fn a_stream_is_a_visit_and_the_file_holds_counts_only() {
     // Nothing of the vault, the areas or the session.
     let text = doc.to_string();
     assert!(!text.contains(&token) && !text.contains("lib.nvim"));
-    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use hub_testkit::scratch::Scratch;
 use serde_json::{json, Value};
 use tasks_hub::config::{Env, FileConfig, TasksSettings};
 use tasks_hub::discovery::{discover, Setup, SetupProblem};
@@ -272,8 +273,9 @@ async fn text_mode_hazards_reach_the_engine_intact() {
 
 // ── the persistent host against the real engine ──────────────────────────
 
-/// A copy of the fixture vault that a test may change.
-fn copy_vault(name: &str) -> PathBuf {
+/// A copy of the fixture vault that a test may change; it is removed when the value drops. Declare it before the
+/// engines that run on it.
+fn copy_vault(name: &str) -> Scratch {
     fn copy(from: &Path, to: &Path) {
         std::fs::create_dir_all(to).unwrap();
         for entry in std::fs::read_dir(from).unwrap() {
@@ -286,11 +288,7 @@ fn copy_vault(name: &str) -> PathBuf {
             }
         }
     }
-    let to = std::env::temp_dir().join(format!(
-        "tasks-desktop-host-real-{name}-{}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&to);
+    let to = Scratch::new(&format!("host-real-{name}"));
     copy(&fixture_vault(), &to);
     to
 }

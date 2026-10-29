@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use appkit_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
+use hub_testkit::scratch::Scratch;
 use serde_json::Value;
 use tasks_hub::classes::AreaPolicy;
 use tasks_hub::client;
@@ -27,6 +28,8 @@ struct Rig {
     vault: PathBuf,
     control: String,
     token: String,
+    // Last: the folder is removed after the server, which has the vault open.
+    _dir: Scratch,
 }
 
 struct Timing {
@@ -49,15 +52,8 @@ impl Default for Timing {
     }
 }
 
-fn unique(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "tasks-desktop-events-{name}-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.subsec_nanos())
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
+fn unique(name: &str) -> Scratch {
+    let dir = Scratch::new(&format!("events-{name}"));
     std::fs::create_dir_all(dir.join("a.nvim").join("ROADMAP").join("tasks")).unwrap();
     dir
 }
@@ -80,7 +76,8 @@ fn touch_task(vault: &Path, file: &str) {
 }
 
 async fn rig(name: &str, timing: Timing) -> Rig {
-    let vault = unique(name);
+    let dir = unique(name);
+    let vault = dir.to_path_buf();
     set_n(&vault, 0);
     let engine: Arc<dyn Engine> = Arc::new(CliEngine::new(CliEngineConfig {
         dialect: tasks_hub::engine::DIALECT,
@@ -132,6 +129,7 @@ async fn rig(name: &str, timing: Timing) -> Rig {
         vault,
         control: control.to_hex(),
         token: String::new(),
+        _dir: dir,
     };
     r.token = session(&r).await;
     r
