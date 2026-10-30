@@ -138,7 +138,10 @@ jobs:
         shell: pwsh
         run: |
           Install-Module PSScriptAnalyzer -RequiredVersion 1.24.0 -Scope CurrentUser -Force
-          $found = Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Error, Warning
+          # Import by version too: autoloading would take the newest copy on the runner, not the pinned one.
+          Import-Module PSScriptAnalyzer -RequiredVersion 1.24.0
+          (Get-Module PSScriptAnalyzer).Version
+          $found = @(Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Error, Warning)
           $found | Format-Table -AutoSize | Out-String | Write-Output
           if ($found) { exit 1 }
       # The browser tests: the binary, the real engine, the system's Chrome. Each run takes a free port (e2e/port.ts): the
