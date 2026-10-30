@@ -355,9 +355,16 @@
     flex: 1;
     min-height: 0;
   }
+  /* Narrow: the detail stands below the board. Both take the height they need and the main area scrolls; the board
+     keeps a few cards in sight (16rem) instead of sharing the window's height with the detail. */
   @media (max-width: 52rem) {
+    .wrap {
+      height: auto;
+      min-height: 100%;
+    }
     .layout {
       grid-template-columns: 1fr;
+      flex: 1 0 auto;
     }
   }
   .main {
@@ -387,6 +394,11 @@
     gap: 0.6rem;
     overflow: auto;
     min-height: 0;
+  }
+  @media (max-width: 52rem) {
+    .board {
+      flex: 1 0 16rem;
+    }
   }
   .column {
     display: flex;
@@ -437,7 +449,10 @@
     color: var(--muted);
     font-weight: normal;
   }
+  /* Positioned, so the hidden labels of the cards (.sr-only, absolute) are clipped by it: else they hang on the page and
+     stretch the window to the last card of a long column. */
   .cards {
+    position: relative;
     overflow: auto;
     padding: 0.4rem;
     display: flex;

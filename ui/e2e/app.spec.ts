@@ -6314,3 +6314,54 @@ test('in a short or narrow window the rows of the list keep a height of their ow
     .toBe(false);
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+
+test('in a narrow window the board and the inbox keep a few cards and rows in sight: the main area scrolls instead', async ({
+  page,
+}) => {
+  /** Each scrolling part of the view: what it shows and what it holds (it may hold fewer than a few entries). */
+  const parts = (selector: string) =>
+    page.evaluate(
+      (sel) => [...document.querySelectorAll(sel)].map((el) => ({ shown: el.clientHeight, holds: el.scrollHeight })),
+      selector,
+    );
+  const roomy = (got: { shown: number; holds: number }[]) =>
+    got.length > 0 && got.every((p) => p.shown >= Math.min(p.holds, 150));
+  await page.setViewportSize({ width: 400, height: 700 });
+  await pair(page);
+  await chooseView(page, 'View', 'Board');
+  // A chosen task fills the detail below the board: the board must not give its room up to it (77 px of cards).
+  await page.locator('.cards .card').first().click();
+  await expect(page.locator('.cards .card.selected')).toBeVisible();
+  await expect.poll(async () => roomy(await parts('.board .cards')), { message: 'cards of the board' }).toBe(true);
+  // ... and does not grow with its longest column either: the columns scroll, the detail is a short way down.
+  expect((await parts('.board'))[0].shown).toBeLessThan(700);
+  await chooseView(page, 'View', 'Inbox');
+  await page.locator('.inbox .row').first().click();
+  await expect.poll(async () => roomy(await parts('.inbox .rows')), { message: 'rows of the inbox' }).toBe(true);
+  await expect
+    .poll(() => page.evaluate(() => (document.querySelector('main') as HTMLElement).scrollHeight > window.innerHeight))
+    .toBe(true);
+
+  // With the room for it both are as high as the main area again, and the window does not scroll: the hidden labels of
+  // the cards (.sr-only, absolute) of a long column stretched the page to its last card before.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  for (const view of ['Board', 'Inbox']) {
+    await chooseView(page, 'View', view);
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const main = document.querySelector('main') as HTMLElement;
+            const block = document.querySelector('.wrap, .split') as HTMLElement;
+            return {
+              window: document.scrollingElement!.scrollHeight > window.innerHeight + 1,
+              block: block.offsetHeight <= main.clientHeight,
+            };
+          }),
+        { message: view },
+      )
+      .toEqual({ window: false, block: true });
+  }
+  expect(consoleProblems.get(page)).toEqual([]);
+});

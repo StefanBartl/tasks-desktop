@@ -116,9 +116,13 @@
     height: 100%;
     min-height: 0;
   }
+  /* Narrow: the detail stands below the inbox. Both take the height they need and the main area scrolls; the rows keep
+     a few entries in sight (12rem) instead of sharing the window's height with the detail. */
   @media (max-width: 52rem) {
     .split {
       grid-template-columns: 1fr;
+      height: auto;
+      min-height: 100%;
     }
   }
   .inbox {
@@ -209,6 +213,11 @@
     overflow: auto;
     flex: 1;
     min-height: 0;
+  }
+  @media (max-width: 52rem) {
+    .rows {
+      flex: 1 0 12rem;
+    }
   }
   .row {
     display: grid;
