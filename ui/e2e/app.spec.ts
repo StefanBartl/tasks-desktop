@@ -6383,3 +6383,52 @@ test('the page served by the hub offers no shortcut: that is for the file of the
   await expect(page.getByRole('menuitem', { name: 'Create a shortcut ...', exact: true })).toHaveCount(0);
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('no view makes the window itself scroll: a hidden label of a row stays inside the box that scrolls it', async ({ page }) => {
+  // What each view shows once it is there: the window is measured after it, not before the rows are drawn.
+  const views: Array<[string, string]> = [
+    ['Today', 'main section'],
+    ['List', 'button.row'],
+    ['Board', '.cards .card'],
+    ['Inbox', '.inbox .row'],
+    // A stage with many tasks scrolls in itself; its .sr-only labels made the page 1200 px high in a 720 px window.
+    ['Plan', '.stage-list li'],
+    ['Connections', 'main section'],
+    ['Finished', 'main section'],
+  ];
+  await pair(page);
+  for (const size of [
+    { width: 1280, height: 720 },
+    { width: 400, height: 700 },
+  ]) {
+    await page.setViewportSize(size);
+    for (const [view, ready] of views) {
+      await chooseView(page, 'View', view);
+      await expect(page.locator(ready).first()).toBeVisible();
+      await expect
+        .poll(() => page.evaluate(() => document.scrollingElement!.scrollHeight - window.innerHeight), {
+          message: `${view} at ${size.width}x${size.height}`,
+        })
+        .toBeLessThanOrEqual(1);
+    }
+  }
+  // The main area holds what it scrolls: a hidden label at the end of a view taller than it (the finished tasks after
+  // many were finished, 39 px too high in the whole run) stays inside, wherever no box of the view is positioned.
+  await chooseView(page, 'View', 'Today');
+  await expect(page.locator('main section').first()).toBeVisible();
+  const grown = await page.evaluate(() => {
+    const main = document.querySelector('main') as HTMLElement;
+    const label = document.createElement('span');
+    label.className = 'sr-only';
+    label.textContent = 'probe';
+    const filler = document.createElement('div');
+    filler.style.height = '2000px';
+    filler.append(label);
+    main.append(filler);
+    const over = document.scrollingElement!.scrollHeight - window.innerHeight;
+    filler.remove();
+    return over;
+  });
+  expect(grown).toBeLessThanOrEqual(1);
+  expect(consoleProblems.get(page)).toEqual([]);
+});

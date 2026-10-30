@@ -772,7 +772,10 @@
   .conn-full {
     color: var(--warn);
   }
+  /* Positioned, so what is absolute in a view without a box of its own (the hidden labels, .sr-only) scrolls and is
+     clipped with it: else it hangs on the page, and a long view (the finished tasks) makes the window scroll too. */
   main {
+    position: relative;
     flex: 1;
     min-height: 0;
     overflow: auto;

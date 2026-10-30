@@ -488,8 +488,10 @@
     writing-mode: vertical-rl;
     white-space: nowrap;
   }
-  /* A stage with many tasks scrolls in itself: the stages of the next row stay in reach. */
+  /* A stage with many tasks scrolls in itself: the stages of the next row stay in reach. Positioned, so the hidden
+     labels of its rows (.sr-only, absolute) are clipped by it: else they hang on the page and make the window scroll. */
   .stage-list {
+    position: relative;
     margin-top: 0.5em;
     max-height: min(50vh, 28rem);
     overflow: auto;
