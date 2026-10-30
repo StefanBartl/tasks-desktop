@@ -1,7 +1,6 @@
 // The single-file page in a browser without `showDirectoryPicker` (Firefox, Safari): the folder comes through an
 // `<input webkitdirectory>`, the vault is shown and searched, a change is refused with the reason, and the page makes no
-// request. The picker is taken away from Chrome here (the same code path as in the other engines; Playwright's own
-// Firefox and WebKit are not installed on the runner).
+// request. It runs in Firefox and WebKit as they are (no picker there) and in Chrome with the picker taken away.
 
 import { expect, test, type Page } from '@playwright/test';
 import { closeFloat, FIXTURE, pageUrl, vaultFiles, violations, watchPage } from './page';
@@ -50,7 +49,8 @@ test('without the picker the vault is read through the input, shown read only, a
   expect(await violations(page)).toEqual([]);
 });
 
-test('a browser with the picker never shows the read only way in', async ({ page }) => {
+test('a browser with the picker never shows the read only way in', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'chrome', 'only Chrome has the picker');
   await page.goto(pageUrl());
   await expect(page.getByRole('button', { name: /Choose folder|Ordner wählen/ })).toBeVisible();
   await expect(page.getByText(/cannot write into a folder|kann nicht in einen Ordner schreiben/)).toHaveCount(0);

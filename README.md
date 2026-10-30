@@ -80,9 +80,12 @@ Which browser does what (the page checks the browser itself and says so on the f
 | Firefox (50+), Safari (11.1+) | folder input (`webkitdirectory`) | yes | **no**: the page is a view, a banner says so, a change is refused with the reason | no, choose the folder at every start | no, choose the folder again |
 | any other | none | no, the page names Chrome and Edge | no | no | no |
 
-The rows for Firefox and Safari follow MDN and web.dev (the support of `showDirectoryPicker` is Chromium only); they are
-tried here in the code path only (`ui/e2e-web/readonly.spec.ts` takes the picker away from Chrome), not in Playwright's
-own Firefox and WebKit.
+The table is what CI finds: `ui/e2e-web/engines.spec.ts` asks the page in each engine for the APIs it needs and the
+read only way in (`ui/e2e-web/readonly.spec.ts`) runs in Playwright's Firefox and WebKit as they are. Last record
+(2026-10-30, Playwright 1.63): Chrome has the picker; Firefox 155 and WebKit 26.6 have no picker but the folder input,
+`DecompressionStream`, `Uint8Array.fromBase64`, IndexedDB and a blob worker with WebAssembly; the Origin Private File
+System opens in Firefox and fails in WebKit from `file://` (`UnknownError`), which the page does not need. WebKit on
+Windows stands in for Safari; a real Safari on macOS is not tried.
 
 What is missing compared to the app: tray, autostart, notifications, "show in Explorer", "open in editor",
 attaching screenshots, several vaults at once, finishing or moving a folder task that holds assets. Details of
@@ -326,8 +329,9 @@ and used as described under "In the browser, without installing". Its built file
   parts of the engine (worker, WASM, Lua sources, vim shim) gzip-compressed as base64, and a policy as a meta tag
   (`default-src 'none'; connect-src 'none'; worker-src blob:` and the like: no request of any kind, no outside
   source). The build refuses a shell that loads something (a `src`, a `href`, a URL, a refresh, a stray script).
-  `pnpm web:e2e` is a Playwright project of its own (`ui/playwright.web.config.ts`, tests in `ui/e2e-web/`; it needs
-  `pnpm web:build` first and the system's Chrome, no hub, no engine checkout) that opens the built file from disk with a
+  `pnpm web:e2e` is a Playwright config of its own (`ui/playwright.web.config.ts`, tests in `ui/e2e-web/`; it needs
+  `pnpm web:build` first, the system's Chrome and Playwright's Firefox and WebKit (`pnpm exec playwright install
+  firefox webkit`, about 184 MiB; `--project=chrome` leaves them out), no hub, no engine checkout) that opens the built file from disk with a
   fake folder (`page.ts`: `fakePicker`, `disk`, `editOnDisk`; the fixture vault `e2e/fixture/vault` and the hostile
   tasks of `e2e/hub.ts`, the same as the hub-based `pnpm e2e`). `opens.spec.ts`: the file starts its engine in a
   worker, the tasks show, a change of a file shows after a focus event, the search, "About"; a positive test shows the

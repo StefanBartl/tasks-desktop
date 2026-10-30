@@ -69,8 +69,19 @@ jobs:
       # The same project as in ci.yml (ui/e2e-web/): the built file itself, from disk, in Chrome. What is published is
       # what was tested. Both test steps run through tools/run-with-temp.mjs, as in ci.yml: a temp dir of their own, and
       # the step fails when a test left a folder of its own in it.
-      - name: Open the file from disk in Chrome
+      # Firefox and WebKit are Playwright's own builds (the read only way in and the record of the browser APIs run there,
+      # ui/playwright.web.config.ts). They live in the tool cache of the runner, not in %LOCALAPPDATA%: a runner started from
+      # a program that redirects AppData (the Claude app) gets a Firefox whose side-by-side assembly Windows cannot find.
+      # A second install is a no-op.
+      - name: Firefox and WebKit for the web page
         working-directory: ui
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.tool_cache }}/ms-playwright
+        run: pnpm exec playwright install firefox webkit
+      - name: Open the file from disk in Chrome, Firefox and WebKit
+        working-directory: ui
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.tool_cache }}/ms-playwright
         run: node ../tools/run-with-temp.mjs -- pnpm web:e2e
       - name: Traces of failed browser tests
         if: failure()

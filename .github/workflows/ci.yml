@@ -89,8 +89,19 @@ jobs:
       # same hostile tasks as the hub's browser tests below): the overview, a task, the search, the filters, the plan, the
       # check, accessibility, writing with its conflict check, and what the data classes keep in IndexedDB. Every test holds
       # the page to the same two rules: not one request, not one violation of its own policy.
-      - name: Web page (one file) in Chrome from disk, without a request
+      # Firefox and WebKit are Playwright's own builds (the read only way in and the record of the browser APIs run there,
+      # ui/playwright.web.config.ts). They live in the tool cache of the runner, not in %LOCALAPPDATA%: a runner started from
+      # a program that redirects AppData (the Claude app) gets a Firefox whose side-by-side assembly Windows cannot find.
+      # A second install is a no-op.
+      - name: Firefox and WebKit for the web page
         working-directory: ui
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.tool_cache }}/ms-playwright
+        run: pnpm exec playwright install firefox webkit
+      - name: Web page (one file) in Chrome, Firefox and WebKit from disk, without a request
+        working-directory: ui
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.tool_cache }}/ms-playwright
         run: |
           pnpm web:build
           node ../tools/run-with-temp.mjs -- pnpm web:e2e

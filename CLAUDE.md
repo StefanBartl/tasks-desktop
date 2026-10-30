@@ -66,6 +66,10 @@ python tools/check-color-literals.py    # no colour outside the tokens of appkit
 
 ## Browser-Tests (Playwright)
 
+- `pnpm web:e2e` läuft auch in Playwrights Firefox und WebKit (Projekte `firefox`, `webkit`). Aus der Claude-App
+  startet Firefox aus `%LOCALAPPDATA%\ms-playwright` nicht ("Side-by-Side-Konfiguration ungültig", `mozglue`): die App
+  leitet AppData um. Die Browser nach `ui/node_modules/.cache/ms-playwright` kopieren (oder dort installieren) und
+  `PLAYWRIGHT_BROWSERS_PATH` darauf setzen; die CI nimmt den Tool-Cache des Runners.
 - Die Tests teilen einen Vault: Titel und Dateinamen müssen eindeutig sein (ein
   Suchbegriff darf keinen Task eines anderen Tests treffen).
 - `keyboard.press('F')` sendet kein Shift: Umschalt+f ist `press('Shift+f')`.
