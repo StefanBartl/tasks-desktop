@@ -6,7 +6,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { expectAccessible, violations, watchViolations } from './a11y';
 import { STATE } from './global';
-import { ORIGIN, pairingLink, pickedFolder, removeFile } from './hub';
+import { origin, pairingLink, pickedFolder, removeFile } from './hub';
 
 test.use({ locale: 'en-US' });
 
@@ -222,7 +222,7 @@ test('an unpaired page says how to pair, and has no violation', async ({ page })
 
 test('the link pairs the tab, the code leaves the address bar, the list is there', async ({ page }) => {
   await pairByLink(page);
-  expect(page.url()).toBe(`${ORIGIN}/`);
+  expect(page.url()).toBe(`${origin()}/`);
   expect(await page.evaluate(() => location.hash)).toBe('');
   await showList(page);
   const rows = await page.locator('button.row').count();

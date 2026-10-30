@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test';
+import { runOutputDir } from './e2e/port';
 
 // The single-file page of the web variant, opened from disk. No hub, no server: `pnpm web:build` makes the file first.
 // The system's Chrome is used (`channel`), as for the hub's tests. Firefox and WebKit are Playwright's own builds
@@ -12,6 +13,8 @@ export default defineConfig({
   fullyParallel: false,
   timeout: 60_000,
   reporter: 'list',
+  // A folder of its own per run, as for the hub's tests (e2e/port.ts).
+  outputDir: runOutputDir(process.env, process.pid),
   use: {
     trace: 'retain-on-failure',
     screenshot: 'off',

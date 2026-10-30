@@ -66,8 +66,9 @@ python tools/check-color-literals.py    # no colour outside the tokens of appkit
 
 ## Browser-Tests (Playwright)
 
-- Die Hub-Tests (`pnpm e2e`) laufen auf Port 17698; `TASKS_E2E_PORT` verschiebt ihn (`ui/e2e/port.ts`). Die CI nimmt
-  17699, damit ein Lauf des Runners (dieser Rechner) und einer im Terminal sich nicht den Port wegnehmen.
+- Die Hub-Tests (`pnpm e2e`) nehmen je Lauf einen freien Port (`ensureE2ePort` in `ui/e2e/port.ts`, im globalen
+  Setup) und einen eigenen Ergebnisordner `ui/test-results/run-<pid>`: Runner, Terminal und andere Sitzungen auf diesem
+  Rechner können gleichzeitig laufen. `TASKS_E2E_PORT` erzwingt einen bestimmten Port.
 - `pnpm web:e2e` läuft auch in Playwrights Firefox und WebKit (Projekte `firefox`, `webkit`). Aus der Claude-App
   startet Firefox aus `%LOCALAPPDATA%\ms-playwright` nicht ("Side-by-Side-Konfiguration ungültig", `mozglue`): die App
   leitet AppData um. Die Browser nach `ui/node_modules/.cache/ms-playwright` kopieren (oder dort installieren) und

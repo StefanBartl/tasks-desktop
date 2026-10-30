@@ -1,5 +1,9 @@
-// The port the hub of the browser tests listens on. 17698 by default; `TASKS_E2E_PORT` moves it, so that a run of the CI
-// on the author's machine (the self-hosted runner) and a run in a terminal there do not take the same port.
+// The port the hub of the browser tests listens on. The global setup takes a free one for each run (`ensureE2ePort`) and
+// hands it to the workers in `TASKS_E2E_PORT`, so that runs on one machine (the self-hosted runner, a terminal, another
+// session) never take the same port; a given `TASKS_E2E_PORT` is kept. 17698 is only what a process reads that was not
+// started by the setup.
+
+import { createServer } from 'node:net';
 
 export const DEFAULT_E2E_PORT = 17698;
 
@@ -12,4 +16,39 @@ export function e2ePort(env: Record<string, string | undefined>): number {
     throw new Error(`TASKS_E2E_PORT must be a port from 1024 to 65535, got ${JSON.stringify(raw)}`);
   }
   return port;
+}
+
+/** A port nobody listens on now: the system's pick for port 0 on the loopback. */
+export function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port = typeof address === 'object' && address !== null ? address.port : 0;
+      server.close(() => (port >= 1024 ? resolve(port) : reject(new Error(`no free port (got ${port})`))));
+    });
+  });
+}
+
+/**
+ * The port of this run: `TASKS_E2E_PORT` when it is given (checked as `e2ePort` does), else a free one, written to
+ * `env` so that the processes started after it (the workers) read the same.
+ */
+export async function ensureE2ePort(env: Record<string, string | undefined>): Promise<number> {
+  const given = env['TASKS_E2E_PORT'];
+  if (given !== undefined && given !== '') return e2ePort(env);
+  const port = await freePort();
+  env['TASKS_E2E_PORT'] = String(port);
+  return port;
+}
+
+/**
+ * The folder of this run's results (traces of failed tests) under `test-results/`: a run clears its folder when it
+ * starts, so two runs side by side must not share one. Named after the process that loads the config first (the
+ * runner); the workers it starts inherit the name from the environment.
+ */
+export function runOutputDir(env: Record<string, string | undefined>, pid: number): string {
+  env['TASKS_E2E_RUN'] ??= String(pid);
+  return `test-results/run-${env['TASKS_E2E_RUN']}`;
 }

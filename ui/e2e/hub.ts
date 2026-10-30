@@ -11,8 +11,9 @@ import { e2ePort } from './port.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '..', '..');
-export const PORT = e2ePort(process.env);
-export const ORIGIN = `http://127.0.0.1:${PORT}`;
+// Read when asked, not when the module loads: the global setup imports this file before it takes the port of the run.
+export const port = (): number => e2ePort(process.env);
+export const origin = (): string => `http://127.0.0.1:${port()}`;
 
 /**
  * The root of the temp folders of one run of these tests: the folder of the hub, the file the workers read their state
@@ -130,7 +131,7 @@ export const HOSTILE: { slug: string; title: string; body: string; front?: strin
 export async function assertFreshBinary(): Promise<void> {
   const dist = join(repo, 'ui', 'dist', 'index.html');
   if (!existsSync(dist)) throw new Error('ui/dist is not built: run `pnpm build` and `cargo build`');
-  const served = await (await fetch(`${ORIGIN}/`)).text();
+  const served = await (await fetch(`${origin()}/`)).text();
   if (served.trim() !== readFileSync(dist, 'utf8').trim()) {
     throw new Error('the hub binary holds an older interface: run `cargo build` after `pnpm build`');
   }
@@ -212,7 +213,7 @@ export function env(config: string): NodeJS.ProcessEnv {
     TASKS_DESKTOP_EDITOR_LOG: join(config, '..', 'editor.log'),
     // The folder dialog is not shown in a test: the folder it "returns" is this one (see `pickedFolder`).
     TASKS_DESKTOP_PICK_RESULT: pickedFolder(config),
-    TASKS_DESKTOP_PORT: String(PORT),
+    TASKS_DESKTOP_PORT: String(port()),
   };
 }
 
@@ -243,7 +244,7 @@ export interface StartOptions {
 
 /** Is something answering on the port of the hub? */
 export async function portTaken(): Promise<boolean> {
-  return fetch(`${ORIGIN}/api/tasks/hello`).then(
+  return fetch(`${origin()}/api/tasks/hello`).then(
     () => true,
     () => false,
   );
@@ -252,7 +253,7 @@ export async function portTaken(): Promise<boolean> {
 export async function startHub(options: StartOptions = {}): Promise<Running & { root: string }> {
   // Something already answers on the port: those tests would run against
   // another hub and another vault.
-  if (await portTaken()) throw new Error(`port ${PORT} is in use: stop the hub that runs there`);
+  if (await portTaken()) throw new Error(`port ${port()} is in use: stop the hub that runs there`);
   const { root, vault, config } = prepareVault();
   const child = spawn(options.exe ?? exe, [...(options.args ?? []), 'serve'], { env: env(config), stdio: 'ignore' });
   const running = { child, config, vault, root, stop: () => endHub(child, root) };
@@ -270,7 +271,7 @@ async function waitUntilReady(config: string, timeout: number): Promise<void> {
   const deadline = Date.now() + timeout;
   for (;;) {
     try {
-      const r = await fetch(`${ORIGIN}/api/tasks/hello`);
+      const r = await fetch(`${origin()}/api/tasks/hello`);
       if (r.ok) {
         const doc = (await r.json()) as { engine: { ready: boolean } };
         if (doc.engine.ready) break;
@@ -297,9 +298,9 @@ async function waitUntilReady(config: string, timeout: number): Promise<void> {
  */
 export async function sessionToken(config: string): Promise<string> {
   const code = pairingLink(config).split('#pair=')[1] ?? '';
-  const response = await fetch(`${ORIGIN}/auth/exchange`, {
+  const response = await fetch(`${origin()}/auth/exchange`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Origin: ORIGIN },
+    headers: { 'Content-Type': 'application/json', Origin: origin() },
     body: JSON.stringify({ code }),
   });
   if (!response.ok) throw new Error(`exchange refused: ${response.status}`);
@@ -310,7 +311,7 @@ export async function sessionToken(config: string): Promise<string> {
 export function pairingLink(config: string): string {
   const out = execFileSync(exe, ['open'], { env: env(config), encoding: 'utf8' });
   const link = out.trim().split(/\r?\n/)[0] ?? '';
-  if (!link.startsWith(`${ORIGIN}/#pair=`)) throw new Error(`unexpected link: ${link}`);
+  if (!link.startsWith(`${origin()}/#pair=`)) throw new Error(`unexpected link: ${link}`);
   return link;
 }
 

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { cleanUp, tempRoot } from '../web/tmp.mjs';
 // With the extension: web/e2e-cleanup.test.mjs loads this file with Node, which resolves nothing without it.
 import { RUN_ROOT_NAME, sessionToken, startHub, type Running } from './hub.ts';
+import { ensureE2ePort } from './port.ts';
 
 // One file for one run, in the temp root of the run: the workers inherit its name from the environment, set in
 // `setup` before they are started. A worker that finds nothing here was not started by this setup.
@@ -23,6 +24,8 @@ export async function runSetup(steps: Steps = REAL): Promise<() => Promise<void>
   const state = join(tempRoot(RUN_ROOT_NAME), 'state.json');
   process.env['TASKS_DESKTOP_E2E_STATE'] = state;
   try {
+    // A free port for this run, before the hub starts: the workers are started after the setup and inherit it.
+    await ensureE2ePort(process.env);
     running = await steps.start();
     const token = await steps.token(running.config);
     writeFileSync(state, JSON.stringify({ config: running.config, vault: running.vault, token }));
