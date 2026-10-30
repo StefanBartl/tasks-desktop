@@ -3145,6 +3145,15 @@ describe('writing', () => {
       expect(app.selectedId).toBe('pub/a');
     });
 
+    it('tells a page that shows the vault only why a change was not saved, not a code', async () => {
+      const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
+      hub.next_ops = new ApiError(405, 'read_only', 'this page cannot write');
+      expect(await app.moveArea('pub/a', 'inner', 'e1')).toBe(false);
+      expect(app.toast?.kind).toBe('error');
+      expect(app.toast?.text).toBe(translate(app.lang, 'write.read_only'));
+      expect(app.toast?.text).not.toContain('read_only');
+    });
+
     it('keeps the float of a task open across its move and the undo of it, under the new id', async () => {
       const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
       app.peek('pub/a');

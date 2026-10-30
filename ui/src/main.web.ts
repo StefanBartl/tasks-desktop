@@ -85,11 +85,12 @@ let hub: WebHub | null = null;
 const entry = new Entry({
   win: window as unknown as PickerWindow,
   recent: new RecentFolders(idbKeyValue(window.indexedDB)),
-  open: async (handle) => {
+  open: async (handle, readOnly) => {
     const { client } = await started;
     const opened = new VaultSession({
       client,
       handle,
+      readOnly,
       root: ROOT,
       today: () => localDay(new Date()),
       onSignature: (known) => watcher?.accept(known),
@@ -114,12 +115,12 @@ let began = false;
 entry.subscribe((state) => {
   if (state.step === 'open' && !began) {
     began = true;
-    void begin(state.folder);
+    void begin(state.folder, state.readOnly);
   }
 });
 void entry.start();
 
-async function begin(folder: string | null): Promise<void> {
+async function begin(folder: string | null, readOnly: boolean): Promise<void> {
   const { client, parts } = await started;
   const session = vault as VaultSession;
   const lock = parts.bundle.engine;
@@ -137,31 +138,35 @@ async function begin(folder: string | null): Promise<void> {
     },
     // Changes go through the engine into the folder (nothing is written when the folder moved on since it was read),
     // and a read waits for a write that is under way.
-    ops: (request) => session.ops(request),
+    // A folder read through an input (Firefox, Safari) has no handle: the hub answers `read_only` to every change.
+    ops: readOnly ? undefined : (request) => session.ops(request),
     idle: () => session.idle(),
   });
   hub = web;
-  watcher = watchVault(signature, {
-    signature: () => session.signature(),
-    onChange: async () => {
-      await session.reload();
-      web.notify();
-    },
-    onError: () => {},
-    setTimer: (fn, ms) => window.setInterval(fn, ms),
-    clearTimer: (timer) => window.clearInterval(timer as number),
-    onFocus: (listener) => {
-      const visible = () => {
-        if (document.visibilityState === 'visible') listener();
-      };
-      window.addEventListener('focus', listener);
-      document.addEventListener('visibilitychange', visible);
-      return () => {
-        window.removeEventListener('focus', listener);
-        document.removeEventListener('visibilitychange', visible);
-      };
-    },
-  });
+  // A static copy of the files cannot be looked at again; to see changes the person chooses the folder again.
+  if (!readOnly) {
+    watcher = watchVault(signature, {
+      signature: () => session.signature(),
+      onChange: async () => {
+        await session.reload();
+        web.notify();
+      },
+      onError: () => {},
+      setTimer: (fn, ms) => window.setInterval(fn, ms),
+      clearTimer: (timer) => window.clearInterval(timer as number),
+      onFocus: (listener) => {
+        const visible = () => {
+          if (document.visibilityState === 'visible') listener();
+        };
+        window.addEventListener('focus', listener);
+        document.addEventListener('visibilitychange', visible);
+        return () => {
+          window.removeEventListener('focus', listener);
+          document.removeEventListener('visibilitychange', visible);
+        };
+      },
+    });
+  }
 
   const fetchFn = web.fetch;
   const env: Env = {
@@ -180,6 +185,7 @@ async function begin(folder: string | null): Promise<void> {
     openWindow: (route) => window.open(`${window.location.pathname}${window.location.search}${route}`, '_blank') !== null,
     // Known here, not asked of the hub: nothing that needs the machine is shown, not even until an answer comes.
     mode: 'web',
+    readOnly,
     out: {
       save: (name, text, type) => saveText(document, name, text, type),
       copy: (text) => copyText(navigator.clipboard, text),

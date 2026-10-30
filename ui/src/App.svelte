@@ -606,6 +606,9 @@
           <p class="muted">{t('state.unavailable.body')} <code>{app.problem ?? '?'}</code></p>
         </section>
       {:else}
+        {#if app.readOnly}
+          <p class="banner" role="status">{t('web.readonly.banner')}</p>
+        {/if}
         {#if app.cachedAt !== null}
           <p class="banner">{t('state.stale', { age })}</p>
         {/if}

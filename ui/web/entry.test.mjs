@@ -195,7 +195,7 @@ test('choosing a folder opens it and remembers it', async () => {
   await entry.pick();
   assert.deepEqual(opened, ['vault']);
   const [remembered] = await recent.list();
-  assert.deepEqual(entry.state, { step: 'open', name: 'vault', files: 12, skipped: [{ path: 'big.md', reason: 'too-large' }], folder: remembered.id });
+  assert.deepEqual(entry.state, { step: 'open', name: 'vault', files: 12, skipped: [{ path: 'big.md', reason: 'too-large' }], folder: remembered.id, readOnly: false });
   assert.deepEqual(states, ['choose', 'opening', 'open']);
   const list = await recent.list();
   assert.deepEqual(list.map((r) => [r.name, r.lastUsed]), [['vault', 4242]]);
@@ -401,7 +401,7 @@ test('a folder that cannot be remembered is opened all the same', async () => {
   const { entry } = entryOver({ win: SECURE(async () => handle('vault')), recent: failing });
   await entry.start();
   await entry.pick();
-  assert.deepEqual(entry.state, { step: 'open', name: 'vault', files: 3, skipped: [], folder: null }, 'no id: nothing is kept for it');
+  assert.deepEqual(entry.state, { step: 'open', name: 'vault', files: 3, skipped: [], folder: null, readOnly: false }, 'no id: nothing is kept for it');
 });
 
 test('the same folder chosen again keeps its id, another folder has another', async () => {
@@ -416,4 +416,97 @@ test('the same folder chosen again keeps its id, another folder has another', as
     ids.push(entry.state.folder);
   }
   assert.deepEqual(ids, ['r1', 'r1', 'r2']);
+});
+
+// -- a browser without the picker: the folder is read through an input, never written, never kept ---------------------
+
+/** A document whose folder input answers with the files the test gives. */
+function inputDocument(files) {
+  const listeners = {};
+  const input = {
+    webkitdirectory: false,
+    files,
+    click() {
+      queueMicrotask(() => (files.length === 0 && listeners.cancel ? listeners.cancel() : listeners.change()));
+    },
+    addEventListener(type, listener) {
+      listeners[type] = listener;
+    },
+    remove() {},
+  };
+  return { createElement: () => input, body: { appendChild() {} } };
+}
+
+const picked = (path, text = 'x') => {
+  const bytes = new TextEncoder().encode(text);
+  return { name: path.split('/').at(-1), size: bytes.length, lastModified: 1, webkitRelativePath: path, arrayBuffer: async () => bytes.buffer.slice(0) };
+};
+
+test('without a picker but with a folder input the start page is the read only one, with no list', async () => {
+  const { entry } = entryOver({ win: { document: inputDocument([picked('vault/a.md')]) } });
+  await entry.start();
+  assert.deepEqual(entry.state, { step: 'choose', recent: [], notice: null, readOnly: true });
+  // neither a picker nor an input: still the old refusal
+  const none = entryOver({ win: { document: { createElement: () => ({}) } } });
+  await none.entry.start();
+  assert.deepEqual(none.entry.state, { step: 'unsupported', reason: 'missing' });
+});
+
+test('a folder chosen through the input is opened read only and is not remembered', async () => {
+  const opened = [];
+  const { entry, states, recent } = entryOver({
+    win: { document: inputDocument([picked('vault/A/a.md'), picked('vault/A/b.md')]) },
+    open: async (h, readOnly) => (opened.push([h.name, readOnly]), { files: 2, skipped: [] }),
+  });
+  await entry.start();
+  await entry.pick();
+  assert.deepEqual(opened, [['vault', true]]);
+  assert.deepEqual(entry.state, { step: 'open', name: 'vault', files: 2, skipped: [], folder: null, readOnly: true });
+  assert.deepEqual(states, ['choose', 'opening', 'open']);
+  assert.deepEqual(await recent.list(), [], 'there is no handle to keep');
+});
+
+test('an empty folder is told as empty, and a second click while the dialog is open opens no second one', async () => {
+  const empty = entryOver({ win: { document: inputDocument([]) } });
+  await empty.entry.start();
+  await empty.entry.pick();
+  // inputDocument answers an empty list with `cancel`; a `change` with no file is the empty folder
+  const doc = inputDocument([]);
+  const input = doc.createElement();
+  const listeners = {};
+  let made = 0;
+  const win = {
+    document: {
+      createElement: () => (made++, { ...input, files: [], addEventListener: (t, l) => (listeners[t] = l), click() {}, remove() {} }),
+      body: { appendChild() {} },
+    },
+  };
+  const { entry } = entryOver({ win });
+  await entry.start();
+  const first = entry.pick();
+  await entry.pick();
+  assert.equal(made, 2, 'one input for the support check, one for the dialog: the second click made none');
+  listeners.change();
+  await first;
+  assert.equal(entry.state.step, 'choose');
+  assert.equal(entry.state.notice.code, 'empty');
+});
+
+test('a closed dialog of the input returns to the start page with the notice; the picker still opens read write', async () => {
+  const { entry } = entryOver({ win: { document: inputDocument([]) } });
+  await entry.start();
+  await entry.pick();
+  assert.equal(entry.state.step, 'choose');
+  assert.equal(entry.state.notice.code, 'cancelled');
+  assert.equal(entry.state.readOnly, true);
+
+  const opened = [];
+  const withPicker = entryOver({
+    win: { showDirectoryPicker: async () => handle('v'), isSecureContext: true, document: inputDocument([picked('vault/a.md')]) },
+    open: async (h, readOnly) => (opened.push(readOnly), { files: 1, skipped: [] }),
+  });
+  await withPicker.entry.start();
+  assert.equal(withPicker.entry.state.readOnly, false, 'a browser with the picker never takes the input');
+  await withPicker.entry.pick();
+  assert.deepEqual(opened, [false]);
 });

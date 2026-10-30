@@ -559,3 +559,13 @@ test('a page that fails in its reaction to new classes does not undo the read', 
   assert.equal(session.isStale, false);
   assert.equal(session.classOf('A'), 'private');
 });
+
+test('a session of a folder read through an input never asks the engine and never touches the folder', async () => {
+  const { c, session, disk } = await open(undefined, {}, { readOnly: true });
+  const outcome = await session.ops(REQUEST);
+  assert.equal(outcome.kind, 'failed');
+  assert.equal(outcome.code, 'forbidden');
+  assert.match(outcome.message, /reading only/);
+  assert.deepEqual(c.log, [], 'the engine was not called');
+  assert.deepEqual(disk.files(), { 'A/a.md': 'task a', 'A/b.md': 'task b' });
+});

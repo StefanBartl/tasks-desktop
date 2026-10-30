@@ -678,11 +678,17 @@ const en = {
   'web.entry.state.gone': 'not found',
   'web.entry.opening': 'Reading {name} ...',
   'web.entry.skipped': '{count} files were left out (too large or not readable).',
+  'web.entry.readonly':
+    'This browser cannot write into a folder. You can read and search the vault here; to change tasks use Chrome or Edge, Neovim or the app. Choose the folder again whenever you want to see newer files.',
+  'web.readonly.banner':
+    'Read only: this browser gave the page a copy of the folder, so nothing can be saved. Choose the folder again to see newer files; to change tasks use Chrome or Edge.',
+  'write.read_only': 'Nothing was saved: this page shows the vault read only in this browser. Use Chrome or Edge, Neovim or the app to change tasks.',
   'web.entry.unsupported.missing':
-    'This browser cannot choose a folder (the File System Access API is missing). Use Chrome or Edge.',
+    'This browser cannot choose a folder (neither the File System Access API nor a folder input is there). Use Chrome or Edge.',
   'web.entry.unsupported.insecure':
     'This page is not in a secure context, so the browser will not let it read a folder. Open it from a file on your disk or over https.',
   'web.entry.notice.cancelled': 'No folder was chosen.',
+  'web.entry.notice.empty': 'The browser listed no files in that folder. Is it empty? Choose the vault folder.',
   'web.entry.notice.blocked':
     'The browser or a policy of your organisation does not allow choosing a folder here.',
   'web.entry.notice.failed': 'The folder could not be opened: {detail}',
@@ -1861,11 +1867,17 @@ const de: Record<Key, string> = {
   'web.entry.state.gone': 'nicht gefunden',
   'web.entry.opening': 'Lese {name} ...',
   'web.entry.skipped': '{count} Dateien wurden ausgelassen (zu groß oder nicht lesbar).',
+  'web.entry.readonly':
+    'Dieser Browser kann nicht in einen Ordner schreiben. Hier lässt sich der Vault lesen und durchsuchen; zum Ändern von Tasks Chrome oder Edge, Neovim oder die App nehmen. Den Ordner neu wählen, um neuere Dateien zu sehen.',
+  'web.readonly.banner':
+    'Nur lesen: Dieser Browser gibt der Seite eine Kopie des Ordners, deshalb lässt sich nichts speichern. Den Ordner neu wählen, um neuere Dateien zu sehen; zum Ändern Chrome oder Edge nehmen.',
+  'write.read_only': 'Nichts gespeichert: In diesem Browser zeigt die Seite den Vault nur lesend. Zum Ändern Chrome oder Edge, Neovim oder die App nehmen.',
   'web.entry.unsupported.missing':
-    'Dieser Browser kann keinen Ordner wählen (die File System Access API fehlt). Nimm Chrome oder Edge.',
+    'Dieser Browser kann keinen Ordner wählen (weder die File System Access API noch ein Eingabefeld für Ordner ist da). Nimm Chrome oder Edge.',
   'web.entry.unsupported.insecure':
     'Diese Seite läuft nicht in einem sicheren Kontext, darum lässt der Browser sie keinen Ordner lesen. Öffne sie aus einer Datei auf deiner Platte oder über https.',
   'web.entry.notice.cancelled': 'Es wurde kein Ordner gewählt.',
+  'web.entry.notice.empty': 'Der Browser hat in diesem Ordner keine Dateien gemeldet. Ist er leer? Wähle den Vault-Ordner.',
   'web.entry.notice.blocked':
     'Der Browser oder eine Richtlinie deiner Organisation erlaubt hier keine Ordnerwahl.',
   'web.entry.notice.failed': 'Der Ordner ließ sich nicht öffnen: {detail}',

@@ -59,8 +59,8 @@ tasks-hub usage [--days=14]           on how many of the last days the interface
 
 ## In the browser, without installing
 
-For a machine where no program may be installed: the page runs alone in Chrome from one HTML file, `tasks.html`,
-with the tasks.nvim engine inside it. There is no hub, no server and no network request (the page's CSP forbids
+For a machine where no program may be installed: the page runs alone in Chrome or Edge (in Firefox and Safari read only) from one HTML file,
+`tasks.html`, with the tasks.nvim engine inside it. There is no hub, no server and no network request (the page's CSP forbids
 one).
 
 1. Get the file: `git clone` (later `git pull`) of the private repository
@@ -71,6 +71,18 @@ one).
    access" once for the folder used last.
 4. Changes made on disk (Neovim, git, agents) show up when the tab gets focus, or within 30 seconds. Writing from the
    page (create, set a field, done, move) compares each file with what was read and writes nothing on a conflict.
+
+Which browser does what (the page checks the browser itself and says so on the first screen):
+
+| Browser | Folder | Reading | Writing | Remembers the folder | Sees changes on disk |
+| --- | --- | --- | --- | --- | --- |
+| Chrome, Edge (86+) | picker (`showDirectoryPicker`) | yes | yes | yes, "Allow access" after a restart | yes, on focus and every 30 s |
+| Firefox (50+), Safari (11.1+) | folder input (`webkitdirectory`) | yes | **no**: the page is a view, a banner says so, a change is refused with the reason | no, choose the folder at every start | no, choose the folder again |
+| any other | none | no, the page names Chrome and Edge | no | no | no |
+
+The rows for Firefox and Safari follow MDN and web.dev (the support of `showDirectoryPicker` is Chromium only); they are
+tried here in the code path only (`ui/e2e-web/readonly.spec.ts` takes the picker away from Chrome), not in Playwright's
+own Firefox and WebKit.
 
 What is missing compared to the app: tray, autostart, notifications, "show in Explorer", "open in editor",
 attaching screenshots, several vaults at once, finishing or moving a folder task that holds assets. Details of

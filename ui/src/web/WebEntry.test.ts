@@ -25,6 +25,7 @@ describe('the way in', () => {
     const out = html({
       step: 'choose',
       notice: null,
+      readOnly: false,
       recent: [
         { id: 'a', name: 'work', access: 'granted' },
         { id: 'b', name: 'home', access: 'prompt' },
@@ -43,14 +44,14 @@ describe('the way in', () => {
   });
 
   it('shows no list and no hint when nothing was used before', () => {
-    const out = html({ step: 'choose', notice: null, recent: [] });
+    const out = html({ step: 'choose', notice: null, recent: [], readOnly: false });
     expect(out).not.toContain('Used before');
     expect(out).not.toContain('The browser asks again');
   });
 
   it('tells the reason the last try did not lead into a vault', () => {
     const notice = (code: 'cancelled' | 'blocked' | 'failed' | 'denied' | 'gone' | 'limit', detail?: string) =>
-      html({ step: 'choose', recent: [], notice: { code, detail } });
+      html({ step: 'choose', recent: [], notice: { code, detail }, readOnly: false });
     expect(notice('cancelled')).toContain('No folder was chosen.');
     expect(notice('blocked')).toContain('policy of your organisation');
     expect(notice('denied')).toContain('Access was not allowed');
@@ -61,14 +62,23 @@ describe('the way in', () => {
   });
 
   it('writes a name from the folder as text, never as markup', () => {
-    const out = html({ step: 'choose', notice: null, recent: [{ id: 'x', name: '<img src=x onerror=alert(1)>', access: 'granted' }] });
+    const out = html({ step: 'choose', notice: null, recent: [{ id: 'x', name: '<img src=x onerror=alert(1)>', access: 'granted' }], readOnly: false });
     expect(out).not.toContain('<img');
     expect(out).toContain('&lt;img');
   });
 
+  it('tells a browser without a picker that it reads only, offers the one button and no list', () => {
+    const out = html({ step: 'choose', notice: null, recent: [], readOnly: true });
+    expect(out).toContain('cannot write into a folder');
+    expect(out).toContain('Choose folder ...');
+    expect(out).not.toContain('Used before');
+    expect(html({ step: 'choose', notice: null, recent: [], readOnly: true }, 'de')).toContain('kann nicht in einen Ordner schreiben');
+    expect(html({ step: 'choose', notice: null, recent: [], readOnly: false })).not.toContain('cannot write into a folder');
+  });
+
   it('shows the reading, and the files that were left out', () => {
     expect(html({ step: 'opening', name: 'work' })).toContain('Reading work ...');
-    const done = html({ step: 'open', name: 'work', files: 9, skipped: [{ path: 'a', reason: 'too-large' }, { path: 'b', reason: 'unreadable' }], folder: null });
+    const done = html({ step: 'open', name: 'work', files: 9, skipped: [{ path: 'a', reason: 'too-large' }, { path: 'b', reason: 'unreadable' }], folder: null, readOnly: false });
     expect(done).toContain('2 files were left out');
     expect(html({ step: 'opening', name: 'arbeit' }, 'de')).toContain('Lese arbeit ...');
   });

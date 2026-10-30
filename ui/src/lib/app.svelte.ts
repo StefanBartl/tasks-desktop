@@ -138,6 +138,11 @@ export interface Env {
   /** `web`: the page is the web variant (`main.web.ts`), with no hub and nothing of the machine. The hub's page leaves it out. */
   mode?: 'web';
   /**
+   * The vault is shown, not written: the browser gave the folder through an input (Firefox, Safari), which has no way
+   * back to the files. The page says so and every change is refused with that reason.
+   */
+  readOnly?: boolean;
+  /**
    * Open the page again in a window of its own, at the fragment `route` (route.ts); false when the browser refused
    * (a blocked popup). Left out where the page cannot open windows: a task then cannot be detached.
    */
@@ -459,6 +464,8 @@ export class App {
    * page of the hub. Known before the first read, so nothing the web variant cannot do is ever shown there.
    */
   readonly mode: 'web' | null;
+  /** The vault is shown only (`Env.readOnly`): a banner says so, a change is refused with the reason. */
+  readonly readOnly: boolean;
   /**
    * The page can start something on the machine or read from it: show the vault's folder in the file explorer, open a
    * task's file in the editor, attach a screenshot from the clipboard or the screenshot folder. The web variant cannot
@@ -534,6 +541,7 @@ export class App {
 
   constructor(private readonly env: Env) {
     this.mode = env.mode ?? null;
+    this.readOnly = env.readOnly === true;
     // Made here, not as a field: it reads the profile at once, and the fields are made before `env` is held.
     this.todayState = new TodayState({
       lang: () => this.lang,
@@ -1051,6 +1059,8 @@ export class App {
       } else if (error instanceof ApiError && error.status === 409) {
         this.conflictsState.add(conflictsOfRequest(ops, Date.now(), opts.tags));
         this.say('error', 'write.conflict');
+      } else if (error instanceof ApiError && error.code === 'read_only') {
+        this.say('error', 'write.read_only');
       } else if (error instanceof ApiError && error.code === 'attach_no_folders') {
         // The hub reads no folder for the newest screenshot unless its settings name some.
         this.say('error', 'attach.no_folders');

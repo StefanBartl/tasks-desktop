@@ -41,6 +41,9 @@
         <p class="muted">{t('web.entry.skipped', { count: view.skipped.length })}</p>
       {/if}
     {:else if view.step === 'choose'}
+      {#if view.readOnly}
+        <p class="muted">{t('web.entry.readonly')}</p>
+      {/if}
       <p>
         <button type="button" class="primary" onclick={() => void entry.pick()}>{t('web.entry.pick')}</button>
       </p>

@@ -6,6 +6,7 @@
 // reload and a restart of Chrome, the permission is `granted` after a reload and `prompt` after a restart, and only a
 // click (`requestPermission` inside a user gesture) brings it back.
 
+import type { InputDocument } from './folder-input.ts';
 import type { WritableDirHandle } from './write-back.ts';
 
 export type PermissionState = 'granted' | 'prompt' | 'denied';
@@ -22,6 +23,8 @@ export interface DirHandle extends WritableDirHandle {
 export interface PickerWindow {
   showDirectoryPicker?: (options: { id: string; mode: AccessMode }) => Promise<DirHandle>;
   isSecureContext?: boolean;
+  /** Where a folder input is made, for the browsers without the picker (`folder-input.ts`). */
+  document?: InputDocument;
 }
 
 /** The mode asked for. `readwrite` from the start, so that writing (step 8) does not ask a second time. */

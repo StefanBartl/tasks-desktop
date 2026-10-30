@@ -29,6 +29,7 @@ import type { DataClass, OpsOutcome } from './hub.ts';
 import {
   readVaultFolder,
   signatureOf,
+  type DirHandleLike,
   stampText,
   vaultStamps,
   type LoadLimits,
@@ -48,8 +49,13 @@ export interface SessionClient {
 
 export interface SessionDeps {
   client: SessionClient;
-  /** The folder the person chose, with the permission to write. */
-  handle: WritableDirHandle;
+  /** The folder the person chose, with the permission to write unless `readOnly`. */
+  handle: DirHandleLike | WritableDirHandle;
+  /**
+   * The folder came through an input (no handle, Firefox and Safari): it is read, never written. `ops` then refuses
+   * before the engine is asked, so the VM never holds a change the folder cannot take.
+   */
+  readOnly?: boolean;
   /** Where the vault lies in the VM. */
   root: string;
   /** Today's date (YYYY-MM-DD) in the person's time zone: the engine dates its changes with it. */
@@ -265,6 +271,9 @@ export class VaultSession {
 
   private async write(request: string): Promise<OpsOutcome> {
     const { client, root } = this.deps;
+    if (this.deps.readOnly) {
+      return { kind: 'failed', code: 'forbidden', message: 'this folder was opened for reading only (the browser has no folder access to write to)' };
+    }
     if (this.stale) {
       try {
         await this.read();
@@ -313,7 +322,7 @@ export class VaultSession {
       return { kind: 'failed', code: 'internal', message: 'a dry run changed the vault in memory; nothing was written' };
     }
 
-    const outcome = await writeBack({ root: this.deps.handle, baseline: this.baseline, changes, files, hash: this.deps.hash });
+    const outcome = await writeBack({ root: this.deps.handle as WritableDirHandle, baseline: this.baseline, changes, files, hash: this.deps.hash });
     if (outcome.status === 'written') {
       try {
         await client.accept(changes);
