@@ -481,6 +481,13 @@ export class App {
   /** The vault is shown only (`Env.readOnly`): a banner says so, a change is refused with the reason. */
   readonly readOnly: boolean;
   /**
+   * The controls that change a task are not to be used now: a write is under way, or the page shows the vault read
+   * only. What the views lock (`disabled`, `readonly`, `draggable`) reads this, not `saving`.
+   */
+  get locked(): boolean {
+    return this.saving || this.readOnly;
+  }
+  /**
    * The page can start something on the machine or read from it: show the vault's folder in the file explorer, open a
    * task's file in the editor, attach a screenshot from the clipboard or the screenshot folder. The web variant cannot
    * (it has no hub), so it does not offer them.
@@ -878,7 +885,10 @@ export class App {
   }
 
   openCapture(): void {
-    if (this.phase === 'ready') this.capturing = true;
+    if (this.phase !== 'ready') return;
+    // Nothing could be created: said at once, not after the form was filled in.
+    if (this.refusedReadOnly()) return;
+    this.capturing = true;
   }
 
   closeCapture(): void {
@@ -978,6 +988,7 @@ export class App {
   }
 
   openPlanWizard(): void {
+    if (this.refusedReadOnly()) return;
     if (this.phase === 'ready' && this.can('plan_new')) this.planning = true;
   }
 
@@ -990,7 +1001,7 @@ export class App {
    * refusal is the answer when the form is not one, so the rules stay in one place.
    */
   async previewPlan(form: PlanForm, signal?: AbortSignal): Promise<PlanPreview> {
-    if (form.title.trim() === '' || form.area === '') return { kind: 'unknown' };
+    if (form.title.trim() === '' || form.area === '' || this.readOnly) return { kind: 'unknown' };
     try {
       const result = await this.env.hub.ops(
         { client_op_id: this.opId(), dry_run: true, ops: [planOp(form)] },
@@ -1036,6 +1047,11 @@ export class App {
       onAnswer?: (result: Result) => boolean;
     } = {},
   ): Promise<Result | null> {
+    // Every way to change a task ends here (keys, palette, menus, drops): refused with the reason, nothing is sent.
+    if (this.readOnly) {
+      if (this.phase === 'ready') this.say('error', 'write.read_only');
+      return null;
+    }
     if (this.saving || this.phase !== 'ready') return null;
     this.saving = true;
     this.answering = true;
@@ -1339,6 +1355,7 @@ export class App {
     toArea: string,
     signal?: AbortSignal,
   ): Promise<{ kind: 'ok'; move: MovePlan } | { kind: 'refused'; message: string } | { kind: 'unknown' }> {
+    if (this.readOnly) return { kind: 'refused', message: translate(this.lang, 'write.read_only') };
     try {
       const result = await this.env.hub.ops(
         { client_op_id: this.opId(), dry_run: true, ops: [{ op: 'move_area', id, to_area: toArea }] },
@@ -1388,7 +1405,7 @@ export class App {
 
   /** Let the person choose the area of `id` (the key `m` or the button of a row): the way without a drag. */
   chooseDropMove(id: string): void {
-    if (!this.can('move_area') || this.saving || !this.tasks.some((x) => x.id === id)) return;
+    if (this.refusedReadOnly() || !this.can('move_area') || this.saving || !this.tasks.some((x) => x.id === id)) return;
     this.dropChoose = id;
   }
 
@@ -1784,7 +1801,7 @@ export class App {
     dropFor: (task: TaskEntry) => Drop,
     opts: { blocks: boolean; tags?: TagEdit },
   ): Promise<boolean> {
-    if (this.refusedWhileSaving()) return false;
+    if (this.refusedReadOnly() || this.refusedWhileSaving()) return false;
     const task = inView.find((t) => t.id === id);
     if (!task) return false;
     // Only the marked tasks the view shows go with it: a mark the person cannot see here is not moved from here.
@@ -1826,6 +1843,10 @@ export class App {
    * nothing is to be moved or the engine could not be asked.
    */
   async previewBulkMove(toArea: string, ids: readonly string[] = this.marks): Promise<MoveCheck[] | null> {
+    if (this.readOnly) {
+      this.say('error', 'write.read_only');
+      return null;
+    }
     const ops = bulkMoveOps(this.tasks, ids, toArea);
     if (ops.length === 0) return [];
     // Too many moves for one engine call: refused before anything is sent (see `MOVE_MAX`).
@@ -1988,7 +2009,8 @@ export class App {
   /** Open the matrix on the marked tasks, else on those the list shows. */
   openMatrix(): void {
     // One that is open keeps its draft: a second call (the palette) does not throw the choices away.
-    if (this.phase !== 'ready' || !this.can('estimate') || this.matrix) return;
+    // The matrix is there to write estimates: read only, it is not opened.
+    if (this.phase !== 'ready' || !this.can('estimate') || this.matrix || this.refusedReadOnly()) return;
     const ids = matrixIds(this.marks, this.shown);
     if (ids.length === 0) {
       this.say('ok', 'matrix.none');
@@ -2070,6 +2092,16 @@ export class App {
    * kept for later would act on a list the person has not seen yet (the write under way may move the card, or sort
    * the task out of the inbox). Nothing is drawn for the refused move: the board only ever shows the engine's state.
    */
+  /**
+   * The page shows the vault read only: a way into a change (a dialog, a form) is refused with the reason before it
+   * opens, not after it was filled in. Says whether it refused.
+   */
+  private refusedReadOnly(): boolean {
+    if (!this.readOnly || this.phase !== 'ready') return false;
+    this.say('error', 'write.read_only');
+    return true;
+  }
+
   private refusedWhileSaving(): boolean {
     if (!this.saving || this.phase !== 'ready') return false;
     this.say('error', 'write.busy');
@@ -2095,7 +2127,7 @@ export class App {
   async dropOnColumn(id: string, status: string): Promise<void> {
     const task = this.tasks.find((t) => t.id === id);
     if (!task || task.status === status || !isColumn(status)) return;
-    if (this.refusedWhileSaving()) return;
+    if (this.refusedReadOnly() || this.refusedWhileSaving()) return;
     // Blocked with nothing that blocks it is a warning of the engine: ask for the blocker first.
     if (status === 'blocked' && task.blocked_by.length === 0) {
       if (this.phase === 'ready' && !this.saving) this.blocking = { id };
@@ -2259,7 +2291,7 @@ export class App {
   }
 
   async startFinish(id: string): Promise<void> {
-    if (this.saving || this.phase !== 'ready') return;
+    if (this.refusedReadOnly() || this.saving || this.phase !== 'ready') return;
     try {
       const preview = await this.env.hub.donePreview(id);
       if (preview.already) {

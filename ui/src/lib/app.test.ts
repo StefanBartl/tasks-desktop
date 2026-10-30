@@ -379,6 +379,7 @@ function make(
     prefs?: Map<string, string>;
     now?: number;
     mode?: 'web';
+    readOnly?: boolean;
     openWindow?: (route: string) => boolean;
     fetchFn?: typeof fetch;
     sleep?: (ms: number) => Promise<void>;
@@ -423,6 +424,7 @@ function make(
       }),
     reload: () => void (reloads += 1),
     ...(overrides.mode ? { mode: overrides.mode } : {}),
+    ...(overrides.readOnly ? { readOnly: true } : {}),
     ...(overrides.openWindow ? { openWindow: overrides.openWindow } : {}),
     out: {
       save: (name, text, type) => {
@@ -3267,6 +3269,53 @@ describe('writing', () => {
         await app.refresh();
         expect(app.hasDrafts).toBe(false);
       });
+    });
+
+    it('a page that shows the vault read only locks its controls and sends no change at all', async () => {
+      const m = make({ token: 't', mode: 'web', readOnly: true });
+      m.hub.doc = snapshot([task('pub/a', { etag: 'e1' })]);
+      await m.app.start(null);
+      m.app.stop();
+      const { app, hub } = m;
+      expect(app.locked).toBe(true);
+      await app.setField('pub/a', 'prio', 1);
+      expect(hub.sent).toEqual([]);
+      expect(app.toast?.text).toBe(translate(app.lang, 'write.read_only'));
+      app.dismissToast();
+      // the capture is not opened: said at once, not after the form was filled in
+      app.openCapture();
+      expect(app.capturing).toBe(false);
+      expect(app.toast?.text).toBe(translate(app.lang, 'write.read_only'));
+      // the dry runs are not sent either, and say why
+      expect(await app.previewMove('pub/a', 'inner')).toEqual({ kind: 'refused', message: translate(app.lang, 'write.read_only') });
+      expect(await app.previewBulkMove('inner', ['pub/a'])).toBeNull();
+      expect(await app.previewPlan({ ...emptyForm(), title: 'P', area: 'pub' })).toEqual({ kind: 'unknown' });
+      expect(hub.sent).toEqual([]);
+      // the ways into a change are refused before a dialog opens, with the reason
+      const refusedAgain = (what: string) => {
+        expect(app.toast?.text, what).toBe(translate(app.lang, 'write.read_only'));
+        app.dismissToast();
+      };
+      app.dismissToast();
+      await app.dropOnColumn('pub/a', 'blocked');
+      expect(app.blocking).toBeNull();
+      refusedAgain('blocked without a blocker');
+      await app.startFinish('pub/a');
+      expect(app.finishing).toBeNull();
+      refusedAgain('finish');
+      app.chooseDropMove('pub/a');
+      expect(app.dropChoose).toBeNull();
+      refusedAgain('move to an area');
+      app.openPlanWizard();
+      expect(app.planning).toBe(false);
+      refusedAgain('new plan');
+      app.openMatrix();
+      expect(app.matrix).toBeNull();
+      refusedAgain('estimate matrix');
+      expect(hub.sent).toEqual([]);
+      // a page that writes is not locked when nothing is under way
+      const writes = await ready([task('pub/a')]);
+      expect(writes.app.locked).toBe(false);
     });
 
     it('tells a page that shows the vault only why a change was not saved, not a code', async () => {

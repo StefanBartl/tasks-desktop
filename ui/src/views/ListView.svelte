@@ -597,28 +597,28 @@
       <strong aria-live="polite">{t('bulk.count', { n: app.marks.length })}</strong>
       <label>
         <span class="sr-only">{t('field.status')}</span>
-        <select bind:value={draft.status} disabled={app.saving}>
+        <select bind:value={draft.status} disabled={app.locked}>
           <option value="">{t('field.status')}: {t('bulk.keep')}</option>
           {#each statuses as s (s)}<option value={s}>{labelOf(app.lang, 'status', s)}</option>{/each}
         </select>
       </label>
       <label>
         <span class="sr-only">{t('field.prio')}</span>
-        <select bind:value={draft.prio} disabled={app.saving}>
+        <select bind:value={draft.prio} disabled={app.locked}>
           <option value="">{t('field.prio')}: {t('bulk.keep')}</option>
           {#each app.ranges.prios as p (p)}<option value={String(p)}>P{p}</option>{/each}
         </select>
       </label>
       <label>
         <span class="sr-only">{t('field.actor')}</span>
-        <select bind:value={draft.actor} disabled={app.saving}>
+        <select bind:value={draft.actor} disabled={app.locked}>
           <option value="">{t('field.actor')}: {t('bulk.keep')}</option>
           {#each app.ranges.actors as a (a)}<option value={a}>{labelOf(app.lang, 'actor', a)}</option>{/each}
         </select>
       </label>
       <label>
         <span class="sr-only">{t('field.effort')}</span>
-        <select bind:value={draft.effort} disabled={app.saving}>
+        <select bind:value={draft.effort} disabled={app.locked}>
           <option value="">{t('field.effort')}: {t('bulk.keep')}</option>
           <option value="-">{t('field.effort')}: {t('bulk.unset')}</option>
           {#each app.ranges.efforts as size (size)}<option value={size}>{size}</option>{/each}
@@ -626,7 +626,7 @@
       </label>
       <label>
         <span class="sr-only">{t('remind.field')}</span>
-        <select bind:value={draft.remind} disabled={app.saving}>
+        <select bind:value={draft.remind} disabled={app.locked}>
           <option value="">{t('remind.field')}: {t('bulk.keep')}</option>
           <option value="-">{t('remind.field')}: {t('bulk.unset')}</option>
           {#each REMIND_CHOICES as choice (choice)}
@@ -638,16 +638,16 @@
       </label>
       <label>
         <span class="sr-only">{t('bulk.tags_add')}</span>
-        <input type="text" placeholder={t('bulk.tags_add')} bind:value={draft.addTags} disabled={app.saving} onkeydown={applyOnEnter} />
+        <input type="text" placeholder={t('bulk.tags_add')} bind:value={draft.addTags} disabled={app.locked} onkeydown={applyOnEnter} />
       </label>
       <label>
         <span class="sr-only">{t('bulk.tags_remove')}</span>
-        <input type="text" placeholder={t('bulk.tags_remove')} bind:value={draft.removeTags} disabled={app.saving} onkeydown={applyOnEnter} />
+        <input type="text" placeholder={t('bulk.tags_remove')} bind:value={draft.removeTags} disabled={app.locked} onkeydown={applyOnEnter} />
       </label>
       <button
         type="button"
         class="apply"
-        disabled={app.saving || !chosen}
+        disabled={app.locked || !chosen}
         onclick={applyDraft}>{t('bulk.apply')}</button
       >
       <button type="button" onclick={() => app.clearMarks()}>{t('bulk.clear')}</button>
@@ -655,7 +655,7 @@
         <div class="bulk-move" role="group" aria-label={t('bulk.move_label')}>
           <label>
             <span class="sr-only">{t('bulk.move_label')}</span>
-            <select bind:this={moveSelect} bind:value={moveTo} disabled={app.saving}>
+            <select bind:this={moveSelect} bind:value={moveTo} disabled={app.locked}>
               <option value="">{t('bulk.move_label')}: {t('bulk.keep')}</option>
               {#each app.allAreaNames as area (area)}<option value={area}>{area}</option>{/each}
             </select>
@@ -664,7 +664,7 @@
           <button
             type="button"
             class:apply={moveShown && movable > 0}
-            disabled={app.saving || moveTo === ''}
+            disabled={app.locked || moveTo === ''}
             aria-disabled={checking}
             aria-busy={checking}
             onclick={() => void (moveShown && movable > 0 ? doMoves() : checkMoves())}

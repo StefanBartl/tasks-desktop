@@ -247,14 +247,14 @@
           type="button"
           class="primary"
           data-hint={t('hint.ui.draft.save')}
-          disabled={pending === 0 || app.saving}
+          disabled={pending === 0 || app.locked}
           onclick={() => void app.saveDraft(task.id)}>{t('draft.save')}</button
         >
         <button
           type="button"
           class="quiet"
           data-hint={t('hint.ui.draft.discard')}
-          disabled={pending === 0 || app.saving}
+          disabled={pending === 0 || app.locked}
           onclick={() => app.discardDraft(task.id)}
           >{t('draft.discard')}</button
         >
@@ -271,7 +271,7 @@
           value={shown.title}
           data-field="title"
           maxlength="300"
-          readonly={app.saving}
+          readonly={app.locked}
           onchange={(e) => {
             const next = e.currentTarget.value.trim();
             if (next === shown.title) return;
@@ -294,7 +294,7 @@
           value={shown.summary ?? ''}
           data-field="summary"
           maxlength="1000"
-          readonly={app.saving}
+          readonly={app.locked}
           onkeydown={(e) => {
             if (e.key === 'Enter' && !e.isComposing) {
               e.preventDefault();
@@ -310,7 +310,7 @@
           <select
             value={shown.status ?? ''}
             data-field="status"
-            disabled={app.saving}
+            disabled={app.locked}
             onchange={(e) => void app.editField(shown.id, 'status', e.currentTarget.value)}
           >
             <!-- A status the file has and the engine does not name (an older engine) is shown as it is. -->
@@ -327,7 +327,7 @@
           <select
             value={shown.prio === undefined ? '' : String(shown.prio)}
             data-field="prio"
-            disabled={app.saving}
+            disabled={app.locked}
             onchange={(e) =>
               void app.editField(
                 shown.id,
@@ -349,7 +349,7 @@
           <select
             value={shown.actor ?? ''}
             data-field="actor"
-            disabled={app.saving}
+            disabled={app.locked}
             onchange={(e) =>
               void app.editField(shown.id, 'actor', e.currentTarget.value === '' ? null : e.currentTarget.value)}
           >
@@ -367,7 +367,7 @@
           <select
             value={shown.kind ?? ''}
             data-field="kind"
-            disabled={app.saving}
+            disabled={app.locked}
             onchange={(e) =>
               void app.editField(shown.id, 'kind', e.currentTarget.value === '' ? null : e.currentTarget.value)}
           >
@@ -382,7 +382,7 @@
           <select
             value={shown.effort ?? ''}
             data-field="effort"
-            disabled={app.saving}
+            disabled={app.locked}
             onchange={(e) =>
               void app.editField(shown.id, 'effort', e.currentTarget.value === '' ? null : e.currentTarget.value)}
           >
@@ -400,7 +400,7 @@
           <select
             value={shown.value === undefined ? '' : String(shown.value)}
             data-field="value"
-            disabled={app.saving}
+            disabled={app.locked}
             onchange={(e) =>
               void app.editField(
                 shown.id,
@@ -419,7 +419,7 @@
           <select
             value={shown.remind ?? ''}
             data-field="remind"
-            disabled={app.saving}
+            disabled={app.locked}
             onchange={(e) => {
               const value = e.currentTarget.value;
               if (value !== (shown.remind ?? '')) void app.editField(shown.id, 'remind', value === '' ? null : value);
@@ -444,7 +444,7 @@
           type="text"
           value={shown.plan ?? ''}
           data-field="plan"
-          readonly={app.saving}
+          readonly={app.locked}
           onchange={(e) => changeText('plan', shown.plan, e.currentTarget.value)}
         />
       </label>
@@ -454,7 +454,7 @@
           type="text"
           value={shown.phase ?? ''}
           data-field="phase"
-          readonly={app.saving}
+          readonly={app.locked}
           onchange={(e) => changeText('phase', shown.phase, e.currentTarget.value)}
         />
       </label>
@@ -464,7 +464,7 @@
           type="text"
           value={tagsText(shown.tags)}
           data-field="tags"
-          readonly={app.saving}
+          readonly={app.locked}
           disabled={!listEditable(shown.tags)}
           title={listEditable(shown.tags) ? undefined : t('field.list_plain')}
           onchange={(e) => {
@@ -488,7 +488,7 @@
           type="text"
           value={tagsText(shown.after)}
           data-field="after"
-          readonly={app.saving}
+          readonly={app.locked}
           disabled={!listEditable(shown.after)}
           title={listEditable(shown.after) ? undefined : t('field.list_plain')}
           onchange={(e) => changeList('after', shown.after, e.currentTarget.value)}
@@ -500,7 +500,7 @@
           type="text"
           value={tagsText(shown.refs)}
           data-field="refs"
-          readonly={app.saving}
+          readonly={app.locked}
           disabled={!listEditable(shown.refs)}
           title={listEditable(shown.refs) ? undefined : t('field.list_plain')}
           onchange={(e) => changeList('refs', shown.refs, e.currentTarget.value)}
@@ -512,7 +512,7 @@
           type="text"
           value={tagsText(shown.links)}
           data-field="links"
-          readonly={app.saving}
+          readonly={app.locked}
           disabled={!listEditable(shown.links)}
           title={listEditable(shown.links) ? undefined : t('field.list_plain')}
           placeholder="https://"
@@ -604,7 +604,7 @@
                   <input
                     type="checkbox"
                     checked={step.ticked}
-                    disabled={app.saving}
+                    disabled={app.locked}
                     onclick={(e) => {
                       e.preventDefault();
                       void app.tickStep(task.id, step.n, !step.ticked, detail.doc.task.etag);
@@ -635,7 +635,7 @@
                         class:chosen={option.chosen}
                         class:recommended={option.recommended}
                         aria-pressed={option.chosen}
-                        disabled={app.saving}
+                        disabled={app.locked}
                         onclick={() => void app.answerQuestion(task.id, q.key ?? `#${q.n}`, option.chosen ? null : option.n, detail.doc.task.etag)}
                       >
                         <span aria-hidden="true">{option.chosen ? '◉' : '○'}</span>
@@ -663,7 +663,7 @@
           >{raw ? t('detail.view_rendered') : t('detail.view_raw')}</button
         >
         {#if app.can('set_body') && editableBody(detail.doc.body, detail.doc.body_truncated) && !editing}
-          <button type="button" class="switch" data-hint={t('hint.ui.detail.edit_body')} disabled={app.saving} onclick={editBody}>{t('detail.edit_body')}</button>
+          <button type="button" class="switch" data-hint={t('hint.ui.detail.edit_body')} disabled={app.locked} onclick={editBody}>{t('detail.edit_body')}</button>
         {/if}
       </h3>
       {#if hasHidden(body)}<p class="warn">{t('detail.invisible')}</p>{/if}
@@ -676,7 +676,7 @@
             bind:value={draft}
             rows="14"
             maxlength={MAX_BODY_EDIT}
-            disabled={app.saving}
+            disabled={app.locked}
             onkeydown={(e) => {
               if (e.key === 'Escape') {
                 e.stopPropagation();
@@ -688,8 +688,8 @@
           ></textarea>
         </label>
         <div class="edit-actions">
-          <button type="button" disabled={app.saving} onclick={() => void saveBody()}>{t('detail.body_save')}</button>
-          <button type="button" disabled={app.saving} onclick={() => (editing = false)}>{t('detail.body_cancel')}</button>
+          <button type="button" disabled={app.locked} onclick={() => void saveBody()}>{t('detail.body_save')}</button>
+          <button type="button" disabled={app.locked} onclick={() => (editing = false)}>{t('detail.body_cancel')}</button>
         </div>
       {:else if raw}
         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -710,7 +710,7 @@
               bind:value={note}
               data-field="note"
               maxlength="1000"
-              readonly={app.saving}
+              readonly={app.locked}
               onkeydown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
@@ -720,7 +720,7 @@
               }}
             />
           </label>
-          <button type="button" disabled={app.saving || note.trim() === ''} onclick={() => void addNote()}
+          <button type="button" disabled={app.locked || note.trim() === ''} onclick={() => void addNote()}
             >{t('detail.note_button')}</button
           >
         </div>
@@ -732,7 +732,7 @@
             <select
               bind:value={moveTo}
               data-field="move"
-              disabled={app.saving}
+              disabled={app.locked}
               onchange={() => {
                 movePreview = null;
               }}
@@ -744,11 +744,11 @@
             </select>
           </label>
           {#if movePreview?.kind === 'ok' && movePreview.move.conflicts.length === 0}
-            <button type="button" disabled={app.saving} onclick={() => void doMove()}
+            <button type="button" disabled={app.locked} onclick={() => void doMove()}
               >{t('move.confirm', { id: movePreview.move.new_id })}</button
             >
           {:else}
-            <button type="button" data-hint={t('hint.ui.detail.move_check')} disabled={app.saving || moveTo === ''} onclick={() => void checkMove()}
+            <button type="button" data-hint={t('hint.ui.detail.move_check')} disabled={app.locked || moveTo === ''} onclick={() => void checkMove()}
               >{t('move.check')}</button
             >
           {/if}
@@ -779,7 +779,7 @@
               bind:value={reason}
               data-field="reason"
               maxlength="900"
-              readonly={app.saving}
+              readonly={app.locked}
               onkeydown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
@@ -788,7 +788,7 @@
               }}
             />
           </label>
-          <button type="button" disabled={app.saving || reason.trim() === ''} onclick={() => void discard()}
+          <button type="button" disabled={app.locked || reason.trim() === ''} onclick={() => void discard()}
             >{t('discard.button')}</button
           >
         </div>
@@ -820,7 +820,7 @@
           type="button"
           class="open-editor"
           data-hint={t('hint.ui.detail.attach')}
-          disabled={app.saving}
+          disabled={app.locked}
           onclick={() => void app.attachScreenshot(task.id)}>{t('attach.button')}</button
         >
       {/if}
@@ -838,7 +838,7 @@
     <!-- The step that ends the task: larger than the other buttons, in the lower right corner of the card (it stays
          there while the card scrolls), last in the order of the keyboard. -->
     <div class="finish-row">
-      <button type="button" class="finish" data-hint={t('hint.ui.detail.finish')} disabled={app.saving} onclick={() => void app.startFinish(task.id)}
+      <button type="button" class="finish" data-hint={t('hint.ui.detail.finish')} disabled={app.locked} onclick={() => void app.startFinish(task.id)}
         ><span class="finish-icon" aria-hidden="true">✓</span> {t('done.button')}</button
       >
     </div>

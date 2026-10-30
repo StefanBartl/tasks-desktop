@@ -29,18 +29,20 @@ test('without the picker the vault is read through the input, shown read only, a
   await expect(page.getByText('Eta tests').first()).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole('status').filter({ hasText: /Read only|Nur lesen/ })).toBeVisible();
 
-  // A change goes to the hub of the page, which answers read_only: the person is told, the field keeps the value.
+  // The controls that change a task are locked, and what cannot be locked says why at once.
   await closeFloat(page);
   await page.getByRole('menuitem', { name: /^(View|Ansicht)$/ }).click();
   await page.getByRole('menuitemradio', { name: /^(List|Liste)$/ }).click();
   await page.locator('button.row', { hasText: 'Eta tests' }).first().click();
   const detail = page.locator('aside.detail');
   const effort = detail.getByLabel(/Effort|Aufwand/);
-  const before = await effort.inputValue();
-  const other = before === 'M' ? 'L' : 'M';
-  await effort.selectOption(other);
+  await expect(effort).toBeDisabled();
+  await expect(detail.locator('input[data-field="title"]')).not.toBeEditable();
+  await page.keyboard.press('Escape');
+  await page.locator('main').focus();
+  await page.keyboard.press('c');
   await expect(page.getByRole('alert').filter({ hasText: /Nothing was saved|Nichts gespeichert/ })).toBeVisible({ timeout: 15_000 });
-  await expect(detail.getByLabel(/Effort|Aufwand/)).toHaveValue(before);
+  await expect(page.getByRole('dialog', { name: /^(New task|Neuer Task)$/ })).toHaveCount(0);
 
   // Nothing was written to the folder the page was given.
   expect(vaultFiles()).toEqual(onDisk);

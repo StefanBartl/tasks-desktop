@@ -123,7 +123,7 @@
   let fingerAt: BoardTarget | null = null;
   const grip = createGrip(
     () => onPointerDrag,
-    () => app.saving,
+    () => app.locked,
   );
   function onPointerDrag(e: PointerDragEvent): void {
     if (e.phase === 'start') {
@@ -271,7 +271,7 @@
                 class:before={over?.id === card.id && over.place === 'before'}
                 class:after={over?.id === card.id && over.place === 'after'}
                 aria-current={card.id === app.selectedId ? 'true' : undefined}
-                draggable={!app.saving}
+                draggable={!app.locked}
                 ondragstart={(e) => onDragStart(e, card.id)}
                 ondragend={onDragEnd}
                 ondragover={(e) => onCardOver(e, card.id, column)}

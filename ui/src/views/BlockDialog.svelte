@@ -75,10 +75,10 @@
       {/if}
       <div class="actions">
         <button type="button" onclick={() => app.cancelBlock()}>{t('dialog.cancel')}</button>
-        <button type="button" disabled={app.saving} onclick={() => void confirm(false)}
+        <button type="button" disabled={app.locked} onclick={() => void confirm(false)}
           >{t('board.block.without')}</button
         >
-        <button type="submit" class="primary" disabled={app.saving || ids().length === 0}
+        <button type="submit" class="primary" disabled={app.locked || ids().length === 0}
           >{t('board.block.confirm')}</button
         >
       </div>

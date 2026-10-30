@@ -347,7 +347,7 @@
                 <button
                   type="button"
                   class="clear"
-                  disabled={app.saving || !app.can('reopen')}
+                  disabled={app.locked || !app.can('reopen')}
                   aria-label={`${t('reopen.button')}: ${item.id}`}
                   onclick={() => void app.reopen(item.id)}>{t('reopen.button')}</button
                 >
@@ -364,7 +364,7 @@
               <button
                 type="button"
                 class="clear"
-                disabled={app.saving}
+                disabled={app.locked}
                 aria-label={`${t('remind.clear')}: ${item.id}`}
                 title={t('remind.clear')}
                 onclick={() => void app.clearReminder(item.id, item.etag)}>×</button

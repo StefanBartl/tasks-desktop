@@ -79,7 +79,7 @@
     </label>
     <div class="actions">
       <button type="button" onclick={() => app.cancelDropChoose()}>{t('dialog.cancel')}</button>
-      <button type="button" class="primary" disabled={app.saving || area === ''} onclick={goChosen}
+      <button type="button" class="primary" disabled={app.locked || area === ''} onclick={goChosen}
         >{t('drop.choose_go')}</button
       >
     </div>
@@ -135,7 +135,7 @@
       <button
         type="button"
         class="primary"
-        disabled={app.saving || !confirmable}
+        disabled={app.locked || !confirmable}
         onclick={() => void app.confirmDropMove()}
         >{asking.count > 1
           ? t('bulk.move_go', { n: movable })

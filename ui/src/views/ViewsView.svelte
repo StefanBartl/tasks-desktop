@@ -219,7 +219,7 @@
   let fingerCell = $state<string | null>(null);
   const cellGrip = createGrip(
     () => (matrixMovable ? onCellFinger : undefined),
-    () => app.saving,
+    () => app.locked,
   );
   function onCellFinger(e: PointerDragEvent): void {
     if (e.phase === 'start') {
@@ -348,7 +348,7 @@
         </select>
       </label>
     {/if}
-    <button type="button" onclick={startMaking} disabled={making || app.saving || groupings === null}>{t('views.new')}</button>
+    <button type="button" onclick={startMaking} disabled={making || app.locked || groupings === null}>{t('views.new')}</button>
   </div>
 
   <!-- The notes of the saved views are the views' own: the board does not show them. -->
@@ -434,7 +434,7 @@
       </dl>
       {#if makeProblem}<p class="note" role="alert">{makeProblem}</p>{/if}
       <div class="actions">
-        <button type="submit" disabled={app.saving || area === ''}>{t('views.create')}</button>
+        <button type="submit" disabled={app.locked || area === ''}>{t('views.create')}</button>
         <button type="button" onclick={() => (making = false)}>{t('views.cancel')}</button>
       </div>
     </form>
@@ -455,13 +455,13 @@
             {t('views.form.title')}
             <input bind:value={renaming} maxlength="300" />
           </label>
-          <button type="submit" disabled={app.saving}>{t('views.rename')}</button>
+          <button type="submit" disabled={app.locked}>{t('views.rename')}</button>
         </form>
         <label>
           {t('views.form.group_by')}
           <select
             value={open.group_by}
-            disabled={app.saving || fields.length === 0}
+            disabled={(open.id === DRAFT_ID ? app.saving : app.locked) || fields.length === 0}
             onchange={(e) => setGroupBy(open, e.currentTarget.value as GroupField)}
           >
             {#each fields.includes(open.group_by) ? fields : [open.group_by, ...fields] as field (field)}
@@ -471,7 +471,7 @@
         </label>
         <label>
           {t('views.form.display')}
-          <select value={open.display} disabled={app.saving} onchange={(e) => setDisplay(open, e.currentTarget.value as View['display'])}>
+          <select value={open.display} disabled={open.id === DRAFT_ID ? app.saving : app.locked} onchange={(e) => setDisplay(open, e.currentTarget.value as View['display'])}>
             <option value="columns">{t('views.display.columns')}</option>
             <option value="list">{t('views.display.list')}</option>
             <option value="matrix" disabled={fields.length < 2}>{t('views.display.matrix')}</option>
@@ -480,7 +480,7 @@
         {#if open.display === 'matrix'}
           <label>
             {t('views.form.rows')}
-            <select value={open.group_by2 ?? ''} disabled={app.saving} onchange={(e) => save(open, { group_by2: e.currentTarget.value as GroupField })}>
+            <select value={open.group_by2 ?? ''} disabled={open.id === DRAFT_ID ? app.saving : app.locked} onchange={(e) => save(open, { group_by2: e.currentTarget.value as GroupField })}>
               {#each fields.filter((f) => f !== open.group_by) as field (field)}
                 <option value={field}>{fieldLabel(field)}</option>
               {/each}
@@ -488,10 +488,10 @@
           </label>
         {/if}
         {#if open.id === DRAFT_ID}
-          <button type="button" disabled={app.saving || making} onclick={() => saveDraft(open)}>{t('views.save_draft')}</button>
+          <button type="button" disabled={app.locked || making} onclick={() => saveDraft(open)}>{t('views.save_draft')}</button>
           <button type="button" onclick={() => void saved.remove(open)}>{t('views.discard')}</button>
         {:else}
-          <button type="button" class="danger" disabled={app.saving} onclick={() => void saved.remove(open)}>{t('views.delete')}</button>
+          <button type="button" class="danger" disabled={app.locked} onclick={() => void saved.remove(open)}>{t('views.delete')}</button>
         {/if}
         <ExportMenu {app} />
       </div>
@@ -499,8 +499,8 @@
       <p class="muted">{t('views.selection', { what: selectionText(open) })}{open.id === DRAFT_ID ? '' : ` · ${open.id}`}</p>
       {#if renameProblem}<p class="note" role="alert">{renameProblem}</p>{/if}
       {#if open.display === 'matrix'}
-        {#if matrixMovable}<p class="muted">{t('views.matrix_help')}</p>{/if}
-      {:else if movable}<p class="muted">{t('views.help')}</p>{/if}
+        {#if matrixMovable && !app.readOnly}<p class="muted">{t('views.matrix_help')}</p>{/if}
+      {:else if movable && !app.readOnly}<p class="muted">{t('views.help')}</p>{/if}
       <p class="sr-only" aria-live="polite">{moved}</p>
       <div class="layout">
         <div class="main">
@@ -531,9 +531,9 @@
                 <ul>
                   {#each cellOf(cell)?.items ?? [] as task (task.id)}
                     <li
-                      draggable={matrixMovable && !app.saving}
+                      draggable={matrixMovable && !app.locked}
                       ondragstart={(e) => {
-                        if (!matrixMovable || app.saving) return e.preventDefault();
+                        if (!matrixMovable || app.locked) return e.preventDefault();
                         cellDrag = { id: task.id, from: cell };
                         e.dataTransfer?.setData('text/plain', task.id);
                       }}
@@ -580,7 +580,7 @@
               label={(value) => valueLabel(open.group_by, value)}
               collapsed={open.collapsed}
               ontoggle={(value) => void saved.toggle(open, formOf(open), value)}
-              busy={app.saving}
+              busy={app.locked}
               ondrop={movable ? (id, from, to, copy) => void move(id, from, to, copy) : undefined}
               canDrop={(_id, from, to) => from !== to}
               columnsLabel={t('views.columns', { name: open.title })}

@@ -31,11 +31,11 @@
 
   const grip = createGrip(
     () => onpointerdrag,
-    () => app.saving,
+    () => app.locked,
   );
 
   function dragStart(event: DragEvent, id: string): void {
-    if (!ondragtask || app.saving) {
+    if (!ondragtask || app.locked) {
       event.preventDefault();
       return;
     }
@@ -63,7 +63,7 @@
   <ul class="plain">
     {#each rows as task (task.id)}
       <li
-        draggable={ondragtask ? 'true' : undefined}
+        draggable={ondragtask && !app.locked ? 'true' : undefined}
         ondragstart={(e) => dragStart(e, task.id)}
         ondragend={dragEnd}
       >

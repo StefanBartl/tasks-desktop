@@ -165,7 +165,7 @@
 
     <div class="actions">
       <button type="button" onclick={() => app.closePlanWizard()}>{t('dialog.cancel')}</button>
-      <button type="submit" class="primary" disabled={busy || app.saving || !canCreate(form, preview)}
+      <button type="submit" class="primary" disabled={busy || app.locked || !canCreate(form, preview)}
         >{t('capture.create')}</button
       >
     </div>

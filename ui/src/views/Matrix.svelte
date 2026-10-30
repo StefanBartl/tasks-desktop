@@ -64,7 +64,7 @@
                 <select
                   aria-label={`${t('matrix.effort')}: ${task.id}`}
                   value={cell?.effort ?? ''}
-                  disabled={app.saving}
+                  disabled={app.locked}
                   onchange={(e) => app.setCell(task.id, 'effort', e.currentTarget.value === '' ? undefined : e.currentTarget.value)}
                 >
                   <option value="">{task.effort ? `${task.effort} (${t('matrix.as_file')})` : `- (${t('matrix.as_file')})`}</option>
@@ -77,7 +77,7 @@
                 <select
                   aria-label={`${t('matrix.value')}: ${task.id}`}
                   value={cell?.value === undefined ? '' : String(cell.value)}
-                  disabled={app.saving}
+                  disabled={app.locked}
                   onchange={(e) => app.setCell(task.id, 'value', e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value))}
                 >
                   <option value="">{task.value !== undefined ? `${task.value} (${t('matrix.as_file')})` : `- (${t('matrix.as_file')})`}</option>
@@ -109,7 +109,7 @@
     </div>
     <div class="actions">
       <button type="button" onclick={() => app.closeMatrix()}>{t('dialog.cancel')}</button>
-      <button type="button" class="primary" disabled={app.saving || changed === 0} onclick={() => void app.applyMatrix()}>{t('matrix.apply')}</button>
+      <button type="button" class="primary" disabled={app.locked || changed === 0} onclick={() => void app.applyMatrix()}>{t('matrix.apply')}</button>
     </div>
   {/if}
 </dialog>

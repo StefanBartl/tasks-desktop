@@ -33,7 +33,7 @@
       <button
         type="button"
         class="primary"
-        disabled={app.saving}
+        disabled={app.locked}
         onclick={() => void app.confirmRepriority()}>{t('board.prio.confirm', { prio: asking.prio })}</button
       >
     </div>
