@@ -42,3 +42,35 @@ export function routedTask(hash: string): string | null {
   }
   return null;
 }
+
+// A view in a new tab: a middle click (Ctrl+click, Ctrl+Enter) on a view of the menu opens the same page in a new
+// window at that view, `#view=<name>`. It is read once at the start, as the view the page was left on is, and is not
+// kept: a reload, and the other tabs, open on the view of their own.
+
+/** The views a fragment may name (the `View` of app.svelte.ts). */
+const VIEWS = ['today', 'list', 'board', 'plan', 'inbox', 'cross', 'done', 'views'] as const;
+export type RoutedView = (typeof VIEWS)[number];
+
+/** The fragment that opens the view `view`. */
+export function viewRoute(view: RoutedView): string {
+  return `#view=${view}`;
+}
+
+/** The view a fragment names, or null (none, or a name that is no view). */
+export function routedView(hash: string): RoutedView | null {
+  const text = hash.startsWith('#') ? hash.slice(1) : hash;
+  for (const part of text.split('&')) {
+    const at = part.indexOf('=');
+    if (at < 0 || part.slice(0, at) !== 'view') continue;
+    const name = part.slice(at + 1);
+    return (VIEWS as readonly string[]).includes(name) ? (name as RoutedView) : null;
+  }
+  return null;
+}
+
+/** The fragment `hash` without its view part; the other parts stay. Empty when nothing is left. */
+export function withoutViewRoute(hash: string): string {
+  const text = hash.startsWith('#') ? hash.slice(1) : hash;
+  const rest = text.split('&').filter((part) => part !== '' && part.split('=')[0] !== 'view');
+  return rest.length === 0 ? '' : `#${rest.join('&')}`;
+}

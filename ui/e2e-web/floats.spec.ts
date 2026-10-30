@@ -217,3 +217,41 @@ test('the file opened at a task shows that task alone once the folder is open', 
   expect(await violations(page)).toEqual([]);
   expect(seen.errors).toEqual([]);
 });
+
+test('a middle click on a view of the menu opens the same file in a new window at that view; this one keeps its own', async ({
+  page,
+  context,
+}) => {
+  const seen = await watchPage(page);
+  await openVault(page, vaultFiles(), 'Next task');
+  await showList(page);
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  const [win] = await Promise.all([
+    context.waitForEvent('page'),
+    page.getByRole('menuitemradio', { name: 'Plan', exact: true }).click({ button: 'middle' }),
+  ]);
+  expect(win.url()).toBe(`${pageUrl()}#view=plan`);
+  await expect(win.getByRole('button', { name: /Choose folder/ })).toBeVisible({ timeout: 30_000 });
+  await win.close();
+  // The menu closed, and this window still shows the list.
+  await expect(page.getByRole('menuitemradio', { name: 'Plan', exact: true })).toHaveCount(0);
+  await expect(page.locator('button.row').first()).toBeVisible();
+  expect(seen.requests).toEqual([]);
+  expect(seen.errors).toEqual([]);
+});
+
+test('the file opened at a view shows that view once the folder is open, and the view leaves the address', async ({ page }) => {
+  const seen = await watchPage(page);
+  await fakePicker(page, vaultFiles());
+  await page.goto(`${pageUrl()}#view=plan`);
+  // Out of the address at once: a reload opens on the view the window was left on.
+  expect(page.url()).toBe(pageUrl());
+  await page.getByRole('button', { name: /Choose folder/ }).click();
+  await expect(page.locator('.stage-list').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('menuitem', { name: 'View', exact: true })).toBeVisible();
+  // Not kept as the view of the page: the other windows open on theirs.
+  expect(await page.evaluate(() => localStorage.getItem('tasks-desktop.view'))).not.toBe('plan');
+  expect(seen.requests).toEqual([]);
+  expect(await violations(page)).toEqual([]);
+  expect(seen.errors).toEqual([]);
+});

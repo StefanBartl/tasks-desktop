@@ -8,7 +8,7 @@ import { copyText, printSheet, saveText } from './lib/exportDom';
 import { translate } from './lib/i18n';
 import { trackHistory } from './lib/trackHistory.svelte';
 import { takeInjected } from './lib/inject';
-import { routedTask } from './lib/route';
+import { routedTask, routedView } from './lib/route';
 import { takePairingCode } from 'appkit-ui/pair';
 import { installTooltips } from 'appkit-ui/tooltip';
 
@@ -19,6 +19,8 @@ const injected = takeInjected(window, '__TASKS_PAIR');
 // A window a task was detached into names the task in the fragment (route.ts); it is read before the pairing takes
 // the whole fragment out of the address.
 const routed = routedTask(window.location.hash);
+// A view opened in a new tab names the view the same way.
+const routedTo = routedView(window.location.hash);
 
 // The code leaves the address bar before anything else happens.
 const code = takePairingCode(window.location, window.history, injected);
@@ -45,6 +47,7 @@ const env: Env = {
 };
 
 const state = new AppState(env);
+if (routedTo !== null) state.openViewRoute(routedTo);
 if (routed !== null) state.openRoute(routed);
 // The popup is the kit's; the name of its region is this page's word, in the page's language.
 installTooltips(document, window, { regionLabel: () => translate(state.lang, 'hint.region') });

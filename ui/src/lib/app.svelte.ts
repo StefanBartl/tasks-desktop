@@ -95,7 +95,7 @@ import { localToday } from './remind';
 import { defaultColumns, parseColumns, serializeColumns, type ListColumns } from './columns';
 import { emptyFolds, foldOf, parseFolds, serializeFolds, type FoldMemory, type Folds, type FoldView } from './fold';
 import { parseSizes, serializeSizes, withSize, type Size, type Sizes } from './sizes';
-import { taskRoute } from './route';
+import { taskRoute, viewRoute, type RoutedView } from './route';
 
 /** The longest line of the notes the engine takes (`append_note`), in characters. */
 const NOTE_MAX = 1000;
@@ -2523,6 +2523,19 @@ export class App {
     this.peeking = false;
     this.select(id);
     this.solo = true;
+  }
+
+  /**
+   * The address named a view (`#view=<name>`, a view opened in a new tab): the page opens on it, as on the view it was
+   * left on, and does not keep it (the tab it came from keeps its own).
+   */
+  openViewRoute(view: RoutedView): void {
+    this.view = view;
+  }
+
+  /** Open the view in a new tab (a window of the same page), the way a link opens; a refused window is told. */
+  openViewApart(view: View): void {
+    if (!(this.env.openWindow?.(viewRoute(view)) ?? false)) this.say('error', 'peek.detach_failed');
   }
 
   /** A task can be detached into a window of its own (the page can open one). */

@@ -13,7 +13,7 @@ import { indexedDbStore } from './lib/cache';
 import { copyText, printSheet, saveText } from './lib/exportDom';
 import { detectLang, translate } from './lib/i18n';
 import { trackHistory } from './lib/trackHistory.svelte';
-import { routedTask } from './lib/route';
+import { routedTask, routedView, withoutViewRoute } from './lib/route';
 import { followTaskRoute } from './lib/followRoute.svelte';
 import { installTooltips } from 'appkit-ui/tooltip';
 import { createBrowserHub, WorkerClient, type PortLike } from './web/client';
@@ -38,6 +38,13 @@ const lang = detectLang(navigator.languages);
 // shows that task alone: there is no code to hide here, and a reload of that window opens the task again (once the
 // folder is open). It leaves the address when the window lets go of the task (followRoute.svelte.ts).
 const routed = routedTask(window.location.hash);
+// A view opened in a new tab names the view the same way. It leaves the address at once: a reload then opens on the
+// view the tab was left on, not on the one it was opened with.
+const routedTo = routedView(window.location.hash);
+if (routedTo !== null) {
+  const hash = withoutViewRoute(window.location.hash);
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${hash}`);
+}
 
 // What the page keeps in the browser is decided by the data classes of the folder (`areas.json`, web/classes.ts, wired in
 // web/page-cache.ts). The app is made only after the folder and its classes were read (Entry.open, then `begin`), so
@@ -193,6 +200,7 @@ async function begin(folder: string | null, readOnly: boolean): Promise<void> {
     },
   };
   const state = new AppState(env);
+  if (routedTo !== null) state.openViewRoute(routedTo);
   if (routed !== null) state.openRoute(routed);
   installTooltips(document, window, { regionLabel: () => translate(state.lang, 'hint.region') });
   void unmount(entryUi);

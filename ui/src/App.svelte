@@ -51,6 +51,8 @@
   // The page opened from disk (the web variant): a shortcut can point to its file. Served pages have their own address.
   const fromDisk = location.protocol === 'file:';
   let shortcutOpen = $state(false);
+  // A view of the menu opens in a new tab with a middle click, Ctrl+click or Ctrl+Enter, where the page can open one.
+  const apart = (view: View) => (app.canDetach ? { onopennew: () => app.openViewApart(view) } : {});
   let chordTimer: ReturnType<typeof setTimeout> | undefined;
   let searchBox = $state<HTMLInputElement | null>(null);
 
@@ -393,6 +395,7 @@
             hint: t('hint.item.nav.today'),
             checked: app.view === 'today',
             onselect: () => app.setView('today'),
+            ...apart('today'),
           },
           {
             kind: 'radio',
@@ -400,6 +403,7 @@
             hint: t('hint.item.nav.list'),
             checked: app.view === 'list',
             onselect: () => app.setView('list'),
+            ...apart('list'),
           },
           {
             kind: 'radio',
@@ -408,6 +412,7 @@
             disabled: !app.can('reorder'),
             checked: app.view === 'board',
             onselect: () => app.setView('board'),
+            ...apart('board'),
           },
           {
             kind: 'radio',
@@ -415,6 +420,7 @@
             hint: t('hint.item.nav.plan'),
             checked: app.view === 'plan',
             onselect: () => app.setView('plan'),
+            ...apart('plan'),
           },
           {
             kind: 'radio',
@@ -422,6 +428,7 @@
             hint: t('hint.item.nav.inbox'),
             checked: app.view === 'inbox',
             onselect: () => app.setView('inbox'),
+            ...apart('inbox'),
           },
           {
             kind: 'radio',
@@ -429,6 +436,7 @@
             hint: t('hint.item.nav.cross'),
             checked: app.view === 'cross',
             onselect: () => app.setView('cross'),
+            ...apart('cross'),
           },
           ...(app.can('finished')
             ? [
@@ -438,6 +446,7 @@
                   hint: t('hint.item.nav.done'),
                   checked: app.view === 'done',
                   onselect: () => app.setView('done'),
+                  ...apart('done'),
                 },
               ]
             : []),
@@ -449,6 +458,7 @@
                   hint: t('hint.item.nav.views'),
                   checked: app.view === 'views',
                   onselect: () => app.setView('views'),
+                  ...apart('views'),
                 },
               ]
             : []),

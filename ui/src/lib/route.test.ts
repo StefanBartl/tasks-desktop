@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { routedTask, taskRoute, withTaskRoute } from './route';
+import { routedTask, routedView, taskRoute, viewRoute, withTaskRoute, withoutViewRoute } from './route';
 
 describe('the route of a task in a window of its own', () => {
   it('names the task in the fragment and reads it back', () => {
@@ -28,5 +28,27 @@ describe('the route of a task in a window of its own', () => {
     expect(withTaskRoute('#other=1', 'pub/a')).toBe('#task=pub%2Fa&other=1');
     expect(withTaskRoute('', 'pub/a')).toBe(taskRoute('pub/a'));
     expect(routedTask(withTaskRoute('#task=pub%2Fa&task=pub%2Fb', 'pub/c'))).toBe('pub/c');
+  });
+});
+
+describe('the route of a view in a new tab', () => {
+  it('names the view in the fragment and reads it back, beside a task', () => {
+    expect(viewRoute('plan')).toBe('#view=plan');
+    expect(routedView('#view=plan')).toBe('plan');
+    expect(routedView('#task=a%2Fb&view=done')).toBe('done');
+  });
+
+  it('takes no name that is no view, and nothing from another fragment', () => {
+    expect(routedView('#view=<img src=x>')).toBeNull();
+    expect(routedView('#view=')).toBeNull();
+    expect(routedView('#view=PLAN')).toBeNull();
+    expect(routedView('#pair=abc')).toBeNull();
+    expect(routedView('')).toBeNull();
+  });
+
+  it('leaves the address without the view and keeps the rest', () => {
+    expect(withoutViewRoute('#view=plan')).toBe('');
+    expect(withoutViewRoute('#task=a&view=plan')).toBe('#task=a');
+    expect(withoutViewRoute('#task=a')).toBe('#task=a');
   });
 });

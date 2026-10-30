@@ -6432,3 +6432,28 @@ test('no view makes the window itself scroll: a hidden label of a row stays insi
   expect(grown).toBeLessThanOrEqual(1);
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('a middle click on a view of the menu opens it in a new tab, paired; this tab keeps its view', async ({ page, context }) => {
+  await pair(page);
+  await showList(page);
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  const [tab] = await Promise.all([
+    context.waitForEvent('page'),
+    page.getByRole('menuitemradio', { name: 'Plan', exact: true }).click({ button: 'middle' }),
+  ]);
+  // The new tab has the session of this one (a copy of its session storage) and opens on the plan.
+  await expect(tab.locator('.stage-list').first()).toBeVisible();
+  await expect(tab.getByRole('menuitem', { name: 'View', exact: true })).toBeVisible();
+  expect(new URL(tab.url()).hash).toBe('');
+  await tab.close();
+  await expect(page.locator('button.row').first()).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('tasks-desktop.view'))).toBe('list');
+  // Ctrl+Enter does the same from the keyboard.
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Inbox', exact: true }).focus();
+  const [next] = await Promise.all([context.waitForEvent('page'), page.keyboard.press('Control+Enter')]);
+  await expect(next.getByRole('region', { name: 'Inbox' })).toBeVisible();
+  await next.close();
+  await expect(page.locator('button.row').first()).toBeVisible();
+  expect(consoleProblems.get(page)).toEqual([]);
+});
