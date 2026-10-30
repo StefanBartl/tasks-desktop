@@ -66,7 +66,9 @@ one).
 1. Get the file: `git clone` (later `git pull`) of the private repository
    [tasks-web](https://github.com/WKDSteve/tasks-web); compare `Get-FileHash tasks.html` with `SHA256SUMS`.
 2. Open `file:///<path>/tasks-web/tasks.html` in Chrome, or run `start-tasks.cmd` there (it finds Chrome, `/app` for a
-   window of its own, `/shortcut` for a shortcut on the desktop and in the Start menu).
+   window of its own, `/shortcut` for a shortcut on the desktop and in the Start menu). Without the script: Options >
+   "Create a shortcut ..." in the page gives the line for Windows' "New > Shortcut" (Chrome as a window of its own, or
+   the plain address); Chrome saves no downloaded `.lnk` or `.url`, so the page offers none.
 3. Press "Choose folder ..." and pick the vault folder. The page reads the `*.md` files, `areas.json` and
    `vault.json` into memory (`.git` and hidden folders are skipped). After a restart of Chrome, press "Allow
    access" once for the folder used last.

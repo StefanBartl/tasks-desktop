@@ -39,6 +39,7 @@
   import ConflictCenter from './views/ConflictCenter.svelte';
   import VaultsDialog from './views/VaultsDialog.svelte';
   import AboutDialog from './views/AboutDialog.svelte';
+  import ShortcutDialog from './views/ShortcutDialog.svelte';
   import Toast from './views/Toast.svelte';
 
   let { app, code }: { app: App; code: string | null } = $props();
@@ -47,6 +48,9 @@
     translate(app.lang, key, params);
 
   let chord = $state(false);
+  // The page opened from disk (the web variant): a shortcut can point to its file. Served pages have their own address.
+  const fromDisk = location.protocol === 'file:';
+  let shortcutOpen = $state(false);
   let chordTimer: ReturnType<typeof setTimeout> | undefined;
   let searchBox = $state<HTMLInputElement | null>(null);
 
@@ -520,6 +524,17 @@
           },
           { kind: 'section', label: t('menu.sec.export') },
           { kind: 'info', label: t('menu.export_where') },
+          ...(fromDisk
+            ? [
+                { kind: 'section' as const, label: t('menu.sec.shortcut') },
+                {
+                  kind: 'action' as const,
+                  label: t('menu.shortcut'),
+                  hint: t('hint.item.menu.shortcut'),
+                  onselect: () => (shortcutOpen = true),
+                },
+              ]
+            : []),
         ],
       },
       {
@@ -720,6 +735,7 @@
   {/if}
   <!-- Outside the ready block: the Info dialog and its report are there when the engine is not (app.canAbout). -->
   <AboutDialog {app} />
+  {#if fromDisk}<ShortcutDialog {app} open={shortcutOpen} onclose={() => (shortcutOpen = false)} />{/if}
   <!-- While the float of a task is open the toast is drawn inside it: the float is modal, and the Undo out here could not
        be reached. -->
   {#if !app.taskFloatOpen}<Toast {app} />{/if}

@@ -6365,3 +6365,11 @@ test('in a narrow window the board and the inbox keep a few cards and rows in si
   }
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('the page served by the hub offers no shortcut: that is for the file of the web variant', async ({ page }) => {
+  await pair(page);
+  await page.getByRole('menuitem', { name: 'Options', exact: true }).click();
+  await expect(page.getByRole('menuitemcheckbox', { name: 'Shortcuts' }).or(page.getByRole('menuitemradio', { name: 'English' }))).not.toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: 'Create a shortcut ...', exact: true })).toHaveCount(0);
+  expect(consoleProblems.get(page)).toEqual([]);
+});

@@ -956,6 +956,27 @@ const en = {
   'menu.save_json': 'Save tasks as JSON file ...',
   'menu.copy_json': 'Copy tasks as JSON',
   'menu.export_where': 'Export: the button Export of each view, or the View menu',
+  'menu.sec.shortcut': 'Shortcut',
+  'menu.shortcut': 'Create a shortcut ...',
+  'hint.item.menu.shortcut':
+    'How to open this page with a click from the desktop, the Start menu search or the taskbar, without knowing its folder.',
+  'shortcut.title': 'Shortcut to this page',
+  'shortcut.intro':
+    'A page cannot put a shortcut on the desktop itself, and Chrome does not save one as a download. Windows makes it: right click on the desktop, New > Shortcut, paste one of these lines as the location, name it tasks. To have it in the Start menu search too, move it into the folder that the Explorer opens for shell:programs; a right click there pins it to the taskbar.',
+  'shortcut.chrome.title': 'In a Chrome window of its own',
+  'shortcut.chrome.body':
+    'Opens this page in Chrome without tabs, with its own button in the taskbar. It expects Chrome in its usual place; for a Chrome installed for one user only, take the start script below.',
+  'shortcut.browser.title': 'In the default browser',
+  'shortcut.browser.body': 'The address of this page: the shortcut opens it in the default browser, as a double click on the file does.',
+  'shortcut.copy': 'Copy',
+  'shortcut.copied': 'Copied: paste it as the location of the new shortcut.',
+  'shortcut.copy_failed': 'The clipboard is not available: select the line and copy it with Ctrl+C.',
+  'shortcut.script.title': 'Start script (tasks-web)',
+  'shortcut.script.body':
+    'start-tasks.cmd next to tasks.html finds Chrome itself; start-tasks.cmd /shortcut puts the shortcut on the desktop and in the Start menu. Read the file before you run it.',
+  'shortcut.warning':
+    'Check shortcuts and scripts from elsewhere before you open them. Security software or the policies of this computer may report or block them; when in doubt, do not run them.',
+  'shortcut.close': 'Close',
   'export.button': 'Export',
   'export.label': 'Export the tasks of this view',
   'export.choices': 'Ways to export',
@@ -2157,6 +2178,27 @@ const de: Record<Key, string> = {
   'menu.save_json': 'Tasks als JSON-Datei speichern ...',
   'menu.copy_json': 'Tasks als JSON kopieren',
   'menu.export_where': 'Export: der Knopf Export jeder Ansicht, oder das Menü Ansicht',
+  'menu.sec.shortcut': 'Verknüpfung',
+  'menu.shortcut': 'Verknüpfung anlegen ...',
+  'hint.item.menu.shortcut':
+    'Wie man diese Seite per Klick vom Desktop, aus der Startmenü-Suche oder der Taskleiste öffnet, ohne ihren Ordner zu kennen.',
+  'shortcut.title': 'Verknüpfung zu dieser Seite',
+  'shortcut.intro':
+    'Eine Seite kann selbst keine Verknüpfung auf den Desktop legen, und Chrome speichert keine als Download. Windows legt sie an: Rechtsklick auf den Desktop, Neu > Verknüpfung, eine dieser Zeilen als Speicherort einfügen, Name tasks. Damit sie auch die Startmenü-Suche findet, in den Ordner verschieben, den der Explorer für shell:programs öffnet; ein Rechtsklick dort heftet sie an die Taskleiste.',
+  'shortcut.chrome.title': 'In einem eigenen Chrome-Fenster',
+  'shortcut.chrome.body':
+    'Öffnet diese Seite in Chrome ohne Tabs, mit eigenem Knopf in der Taskleiste. Sie erwartet Chrome am üblichen Ort; für ein Chrome, das nur für einen Benutzer installiert ist, nimm das Startskript unten.',
+  'shortcut.browser.title': 'Im Standardbrowser',
+  'shortcut.browser.body': 'Die Adresse dieser Seite: Die Verknüpfung öffnet sie im Standardbrowser, wie ein Doppelklick auf die Datei.',
+  'shortcut.copy': 'Kopieren',
+  'shortcut.copied': 'Kopiert: als Speicherort der neuen Verknüpfung einfügen.',
+  'shortcut.copy_failed': 'Die Zwischenablage ist nicht verfügbar: Zeile markieren und mit Strg+C kopieren.',
+  'shortcut.script.title': 'Startskript (tasks-web)',
+  'shortcut.script.body':
+    'start-tasks.cmd neben tasks.html findet Chrome selbst; start-tasks.cmd /shortcut legt die Verknüpfung auf den Desktop und ins Startmenü. Lies die Datei, bevor du sie ausführst.',
+  'shortcut.warning':
+    'Verknüpfungen und Skripte von anderswo vor dem Öffnen prüfen. Sicherheitssoftware oder die Richtlinien dieses Rechners können sie melden oder blockieren; im Zweifel nicht ausführen.',
+  'shortcut.close': 'Schließen',
   'export.button': 'Export',
   'export.label': 'Export: die Tasks dieser Ansicht',
   'export.choices': 'Wege des Exports',
