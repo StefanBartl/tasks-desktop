@@ -166,10 +166,21 @@ test('a hint that lies on the next control lets the pointer through, so the firs
   const tip = page.locator('#hint-tip');
   await expect(tip).toBeVisible();
   const areas = (await page.getByRole('button', { name: 'Areas', exact: true }).boundingBox())!;
-  const x = areas.x + areas.width / 2;
-  const y = areas.y + 3;
+  // The case of the test: the popup lies on the control (without this the test would pass when the layout simply put
+  // the popup elsewhere). The pointer goes to the middle of the part of the control the popup covers.
+  const over = (await tip.boundingBox())!;
+  const left = Math.max(areas.x, over.x);
+  const right = Math.min(areas.x + areas.width, over.x + over.width);
+  const top = Math.max(areas.y, over.y);
+  const bottom = Math.min(areas.y + areas.height, over.y + over.height);
+  expect(right > left && bottom > top, 'the popup of Help covers a part of the filter Areas').toBe(true);
+  const x = (left + right) / 2;
+  const y = (top + bottom) / 2;
   await page.mouse.move(x, y, { steps: 4 });
   const under = () => page.evaluate(([px, py]) => document.elementFromPoint(px!, py!)?.id ?? '', [x, y]);
+  // Still there with the pointer on it, and it lets the pointer through.
+  await expect(tip).toBeVisible();
+  expect(await tip.evaluate((el) => (el as HTMLElement).style.pointerEvents)).toBe('none');
   // The popup lies on the control but lets the pointer through: the element under the pointer is not the popup (before,
   // it stayed while the pointer was on it and caught the first press).
   expect(await under()).not.toBe('hint-tip');
@@ -232,8 +243,14 @@ test('in a menu the explanation of an entry goes at once when the pointer is on 
   await expect(tip).toHaveText(firstHint);
   const b = (await second.boundingBox())!;
   await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 6 });
-  // Never the old text on the next entry: either the popup of the second one, or none yet.
-  await expect(tip).not.toHaveText(firstHint);
+  // Never the old text on the next entry: either the popup of the second one, or none yet. Asked once, at once (an
+  // assertion that waits would also pass when the old popup stays until the new one comes, as it did before).
+  const stale = await tip.evaluate((el, old) => {
+    const style = getComputedStyle(el);
+    const shown = !(el as HTMLElement).hidden && style.display !== 'none' && style.visibility !== 'hidden';
+    return shown && (el.textContent ?? '').includes(old);
+  }, firstHint);
+  expect(stale).toBe(false);
   await page.waitForTimeout(600);
   await expect(tip).toHaveText(secondHint);
 });

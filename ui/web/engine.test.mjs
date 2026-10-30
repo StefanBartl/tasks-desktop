@@ -281,17 +281,24 @@ test('every read method answers as nvim does on the same commit', { skip: NEEDS_
 
 // The files a real vault grows over the years (edge-vault.mjs): CRLF, a byte order mark, heads that are not YAML,
 // invalid bytes, text outside ASCII, numbers and dates that are none, names with a space, a folder as a task, ties in
-// the order, a few hundred tasks. The measure is nvim: both answer on the same files and the documents must match.
+// the order, a few hundred tasks. The measure is nvim: both answer on the same files and the documents must match:
+// every page of `list` and `finished`, and every open and finished task that is not a generated one, by its id.
+// The documents are compared as text: the bytes that are no UTF-8 (the task `invalid-utf8`) become U+FFFD on both
+// sides before they are compared, so two different wrong bytes there would not be told apart.
 test('the edge cases of a real vault answer as nvim does, for every read method and every task', { skip: NEEDS_NVIM }, async (t) => {
   const files = edgeFiles();
   const e = await WebEngine.create({ factory: new LuaFactory(), bundle: bundle(), shim: SHIM, log: () => {} });
   e.mount(Object.fromEntries(Object.entries(files).map(([path, bytes]) => [`${ROOT}/${path}`, bytes])));
+  // Written once, at the first call (not again for each of the some hundred calls).
+  let written = null;
   const nvim = nvimCaller(t, 'edge', (dir) => {
+    if (written) return written;
     const target = join(dir, 'vault'); // named as the mount: the id of the vault is in the documents
     for (const [path, bytes] of Object.entries(files)) {
       mkdirSync(dirname(join(target, path)), { recursive: true });
       writeFileSync(join(target, path), bytes);
     }
+    written = target;
     return target;
   });
   const differs = [];
@@ -301,16 +308,24 @@ test('the edge cases of a real vault answer as nvim does, for every read method 
     if (mask(web) !== mask(there)) differs.push(`${method} ${params ?? ''}`.trim());
   };
   for (const method of READ_METHODS) check(method);
-  // `list` gives a page of 100 at most: all of them, by the offset
-  const items = [];
-  for (let offset = 0; offset !== undefined; ) {
-    const page = JSON.parse(e.call('list', `{"params":{"limit":100,"offset":${offset}}}`, { root: ROOT }).text);
-    items.push(...page.items);
-    offset = page.next_offset;
-  }
-  assert.ok(items.length >= 150, `the edge vault is read: ${items.length} tasks`);
-  // every hand made task, by its id (the generated ones are in the lists already)
-  for (const item of items.filter((x) => !x.id.includes('/gen-'))) {
+  // `list` and `finished` give a page of 100 at most: every page, by the offset, each compared with nvim's.
+  const pages = (method) => {
+    const items = [];
+    for (let offset = 0; offset !== undefined && offset !== null; ) {
+      const params = JSON.stringify({ limit: 100, offset });
+      check(method, params);
+      const page = JSON.parse(e.call(method, `{"params":${params}}`, { root: ROOT }).text);
+      items.push(...(page.items ?? []));
+      offset = page.next_offset;
+    }
+    return items;
+  };
+  const open = pages('list');
+  const finished = pages('finished');
+  assert.ok(open.length >= 150, `the edge vault is read: ${open.length} open tasks`);
+  assert.ok(finished.length >= 3, `the finished edge cases are read: ${finished.length}`);
+  // every hand made task, open or finished, by its id (the generated ones are in the pages already)
+  for (const item of [...open, ...finished].filter((x) => !x.id.includes('/gen-'))) {
     for (const method of BY_ID) check(method, JSON.stringify({ id: item.id }));
   }
   assert.deepEqual(differs, [], 'the documents that differ from nvim');

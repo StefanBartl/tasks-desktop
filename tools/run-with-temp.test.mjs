@@ -211,7 +211,9 @@ const WRAPPED = /^(run: )?node (\.\.\/)?tools\/run-with-temp\.mjs\s/;
 // the tests of the tools themselves: they make their folders below RUNNER_TEMP or in the temp dir, and remove them
 const EXEMPT = new Set(['node --test "tools/*.test.mjs"']);
 // fetching the browsers of Playwright starts no test (it writes to the browsers' folder, not the temp dir)
-const INSTALL = /\bplaywright\s+install\b/;
+// The whole part must be the install, anchored as WRAPPED is: a comment or a single `&` that mentions it does not
+// hide a test run on the same line.
+const INSTALL = /^(run: )?(pnpm exec|npx) playwright install(\s+[\w-]+)*$/;
 
 function unwrapped(text) {
   const found = [];
@@ -247,6 +249,8 @@ test("the lint of the workflows sees the forms that go around the wrapper, and l
     "pwsh -NoProfile -File scripts/test-install.ps1 target/debug/tasks-hub.exe",
     "sh scripts/test-install.sh target/debug/tasks-hub.exe",
     "pnpm exec playwright install firefox && pnpm exec playwright test",
+    "run: pnpm web:e2e  # needs playwright install first",
+    "pnpm exec playwright install firefox & pnpm web:e2e",
   ]) {
     assert.equal(unwrapped(`steps:\n  ${bypass}\n`).length, 1, `not seen: ${bypass}`);
   }

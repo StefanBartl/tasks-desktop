@@ -246,7 +246,9 @@ and used as described under "In the browser, without installing". Its built file
   nvim does; `node web/tolower-table.mjs` makes its case table from nvim when Neovim's tables change.
   A second vault of edge cases (`ui/web/edge-vault.mjs`, made in the test: CRLF, a byte order mark, heads that are no
   YAML, invalid bytes, text outside ASCII, numbers and dates that are none, a folder as a task, ties in the order, 180
-  tasks) is compared the same way, for every read method and every task.
+  tasks) is compared the same way: every read method, every page of `list` and `finished`, and every open and
+  finished task by its id. The documents are compared as text, so the bytes of the task with invalid UTF-8 are
+  compared after both sides made U+FFFD of them.
 - **In the browser.** `pnpm web:check -- --out=<tasks-web>/engine-check.html` builds one page that starts the
   engine in a classic worker from a blob (a module worker does not start from `file://`) on a synthetic vault.
   `pnpm probe -- --out=<tasks-web>/probe.html` builds the probe that checks whether a machine allows all this.

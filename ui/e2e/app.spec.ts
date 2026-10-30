@@ -4253,7 +4253,15 @@ test('the conflict center keeps a refused change, shows wanted and now, and trie
   spoiled = false;
   await detail.getByLabel('Status').selectOption('doing');
   await expect(button).toBeVisible();
-  await button.click();
+  // One more refused while only the number shows: the words come back for the new one, then the number again.
+  await expect(barButton).toHaveText('1', { timeout: 10_000 });
+  spoiled = false;
+  await detail.locator('[data-field="prio"]').selectOption('1');
+  const barButtonNow = page.getByRole('banner').getByRole('button', { name: /Refused changes/ });
+  await expect(barButtonNow).toHaveText('Refused changes: 2');
+  await expect(barButtonNow).toHaveText('2', { timeout: 10_000 });
+  await taskFloat(page).getByRole('button', { name: /Refused changes: 2/ }).click();
+  await center.getByRole('button', { name: 'Let go' }).first().click();
   await center.getByRole('button', { name: 'Let go' }).click();
   await expect(center).toBeHidden();
   await expect(page.getByRole('button', { name: /Refused changes/ })).toHaveCount(0);
@@ -4832,10 +4840,14 @@ test('the text of a task is edited in the detail: written whole, taken back by u
   await detail.getByRole('textbox', { name: /Text of the task/ }).press('Escape');
   await expect(detail.getByRole('textbox', { name: /Text of the task/ })).toHaveValue('My draft.');
   writeFileSync(file, readFileSync(file, 'utf8').replace('The old text.', 'Changed elsewhere.'));
-  await detail.getByRole('button', { name: 'Save text' }).click();
+  // Saved with the keys, twice in a row: the editor keeps the focus while the text is written, so the second press is
+  // the page's too (not the browser's dialog to save the page), and after the refusal the typing goes on in the editor.
+  await detail.getByRole('textbox', { name: /Text of the task/ }).press('Control+s');
+  await page.keyboard.press('Control+s');
   await expect(page.getByRole('alert').getByText(/Not accepted|changed/i).last()).toBeVisible();
   expect(readFileSync(file, 'utf8')).toContain('Changed elsewhere.');
   await expect(detail.getByRole('textbox', { name: /Text of the task/ })).toHaveValue('My draft.');
+  await expect(detail.getByRole('textbox', { name: /Text of the task/ })).toBeFocused();
   await detail.getByRole('button', { name: 'Cancel' }).click();
   await expect(detail.getByRole('textbox', { name: /Text of the task/ })).toHaveCount(0);
 
@@ -6186,6 +6198,14 @@ test('with the option to save with a button, the fields of a task are held until
   // The row of the task in the list says so too, until it is saved.
   const draftMark = page.locator('.line', { has: page.locator('.id', { hasText: id }) }).locator('.tag.draft');
   await expect(draftMark).toContainText('✎ 2');
+  // And its card on the board; back in the list the draft is still there.
+  await closeFloat(page);
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Board', exact: true }).click();
+  await expect(page.locator(`[data-card="${id}"] .tag.draft`)).toContainText('✎ 2');
+  await showList(page);
+  await open(page, id);
+  await expect(bar.getByRole('status')).toHaveText('Unsaved changes: 2');
   await bar.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
   await expect(bar.getByRole('status')).toHaveText('No unsaved changes.');

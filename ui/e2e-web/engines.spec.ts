@@ -3,7 +3,7 @@
 // the rest is written to the report (`engine-apis.json`) as found.
 
 import { expect, test } from '@playwright/test';
-import { pageUrl } from './page';
+import { pageUrl, violations, watchPage } from './page';
 
 interface Apis {
   userAgent: string;
@@ -20,6 +20,8 @@ interface Apis {
 }
 
 test('the browser APIs of the page, as this engine has them', async ({ page }, testInfo) => {
+  // The same two rules as every test of the page: not one request, not one violation of its policy (in each engine).
+  const seen = await watchPage(page);
   await page.goto(pageUrl());
   await expect(page.getByRole('heading', { name: /Open a vault|Vault öffnen/ })).toBeVisible();
   const apis: Apis = await page.evaluate(async () => {
@@ -65,4 +67,7 @@ test('the browser APIs of the page, as this engine has them', async ({ page }, t
   expect(apis.webkitdirectory).toBe(true);
   // The picker is Chromium's alone; the read only way in is for the others (readonly.spec.ts).
   expect(apis.showDirectoryPicker).toBe(testInfo.project.name === 'chrome');
+  expect(seen.requests).toEqual([]);
+  expect(seen.errors).toEqual([]);
+  expect(await violations(page)).toEqual([]);
 });

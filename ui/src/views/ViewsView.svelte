@@ -453,7 +453,7 @@
         <form class="rename" onsubmit={(e) => void rename(e, open)}>
           <label>
             {t('views.form.title')}
-            <input bind:value={renaming} maxlength="300" readonly={app.locked && open.id !== DRAFT_ID} />
+            <input bind:value={renaming} maxlength="300" readonly={app.readOnly && open.id !== DRAFT_ID} />
           </label>
           <button type="submit" disabled={app.locked}>{t('views.rename')}</button>
         </form>

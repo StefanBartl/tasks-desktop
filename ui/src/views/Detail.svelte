@@ -190,7 +190,9 @@
     if (!task || e.key.toLowerCase() !== 's' || !(e.ctrlKey || e.metaKey) || e.altKey) return;
     if (editing && e.target instanceof HTMLElement && e.target.closest('.body-edit')) {
       e.preventDefault();
-      // The focus stays in the editor while the text is written; the editor closes when it was.
+      // The focus stays in the editor while the text is written (it is only read only meanwhile, not disabled, which
+      // would put the focus on the page: a second Ctrl+S would be the browser's, a refusal would leave the keys of
+      // the page under the fingers); the editor closes when it was written.
       if (!app.locked) void saveBody();
       return;
     }
@@ -684,7 +686,7 @@
             bind:value={draft}
             rows="14"
             maxlength={MAX_BODY_EDIT}
-            disabled={app.locked}
+            readonly={app.locked}
             onkeydown={(e) => {
               if (e.key === 'Escape') {
                 e.stopPropagation();
