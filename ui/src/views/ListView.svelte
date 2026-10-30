@@ -154,14 +154,21 @@
     searchBox?.focus();
   }
   const extraOn = $derived(extraCount(app.filter) + (app.showFinished && app.can('finished') ? 1 : 0));
+  // Beside each area how many tasks it would keep under the other filters (switched off in Options).
+  const counts = $derived(app.areaCountsShown ? app.areaCounts : null);
   const areaOptions = $derived(
     app.areaNames
       .map((name) => ({
         value: name,
         label: app.shortAreas ? areaLabel(name, app.allAreaNames) : name,
         title: name,
+        ...(counts ? { suffix: String(counts.get(name) ?? 0) } : {}),
       }))
       .sort((x, y) => x.label.localeCompare(y.label)),
+  );
+  // Counts from the first picture of the cache may still change when the hub answers: the choice says so.
+  const areasNote = $derived(
+    counts && app.cachedAt !== null ? `${t('multi.note.areas')} ${t('multi.note.counts_cached')}` : t('multi.note.areas'),
   );
   const shown = $derived(app.shown);
 
@@ -356,7 +363,7 @@
     <MultiSelect
       label={t('nav.areas')}
       hint={t('hint.ui.list.areas')}
-      note={t('multi.note.areas')}
+      note={areasNote}
       options={areaOptions}
       selected={app.filter.areas}
       onchange={(areas) => (app.filter = { ...app.filter, areas })}

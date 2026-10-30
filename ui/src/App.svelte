@@ -527,6 +527,13 @@
           },
           {
             kind: 'check',
+            label: t('menu.area_counts'),
+            hint: t('hint.item.menu.area_counts'),
+            checked: app.areaCountsShown,
+            onselect: () => app.setAreaCounts(!app.areaCountsShown),
+          },
+          {
+            kind: 'check',
             label: t('menu.save_manual'),
             hint: t('hint.item.menu.save_manual'),
             checked: app.saveMode === 'manual',

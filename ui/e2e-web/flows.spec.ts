@@ -232,7 +232,7 @@ test('the search clears with one press, and the reset of all filters takes the w
   // The reset takes the words away together with a chosen area.
   await search.fill('lib.nvim/alpha');
   await page.getByRole('button', { name: /^Areas/ }).click();
-  await page.getByRole('group', { name: 'Areas' }).getByRole('checkbox', { name: 'lib.nvim', exact: true }).check();
+  await page.getByRole('group', { name: 'Areas' }).getByRole('checkbox', { name: /^lib\.nvim( \(\d+\))?$/ }).check();
   await page.keyboard.press('Escape');
   await reset.click();
   await expect(search).toHaveValue('');

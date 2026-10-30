@@ -496,6 +496,8 @@ const en = {
   'hint.item.lang.en': 'The page in English.',
   'hint.item.shortcuts.label': 'Single-key shortcuts (C, J, K, ...) on or off.',
   'hint.item.menu.short_areas': 'Show wkdbook-tasks.nvim as tasks.nvim where no other area has that name.',
+  'hint.item.menu.area_counts':
+    'Beside each area of the filter, how many tasks the list would show with that area alone under the other filters.',
   'hint.item.menu.save_manual': 'The fields of a task are written only when you press Save (or Ctrl+S), all at once. Off: each field is written as soon as it changes.',
   'hint.item.menu.about': 'Version and build of this app, and the engine that answers.',
   'hint.item.menu.report': 'The form for a problem report, and where it belongs.',
@@ -642,6 +644,7 @@ const en = {
   'menu.reset_order': 'Reset the order of the tiles',
   'menu.reset_filter': 'Clear all filters',
   'menu.short_areas': 'Shorten area names (without wkdbook-)',
+  'menu.area_counts': 'Counts in the choice of the areas',
   'menu.save_manual': 'Save fields with a button',
   'draft.label': 'Unsaved changes',
   'draft.none': 'No unsaved changes.',
@@ -1118,6 +1121,7 @@ const en = {
   'multi.note.any_one': 'A task has one of these: it is shown when it has any of the ones chosen (OR).',
   'multi.note.areas':
     'A task lies in one area: it is shown when it lies in any of the ones chosen (OR). The tasks of tasks-desktop lie in the area of tasks.nvim.',
+  'multi.note.counts_cached': 'The counts are from the list kept in the browser until the hub has answered.',
   'filter.match.any': 'any of them (OR)',
   'filter.match.all': 'all of them (AND)',
   'filter.match.all_short': 'all',
@@ -1718,6 +1722,8 @@ const de: Record<Key, string> = {
   'hint.item.lang.en': 'Die Seite auf Englisch.',
   'hint.item.shortcuts.label': 'Einzeltasten-Kürzel (C, J, K, ...) ein oder aus.',
   'hint.item.menu.short_areas': 'wkdbook-tasks.nvim als tasks.nvim zeigen, wo kein anderer Bereich so heißt.',
+  'hint.item.menu.area_counts':
+    'Neben jedem Bereich des Filters, wie viele Tasks die Liste mit diesem Bereich allein unter den übrigen Filtern zeigen würde.',
   'hint.item.menu.save_manual': 'Die Felder einer Task werden erst mit Speichern (oder Strg+S) geschrieben, alle auf einmal. Aus: Jedes Feld wird geschrieben, sobald es sich ändert.',
   'hint.item.menu.about': 'Version und Build dieser App und die Engine, die antwortet.',
   'hint.item.menu.report': 'Das Formular für eine Fehlermeldung, und wohin sie gehört.',
@@ -1864,6 +1870,7 @@ const de: Record<Key, string> = {
   'menu.reset_order': 'Anordnung der Kacheln zurücksetzen',
   'menu.reset_filter': 'Alle Filter zurücksetzen',
   'menu.short_areas': 'Bereichsnamen kürzen (ohne wkdbook-)',
+  'menu.area_counts': 'Zahlen in der Auswahl der Bereiche',
   'menu.save_manual': 'Felder mit Knopf speichern',
   'draft.label': 'Ungespeicherte Änderungen',
   'draft.none': 'Keine ungespeicherten Änderungen.',
@@ -2340,6 +2347,7 @@ const de: Record<Key, string> = {
   'multi.note.any_one': 'Ein Task hat genau einen Wert davon: er wird gezeigt, wenn er einen der gewählten hat (ODER).',
   'multi.note.areas':
     'Ein Task liegt in genau einer Area: er wird gezeigt, wenn er in einer der gewählten liegt (ODER). Die Tasks von tasks-desktop liegen in der Area von tasks.nvim.',
+  'multi.note.counts_cached': 'Die Zahlen stammen aus der im Browser gemerkten Liste, bis der Hub geantwortet hat.',
   'filter.match.any': 'eines davon (ODER)',
   'filter.match.all': 'alle (UND)',
   'filter.match.all_short': 'alle',

@@ -1015,7 +1015,7 @@ for (const scheme of ['light', 'dark'] as const) {
     // The reset of all filters takes the words away together with a chosen area.
     await search.fill('lib.nvim/alpha');
     await page.getByRole('button', { name: /^Areas/ }).click();
-    await page.getByRole('group', { name: 'Areas' }).getByRole('checkbox', { name: 'lib.nvim', exact: true }).check();
+    await page.getByRole('group', { name: 'Areas' }).getByRole('checkbox', { name: /^lib\.nvim( \(\d+\))?$/ }).check();
     await page.keyboard.press('Escape');
     await reset.click();
     await expect(search).toHaveValue('');
@@ -6455,5 +6455,58 @@ test('a middle click on a view of the menu opens it in a new tab, paired; this t
   await expect(next.getByRole('region', { name: 'Inbox' })).toBeVisible();
   await next.close();
   await expect(page.locator('button.row').first()).toBeVisible();
+  expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('the choice of the areas shows beside each how many tasks it keeps under the other filters; Options switch it off', async ({
+  page,
+}) => {
+  await pair(page);
+  await showList(page);
+  const areas = page.getByRole('group', { name: 'Areas' });
+  /** A pattern for the text `s` itself. */
+  const literal = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  /** The box of `area` in the open choice: its name is the area and, with the counts on, the count in brackets. */
+  const boxOf = (area: string) => areas.getByRole('checkbox', { name: new RegExp(`^${literal(area)} \\(\\d+\\)$`) });
+  /** The count beside `area` in the open choice, read from the name of its box. */
+  const countOf = async (area: string): Promise<number> => {
+    const text = ((await boxOf(area).locator('xpath=..').textContent()) ?? '').trim();
+    const found = /\((\d+)\)$/.exec(text);
+    if (!found) throw new Error(`no count beside ${area}: ${text}`);
+    return Number(found[1]);
+  };
+  /** How many tasks the list shows ("3 of 40"). */
+  const shownNow = async (): Promise<number> =>
+    Number(/^(\d+) of \d+$/.exec(((await page.locator('section.list .count [role="status"]').first().textContent()) ?? '').trim())?.[1]);
+  /** The count of `area`, and what the list shows with that area alone ticked: they are the same. */
+  const check = async (area: string): Promise<void> => {
+    await page.getByRole('button', { name: /^Areas/ }).click();
+    const said = await countOf(area);
+    await boxOf(area).check();
+    await expect.poll(shownNow).toBe(said);
+    await boxOf(area).uncheck();
+    await page.keyboard.press('Escape');
+  };
+  await check('lib.nvim');
+  await check('cascade.nvim');
+  // Under another filter the counts follow it: a status chosen first.
+  await page.getByRole('button', { name: /^Status/ }).click();
+  await page.getByRole('group', { name: 'Status' }).getByRole('checkbox').first().check();
+  await page.keyboard.press('Escape');
+  await check('lib.nvim');
+
+  // Switched off in Options: the areas have no count, and it stays so after a reload.
+  await page.getByRole('menuitem', { name: 'Options', exact: true }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'Counts in the choice of the areas' }).click();
+  await page.getByRole('button', { name: /^Areas/ }).click();
+  await expect(areas.getByRole('checkbox', { name: /^lib\.nvim$/ })).toHaveCount(1);
+  await expect(areas.getByRole('checkbox', { name: / \(\d+\)$/ })).toHaveCount(0);
+  await page.reload();
+  await showList(page);
+  await page.getByRole('button', { name: /^Areas/ }).click();
+  await expect(areas.getByRole('checkbox', { name: / \(\d+\)$/ })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await page.getByRole('menuitem', { name: 'Options', exact: true }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'Counts in the choice of the areas' }).click();
   expect(consoleProblems.get(page)).toEqual([]);
 });

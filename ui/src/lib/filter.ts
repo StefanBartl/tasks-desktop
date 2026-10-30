@@ -309,6 +309,32 @@ export function applyFilter(
   return tasks.filter((t) => matches(t, filter, today, touched, quickWins));
 }
 
+/**
+ * For each of `areas` the number of tasks that `filter` would keep with that area as its only one: what the choice of
+ * the areas shows beside each before it is ticked. The other parts of the filter hold as they are. Without "connects
+ * areas" the area is only the task's own, and one pass counts them all; with it the chosen areas also decide which
+ * links count (`connectsAreas`), so each area is filtered on its own.
+ */
+export function areaCounts(
+  tasks: readonly TaskEntry[],
+  filter: Filter,
+  areas: readonly string[],
+  today: string = localToday(),
+  touched?: ReadonlyMap<string, ReadonlySet<string>>,
+  quickWins?: ReadonlySet<string>,
+): Map<string, number> {
+  const counts = new Map(areas.map((area) => [area, 0]));
+  if (filter.cross) {
+    for (const area of areas) counts.set(area, applyFilter(tasks, { ...filter, areas: [area] }, today, touched, quickWins).length);
+    return counts;
+  }
+  for (const task of applyFilter(tasks, { ...filter, areas: [] }, today, touched, quickWins)) {
+    const n = counts.get(task.area);
+    if (n !== undefined) counts.set(task.area, n + 1);
+  }
+  return counts;
+}
+
 /** One thing a filter holds, for the row of chips that names what is switched on and takes it off again. */
 export type ActiveKind =
   | 'area'

@@ -35,7 +35,7 @@ import type {
 import type { Op } from './api';
 import { indexOfLinks, touchedAreas } from './cross';
 import { parsePrefs, type Prefs as FinishedPrefs } from './finished';
-import { activeFilters, applyFilter, filterVaultOf, freshFilter, moveSelection, parseFilter, serializeFilter, type Filter } from './filter';
+import { activeFilters, applyFilter, areaCounts, filterVaultOf, freshFilter, moveSelection, parseFilter, serializeFilter, type Filter } from './filter';
 import { chipLabel } from './filter-chips';
 import { inboxOf, triageKey } from './inbox';
 import type { Finding } from './check';
@@ -295,6 +295,8 @@ export class App {
   }
   /** Area names without the prefix `wkdbook-` where that is unambiguous. */
   shortAreas = $state(true);
+  /** The choice of the areas shows beside each area how many tasks it would keep (`areaCounts`). */
+  areaCountsShown = $state(true);
   /**
    * `auto`: a field of the detail is written as soon as it changes (the default). `manual`: the changes of the fields
    * of a task are held as a draft (`drafts`) until the person saves them, all in one write; the other ways to change
@@ -592,6 +594,7 @@ export class App {
       'en',
     );
     this.shortAreas = safe(() => env.prefs.getItem('tasks-desktop.short-areas')) !== 'off';
+    this.areaCountsShown = safe(() => env.prefs.getItem('tasks-desktop.area-counts')) !== 'off';
     this.saveMode = safe(() => env.prefs.getItem('tasks-desktop.save-mode')) === 'manual' ? 'manual' : 'auto';
     this.listColumns = parseColumns(safe(() => env.prefs.getItem('tasks-desktop.list-columns')));
     this.folds = parseFolds(safe(() => env.prefs.getItem('tasks-desktop.folds')));
@@ -2461,6 +2464,16 @@ export class App {
   setShortAreas(on: boolean): void {
     this.shortAreas = on;
     safe(() => this.env.prefs.setItem('tasks-desktop.short-areas', on ? 'on' : 'off'));
+  }
+
+  setAreaCounts(on: boolean): void {
+    this.areaCountsShown = on;
+    safe(() => this.env.prefs.setItem('tasks-desktop.area-counts', on ? 'on' : 'off'));
+  }
+
+  /** For each area how many tasks the filter would keep with that area as its only one (the choice of the areas). */
+  get areaCounts(): Map<string, number> {
+    return areaCounts(this.tasks, this.filter, this.areaNames, this.today, this.crossIndex, this.quickWinSet);
   }
 
   /** Take every chosen area, status and actor and the search words away. */
