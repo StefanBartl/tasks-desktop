@@ -23,6 +23,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use appkit_core::authn::{ManualClock, Secret, CODE_BYTES, TOKEN_BYTES};
+use hub_testkit::engine_home::{cache_of, engine_env};
 use hub_testkit::scratch::Scratch;
 use serde_json::Value;
 use tasks_hub::classes::AreaPolicy;
@@ -121,7 +122,9 @@ struct Rig {
     vault: PathBuf,
     token: String,
     sse: Sse,
-    // Last: the folder is removed after the hub and the engine, which have the vault open.
+    // Last: the folders are removed after the hub and the engine, which have the vault and the cache open.
+    /// Where the engine's Neovim keeps its cache (the checkpoints of a move): of this test alone.
+    home: Scratch,
     _dir: Scratch,
 }
 
@@ -164,7 +167,12 @@ async fn rig(name: &str, prepare: impl FnOnce(&Path)) -> Option<Rig> {
         }
         Err(other) => panic!("{other}"),
     };
-    let engine = CliEngine::new(tasks_hub::engine::cli_config_from_setup(&setup, env));
+    // Neovim's cache of the engine in a folder of this test, not of all tests at once (see `engine_home`).
+    let home = Scratch::new(&format!("real-events-{name}-home"));
+    let engine = CliEngine::new(tasks_hub::engine::cli_config_from_setup(
+        &setup,
+        engine_env(&home),
+    ));
     probe(&engine).await.expect("the engine answers hello");
     let engine: Arc<dyn Engine> = Arc::new(engine);
     let control = Secret::generate(TOKEN_BYTES).unwrap();
@@ -206,6 +214,7 @@ async fn rig(name: &str, prepare: impl FnOnce(&Path)) -> Option<Rig> {
         vault,
         token,
         sse,
+        home,
         _dir: dir,
     })
 }
@@ -451,6 +460,13 @@ async fn a_folder_task_moved_by_the_engine_beside_the_hub_reaches_the_stream_thr
     let ids = r.ids().await;
     assert!(ids.contains(&new), "{ids:?}");
     assert!(!ids.contains(&old), "the old id is gone: {ids:?}");
+    // The move made its checkpoint in the cache of this test: tests that move at once do not race for one folder.
+    let checkpoints = cache_of(&r.home).join("lib.nvim").join("checkpoints");
+    assert!(
+        checkpoints.is_dir(),
+        "the engine's checkpoints are not in the test's own cache {}",
+        checkpoints.display()
+    );
 }
 
 #[tokio::test]
