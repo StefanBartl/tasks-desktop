@@ -356,11 +356,13 @@
     min-height: 0;
   }
   /* Narrow: the detail stands below the board. Both take the height they need and the main area scrolls; the board
-     keeps a few cards in sight (16rem) instead of sharing the window's height with the detail. */
+     keeps a few cards in sight (16rem) instead of sharing the window's height with the detail. At least as high as the
+     main area when it stands in it alone; below the bar of ViewsView it takes the rest of that frame (flex). */
   @media (max-width: 52rem) {
     .wrap {
       height: auto;
       min-height: 100%;
+      flex: 1 0 auto;
     }
     .layout {
       grid-template-columns: 1fr;

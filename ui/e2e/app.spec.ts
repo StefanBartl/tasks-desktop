@@ -6336,6 +6336,11 @@ test('in a narrow window the board and the inbox keep a few cards and rows in si
   await expect.poll(async () => roomy(await parts('.board .cards')), { message: 'cards of the board' }).toBe(true);
   // ... and does not grow with its longest column either: the columns scroll, the detail is a short way down.
   expect((await parts('.board'))[0].shown).toBeLessThan(700);
+  // The frame of the saved views (its bar above the board) grows with the board: nothing spills out of it, else the
+  // main area scrolls by the bar's height even when everything would fit.
+  const frame = await parts('.wrap.with-board');
+  expect(frame).toHaveLength(1);
+  expect(frame[0].holds).toBeLessThanOrEqual(frame[0].shown + 1);
   await chooseView(page, 'View', 'Inbox');
   await page.locator('.inbox .row').first().click();
   await expect.poll(async () => roomy(await parts('.inbox .rows')), { message: 'rows of the inbox' }).toBe(true);
@@ -6346,19 +6351,23 @@ test('in a narrow window the board and the inbox keep a few cards and rows in si
   // With the room for it both are as high as the main area again, and the window does not scroll: the hidden labels of
   // the cards (.sr-only, absolute) of a long column stretched the page to its last card before.
   await page.setViewportSize({ width: 1280, height: 720 });
-  for (const view of ['Board', 'Inbox']) {
+  // The block of each view itself (the board's own frame, not the one of the saved views around it).
+  for (const [view, selector] of [
+    ['Board', '.wrap:has(> .layout)'],
+    ['Inbox', '.split'],
+  ] as const) {
     await chooseView(page, 'View', view);
     await expect
       .poll(
         () =>
-          page.evaluate(() => {
+          page.evaluate((sel) => {
             const main = document.querySelector('main') as HTMLElement;
-            const block = document.querySelector('.wrap, .split') as HTMLElement;
+            const block = document.querySelector(sel) as HTMLElement | null;
             return {
               window: document.scrollingElement!.scrollHeight > window.innerHeight + 1,
-              block: block.offsetHeight <= main.clientHeight,
+              block: block !== null && block.offsetHeight <= main.clientHeight,
             };
-          }),
+          }, selector),
         { message: view },
       )
       .toEqual({ window: false, block: true });
@@ -6369,7 +6378,8 @@ test('in a narrow window the board and the inbox keep a few cards and rows in si
 test('the page served by the hub offers no shortcut: that is for the file of the web variant', async ({ page }) => {
   await pair(page);
   await page.getByRole('menuitem', { name: 'Options', exact: true }).click();
-  await expect(page.getByRole('menuitemcheckbox', { name: 'Shortcuts' }).or(page.getByRole('menuitemradio', { name: 'English' }))).not.toHaveCount(0);
+  // The menu is open (its languages show), and it has no entry for a shortcut.
+  await expect(page.getByRole('menuitemradio', { name: 'English', exact: true })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Create a shortcut ...', exact: true })).toHaveCount(0);
   expect(consoleProblems.get(page)).toEqual([]);
 });

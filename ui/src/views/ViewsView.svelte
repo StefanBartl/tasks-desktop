@@ -333,7 +333,7 @@
   }
 </script>
 
-<div class="wrap">
+<div class="wrap" class:with-board={board}>
   <div class="bar" role="group" aria-label={t('views.bar')}>
     {#if saved.list.length > 0 || saved.draft || app.can('reorder')}
       <label>
@@ -718,6 +718,12 @@
   @media (max-width: 52rem) {
     .layout {
       grid-template-columns: 1fr;
+    }
+    /* Narrow, the board below the bar takes the height it needs (BoardView) and the main area scrolls: the frame grows
+       with it instead of holding the height of the main area and letting the board spill out by the bar. */
+    .wrap.with-board {
+      height: auto;
+      min-height: 100%;
     }
   }
   .main {
