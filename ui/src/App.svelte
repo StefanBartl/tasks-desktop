@@ -13,6 +13,7 @@
   import ViewsView from './views/ViewsView.svelte';
   import Matrix from './views/Matrix.svelte';
   import TaskDialog from './views/TaskDialog.svelte';
+  import ConflictsButton from './views/ConflictsButton.svelte';
   import FinishedDialog from './views/FinishedDialog.svelte';
   import Detail from './views/Detail.svelte';
   import CheckDialog from './views/CheckDialog.svelte';
@@ -568,9 +569,7 @@
     <MenuBar {menus} label={t('menu.label')} />
     <span class="spacer"></span>
     {#if app.conflicts.length > 0}
-      <button type="button" class="conflicts" data-hint={t('hint.ui.conflicts')} onclick={() => app.openConflicts()}
-        >{t('conflicts.button', { n: app.conflicts.length })}</button
-      >
+      <ConflictsButton {app} />
     {/if}
     {#if app.phase === 'ready'}
       <span class="conn conn-{app.connection}" class:conn-full={connState === 'full'} role="status" data-hint={t(`hint.ui.conn.${connState}` as Key)}>
@@ -725,15 +724,6 @@
   }
   .spacer {
     flex: 1;
-  }
-  .conflicts {
-    background: var(--surface-2);
-    color: var(--bad);
-    border: 1px solid var(--bad);
-    border-radius: var(--radius);
-    padding: 0.15rem 0.6rem;
-    font-size: 0.8rem;
-    cursor: pointer;
   }
   .conn {
     font-size: 0.8rem;

@@ -4220,9 +4220,17 @@ test('the conflict center keeps a refused change, shows wanted and now, and trie
   await detail.getByLabel('Status').selectOption('parked');
   // The float of the task is modal: it has the button of the bar of the page too, which could not be reached from it.
   const button = taskFloat(page).getByRole('button', { name: /Refused changes: 1/ });
-  await expect(page.getByRole('banner').getByRole('button', { name: /Refused changes: 1/ })).toBeAttached();
+  const barButton = page.getByRole('banner').getByRole('button', { name: /Refused changes: 1/ });
+  await expect(barButton).toBeAttached();
+  await expect(barButton).toHaveText('Refused changes: 1');
+  // After a few seconds only the number stays (the words stay as its name).
+  await expect(barButton).toHaveText('1', { timeout: 10_000 });
+  await expect(barButton).toHaveAccessibleName('Refused changes: 1');
   await expect(button).toBeVisible();
   expect(readFileSync(file, 'utf8')).not.toMatch(/^status: parked$/m);
+  // The field shows what the file has, not the refused choice (the choice is kept in the conflict center).
+  await expect(taskFloat(page).locator('[data-field="status"]')).toHaveValue('open');
+  await expect(detail.locator('[data-field="status"]')).toHaveValue('open');
 
   // The center says what was wanted and what is there now.
   await button.click();
