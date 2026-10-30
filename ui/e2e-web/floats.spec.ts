@@ -36,6 +36,10 @@ test('a task of the list opens in a float over it, which moves and keeps its pla
   expect(Math.abs(after.x - (before.x - 80))).toBeLessThanOrEqual(1);
   const kept = await page.evaluate(() => localStorage.getItem('tasks-desktop.floats'));
   expect(JSON.parse(kept ?? '{}').task.x).toBe(Math.round(after.x));
+  // The pointer rests on the handle after the drag: its hint opens (after a pause, later under load) and would take the
+  // Escape (WCAG 1.4.13). Off the float and no hint, the Escape is the float's.
+  await page.mouse.move(1, 1);
+  await expect(page.getByRole('tooltip')).toBeHidden();
   await page.keyboard.press('Escape');
   await expect(float).toHaveCount(0);
   expect(seen.requests).toEqual([]);
