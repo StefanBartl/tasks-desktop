@@ -17,6 +17,7 @@ import { LuaFactory } from 'wasmoon';
 import { WebEngine } from '../src/web/engine.ts';
 import { serveEmbeddedWasm, startWorker, WASM_URL } from '../src/web/worker.ts';
 import { bundle, checkout, gitFiles, readLock } from './engine-bundle.mjs';
+import { edgeFiles } from './edge-vault.mjs';
 import { testDir } from './tmp.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -249,21 +250,26 @@ const BY_ID = ['task', 'done_preview', 'plan_for'];
 const mask = (text) =>
   text.trim().replace(/"generated_at":"[^"]*"/g, '"generated_at":"*"').replace(/"engine":\{[^}]*\}/g, '"engine":{*}');
 
-test('every read method answers as nvim does on the same commit', { skip: NEEDS_NVIM }, async (t) => {
+/** `nvim -l tasks.lua call <method>` of the pinned commits on `vault`, written from the git objects into a temp folder. */
+function nvimCaller(t, label, vault) {
   const lock = readLock();
-  const dir = testDir(t, 'compare');
+  const dir = testDir(t, label);
   const engineDir = materialize(checkout('TASKS_ENGINE_DIR', 'tasks.nvim'), lock.commit, ['lua/', 'scripts/'], join(dir, 'tasks.nvim'));
   const libDir = materialize(checkout('LIB_NVIM_DIR', 'lib.nvim'), lock.lib_commit, ['lua/'], join(dir, 'lib.nvim'));
-  const nvim = (method, params) => {
+  return (method, params) => {
     const args = ['--headless', '-u', 'NONE', '-l', join(engineDir, 'scripts', 'tasks.lua'), 'call', method];
     if (params) args.push(`--params=${params}`);
-    args.push(`--vault=${fixture}`);
+    args.push(`--vault=${vault(dir)}`);
     try {
-      return execFileSync('nvim', args, { encoding: 'utf8', env: { ...process.env, LIB_NVIM_DIR: libDir } });
+      return execFileSync('nvim', args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, env: { ...process.env, LIB_NVIM_DIR: libDir } });
     } catch (err) {
       return String(err.stdout ?? err);
     }
   };
+}
+
+test('every read method answers as nvim does on the same commit', { skip: NEEDS_NVIM }, async (t) => {
+  const nvim = nvimCaller(t, 'compare', () => fixture);
   const e = await engine();
   const id = JSON.parse(e.call('list', null, { root: ROOT }).text).items[0].id;
   const cases = [...READ_METHODS.map((m) => [m]), ...BY_ID.map((m) => [m, JSON.stringify({ id })])];
@@ -271,6 +277,43 @@ test('every read method answers as nvim does on the same commit', { skip: NEEDS_
     const web = e.call(method, params ? `{"params":${params}}` : null, { root: ROOT }).text;
     assert.equal(mask(web), mask(nvim(method, params)), `${method} differs`);
   }
+});
+
+// The files a real vault grows over the years (edge-vault.mjs): CRLF, a byte order mark, heads that are not YAML,
+// invalid bytes, text outside ASCII, numbers and dates that are none, names with a space, a folder as a task, ties in
+// the order, a few hundred tasks. The measure is nvim: both answer on the same files and the documents must match.
+test('the edge cases of a real vault answer as nvim does, for every read method and every task', { skip: NEEDS_NVIM }, async (t) => {
+  const files = edgeFiles();
+  const e = await WebEngine.create({ factory: new LuaFactory(), bundle: bundle(), shim: SHIM, log: () => {} });
+  e.mount(Object.fromEntries(Object.entries(files).map(([path, bytes]) => [`${ROOT}/${path}`, bytes])));
+  const nvim = nvimCaller(t, 'edge', (dir) => {
+    const target = join(dir, 'vault'); // named as the mount: the id of the vault is in the documents
+    for (const [path, bytes] of Object.entries(files)) {
+      mkdirSync(dirname(join(target, path)), { recursive: true });
+      writeFileSync(join(target, path), bytes);
+    }
+    return target;
+  });
+  const differs = [];
+  const check = (method, params) => {
+    const web = e.call(method, params ? `{"params":${params}}` : null, { root: ROOT }).text;
+    const there = nvim(method, params);
+    if (mask(web) !== mask(there)) differs.push(`${method} ${params ?? ''}`.trim());
+  };
+  for (const method of READ_METHODS) check(method);
+  // `list` gives a page of 100 at most: all of them, by the offset
+  const items = [];
+  for (let offset = 0; offset !== undefined; ) {
+    const page = JSON.parse(e.call('list', `{"params":{"limit":100,"offset":${offset}}}`, { root: ROOT }).text);
+    items.push(...page.items);
+    offset = page.next_offset;
+  }
+  assert.ok(items.length >= 150, `the edge vault is read: ${items.length} tasks`);
+  // every hand made task, by its id (the generated ones are in the lists already)
+  for (const item of items.filter((x) => !x.id.includes('/gen-'))) {
+    for (const method of BY_ID) check(method, JSON.stringify({ id: item.id }));
+  }
+  assert.deepEqual(differs, [], 'the documents that differ from nvim');
 });
 
 test('an unknown method is a tasks.error, not a throw', async () => {

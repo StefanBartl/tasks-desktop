@@ -229,6 +229,9 @@ and used as described under "In the browser, without installing". Its built file
   commits; only `generated_at` and `engine` may differ (`engine.nvim` is `web+Lua5.4`: no Neovim runs). The
   shim itself answers `ui/web/shim-parity.lua` (JSON, paths, `tolower` for every code point to U+1FFFF, ...) as
   nvim does; `node web/tolower-table.mjs` makes its case table from nvim when Neovim's tables change.
+  A second vault of edge cases (`ui/web/edge-vault.mjs`, made in the test: CRLF, a byte order mark, heads that are no
+  YAML, invalid bytes, text outside ASCII, numbers and dates that are none, a folder as a task, ties in the order, 180
+  tasks) is compared the same way, for every read method and every task.
 - **In the browser.** `pnpm web:check -- --out=<tasks-web>/engine-check.html` builds one page that starts the
   engine in a classic worker from a blob (a module worker does not start from `file://`) on a synthetic vault.
   `pnpm probe -- --out=<tasks-web>/probe.html` builds the probe that checks whether a machine allows all this.
