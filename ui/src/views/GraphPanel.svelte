@@ -4,8 +4,9 @@
   // the engine walks the graph, this only shows it.
   import { untrack } from 'svelte';
   import type { App } from '../lib/app.svelte';
-  import { hintOf, labelOf, translate, type Key } from '../lib/i18n';
+  import { translate, type Key } from '../lib/i18n';
   import { markHidden } from '../lib/text';
+  import { statusTags } from '../lib/statusTags';
   import { graphLegend } from '../lib/legend';
   import Info from 'appkit-ui/Info.svelte';
 
@@ -126,14 +127,15 @@
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <ol class="nodes" onkeydown={onKey}>
       {#each drawn as node (node.id)}
+        {@const tags = statusTags(app.lang, node.status, node.state ?? undefined)}
         <li style:padding-left={`${Math.min(node.distance, 8) * 1.25}rem`} aria-level={node.distance + 1}>
           <button type="button" class="node" class:target={node.distance === 0} onclick={() => app.peek(node.id)}>
             <span class="title">{markHidden(node.title)}</span>
             <span class="id">{node.id}</span>
           </button>
           <span class="meta">
-            <span class="tag" data-hint={hintOf(app.lang, 'hint.status', node.status)}>{labelOf(app.lang, 'status', node.status)}</span>
-            {#if node.state}<span class="tag soft" data-hint={hintOf(app.lang, 'hint.state', node.state)}>{labelOf(app.lang, 'state', node.state)}</span>{/if}
+            <span class="tag" data-hint={tags.status.hint}>{tags.status.label}</span>
+            {#if tags.state}<span class="tag soft" data-hint={tags.state.hint}>{tags.state.label}</span>{/if}
             {#if node.on_critical_path}<span class="tag crit" data-hint={t('hint.critical')}>{t('plan.on_path')}</span>{/if}
           </span>
           {#if waitsFor.get(node.id)}

@@ -10,6 +10,7 @@
   import { stagesLegend } from '../lib/legend';
   import { chosenPlan, criticalIds, firstTasks, phaseCounts, planEmptyKey, stagesOf, warningsOf } from '../lib/plan';
   import { markHidden } from '../lib/text';
+  import { statusTags } from '../lib/statusTags';
   import { narrows } from '../lib/filter';
   import FilterNote from './FilterNote.svelte';
   import GraphPanel from './GraphPanel.svelte';
@@ -267,6 +268,8 @@
           {#if fold === 'open'}
           <ul class="plain stage-list">
             {#each stage.tasks as task (task.id)}
+              {@const shownState = task.readiness?.state === 'ready' || task.readiness?.state === 'unknown' ? undefined : task.readiness?.state}
+              {@const tags = statusTags(app.lang, task.status, shownState)}
               <li class:critical={critical.has(task.id)} data-id={task.id}>
                 <button
                   type="button"
@@ -280,10 +283,8 @@
                     <span class="tag soft" data-hint={t('cross.mark', { n: app.crossAreas(task.id).length, areas: app.crossAreas(task.id).join(', ') })}><span aria-hidden="true">↔ {app.crossAreas(task.id).length}</span><span class="sr-only">{t('mark.cross', { n: app.crossAreas(task.id).length })}</span></span>
                   {/if}
                   <!-- The same marks as a row of the list, explained the same way. -->
-                  <span class="tag" data-hint={hintOf(app.lang, 'hint.status', task.status)}>{labelOf(app.lang, 'status', task.status)}</span>
-                  {#if task.readiness && task.readiness.state !== 'ready' && task.readiness.state !== 'unknown'}
-                    <span class="tag soft" data-hint={hintOf(app.lang, 'hint.state', task.readiness.state)}>{labelOf(app.lang, 'state', task.readiness.state)}</span>
-                  {/if}
+                  <span class="tag" data-hint={tags.status.hint}>{tags.status.label}</span>
+                  {#if tags.state}<span class="tag soft" data-hint={tags.state.hint}>{tags.state.label}</span>{/if}
                   <span class="tag soft" data-hint={hintOf(app.lang, 'hint', 'prio')}>{#if task.prio !== undefined}P{task.prio}{:else}<span aria-hidden="true">?</span><span class="sr-only">{t('mark.no_prio')}</span>{/if}</span>
                   {#if task.effort}<span class="tag soft" data-hint={hintOf(app.lang, 'hint', 'effort')}>{markHidden(task.effort)}</span>{/if}
                 </span>

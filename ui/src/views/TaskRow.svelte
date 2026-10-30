@@ -1,8 +1,9 @@
 <script lang="ts">
   import { contextTarget, type ContextTarget } from 'appkit-ui/contextmenu';
   import type { TaskEntry } from '../lib/contract';
-  import { hintOf, labelOf, translate, type Lang } from '../lib/i18n';
+  import { hintOf, translate, type Lang } from '../lib/i18n';
   import { markHidden } from '../lib/text';
+  import { statusTags } from '../lib/statusTags';
   import { isDue } from '../lib/remind';
 
   let {
@@ -39,8 +40,10 @@
   } = $props();
 
   // A word this version does not know is shown as it is.
-  const status = $derived(labelOf(lang, 'status', task.status));
-  const state = $derived(task.readiness ? labelOf(lang, 'state', task.readiness.state) : null);
+  // When the status and the state say the same word there is one mark (statusTags).
+  const tags = $derived(
+    statusTags(lang, task.status, task.readiness?.state === 'unknown' ? undefined : task.readiness?.state),
+  );
   const due = $derived(isDue(task.remind, today));
 
   /**
@@ -82,8 +85,8 @@
     {#if flagged > 0}<span class="tag bad" data-hint={flagTitle}><span aria-hidden="true">⚑ {flagged}</span><span class="sr-only">{translate(lang, 'mark.flagged', { n: flagged })}</span></span>{/if}
     {#if crossAreas.length >= 2}<span class="tag soft" data-hint={crossTitle}><span aria-hidden="true">↔ {crossAreas.length}</span><span class="sr-only">{translate(lang, 'mark.cross', { n: crossAreas.length })}</span></span>{/if}
     {#if due}<span class="tag due" data-hint={translate(lang, 'remind.due', { date: task.remind ?? '' })}><span aria-hidden="true">⏰ {task.remind}</span><span class="sr-only">{translate(lang, 'mark.due', { date: task.remind ?? '' })}</span></span>{/if}
-    <span class="tag" data-hint={hintOf(lang, 'hint.status', task.status)}>{status}</span>
-    {#if state && task.readiness?.state !== 'unknown'}<span class="tag soft" data-hint={hintOf(lang, 'hint.state', task.readiness?.state)}>{state}</span>{/if}
+    <span class="tag" data-hint={tags.status.hint}>{tags.status.label}</span>
+    {#if tags.state}<span class="tag soft" data-hint={tags.state.hint}>{tags.state.label}</span>{/if}
     <span class="tag soft" data-hint={hintOf(lang, 'hint', 'prio')}>{#if task.prio !== undefined}P{task.prio}{:else}<span aria-hidden="true">?</span><span class="sr-only">{translate(lang, 'mark.no_prio')}</span>{/if}</span>
     {#if task.effort}<span class="tag soft" data-hint={hintOf(lang, 'hint', 'effort')}>{task.effort}</span>{/if}
     {#if task.steps && task.steps.total > 0}
