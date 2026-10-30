@@ -6570,14 +6570,11 @@ test('the context menu copies a task, the marked ones it is opened on, and the t
   const tried = page.getByRole('region', { name: 'lib.nvim', exact: true });
   await expect(tried).toBeVisible();
   const group = tried.locator('section[data-group="open"]');
-  // Other tests write into the shared vault: an update that draws the group anew closes the menu, so open it again.
-  const csv = menu.getByRole('menuitem', { name: 'Copy as CSV' });
-  await expect(async () => {
-    if (!(await csv.isVisible())) await group.locator('h3 button').click({ button: 'right' });
-    await expect(csv).toBeVisible({ timeout: 2000 });
-  }).toPass({ timeout: 30_000 });
   const shown = await group.locator('[data-view-item]').count();
-  await csv.click();
+  // The click scrolls the list of groups to the header first; the scroll event that comes after the menu opened leaves
+  // it open (the kit closes it only when the target moved).
+  await group.locator('h3 button').click({ button: 'right' });
+  await menu.getByRole('menuitem', { name: 'Copy as CSV' }).click();
   got = await copied();
   const lines = got[2]!.trimEnd().split('\r\n');
   expect(lines[0]).toContain('id');
