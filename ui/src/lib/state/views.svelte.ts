@@ -21,6 +21,8 @@ export interface ViewsHost {
   /** The view that was open last, as the browser keeps it (null: none, or one that may not be kept). */
   remembered(): string | null;
   remember(id: string | null): void;
+  /** The page shows the vault read only: a fold of a group stays in the page, the view's file is not written. */
+  readOnly?(): boolean;
 }
 
 export class ViewsState {
@@ -169,8 +171,23 @@ export class ViewsState {
     return result?.results[0]?.ok === true;
   }
 
-  /** Fold the group `value` of `view`, or open it: the view keeps its folds in its file. */
+  /** The folds of the page for views it may not write (read only), by the id of the view. */
+  folds = $state<Record<string, string[]>>({});
+
+  /** The groups of `view` that are folded: those of its file, or of the page where it may not write the file. */
+  collapsedOf(view: View): string[] {
+    return this.folds[view.id] ?? view.collapsed ?? [];
+  }
+
+  /**
+   * Fold the group `value` of `view`, or open it: the view keeps its folds in its file. Read only, the fold is the
+   * page's (it is only a way to look, not a change of the vault) and goes with a reload.
+   */
   toggle(view: View, form: ViewForm, value: string): Promise<boolean> {
+    if (view.id !== DRAFT_ID && this.host.readOnly?.()) {
+      this.folds = { ...this.folds, [view.id]: toggledGroup(this.collapsedOf(view), value) };
+      return Promise.resolve(true);
+    }
     return this.save(view, { ...form, collapsed: toggledGroup(form.collapsed ?? [], value) });
   }
 

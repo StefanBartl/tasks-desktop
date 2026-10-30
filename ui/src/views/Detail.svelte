@@ -182,11 +182,19 @@
     if (field && !(field as HTMLInputElement).disabled) field.focus();
   });
   /**
-   * Ctrl+S (Cmd+S) saves the draft of the task. The field being typed in is left first: its `change` puts what was
-   * typed into the draft before the draft is written.
+   * Ctrl+S (Cmd+S) saves what is being edited in the detail: in the editor of the text, the text (in both modes); else,
+   * with the option to save fields with a button, the draft of the task. The field being typed in is left first: its
+   * `change` puts what was typed into the draft before the draft is written.
    */
   function saveKey(e: KeyboardEvent): void {
-    if (!task || app.saveMode !== 'manual' || e.key.toLowerCase() !== 's' || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+    if (!task || e.key.toLowerCase() !== 's' || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+    if (editing && e.target instanceof HTMLElement && e.target.closest('.body-edit')) {
+      e.preventDefault();
+      // The focus stays in the editor while the text is written; the editor closes when it was.
+      if (!app.locked) void saveBody();
+      return;
+    }
+    if (app.saveMode !== 'manual') return;
     e.preventDefault();
     // Only a field of the draft is left (so that what was typed is in it); the text, a note or a reason being typed
     // keeps the focus, and is not saved by this key.

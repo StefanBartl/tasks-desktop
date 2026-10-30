@@ -576,6 +576,7 @@ export class App {
       groupings: () => env.hub.groupings(),
       // A change while a write is on its way is refused with a word, as on the board (not dropped without one).
       write: (ops) => (this.refusedWhileSaving() ? Promise.resolve(null) : this.write(ops)),
+      readOnly: () => this.readOnly,
       remembered: () => safe(() => env.prefs.getItem(OPEN_VIEW_KEY)) || null,
       // The id names its area: it is kept only for an area whose class may be kept in the browser (as the cache).
       remember: (id) => {

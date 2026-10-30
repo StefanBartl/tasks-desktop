@@ -292,6 +292,10 @@
                     onpointercancel={(e) => grip(e, card.id, 'cancel')}>⠿</span
                   >
                   <span class="id">{card.id}</span>
+                  {#if Object.keys(app.draftOf(card.id)).length > 0}
+                    {@const n = Object.keys(app.draftOf(card.id)).length}
+                    <span class="tag draft" data-hint={t('mark.draft', { n })}><span aria-hidden="true">✎ {n}</span><span class="sr-only">{t('mark.draft', { n })}</span></span>
+                  {/if}
                   {#if !card.valid}<span class="tag bad" data-hint={t('hint.invalid')}><span aria-hidden="true">!</span><span class="sr-only">{t('mark.invalid')}</span></span>{/if}
                   {#if app.crossAreas(card.id).length >= 2}
                     <span class="tag soft" data-hint={t('cross.mark', { n: app.crossAreas(card.id).length, areas: app.crossAreas(card.id).join(', ') })}><span aria-hidden="true">↔ {app.crossAreas(card.id).length}</span><span class="sr-only">{t('mark.cross', { n: app.crossAreas(card.id).length })}</span></span>
@@ -326,6 +330,10 @@
 </div>
 
 <style>
+  .tag.draft {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
   .wrap {
     display: flex;
     flex-direction: column;

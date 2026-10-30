@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test';
+import { e2ePort } from './e2e/port';
 
 // The system's Chrome is used (`channel`), so nothing is downloaded. One
 // worker: the tests share one hub and pair it one after the other.
@@ -12,7 +13,8 @@ export default defineConfig({
   reporter: 'list',
   use: {
     channel: 'chrome',
-    baseURL: 'http://127.0.0.1:17698',
+    // TASKS_E2E_PORT moves it (e2e/port.ts): the CI on the author's machine takes another port than a run there.
+    baseURL: `http://127.0.0.1:${e2ePort(process.env)}`,
     trace: 'retain-on-failure',
     screenshot: 'off',
     video: 'off',

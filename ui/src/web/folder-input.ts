@@ -49,6 +49,17 @@ function fileHandle(file: PickedFile, name: string): FileHandleLike {
 }
 
 /**
+ * The browser handed over files without their place in the folder (`webkitRelativePath` empty): Safari on an iPhone or
+ * iPad takes the input but gives single files, not a folder. The page tells the person so, in their language.
+ */
+export class NoPathsError extends Error {
+  constructor() {
+    super('the browser did not tell where in the folder a file lies');
+    this.name = 'NoPathsError';
+  }
+}
+
+/**
  * The folder the files lie in. The first segment of each path is the name of the chosen folder; a list whose files do
  * not share one (it cannot happen with one chosen folder) is refused rather than guessed at.
  */
@@ -58,7 +69,7 @@ export function folderOfFiles(files: ArrayLike<PickedFile>): PickedFolder {
     const file = files[i] as PickedFile;
     const segments = file.webkitRelativePath.split('/');
     // A file without a folder in its path: the browser did not give a folder.
-    if (segments.length < 2) throw new Error('the browser did not tell where in the folder a file lies');
+    if (segments.length < 2) throw new NoPathsError();
     const top = segments[0] as string;
     root ??= new Dir(top);
     if (top !== root.name) throw new Error('the files do not come from one folder');
@@ -111,6 +122,8 @@ export type InputPick =
   | { kind: 'cancelled' }
   /** The dialog was closed with a choice, but the browser listed no file (an empty folder). */
   | { kind: 'empty' }
+  /** The browser gave files without their paths (Safari on iOS): no folder can be made of them. */
+  | { kind: 'no_paths' }
   | { kind: 'failed'; message: string };
 
 /**
@@ -145,7 +158,7 @@ export function pickFolderByInput(doc: InputDocument): Promise<InputPick> {
         try {
           done({ kind: 'picked', folder: folderOfFiles(files) });
         } catch (error) {
-          done({ kind: 'failed', message: oneLine(error) });
+          done(error instanceof NoPathsError ? { kind: 'no_paths' } : { kind: 'failed', message: oneLine(error) });
         }
       },
       { once: true },

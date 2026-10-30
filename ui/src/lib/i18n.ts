@@ -698,6 +698,8 @@ const en = {
     'This page is not in a secure context, so the browser will not let it read a folder. Open it from a file on your disk or over https.',
   'web.entry.notice.cancelled': 'No folder was chosen.',
   'web.entry.notice.empty': 'The browser listed no files in that folder. Is it empty? Choose the vault folder.',
+  'web.entry.notice.no_paths':
+    'This browser gave single files, not a folder (Safari on an iPhone or iPad does so). Open the page in a browser on a computer.',
   'web.entry.notice.blocked':
     'The browser or a policy of your organisation does not allow choosing a folder here.',
   'web.entry.notice.failed': 'The folder could not be opened: {detail}',
@@ -1123,6 +1125,7 @@ const en = {
   'mark.flagged': '{n} findings of the check',
   'mark.cross': 'touches {n} areas',
   'mark.due': 'reminder due {date}',
+  'mark.draft': 'unsaved changes: {n}',
   'mark.no_prio': 'no priority',
   'mark.no_effort': 'no effort',
   'mark.legend.what': 'the marks of a task',
@@ -1896,6 +1899,8 @@ const de: Record<Key, string> = {
     'Diese Seite läuft nicht in einem sicheren Kontext, darum lässt der Browser sie keinen Ordner lesen. Öffne sie aus einer Datei auf deiner Platte oder über https.',
   'web.entry.notice.cancelled': 'Es wurde kein Ordner gewählt.',
   'web.entry.notice.empty': 'Der Browser hat in diesem Ordner keine Dateien gemeldet. Ist er leer? Wähle den Vault-Ordner.',
+  'web.entry.notice.no_paths':
+    'Dieser Browser hat einzelne Dateien statt eines Ordners übergeben (so macht es Safari auf iPhone und iPad). Öffne die Seite in einem Browser auf einem Computer.',
   'web.entry.notice.blocked':
     'Der Browser oder eine Richtlinie deiner Organisation erlaubt hier keine Ordnerwahl.',
   'web.entry.notice.failed': 'Der Ordner ließ sich nicht öffnen: {detail}',
@@ -2321,6 +2326,7 @@ const de: Record<Key, string> = {
   'mark.flagged': '{n} Funde der Prüfung',
   'mark.cross': 'berührt {n} Bereiche',
   'mark.due': 'Erinnerung fällig {date}',
+  'mark.draft': 'ungespeicherte Änderungen: {n}',
   'mark.no_prio': 'keine Priorität',
   'mark.no_effort': 'kein Aufwand',
   'mark.legend.what': 'die Marken eines Tasks',

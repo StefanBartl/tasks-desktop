@@ -19,6 +19,7 @@
     flagTitle = '',
     crossAreas = [],
     crossTitle = '',
+    drafted = 0,
     target,
   }: {
     task: TaskEntry;
@@ -35,6 +36,8 @@
     /** The areas the task touches when that is more than its own (from the links). */
     crossAreas?: readonly string[];
     crossTitle?: string;
+    /** How many fields of the task are changed and not saved yet (the option to save fields with a button). */
+    drafted?: number;
     /** What the row is for the context menu (a right click, the menu key, Shift+F10). */
     target?: ContextTarget;
   } = $props();
@@ -84,6 +87,7 @@
     {#if !task.valid}<span class="tag bad" data-hint={hintOf(lang, 'hint', 'invalid')}><span aria-hidden="true">!</span><span class="sr-only">{translate(lang, 'mark.invalid')}</span></span>{/if}
     {#if flagged > 0}<span class="tag bad" data-hint={flagTitle}><span aria-hidden="true">⚑ {flagged}</span><span class="sr-only">{translate(lang, 'mark.flagged', { n: flagged })}</span></span>{/if}
     {#if crossAreas.length >= 2}<span class="tag soft" data-hint={crossTitle}><span aria-hidden="true">↔ {crossAreas.length}</span><span class="sr-only">{translate(lang, 'mark.cross', { n: crossAreas.length })}</span></span>{/if}
+    {#if drafted > 0}<span class="tag draft" data-hint={translate(lang, 'mark.draft', { n: drafted })}><span aria-hidden="true">✎ {drafted}</span><span class="sr-only">{translate(lang, 'mark.draft', { n: drafted })}</span></span>{/if}
     {#if due}<span class="tag due" data-hint={translate(lang, 'remind.due', { date: task.remind ?? '' })}><span aria-hidden="true">⏰ {task.remind}</span><span class="sr-only">{translate(lang, 'mark.due', { date: task.remind ?? '' })}</span></span>{/if}
     <span class="tag" data-hint={tags.status.hint}>{tags.status.label}</span>
     {#if tags.state}<span class="tag soft" data-hint={tags.state.hint}>{tags.state.label}</span>{/if}
@@ -100,6 +104,10 @@
 </div>
 
 <style>
+  .tag.draft {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
   .line {
     display: flex;
     align-items: center;

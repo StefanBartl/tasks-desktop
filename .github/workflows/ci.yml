@@ -141,9 +141,12 @@ jobs:
           $found = Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Error, Warning
           $found | Format-Table -AutoSize | Out-String | Write-Output
           if ($found) { exit 1 }
-      # The browser tests: the binary, the real engine, the system's Chrome.
+      # The browser tests: the binary, the real engine, the system's Chrome. On a port of their own (e2e/port.ts): the
+      # runner is the author's machine, where a run in a terminal takes the default port 17698.
       - name: Browser tests (Playwright, axe, XSS corpus)
         working-directory: ui
+        env:
+          TASKS_E2E_PORT: "17699"
         run: node ../tools/run-with-temp.mjs -- pnpm e2e
       # A failed browser test leaves its trace (network, DOM, console) to read instead of a guess.
       - name: Traces of failed browser tests

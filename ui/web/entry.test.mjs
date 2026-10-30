@@ -492,6 +492,15 @@ test('an empty folder is told as empty, and a second click while the dialog is o
   assert.equal(entry.state.notice.code, 'empty');
 });
 
+test('files without their place in the folder (Safari on iOS) lead back with the notice that says so', async () => {
+  const loose = { ...picked('vault/a.md'), webkitRelativePath: '' };
+  const { entry } = entryOver({ win: { document: inputDocument([loose]) } });
+  await entry.start();
+  await entry.pick();
+  assert.equal(entry.state.step, 'choose');
+  assert.equal(entry.state.notice.code, 'no_paths');
+});
+
 test('a closed dialog of the input returns to the start page with the notice; the picker still opens read write', async () => {
   const { entry } = entryOver({ win: { document: inputDocument([]) } });
   await entry.start();

@@ -453,7 +453,7 @@
         <form class="rename" onsubmit={(e) => void rename(e, open)}>
           <label>
             {t('views.form.title')}
-            <input bind:value={renaming} maxlength="300" />
+            <input bind:value={renaming} maxlength="300" readonly={app.locked && open.id !== DRAFT_ID} />
           </label>
           <button type="submit" disabled={app.locked}>{t('views.rename')}</button>
         </form>
@@ -578,7 +578,7 @@
               {groups}
               mode={open.display === 'list' ? 'list' : 'columns'}
               label={(value) => valueLabel(open.group_by, value)}
-              collapsed={open.collapsed}
+              collapsed={saved.collapsedOf(open)}
               ontoggle={(value) => void saved.toggle(open, formOf(open), value)}
               busy={app.locked}
               ondrop={movable ? (id, from, to, copy) => void move(id, from, to, copy) : undefined}

@@ -7,10 +7,11 @@ import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { removeTree, tempDir, tempRoot } from '../web/tmp.mjs';
+import { e2ePort } from './port.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '..', '..');
-export const PORT = 17698;
+export const PORT = e2ePort(process.env);
 export const ORIGIN = `http://127.0.0.1:${PORT}`;
 
 /**

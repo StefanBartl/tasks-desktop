@@ -25,7 +25,7 @@ export interface RecentView {
 
 /** Why the last attempt did not lead into a vault. `detail` is a short plain line of the browser or the reader. */
 export interface Notice {
-  code: 'cancelled' | 'empty' | 'blocked' | 'failed' | 'denied' | 'gone' | 'limit';
+  code: 'cancelled' | 'empty' | 'no_paths' | 'blocked' | 'failed' | 'denied' | 'gone' | 'limit';
   detail?: string;
 }
 
@@ -148,6 +148,7 @@ export class Entry {
     const result = await pickFolderByInput(this.deps.win.document as InputDocument);
     if (result.kind === 'cancelled') return this.start({ code: 'cancelled' });
     if (result.kind === 'empty') return this.start({ code: 'empty' });
+    if (result.kind === 'no_paths') return this.start({ code: 'no_paths' });
     if (result.kind === 'failed') return this.start({ code: 'failed', detail: result.message });
     await this.enter(result.folder, true);
   }

@@ -123,8 +123,13 @@ test('a closed dialog, an empty choice and a failing click are told apart', asyn
   assert.match(c.message, /blocked/);
   assert.equal(refused.made.removed, 1);
 
-  const odd = documentWith({ files: [file('no-folder.md')] });
+  // files without their place in the folder (Safari on iOS): told apart, so the page can say it in the person's words
+  const odd = documentWith({ files: [file('no-folder.md'), { ...file('x.md'), webkitRelativePath: '' }] });
   const d = pickFolderByInput(odd.doc);
   odd.made.fire('change');
-  assert.equal((await d).kind, 'failed');
+  assert.deepEqual(await d, { kind: 'no_paths' });
+  const twoFolders = documentWith({ files: [file('one/a.md'), file('two/b.md')] });
+  const e = pickFolderByInput(twoFolders.doc);
+  twoFolders.made.fire('change');
+  assert.equal((await e).kind, 'failed');
 });

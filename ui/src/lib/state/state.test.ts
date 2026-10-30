@@ -8,7 +8,7 @@ import { ConflictsState } from './conflicts.svelte';
 import { TodayState } from './today.svelte';
 import { VaultsState } from './vaults.svelte';
 import { ViewsState, type ViewsHost } from './views.svelte';
-import type { Groupings, Views } from '../contract';
+import type { Groupings, View, Views } from '../contract';
 
 const conflict = (key: string): Conflict => ({ key, id: `a/${key}`, op: { op: 'set', id: `a/${key}`, patch: {} }, code: 'conflict', at: 1 });
 
@@ -317,5 +317,24 @@ describe('the views', () => {
     p.groupings[1]!(groupingsDoc);
     await again;
     expect(state.groupingsNow?.rev).toBe('rev:1');
+  });
+
+  it('read only, a fold stays in the page and nothing is written; writing, the fold goes to the view', async () => {
+    const p = pending();
+    const written: unknown[] = [];
+    let readOnly = true;
+    p.host.write = async (ops) => (written.push(ops), null);
+    p.host.readOnly = () => readOnly;
+    const state = new ViewsState(p.host);
+    const view = { id: 'pub/a', area: 'pub', title: 'A', display: 'list', group_by: 'status', collapsed: ['done'], select: {}, etag: 'e1' } as unknown as View;
+    expect(state.collapsedOf(view)).toEqual(['done']);
+    expect(await state.toggle(view, { title: 'A', display: 'list', group_by: 'status', collapsed: ['done'] } as never, 'open')).toBe(true);
+    expect(state.collapsedOf(view)).toEqual(['done', 'open']);
+    await state.toggle(view, { title: 'A', display: 'list', group_by: 'status', collapsed: ['done'] } as never, 'done');
+    expect(state.collapsedOf(view)).toEqual(['open']);
+    expect(written).toEqual([]);
+    readOnly = false;
+    await state.toggle({ ...view, id: 'pub/b' } as View, { title: 'A', display: 'list', group_by: 'status', collapsed: [] } as never, 'open');
+    expect(written).toHaveLength(1);
   });
 });

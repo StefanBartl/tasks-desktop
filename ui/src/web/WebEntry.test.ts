@@ -50,7 +50,7 @@ describe('the way in', () => {
   });
 
   it('tells the reason the last try did not lead into a vault', () => {
-    const notice = (code: 'cancelled' | 'blocked' | 'failed' | 'denied' | 'gone' | 'limit', detail?: string) =>
+    const notice = (code: 'cancelled' | 'empty' | 'no_paths' | 'blocked' | 'failed' | 'denied' | 'gone' | 'limit', detail?: string) =>
       html({ step: 'choose', recent: [], notice: { code, detail }, readOnly: false });
     expect(notice('cancelled')).toContain('No folder was chosen.');
     expect(notice('blocked')).toContain('policy of your organisation');
@@ -59,6 +59,8 @@ describe('the way in', () => {
     expect(notice('failed', 'disk full')).toContain('could not be opened: disk full');
     expect(notice('limit', 'more than 5 files')).toContain('too large to read: more than 5 files');
     expect(notice('gone')).toContain('role="alert"');
+    expect(notice('no_paths')).toContain('iPhone or iPad');
+    expect(notice('empty')).toContain('listed no files');
   });
 
   it('writes a name from the folder as text, never as markup', () => {

@@ -6,7 +6,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { expectAccessible, violations, watchViolations } from './a11y';
 import { STATE } from './global';
-import { pairingLink, pickedFolder, removeFile } from './hub';
+import { ORIGIN, pairingLink, pickedFolder, removeFile } from './hub';
 
 test.use({ locale: 'en-US' });
 
@@ -222,7 +222,7 @@ test('an unpaired page says how to pair, and has no violation', async ({ page })
 
 test('the link pairs the tab, the code leaves the address bar, the list is there', async ({ page }) => {
   await pairByLink(page);
-  expect(page.url()).toBe('http://127.0.0.1:17698/');
+  expect(page.url()).toBe(`${ORIGIN}/`);
   expect(await page.evaluate(() => location.hash)).toBe('');
   await showList(page);
   const rows = await page.locator('button.row').count();
@@ -4838,6 +4838,13 @@ test('the text of a task is edited in the detail: written whole, taken back by u
   await expect(detail.getByRole('textbox', { name: /Text of the task/ })).toHaveValue('My draft.');
   await detail.getByRole('button', { name: 'Cancel' }).click();
   await expect(detail.getByRole('textbox', { name: /Text of the task/ })).toHaveCount(0);
+
+  // Ctrl+S in the editor writes the text, as the button does (also with the fields written at once).
+  await detail.getByRole('button', { name: 'Edit text' }).click();
+  await detail.getByRole('textbox', { name: /Text of the task/ }).fill('Saved with the keys.');
+  await page.keyboard.press('Control+s');
+  await expect(detail.getByRole('textbox', { name: /Text of the task/ })).toHaveCount(0);
+  expect(readFileSync(file, 'utf8')).toContain('\nSaved with the keys.\n');
   expect(await violations(page)).toEqual([]);
   expect(consoleProblems.get(page)).toEqual([]);
 });
@@ -6168,9 +6175,13 @@ test('with the option to save with a button, the fields of a task are held until
   await detail.getByLabel('Effort').selectOption('L');
   await detail.getByLabel('Kind').selectOption('bug');
   await expect(bar.getByRole('status')).toHaveText('Unsaved changes: 2');
+  // The row of the task in the list says so too, until it is saved.
+  const draftMark = page.locator('.line', { has: page.locator('.id', { hasText: id }) }).locator('.tag.draft');
+  await expect(draftMark).toContainText('✎ 2');
   await bar.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
   await expect(bar.getByRole('status')).toHaveText('No unsaved changes.');
+  await expect(draftMark).toHaveCount(0);
 
   // Ctrl+S in a field that is being typed in takes what was typed.
   await detail.getByLabel('Title').fill('Saved with the keys e2e');
