@@ -78,6 +78,7 @@ import { chosenPlan, stagesOf } from './plan';
 import { applyOrder, orderOf, parseSort, type SortWord } from './sort';
 import { fromEngineList, type EngineList } from './engineLists';
 import { DEFAULT_RANGES, rangesOf, type Ranges } from './fields';
+import { sameField, type FieldValue } from './drafts';
 import {
   activeList as activeListOf,
   cleanName,
@@ -294,6 +295,19 @@ export class App {
   }
   /** Area names without the prefix `wkdbook-` where that is unambiguous. */
   shortAreas = $state(true);
+  /**
+   * `auto`: a field of the detail is written as soon as it changes (the default). `manual`: the changes of the fields
+   * of a task are held as a draft (`drafts`) until the person saves them, all in one write; the other ways to change
+   * a task (board, palette, menus, steps, notes) still write at once.
+   */
+  saveMode = $state<'auto' | 'manual'>('auto');
+  /** The unsaved changes of the detail's fields per task id (`manual`): key -> value, `null` takes the key away. */
+  drafts = $state<Record<string, Record<string, FieldValue>>>({});
+  /**
+   * The version of the file (etag) each draft was made on: a save is against it, so a change made meanwhile by
+   * another program, or by the board of this page, is a conflict and not overwritten.
+   */
+  private draftBase: Record<string, string | undefined> = {};
   /** The widths the columns of the list were dragged to (`null`: the default). */
   listColumns = $state<ListColumns>(defaultColumns());
   /** How far each stage of the plan and each column of the board is folded. */
@@ -570,6 +584,7 @@ export class App {
       'en',
     );
     this.shortAreas = safe(() => env.prefs.getItem('tasks-desktop.short-areas')) !== 'off';
+    this.saveMode = safe(() => env.prefs.getItem('tasks-desktop.save-mode')) === 'manual' ? 'manual' : 'auto';
     this.listColumns = parseColumns(safe(() => env.prefs.getItem('tasks-desktop.list-columns')));
     this.folds = parseFolds(safe(() => env.prefs.getItem('tasks-desktop.folds')));
     this.planDisplay = safe(() => env.prefs.getItem('tasks-desktop.plan-display')) === 'graph' ? 'graph' : 'stages';
@@ -1251,7 +1266,7 @@ export class App {
   }
 
   /** Set one key of a task; `null` takes the key away. */
-  async setField(id: string, key: string, value: string | number | string[] | null): Promise<void> {
+  async setField(id: string, key: string, value: FieldValue): Promise<void> {
     const task = this.tasks.find((t) => t.id === id);
     if (!task) return;
     await this.write([
@@ -1422,6 +1437,7 @@ export class App {
     ]);
     const entry = result?.results[0];
     if (!entry?.ok || entry.outcome !== 'moved' || typeof entry.new_id !== 'string') return false;
+    this.moveDraft(id, entry.new_id);
     if (selectedBefore === id) {
       this.select(entry.new_id);
       // The float the task was moved from shows it again under its new id (the read of the list closed it), and so
@@ -2321,6 +2337,92 @@ export class App {
   /** Show the grip of one block, or take it away again (a second press on the same block). */
   toggleSizing(key: string): void {
     this.sizing = this.sizing === key ? null : key;
+  }
+
+  /** Hold the fields of the detail until they are saved (`manual`), or write each at once (`auto`). Drafts stay. */
+  setSaveMode(mode: 'auto' | 'manual'): void {
+    this.saveMode = mode;
+    safe(() => this.env.prefs.setItem('tasks-desktop.save-mode', mode));
+  }
+
+  /**
+   * The unsaved changes of a task (empty when there are none). Only in `manual`: after a switch to `auto` the drafts
+   * are kept but not shown, and come back with `manual`.
+   */
+  draftOf(id: string): Readonly<Record<string, FieldValue>> {
+    return this.saveMode === 'manual' ? (this.drafts[id] ?? {}) : {};
+  }
+
+  /** Whether any task has unsaved changes (the page asks before it is closed). */
+  get hasDrafts(): boolean {
+    // A draft of a task that is not in the list any more (finished, removed outside) cannot be saved: not asked about.
+    return this.saveMode === 'manual' && this.tasks.some((t) => t.id in this.drafts);
+  }
+
+  /**
+   * A field of the detail changed: written at once (`auto`), or held in the task's draft (`manual`). A value that is
+   * what the file has takes the key out of the draft again.
+   */
+  async editField(id: string, key: string, value: FieldValue): Promise<void> {
+    if (this.saveMode === 'auto') return this.setField(id, key, value);
+    const task = this.tasks.find((t) => t.id === id);
+    if (!task) return;
+    const next = { ...this.draftOf(id) };
+    if (Object.keys(next).length === 0) this.draftBase[id] = task.etag;
+    if (sameField(value, (task as unknown as Record<string, unknown>)[key])) delete next[key];
+    else next[key] = value;
+    this.setDraft(id, next);
+  }
+
+  private setDraft(id: string, draft: Record<string, FieldValue>): void {
+    const all = { ...this.drafts };
+    if (Object.keys(draft).length === 0) {
+      delete all[id];
+      delete this.draftBase[id];
+    } else all[id] = draft;
+    this.drafts = all;
+  }
+
+  /** The task moved to another id (`move_area`, made by this page): its draft goes with it, on the moved file. */
+  private moveDraft(from: string, to: string): void {
+    const draft = this.drafts[from];
+    if (!draft || from === to) return;
+    const all = { ...this.drafts, [to]: draft };
+    delete all[from];
+    this.drafts = all;
+    delete this.draftBase[from];
+    this.draftBase[to] = this.tasks.find((t) => t.id === to)?.etag;
+  }
+
+  /** Throw the unsaved changes of a task away: the fields show the file again. */
+  discardDraft(id: string): void {
+    this.setDraft(id, {});
+  }
+
+  /**
+   * Write the unsaved changes of a task in one request, against the version of the file that was shown (`if_match`).
+   * The draft is dropped only when the engine wrote it; a refusal (the file changed meanwhile) keeps it, and the page
+   * reads the task again, so a second save is against the new version. Says whether it was written.
+   */
+  async saveDraft(id: string): Promise<boolean> {
+    // A copy: the draft may change while the write is under way.
+    const patch = { ...this.draftOf(id) };
+    const task = this.tasks.find((t) => t.id === id);
+    if (!task || Object.keys(patch).length === 0) return false;
+    const base = id in this.draftBase ? this.draftBase[id] : task.etag;
+    // The entries of the conflict center now: a refusal of this save adds one (or replaces the one of the same change).
+    const conflictsBefore = new Set(this.conflicts);
+    const result = await this.write([{ op: 'set', id, patch, ...(base ? { if_match: base } : {}) }]);
+    if (result?.ok !== true) {
+      // The file moved on since the draft was made: the change now lives in the conflict center (to try again or
+      // throw away there), and the fields show the file, as after any refused change. Another refusal (a value the
+      // engine does not take) keeps the draft to be put right.
+      if (this.conflicts.some((c) => c.id === id && !conflictsBefore.has(c))) this.discardDraft(id);
+      return false;
+    }
+    // What was saved is not a draft any more; a field changed again while the write was under way stays one.
+    this.setDraft(id, Object.fromEntries(Object.entries(this.draftOf(id)).filter(([k, v]) => !(k in patch) || !sameField(v, patch[k] ?? null))));
+    return true;
   }
 
   setShortAreas(on: boolean): void {

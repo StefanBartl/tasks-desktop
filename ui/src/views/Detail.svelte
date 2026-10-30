@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import type { App } from '../lib/app.svelte';
   import { formatNumber, hintOf, labelOf, translate, type Key } from '../lib/i18n';
   import { areaLabel } from '../lib/filter';
   import { parseMarkdown } from 'appkit-ui/markdown';
   import { editableBody, hasHidden, markHidden, MAX_BODY_EDIT } from '../lib/text';
   import { REMIND_CHOICES } from '../lib/remind';
+  import { shownTask } from '../lib/drafts';
   import { classChange as classChangeOf } from '../lib/bulk';
   import { copyText } from '../lib/exportDom';
   import {
@@ -45,7 +47,7 @@
     if (!task) return;
     const next = typed.trim();
     if (next === (current ?? '')) return;
-    void app.setField(task.id, key, next === '' ? null : next);
+    void app.editField(task.id, key, next === '' ? null : next);
   }
   /** Write a list field (`after`, `refs`) when the typed list differs from the one the file has. */
   function changeList(key: 'after' | 'refs' | 'links', current: readonly string[], typed: string): void {
@@ -58,7 +60,7 @@
         return;
       }
     }
-    void app.setField(task.id, key, list.length === 0 ? null : list);
+    void app.editField(task.id, key, list.length === 0 ? null : list);
   }
   /** The links the page may draw: http(s) only, whatever the file holds. */
   const webLinks = $derived((task?.links ?? []).filter(isWebLink));
@@ -179,9 +181,43 @@
     const field = root.querySelector<HTMLElement>(`[data-field="${followed}"]`);
     if (field && !(field as HTMLInputElement).disabled) field.focus();
   });
+  /**
+   * Ctrl+S (Cmd+S) saves the draft of the task. The field being typed in is left first: its `change` puts what was
+   * typed into the draft before the draft is written.
+   */
+  function saveKey(e: KeyboardEvent): void {
+    if (!task || app.saveMode !== 'manual' || e.key.toLowerCase() !== 's' || !(e.ctrlKey || e.metaKey) || e.altKey) return;
+    e.preventDefault();
+    // Only a field of the draft is left (so that what was typed is in it); the text, a note or a reason being typed
+    // keeps the focus, and is not saved by this key.
+    const active = document.activeElement;
+    const field = active instanceof HTMLElement && root?.contains(active) ? active.dataset['field'] : undefined;
+    if (field) (active as HTMLElement).blur();
+    if (app.saving) return;
+    const id = task.id;
+    void app.saveDraft(id).then(async () => {
+      // Back into the field the key was pressed in (the fields were drawn anew): typing goes on there, not into the
+      // single keys of the page.
+      await tick();
+      if (field && app.selectedId === id) root?.querySelector<HTMLElement>(`[data-field="${field}"]`)?.focus();
+    });
+  }
+  // On the detail itself, not the page: a Ctrl+S elsewhere is the browser's (or nothing).
+  $effect(() => {
+    const at = root;
+    if (!at) return;
+    at.addEventListener('keydown', saveKey);
+    return () => at.removeEventListener('keydown', saveKey);
+  });
 </script>
 
-<aside class="detail" aria-label={t('detail.label')} bind:this={root} onfocusin={focusIn} onfocusout={focusOut}>
+<aside
+  class="detail"
+  aria-label={t('detail.label')}
+  bind:this={root}
+  onfocusin={focusIn}
+  onfocusout={focusOut}
+>
   {#if !task}
     <p class="muted">{t('detail.none')}</p>
   {:else}
@@ -201,6 +237,29 @@
 
     {#if task.summary}<p>{markHidden(task.summary)}</p>{/if}
 
+    {@const shown = shownTask(task, app.draftOf(task.id))}
+    {@const pending = Object.keys(app.draftOf(task.id)).length}
+    {#if app.saveMode === 'manual'}
+      <!-- The fields are held until saved: what is held, and the two ways out of it. -->
+      <div class="draft" role="group" aria-label={t('draft.label')}>
+        <span class="muted" role="status">{pending > 0 ? t('draft.pending', { n: pending }) : t('draft.none')}</span>
+        <button
+          type="button"
+          class="primary"
+          data-hint={t('hint.ui.draft.save')}
+          disabled={pending === 0 || app.saving}
+          onclick={() => void app.saveDraft(task.id)}>{t('draft.save')}</button
+        >
+        <button
+          type="button"
+          class="quiet"
+          data-hint={t('hint.ui.draft.discard')}
+          disabled={pending === 0 || app.saving}
+          onclick={() => app.discardDraft(task.id)}
+          >{t('draft.discard')}</button
+        >
+      </div>
+    {/if}
     {#key `${task.id}:${app.writes}`}
     <!-- The fields with a text of their own each take a whole line (a title, a summary is seldom short); the choices
          from a few values share the lines between them, each at a width its values fit in. -->
@@ -209,19 +268,19 @@
         <span>{t('field.title')}</span>
         <input
           type="text"
-          value={task.title}
+          value={shown.title}
           data-field="title"
           maxlength="300"
           readonly={app.saving}
           onchange={(e) => {
             const next = e.currentTarget.value.trim();
-            if (next === task.title) return;
+            if (next === shown.title) return;
             if (next === '') {
               app.tell('error', 'field.title_empty');
-              e.currentTarget.value = task.title;
+              e.currentTarget.value = shown.title;
               return;
             }
-            void app.setField(task.id, 'title', next);
+            void app.editField(shown.id, 'title', next);
           }}
         />
       </label>
@@ -232,31 +291,31 @@
         <textarea
           class="summary"
           rows="3"
-          value={task.summary ?? ''}
+          value={shown.summary ?? ''}
           data-field="summary"
           maxlength="1000"
           readonly={app.saving}
           onkeydown={(e) => {
             if (e.key === 'Enter' && !e.isComposing) {
               e.preventDefault();
-              if (!app.saving) changeText('summary', task.summary, oneLine(e.currentTarget.value));
+              if (!app.saving) changeText('summary', shown.summary, oneLine(e.currentTarget.value));
             }
           }}
-          onchange={(e) => changeText('summary', task.summary, oneLine(e.currentTarget.value))}
+          onchange={(e) => changeText('summary', shown.summary, oneLine(e.currentTarget.value))}
         ></textarea>
       </label>
       <div class="picks">
         <label>
           <span data-hint={hintOf(app.lang, 'hint.field', 'status')}>{t('field.status')}</span>
           <select
-            value={task.status ?? ''}
+            value={shown.status ?? ''}
             data-field="status"
             disabled={app.saving}
-            onchange={(e) => void app.setField(task.id, 'status', e.currentTarget.value)}
+            onchange={(e) => void app.editField(shown.id, 'status', e.currentTarget.value)}
           >
             <!-- A status the file has and the engine does not name (an older engine) is shown as it is. -->
-            {#if task.status && !app.ranges.statuses.includes(task.status)}
-              <option value={task.status}>{labelOf(app.lang, 'status', task.status)}</option>
+            {#if shown.status && !app.ranges.statuses.includes(shown.status)}
+              <option value={shown.status}>{labelOf(app.lang, 'status', shown.status)}</option>
             {/if}
             {#each app.ranges.statuses as s (s)}
               <option value={s}>{labelOf(app.lang, 'status', s)}</option>
@@ -266,19 +325,19 @@
         <label>
           <span data-hint={hintOf(app.lang, 'hint.field', 'prio')}>{t('field.prio')}</span>
           <select
-            value={task.prio === undefined ? '' : String(task.prio)}
+            value={shown.prio === undefined ? '' : String(shown.prio)}
             data-field="prio"
             disabled={app.saving}
             onchange={(e) =>
-              void app.setField(
-                task.id,
+              void app.editField(
+                shown.id,
                 'prio',
                 e.currentTarget.value === '' ? null : Number(e.currentTarget.value),
               )}
           >
             <option value="">{t('field.none')}</option>
-            {#if task.prio !== undefined && !app.ranges.prios.includes(task.prio)}
-              <option value={String(task.prio)}>{task.prio}</option>
+            {#if shown.prio !== undefined && !app.ranges.prios.includes(shown.prio)}
+              <option value={String(shown.prio)}>{shown.prio}</option>
             {/if}
             {#each app.ranges.prios as p (p)}
               <option value={String(p)}>{p}</option>
@@ -288,15 +347,15 @@
         <label>
           <span data-hint={hintOf(app.lang, 'hint.field', 'actor')}>{t('field.actor')}</span>
           <select
-            value={task.actor ?? ''}
+            value={shown.actor ?? ''}
             data-field="actor"
             disabled={app.saving}
             onchange={(e) =>
-              void app.setField(task.id, 'actor', e.currentTarget.value === '' ? null : e.currentTarget.value)}
+              void app.editField(shown.id, 'actor', e.currentTarget.value === '' ? null : e.currentTarget.value)}
           >
             <option value="">{t('field.none')}</option>
-            {#if task.actor && !app.ranges.actors.includes(task.actor)}
-              <option value={task.actor}>{labelOf(app.lang, 'actor', task.actor)}</option>
+            {#if shown.actor && !app.ranges.actors.includes(shown.actor)}
+              <option value={shown.actor}>{labelOf(app.lang, 'actor', shown.actor)}</option>
             {/if}
             {#each app.ranges.actors as a (a)}
               <option value={a}>{labelOf(app.lang, 'actor', a)}</option>
@@ -306,11 +365,11 @@
         <label>
           <span data-hint={hintOf(app.lang, 'hint.field', 'kind')}>{t('field.kind')}</span>
           <select
-            value={task.kind ?? ''}
+            value={shown.kind ?? ''}
             data-field="kind"
             disabled={app.saving}
             onchange={(e) =>
-              void app.setField(task.id, 'kind', e.currentTarget.value === '' ? null : e.currentTarget.value)}
+              void app.editField(shown.id, 'kind', e.currentTarget.value === '' ? null : e.currentTarget.value)}
           >
             <option value="">{t('field.none')}</option>
             {#each app.ranges.kinds as k (k)}
@@ -321,15 +380,15 @@
         <label>
           <span data-hint={hintOf(app.lang, 'hint.field', 'effort')}>{t('field.effort')}</span>
           <select
-            value={task.effort ?? ''}
+            value={shown.effort ?? ''}
             data-field="effort"
             disabled={app.saving}
             onchange={(e) =>
-              void app.setField(task.id, 'effort', e.currentTarget.value === '' ? null : e.currentTarget.value)}
+              void app.editField(shown.id, 'effort', e.currentTarget.value === '' ? null : e.currentTarget.value)}
           >
             <option value="">{t('field.none')}</option>
-            {#if task.effort && !app.ranges.efforts.includes(task.effort)}
-              <option value={task.effort}>{task.effort}</option>
+            {#if shown.effort && !app.ranges.efforts.includes(shown.effort)}
+              <option value={shown.effort}>{shown.effort}</option>
             {/if}
             {#each app.ranges.efforts as size (size)}
               <option value={size}>{size}</option>
@@ -339,12 +398,12 @@
         <label>
           <span data-hint={hintOf(app.lang, 'hint.field', 'value')}>{t('field.value')}</span>
           <select
-            value={task.value === undefined ? '' : String(task.value)}
+            value={shown.value === undefined ? '' : String(shown.value)}
             data-field="value"
             disabled={app.saving}
             onchange={(e) =>
-              void app.setField(
-                task.id,
+              void app.editField(
+                shown.id,
                 'value',
                 e.currentTarget.value === '' ? null : Number(e.currentTarget.value),
               )}
@@ -358,16 +417,18 @@
         <label>
           <span>{t('remind.field')}</span>
           <select
-            value={task.remind ?? ''}
+            value={shown.remind ?? ''}
             data-field="remind"
             disabled={app.saving}
             onchange={(e) => {
               const value = e.currentTarget.value;
-              if (value !== (task.remind ?? '')) void app.setField(task.id, 'remind', value === '' ? null : value);
+              if (value !== (shown.remind ?? '')) void app.editField(shown.id, 'remind', value === '' ? null : value);
             }}
           >
             <option value="">{t('remind.none')}</option>
-            {#if task.remind}<option value={task.remind}>{task.remind}</option>{/if}
+            {#if shown.remind && !(REMIND_CHOICES as readonly string[]).includes(shown.remind)}
+              <option value={shown.remind}>{shown.remind}</option>
+            {/if}
             {#each REMIND_CHOICES as choice (choice)}
               <option value={choice}
                 >{choice === '+0d' ? t('remind.today') : t('remind.in', { n: choice.slice(1, -1) })}</option
@@ -381,34 +442,34 @@
         <span data-hint={hintOf(app.lang, 'hint.field', 'plan')}>{t('field.plan')}</span>
         <input
           type="text"
-          value={task.plan ?? ''}
+          value={shown.plan ?? ''}
           data-field="plan"
           readonly={app.saving}
-          onchange={(e) => changeText('plan', task.plan, e.currentTarget.value)}
+          onchange={(e) => changeText('plan', shown.plan, e.currentTarget.value)}
         />
       </label>
       <label class="line">
         <span data-hint={hintOf(app.lang, 'hint.field', 'phase')}>{t('field.phase')}</span>
         <input
           type="text"
-          value={task.phase ?? ''}
+          value={shown.phase ?? ''}
           data-field="phase"
           readonly={app.saving}
-          onchange={(e) => changeText('phase', task.phase, e.currentTarget.value)}
+          onchange={(e) => changeText('phase', shown.phase, e.currentTarget.value)}
         />
       </label>
       <label class="line">
         <span data-hint={hintOf(app.lang, 'hint.field', 'tags')}>{t('field.tags')} <small>({t('field.tags_hint')})</small></span>
         <input
           type="text"
-          value={tagsText(task.tags)}
+          value={tagsText(shown.tags)}
           data-field="tags"
           readonly={app.saving}
-          disabled={!listEditable(task.tags)}
-          title={listEditable(task.tags) ? undefined : t('field.list_plain')}
+          disabled={!listEditable(shown.tags)}
+          title={listEditable(shown.tags) ? undefined : t('field.list_plain')}
           onchange={(e) => {
             const text = e.currentTarget.value;
-            if (tagsChanged(task.tags, text)) {
+            if (tagsChanged(shown.tags, text)) {
               const tags = parseTags(text);
               const bad = badTag(tags);
               if (bad !== null) {
@@ -416,7 +477,7 @@
                 app.tell('error', 'field.tags_invalid', { tag: bad });
                 return;
               }
-              void app.setField(task.id, 'tags', tags.length === 0 ? null : tags);
+              void app.editField(shown.id, 'tags', tags.length === 0 ? null : tags);
             }
           }}
         />
@@ -425,37 +486,37 @@
         <span data-hint={hintOf(app.lang, 'hint.field', 'after')}>{t('field.after')} <small>({t('field.tags_hint')})</small></span>
         <input
           type="text"
-          value={tagsText(task.after)}
+          value={tagsText(shown.after)}
           data-field="after"
           readonly={app.saving}
-          disabled={!listEditable(task.after)}
-          title={listEditable(task.after) ? undefined : t('field.list_plain')}
-          onchange={(e) => changeList('after', task.after, e.currentTarget.value)}
+          disabled={!listEditable(shown.after)}
+          title={listEditable(shown.after) ? undefined : t('field.list_plain')}
+          onchange={(e) => changeList('after', shown.after, e.currentTarget.value)}
         />
       </label>
       <label class="line">
         <span data-hint={hintOf(app.lang, 'hint.field', 'refs')}>{t('field.refs')} <small>({t('field.tags_hint')})</small></span>
         <input
           type="text"
-          value={tagsText(task.refs)}
+          value={tagsText(shown.refs)}
           data-field="refs"
           readonly={app.saving}
-          disabled={!listEditable(task.refs)}
-          title={listEditable(task.refs) ? undefined : t('field.list_plain')}
-          onchange={(e) => changeList('refs', task.refs, e.currentTarget.value)}
+          disabled={!listEditable(shown.refs)}
+          title={listEditable(shown.refs) ? undefined : t('field.list_plain')}
+          onchange={(e) => changeList('refs', shown.refs, e.currentTarget.value)}
         />
       </label>
       <label class="line">
         <span data-hint={hintOf(app.lang, 'hint.field', 'links')}>{t('field.links')} <small>({t('field.tags_hint')})</small></span>
         <input
           type="text"
-          value={tagsText(task.links)}
+          value={tagsText(shown.links)}
           data-field="links"
           readonly={app.saving}
-          disabled={!listEditable(task.links)}
-          title={listEditable(task.links) ? undefined : t('field.list_plain')}
+          disabled={!listEditable(shown.links)}
+          title={listEditable(shown.links) ? undefined : t('field.list_plain')}
           placeholder="https://"
-          onchange={(e) => changeList('links', task.links ?? [], e.currentTarget.value)}
+          onchange={(e) => changeList('links', shown.links ?? [], e.currentTarget.value)}
         />
       </label>
       <!-- outside the label: a link inside it would become part of the accessible name of the field -->
@@ -787,6 +848,21 @@
 <style>
   /* One field per line for the texts, then the choices in columns that fit their values: nothing is cut to share a
      line with its neighbour. */
+  .draft {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0.5rem 0;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+  }
+  .draft [role='status'] {
+    flex: 1 1 auto;
+  }
   .edit {
     display: grid;
     gap: 0.6rem;

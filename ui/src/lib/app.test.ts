@@ -3145,6 +3145,130 @@ describe('writing', () => {
       expect(app.selectedId).toBe('pub/a');
     });
 
+    describe('fields saved with a button', () => {
+      async function manual(etag = 'e1') {
+        const m = await ready([task('pub/a', { etag, prio: 2, tags: ['x'] })]);
+        m.app.setSaveMode('manual');
+        m.hub.sent.length = 0;
+        return m;
+      }
+
+      it('writes each field at once by default, and keeps the choice in the profile', async () => {
+        const { app, hub, prefs } = await ready([task('pub/a', { etag: 'e1' })]);
+        expect(app.saveMode).toBe('auto');
+        await app.editField('pub/a', 'prio', 1);
+        expect(hub.sent.map((r) => r.ops)).toEqual([[{ op: 'set', id: 'pub/a', patch: { prio: 1 }, if_match: 'e1' }]]);
+        app.setSaveMode('manual');
+        expect(prefs.get('tasks-desktop.save-mode')).toBe('manual');
+        const again = make({ prefs, token: 't' });
+        expect(again.app.saveMode).toBe('manual');
+      });
+
+      it('holds the changes as a draft and writes them in one request against the version that was shown', async () => {
+        const { app, hub } = await manual();
+        await app.editField('pub/a', 'prio', 1);
+        await app.editField('pub/a', 'effort', 'M');
+        await app.editField('pub/a', 'tags', ['x', 'y']);
+        expect(hub.sent).toEqual([]);
+        expect(app.draftOf('pub/a')).toEqual({ prio: 1, effort: 'M', tags: ['x', 'y'] });
+        expect(app.hasDrafts).toBe(true);
+        expect(await app.saveDraft('pub/a')).toBe(true);
+        expect(hub.sent.map((r) => r.ops)).toEqual([
+          [{ op: 'set', id: 'pub/a', patch: { prio: 1, effort: 'M', tags: ['x', 'y'] }, if_match: 'e1' }],
+        ]);
+        expect(app.draftOf('pub/a')).toEqual({});
+        expect(app.hasDrafts).toBe(false);
+      });
+
+      it('a value back at what the file has is no change; a key taken away is one', async () => {
+        const { app } = await manual();
+        await app.editField('pub/a', 'prio', 1);
+        await app.editField('pub/a', 'prio', 2);
+        await app.editField('pub/a', 'tags', ['x']);
+        expect(app.draftOf('pub/a')).toEqual({});
+        await app.editField('pub/a', 'tags', null);
+        expect(app.draftOf('pub/a')).toEqual({ tags: null });
+        app.discardDraft('pub/a');
+        expect(app.hasDrafts).toBe(false);
+      });
+
+      it('saves against the version the draft was made on: a change made meanwhile is a conflict, not overwritten', async () => {
+        const { app, hub } = await manual('e1');
+        await app.editField('pub/a', 'prio', 1);
+        // another program (or the board of this page) changed the file: the list is read again with e2
+        hub.doc = snapshot([task('pub/a', { etag: 'e2', prio: 3, tags: ['x'] })], 'rev:2');
+        await app.refresh();
+        expect(app.tasks[0]?.etag).toBe('e2');
+        // the field still shows the draft over the newer file
+        expect(app.draftOf('pub/a')).toEqual({ prio: 1 });
+        await app.saveDraft('pub/a');
+        expect(hub.sent.at(-1)?.ops).toEqual([{ op: 'set', id: 'pub/a', patch: { prio: 1 }, if_match: 'e1' }]);
+      });
+
+      it('a save refused for a conflict goes to the conflict center and the fields show the file again', async () => {
+        const { app, hub } = await manual();
+        await app.editField('pub/a', 'prio', 1);
+        hub.next_ops = answer(
+          entry('set', { ok: false, outcome: 'failed', changed_ids: [], error: { code: 'conflict', message: 'changed', retryable: true } }),
+        );
+        expect(await app.saveDraft('pub/a')).toBe(false);
+        expect(app.conflicts).toHaveLength(1);
+        expect(app.draftOf('pub/a')).toEqual({});
+        // the same for a conflict the hub answers for the whole request
+        await app.editField('pub/a', 'prio', 1);
+        hub.next_ops = new ApiError(409, 'conflict', 'the file changed');
+        expect(await app.saveDraft('pub/a')).toBe(false);
+        // the same change of the same task: one entry, the newer refusal
+        expect(app.conflicts).toHaveLength(1);
+        expect(app.draftOf('pub/a')).toEqual({});
+      });
+
+      it('a value the engine does not take keeps the draft to be put right; nothing to save is no request', async () => {
+        const { app, hub } = await manual();
+        await app.editField('pub/a', 'effort', 'XXL');
+        hub.next_ops = answer(
+          entry('set', { ok: false, outcome: 'failed', changed_ids: [], error: { code: 'invalid_argument', message: 'effort', retryable: false } }),
+        );
+        expect(await app.saveDraft('pub/a')).toBe(false);
+        expect(app.draftOf('pub/a')).toEqual({ effort: 'XXL' });
+        app.discardDraft('pub/a');
+        hub.sent.length = 0;
+        expect(await app.saveDraft('pub/a')).toBe(false);
+        expect(hub.sent).toEqual([]);
+      });
+
+      it('a list typed into and emptied again is no change', async () => {
+        const { app } = await manual();
+        await app.editField('pub/a', 'after', ['pub/b']);
+        expect(app.draftOf('pub/a')).toEqual({ after: ['pub/b'] });
+        await app.editField('pub/a', 'after', null);
+        expect(app.draftOf('pub/a')).toEqual({});
+      });
+
+      it('a draft goes with its task to another area, is hidden in auto and not asked about once its task is gone', async () => {
+        const { app, hub } = await manual();
+        await app.editField('pub/a', 'prio', 1);
+        hub.next_ops = answer(entry('move_area', { outcome: 'moved', new_id: 'inner/a' }));
+        hub.doc = snapshot([task('inner/a', { etag: 'e5', prio: 2, tags: ['x'] })], 'rev:2');
+        expect(await app.moveArea('pub/a', 'inner', 'e1')).toBe(true);
+        expect(app.draftOf('pub/a')).toEqual({});
+        expect(app.draftOf('inner/a')).toEqual({ prio: 1 });
+        expect(await app.saveDraft('inner/a')).toBe(true);
+        expect(hub.sent.at(-1)?.ops).toEqual([{ op: 'set', id: 'inner/a', patch: { prio: 1 }, if_match: 'e5' }]);
+
+        await app.editField('inner/a', 'prio', 1);
+        app.setSaveMode('auto');
+        expect(app.draftOf('inner/a')).toEqual({});
+        expect(app.hasDrafts).toBe(false);
+        app.setSaveMode('manual');
+        expect(app.draftOf('inner/a')).toEqual({ prio: 1 });
+        expect(app.hasDrafts).toBe(true);
+        hub.doc = snapshot([], 'rev:3');
+        await app.refresh();
+        expect(app.hasDrafts).toBe(false);
+      });
+    });
+
     it('tells a page that shows the vault only why a change was not saved, not a code', async () => {
       const { app, hub } = await ready([task('pub/a', { etag: 'e1' })]);
       hub.next_ops = new ApiError(405, 'read_only', 'this page cannot write');

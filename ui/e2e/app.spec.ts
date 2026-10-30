@@ -6133,3 +6133,60 @@ test.describe('a finger', () => {
     removeFile(file);
   });
 });
+
+test('with the option to save with a button, the fields of a task are held until Save or Ctrl+S, and Discard brings the file back', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  // The option first: a capture writes at once in both modes, only the fields of the detail are held.
+  await page.getByRole('menuitem', { name: 'Options' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'Save fields with a button' }).click();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('c');
+  const capture = page.getByRole('dialog', { name: 'New task' });
+  await capture.getByLabel('Title').fill('Saved with the button e2e');
+  await capture.locator('select').first().selectOption('lib.nvim');
+  await capture.getByRole('button', { name: 'Create' }).click();
+  await expect(capture).toHaveCount(0);
+  const detail = page.locator('aside.detail');
+  await expect(detail.locator('.task-title')).toHaveText('Saved with the button e2e');
+  const id = (await detail.locator('.id').innerText()).trim();
+
+  const bar = detail.getByRole('group', { name: 'Unsaved changes' });
+  await expect(bar.getByRole('status')).toHaveText('No unsaved changes.');
+  await expect(bar.getByRole('button', { name: 'Save' })).toBeDisabled();
+
+  // Held, not written: the field shows the draft, the bar counts it, Discard brings the file's value back.
+  await detail.getByLabel('Effort').selectOption('M');
+  await expect(bar.getByRole('status')).toHaveText('Unsaved changes: 1');
+  await expect(detail.getByLabel('Effort')).toHaveValue('M');
+  await bar.getByRole('button', { name: 'Discard' }).click();
+  await expect(detail.getByLabel('Effort')).toHaveValue('');
+  await expect(bar.getByRole('status')).toHaveText('No unsaved changes.');
+
+  // Two fields, one Save.
+  await detail.getByLabel('Effort').selectOption('L');
+  await detail.getByLabel('Kind').selectOption('bug');
+  await expect(bar.getByRole('status')).toHaveText('Unsaved changes: 2');
+  await bar.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('status').getByText('Saved.')).toBeVisible();
+  await expect(bar.getByRole('status')).toHaveText('No unsaved changes.');
+
+  // Ctrl+S in a field that is being typed in takes what was typed.
+  await detail.getByLabel('Title').fill('Saved with the keys e2e');
+  await page.keyboard.press('Control+s');
+  await expect(detail.locator('.task-title')).toHaveText('Saved with the keys e2e');
+  await expect(bar.getByRole('status')).toHaveText('No unsaved changes.');
+  // The focus is back in the field, so the next key is typed there and is no single key of the page.
+  await expect(detail.getByLabel('Title')).toBeFocused();
+
+  // It was the files: a reload reads them back.
+  await page.reload();
+  await expect(page.getByRole('menubar')).toBeVisible();
+  await showList(page);
+  await open(page, id);
+  await expect(detail.getByLabel('Effort')).toHaveValue('L');
+  await expect(detail.getByLabel('Kind')).toHaveValue('bug');
+  await expect(detail.locator('.task-title')).toHaveText('Saved with the keys e2e');
+  expect(await violations(page)).toEqual([]);
+});

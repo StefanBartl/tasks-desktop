@@ -511,6 +511,13 @@
             checked: app.shortAreas,
             onselect: () => app.setShortAreas(!app.shortAreas),
           },
+          {
+            kind: 'check',
+            label: t('menu.save_manual'),
+            hint: t('hint.item.menu.save_manual'),
+            checked: app.saveMode === 'manual',
+            onselect: () => app.setSaveMode(app.saveMode === 'manual' ? 'auto' : 'manual'),
+          },
           { kind: 'section', label: t('menu.sec.export') },
           { kind: 'info', label: t('menu.export_where') },
         ],
@@ -561,7 +568,15 @@
   }
 </script>
 
-<svelte:window onkeydown={onKey} />
+<!-- Unsaved fields (the option to save them with a button): the browser asks before the page is closed or reloaded. -->
+<svelte:window
+  onkeydown={onKey}
+  onbeforeunload={(e) => {
+    if (!app.hasDrafts) return;
+    e.preventDefault();
+    e.returnValue = '';
+  }}
+/>
 
 <div class="shell">
   <header class="bar">
