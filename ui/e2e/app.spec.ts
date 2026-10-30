@@ -6270,3 +6270,47 @@ test('the size button shows the grip inside the window: the page scrolls in its 
   await page.evaluate(() => localStorage.removeItem('tasks-desktop.sizes'));
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('in a short or narrow window the rows of the list keep a height of their own: the main area scrolls instead', async ({
+  page,
+}) => {
+  /** The rows' height, and whether the list holds everything in its frame (nothing drawn below its border). */
+  const measure = () =>
+    page.evaluate(() => {
+      const list = document.querySelector('section.list') as HTMLElement;
+      const rows = list.querySelector('.rows') as HTMLElement;
+      return { rows: rows.clientHeight, spills: list.scrollHeight > list.clientHeight + 1 };
+    });
+  for (const size of [
+    { width: 900, height: 500 },
+    { width: 400, height: 700 },
+  ]) {
+    await page.setViewportSize(size);
+    await pair(page);
+    await showList(page);
+    await page.getByText('More filters', { exact: true }).click();
+    await expect(page.locator('.list .more-body')).toBeVisible();
+    // A few rows at least (12rem less the head of the columns), not the 0 to 12 px left over beside the filters.
+    const got = await measure();
+    expect(got.rows, `rows at ${size.width}x${size.height}`).toBeGreaterThan(120);
+    expect(got.spills, `list spills at ${size.width}x${size.height}`).toBe(false);
+    const first = page.locator('.list .rows button.row').first();
+    await first.scrollIntoViewIfNeeded();
+    await expect(first).toBeInViewport();
+  }
+  // With the room for it the list is as high as the main area again, and the window does not scroll.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByText('More filters', { exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => document.scrollingElement!.scrollHeight > window.innerHeight + 1))
+    .toBe(false);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const main = document.querySelector('main') as HTMLElement;
+        return main.scrollHeight > main.clientHeight + 1;
+      }),
+    )
+    .toBe(false);
+  expect(consoleProblems.get(page)).toEqual([]);
+});

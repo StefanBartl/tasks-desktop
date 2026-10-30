@@ -314,6 +314,7 @@
 <!-- Only the list: a task opens in the float over it (TaskDialog), as in the plan and the overview. -->
 <section
   class="list"
+  class:held={app.sizing === 'list' || app.tileSizes['list'] !== undefined}
   aria-label={t('nav.list')}
   use:sizeable={{
     size: app.tileSizes['list'] ?? null,
@@ -730,14 +731,21 @@
 </section>
 
 <style>
+  /* As high as the main area, and higher when its bars and a few rows do not fit in it (a short or narrow window, the
+     more filters open): the main area scrolls then, the rows never shrink to nothing. */
   .list {
-    height: 100%;
+    min-height: 100%;
     display: flex;
     flex-direction: column;
-    min-height: 0;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
+  }
+  /* With the grip shown or a size of the person's (lib/sizeable.ts): as high as the main area or that size, what does
+     not fit scrolls inside it. */
+  .list.held {
+    height: 100%;
+    min-height: 0;
   }
   .filters {
     display: flex;
@@ -951,11 +959,12 @@
   .bulk-move-result .bad {
     color: var(--bad);
   }
-  /* The head of the columns and the rows: the widths of the columns hold for both. */
+  /* The head of the columns and the rows: the widths of the columns hold for both. A few rows at least, the rest of the
+     list's height when there is more. */
   .table {
     display: flex;
     flex-direction: column;
-    flex: 1;
+    flex: 1 0 12rem;
     min-height: 0;
   }
   .rows {
