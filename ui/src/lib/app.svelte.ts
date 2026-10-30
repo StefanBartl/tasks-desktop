@@ -1606,6 +1606,33 @@ export class App {
     else this.say('ok', `export.${done}`, { n: count });
   }
 
+  /** The open tasks a selection names (an area, a plan, a group of a view: a tile of the context menu). */
+  tasksOfSelect(select: Partial<ViewSelect>): TaskEntry[] {
+    return applyFilter(this.tasks, filterOfSelect({ ...emptySelect(), ...select }), this.today, this.crossIndex, this.quickWinSet);
+  }
+
+  /**
+   * Copy `tasks` onto the clipboard in `format`: a task of the context menu, the marked ones it was opened on, or the
+   * tasks of a tile. The rules of the button Export hold: none of a private or unclassified area, no id of a plan kept in
+   * one, an export of nothing is not made and says so.
+   */
+  async copyTasks(tasks: readonly TaskEntry[], format: ExportFormat): Promise<void> {
+    const { rows: out, kept } = mayLeave(
+      tasks.map((task) => ({ task })),
+      (task) => this.mayRememberArea(task.area),
+    );
+    const rows = withoutPlansOf(out, (plan) => this.mayRememberArea(areaOfId(plan)));
+    const count = taskCount(rows);
+    if (count === 0) {
+      this.sayNothingExported(kept);
+      return;
+    }
+    const text = rowsText(rows, format, csvSeparatorFor(this.env.preferredLanguages[0]), 'tasks');
+    if (!(await this.env.out.copy(text))) this.say('error', 'export.copy_failed', { n: count });
+    else if (kept > 0) this.say('ok', 'export.copied_kept', { n: count, m: kept });
+    else this.say('ok', 'export.copied', { n: count });
+  }
+
   /** Why an export (or a print) made nothing: the view shows no task, or every task shown is held back. */
   private sayNothingExported(kept: number): void {
     // Before the classes are read (or when the hub could not tell them) every task is held back: that is not their class.

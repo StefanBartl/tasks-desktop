@@ -341,6 +341,8 @@ const en = {
   'ctx.label': 'Context menu',
   'ctx.show': 'Show in the list',
   'hint.ctx.show': 'Opens the task in the list, with its details.',
+  'hint.ctx.copy_tasks':
+    'Puts these tasks on the clipboard (the marked ones, when this one is marked); none of a private or unclassified area.',
   'ctx.copy_id': 'Copy the id',
   'ctx.copied': 'Copied {id}.',
   'views.draft': 'Not saved: a view to look with. Save it to keep it in the vault.',
@@ -1567,6 +1569,8 @@ const de: Record<Key, string> = {
   'ctx.label': 'Kontextmenü',
   'ctx.show': 'In der Liste zeigen',
   'hint.ctx.show': 'Öffnet den Task in der Liste, mit seinen Details.',
+  'hint.ctx.copy_tasks':
+    'Legt diese Tasks in die Zwischenablage (die markierten, wenn dieser markiert ist); keine aus privaten oder nicht eingestuften Bereichen.',
   'ctx.copy_id': 'Id kopieren',
   'ctx.copied': '{id} kopiert.',
   'views.draft': 'Nicht gespeichert: eine Ansicht zum Schauen. Speichern legt sie im Vault ab.',

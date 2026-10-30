@@ -6510,3 +6510,74 @@ test('the choice of the areas shows beside each how many tasks it keeps under th
   await page.getByRole('menuitemcheckbox', { name: 'Counts in the choice of the areas' }).click();
   expect(consoleProblems.get(page)).toEqual([]);
 });
+
+test('the context menu copies a task, the marked ones it is opened on, and the tasks of a group, as Markdown, CSV or JSON', async ({
+  page,
+  context,
+}) => {
+  // Two tasks written and three menus: under load (other runs on the machine) more than the 30 s of one test.
+  test.slow();
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await pair(page);
+  await showList(page);
+  await capture(page, 'Ctxcopy r001 task');
+  await capture(page, 'Ctxcopy r002 task');
+  // What goes to the clipboard is recorded on the way.
+  await page.evaluate(() => {
+    const w = window as unknown as { __copied: string[] };
+    w.__copied = [];
+    const write = navigator.clipboard.writeText.bind(navigator.clipboard);
+    navigator.clipboard.writeText = async (text: string) => {
+      w.__copied.push(text);
+      return write(text);
+    };
+  });
+  const copied = () => page.evaluate(() => (window as unknown as { __copied: string[] }).__copied);
+  await page.getByRole('searchbox', { name: /search/i }).first().fill('Ctxcopy r00');
+  const rows = page.locator('button.row', { hasText: 'Ctxcopy r00' });
+  await expect(rows).toHaveCount(2);
+  const first = page.locator('button.row', { hasText: 'Ctxcopy r001 task' });
+  const menu = page.getByRole('menu', { name: 'Context menu' });
+
+  // One task: the right click on its row copies it alone.
+  await first.click({ button: 'right' });
+  await expect(menu.getByRole('menuitemradio', { name: 'P1' })).toBeVisible();
+  await menu.getByRole('menuitem', { name: 'Copy as Markdown' }).click();
+  await expect(page.getByText('1 tasks copied.')).toBeVisible();
+  let got = await copied();
+  expect(got).toHaveLength(1);
+  expect(got[0]).toContain('Ctxcopy r001 task');
+  expect(got[0]).not.toContain('Ctxcopy r002 task');
+
+  // Both marked: a right click on one of them copies both, and offers no status of one task.
+  for (const box of await page.locator('.rows').getByRole('checkbox').all()) await box.check();
+  await expect(page.getByText('2 marked')).toBeVisible();
+  await first.click({ button: 'right' });
+  await expect(menu.getByRole('menuitemradio', { name: 'P1' })).toHaveCount(0);
+  await menu.getByRole('menuitem', { name: 'Copy as JSON' }).click();
+  await expect(page.getByText('2 tasks copied.')).toBeVisible();
+  got = await copied();
+  const ids = (JSON.parse(got[1]!) as { tasks: { id: string }[] }).tasks.map((t) => t.id).sort();
+  expect(ids).toEqual(['lib.nvim/ctxcopy-r001-task', 'lib.nvim/ctxcopy-r002-task']);
+  await page.getByRole('button', { name: 'Clear marks' }).click();
+
+  // A group of a view (a selection): its tasks, as CSV, one row each.
+  await first.focus();
+  await page.keyboard.press('Shift+F10');
+  await page.keyboard.press('l');
+  await expect(menu.getByRole('menuitem', { name: 'List', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
+  const tried = page.getByRole('region', { name: 'lib.nvim', exact: true });
+  await expect(tried).toBeVisible();
+  const group = tried.locator('section[data-group="open"]');
+  const shown = await group.locator('[data-view-item]').count();
+  await group.locator('h3 button').click({ button: 'right' });
+  await menu.getByRole('menuitem', { name: 'Copy as CSV' }).click();
+  got = await copied();
+  const lines = got[2]!.trimEnd().split('\r\n');
+  expect(lines[0]).toContain('id');
+  expect(lines.length - 1).toBe(shown);
+  expect(got[2]).toContain('lib.nvim/ctxcopy-r001-task');
+  for (const id of ['ctxcopy-r001-task', 'ctxcopy-r002-task']) rmSync(join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${id}.md`), { force: true });
+  expect(consoleProblems.get(page)).toEqual([]);
+});

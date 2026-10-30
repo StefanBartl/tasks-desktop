@@ -34,7 +34,7 @@
   import { DOCS, LICENSE, REPO_URL } from './lib/docs';
   import ContextMenu from 'appkit-ui/ContextMenu.svelte';
   import { contextTarget } from 'appkit-ui/contextmenu';
-  import { createContextRegistry, viewTarget } from './lib/context';
+  import { createContextRegistry, taskTarget, viewTarget } from './lib/context';
   import { vaultMenuItems } from './lib/vaultMenu';
   import ConflictCenter from './views/ConflictCenter.svelte';
   import VaultsDialog from './views/VaultsDialog.svelte';
@@ -586,6 +586,8 @@
     ];
   });
   const contextRegistry = $derived(createContextRegistry(app));
+  // Only the list shows marks; read when the menu opens.
+  const markedTargets = () => (app.view === 'list' ? app.tasks.filter((x) => app.marks.includes(x.id)).map(taskTarget) : []);
   // The context menu is built at once (the browser's menu is replaced or not before the event is over), so the fields
   // of the engine for "open as a view" are read when the page is ready, not at the first right click.
   $effect(() => {
@@ -719,7 +721,8 @@
       {/snippet}
     </svelte:boundary>
     <!-- The context menu belongs to the content it was opened on: inside the main landmark. -->
-    {#if app.phase === 'ready'}<ContextMenu registry={contextRegistry} label={t('ctx.label')} />{/if}
+    <!-- The marked rows of the list are the selection: a right click on one of them works on all of them. -->
+    {#if app.phase === 'ready'}<ContextMenu registry={contextRegistry} label={t('ctx.label')} selection={markedTargets} />{/if}
   </main>
   {#if app.phase === 'ready'}
     <Capture {app} />
