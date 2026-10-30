@@ -1644,7 +1644,7 @@ test('a tile of today and the list take the size their grip is dragged to, keep 
   const sizeList = page.getByRole('button', { name: 'Change the size of the list' });
   await sizeList.click();
   const list = page.locator('.sizing').first();
-  // The grip is at the lower end of the list, below the fold of the window.
+  // The grip is at the lower end of the list.
   await list.evaluate((el) => el.scrollIntoView({ block: 'end' }));
   const box = (await list.boundingBox())!;
   await page.mouse.move(box.x + box.width - 3, box.y + box.height - 3);
@@ -4938,6 +4938,14 @@ test('a note that is being typed survives a change of the vault that arrives mea
   writeFileSync(file, text);
 });
 
+/** How far the page is scrolled: the window and every box in it that scrolls (the main area, the rows of the list). */
+const scrolled = (page: Page): Promise<number> =>
+  page.evaluate(() => [document.scrollingElement!, ...document.querySelectorAll('*')].reduce((sum, el) => sum + el.scrollTop, 0));
+
+/** The window and every box in it back at the top. */
+const toTop = (page: Page): Promise<void> =>
+  page.evaluate(() => [document.scrollingElement!, ...document.querySelectorAll('*')].forEach((el) => el.scrollTo(0, 0)));
+
 test('a filter that is emptied leaves the page where it was: the selected row far down does not pull it away', async ({ page }) => {
   // 320 files, the engine's scan of them and axe over the whole list: more than the 30 s of a test on a busy runner.
   test.slow();
@@ -4968,23 +4976,23 @@ test('a filter that is emptied leaves the page where it was: the selected row fa
     await page.locator('button.row', { hasText: `jump-e2e-${tag}-300` }).click();
     await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/jump-e2e-${tag}-300`);
     await closeFloat(page);
-    await page.evaluate(() => window.scrollTo(0, 0));
+    await toTop(page);
     await box.focus();
     await page.keyboard.press('Control+a');
     await page.keyboard.press('Backspace');
     await expect(page.locator('.rows .line').nth(320)).toBeAttached();
     // Frames in which the rows are drawn: the page did not move, the field keeps the focus and is in view.
     await page.waitForTimeout(500);
-    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    expect(await scrolled(page)).toBe(0);
     await expect(box).toBeFocused();
     await expect(box).toBeInViewport();
     // The selection is kept, and j still brings its row into view.
     await expect(page.locator('button.row[aria-current="true"] .id')).toHaveText(`lib.nvim/jump-e2e-${tag}-300`);
     await page.locator('button.row[aria-current="true"]').focus();
-    await page.evaluate(() => window.scrollTo(0, 0));
+    await toTop(page);
     await page.keyboard.press('j');
     await expect(page.locator('button.row[aria-current="true"]')).toBeInViewport();
-    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    expect(await scrolled(page)).toBeGreaterThan(0);
     await expectAccessible(page, 'the full list after a filter was emptied');
 
     // A hit of the text search is no row of the list: chosen there, it must not pull the page down once the search is
@@ -4996,13 +5004,13 @@ test('a filter that is emptied leaves the page where it was: the selected row fa
     await page.locator('button.hit', { hasText: `jump-e2e-${tag}-250` }).click();
     await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/jump-e2e-${tag}-250`);
     await closeFloat(page);
-    await page.evaluate(() => window.scrollTo(0, 0));
+    await toTop(page);
     await box.focus();
     await page.keyboard.press('Control+a');
     await page.keyboard.press('Backspace');
     await expect(page.locator('.rows .line').nth(320)).toBeAttached();
     await page.waitForTimeout(500);
-    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    expect(await scrolled(page)).toBe(0);
     await expect(box).toBeInViewport();
 
     // The inbox the same way: the 320 lack everything, so emptying the search brings them all back into it.
@@ -5016,7 +5024,7 @@ test('a filter that is emptied leaves the page where it was: the selected row fa
     await expect(page.locator('aside.detail .id')).toHaveText(`lib.nvim/jump-e2e-${tag}-310`);
     // The inbox has no search box: the search is switched off with its chip, by the keyboard, and the focus stays on
     // the chips.
-    await page.evaluate(() => window.scrollTo(0, 0));
+    await toTop(page);
     const chip = page.getByRole('button', { name: `Switch off: Search: Jump e2e ${tag} 310` });
     await chip.focus();
     await page.keyboard.press('Enter');
@@ -5024,7 +5032,7 @@ test('a filter that is emptied leaves the page where it was: the selected row fa
     await page.waitForTimeout(500);
     // The note goes with its last chip and the focus with it to the main region (a shift of a line or two); the row of
     // the selected task far down is not brought into view.
-    expect(await page.evaluate(() => window.scrollY)).toBeLessThan(200);
+    expect(await scrolled(page)).toBeLessThan(200);
     await expect(inbox.locator('.row', { hasText: `jump-e2e-${tag}-310` })).not.toBeInViewport();
 
     // The board is drawn again for every change of the vault: a card chosen far down stays where it is when a file
@@ -5034,13 +5042,13 @@ test('a filter that is emptied leaves the page where it was: the selected row fa
     const cards = page.locator('.board [data-column="open"] .card');
     await expect(cards.nth(40)).toBeAttached();
     await cards.nth(40).click();
-    await page.evaluate(() => window.scrollTo(0, 0));
+    await toTop(page);
     await expect(page.locator('.board [aria-current="true"]')).not.toBeInViewport();
     const events = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/tasks/snapshot', { timeout: WRITE_BUDGET });
     writeFileSync(files[0]!, readFileSync(files[0]!, 'utf8').replace('Text.', 'Text, changed elsewhere.'));
     await events;
     await page.waitForTimeout(500);
-    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    expect(await scrolled(page)).toBe(0);
   } finally {
     for (const file of files) removeFile(file);
     // The hub has let them go before the next test counts its rows (not asked when the test ended by its timeout:
@@ -6200,4 +6208,45 @@ test('with the option to save with a button, the fields of a task are held until
   await expect(detail.getByLabel('Kind')).toHaveValue('bug');
   await expect(detail.locator('.task-title')).toHaveText('Saved with the keys e2e');
   expect(await violations(page)).toEqual([]);
+});
+
+test('the size button shows the grip inside the window: the page scrolls in its main area, not the window', async ({
+  page,
+}) => {
+  await pair(page);
+  // The window does not scroll in any of the three views with the size button; the lower end of the list is in it.
+  const windowScrolls = () =>
+    page.evaluate(() => document.scrollingElement!.scrollHeight > window.innerHeight + 1);
+  await chooseView(page, 'View', 'Today');
+  await expect(page.locator('.tile').first()).toBeVisible();
+  expect(await windowScrolls()).toBe(false);
+  await chooseView(page, 'View', 'Connections');
+  await expect(page.locator('[data-size-toggle]').first()).toBeVisible();
+  expect(await windowScrolls()).toBe(false);
+
+  await showList(page);
+  expect(await windowScrolls()).toBe(false);
+  const list = page.getByRole('region', { name: 'List', exact: true });
+  const toggle = page.getByRole('button', { name: 'Change the size of the list' });
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  // The grip (the browser's, in the lower right corner) is where the person can see it, without scrolling.
+  const box = (await list.boundingBox())!;
+  const view = page.viewportSize()!;
+  expect(box.y + box.height).toBeLessThanOrEqual(view.height);
+  expect(box.x + box.width).toBeLessThanOrEqual(view.width);
+  // The arrow keys on the button change the size the person sees.
+  await toggle.focus();
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(async () => Math.round((await list.boundingBox())!.height - box.height)).toBe(-32);
+  // A second press takes the grip away; the size stays over a reload.
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await page.reload();
+  await expect(page.locator('button.row').first()).toBeVisible();
+  const again = page.getByRole('region', { name: 'List', exact: true });
+  expect(Math.round((await again.boundingBox())!.height - box.height)).toBe(-32);
+  await page.evaluate(() => localStorage.removeItem('tasks-desktop.sizes'));
+  expect(consoleProblems.get(page)).toEqual([]);
 });

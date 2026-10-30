@@ -3,6 +3,13 @@
 @import 'appkit-ui/tokens.css';
 @import 'appkit-ui/base.css';
 
+/* The page is as high as the window: the shell (height 100%) needs a parent with a height, else it grows with the
+   view, the window scrolls instead of the main area, and the lower end of a block (the list) with its size grip lies
+   below the fold. */
+#app {
+  height: 100%;
+}
+
 /* A float the person can move and size (lib/floating.ts): the browser's grip in its lower right corner, and the
    handles. They are global: the handle is added by the action, outside the styles of the dialog's component. */
 dialog.floating {
