@@ -1,5 +1,8 @@
 import { defineConfig } from '@playwright/test';
-import { runOutputDir } from './e2e/port';
+import { lastRunFile, runOutputDir } from './e2e/port';
+
+// `--last-failed` reads the last run from one file of this suite (the outputDir is a new one for every run).
+lastRunFile(process.env, 'web');
 
 // The single-file page of the web variant, opened from disk. No hub, no server: `pnpm web:build` makes the file first.
 // The system's Chrome is used (`channel`), as for the hub's tests. Firefox and WebKit are Playwright's own builds

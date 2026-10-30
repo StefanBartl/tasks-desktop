@@ -3,7 +3,10 @@
 // session) never take the same port; a given `TASKS_E2E_PORT` is kept. 17698 is only what a process reads that was not
 // started by the setup.
 
+import { readdirSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export const DEFAULT_E2E_PORT = 17698;
 
@@ -43,12 +46,76 @@ export async function ensureE2ePort(env: Record<string, string | undefined>): Pr
   return port;
 }
 
+/** `ui/test-results/`, where the configs (in `ui/`) put the folders of the runs. */
+export const RESULTS = fileURLToPath(new URL('../test-results/', import.meta.url));
+
+/** Whether a process with this id runs: signal 0 tests it (ESRCH: gone; EPERM: there, but not ours to signal). */
+export function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * Removes the folders `run-<n>` under `root` whose run has ended (no process `n` any more), never the one of `own` and
+ * nothing else; returns the names it removed. A folder that cannot be removed now (a file still open) stays for the
+ * next run instead of failing this one.
+ */
+export function pruneRuns(
+  root: string,
+  own: number,
+  alive: (pid: number) => boolean = processAlive,
+  rm: (path: string) => void = (path) => rmSync(path, { recursive: true, force: true }),
+): string[] {
+  let names: string[];
+  try {
+    names = readdirSync(root);
+  } catch {
+    return [];
+  }
+  const removed: string[] = [];
+  for (const name of names) {
+    const found = /^run-(\d+)$/.exec(name);
+    if (!found) continue;
+    const pid = Number(found[1]);
+    if (pid === own || alive(pid)) continue;
+    try {
+      rm(join(root, name));
+      removed.push(name);
+    } catch {
+      // EBUSY and the like: left for the next run.
+    }
+  }
+  return removed;
+}
+
 /**
  * The folder of this run's results (traces of failed tests) under `test-results/`: a run clears its folder when it
  * starts, so two runs side by side must not share one. Named after the process that loads the config first (the
- * runner); the workers it starts inherit the name from the environment.
+ * runner), which also removes the folders of runs that have ended; the workers it starts inherit the name from the
+ * environment and remove nothing.
  */
-export function runOutputDir(env: Record<string, string | undefined>, pid: number): string {
-  env['TASKS_E2E_RUN'] ??= String(pid);
+export function runOutputDir(
+  env: Record<string, string | undefined>,
+  pid: number,
+  root: string = RESULTS,
+  alive: (pid: number) => boolean = processAlive,
+): string {
+  if (env['TASKS_E2E_RUN'] === undefined) {
+    env['TASKS_E2E_RUN'] = String(pid);
+    pruneRuns(root, pid, alive);
+  }
   return `test-results/run-${env['TASKS_E2E_RUN']}`;
+}
+
+/**
+ * Where `--last-failed` finds the last run: Playwright keeps it in the outputDir, which is a new one for every run, so
+ * the file is put at one place per suite (`name`) instead. A path given in the environment is kept.
+ */
+export function lastRunFile(env: Record<string, string | undefined>, name: string, root: string = RESULTS): string {
+  env['PLAYWRIGHT_LAST_RUN_OUTPUT_FILE'] ??= join(root, `.last-run-${name}.json`);
+  return env['PLAYWRIGHT_LAST_RUN_OUTPUT_FILE'];
 }

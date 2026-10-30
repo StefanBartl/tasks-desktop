@@ -1,5 +1,8 @@
 import { defineConfig } from '@playwright/test';
-import { e2ePort, runOutputDir } from './e2e/port';
+import { e2ePort, lastRunFile, runOutputDir } from './e2e/port';
+
+// `--last-failed` reads the last run from one file of this suite (the outputDir is a new one for every run).
+lastRunFile(process.env, 'hub');
 
 // The system's Chrome is used (`channel`), so nothing is downloaded. One
 // worker: the tests share one hub and pair it one after the other.
