@@ -4,6 +4,10 @@ import { App, type Env } from './app.svelte';
 import type { CachedList, ListStore } from './cache';
 import type { DonePreview, Groupings, Result, Snapshot, TaskDocument, TaskEntry, View, Views } from './contract';
 import { task } from './fixtures';
+import { freshFilter, serializeFilter } from './filter';
+import { render } from 'svelte/server';
+import TextHits from '../views/TextHits.svelte';
+import CrossView from '../views/CrossView.svelte';
 import type { PrintSheet } from './export';
 import { MOVE_MAX } from './bulk';
 import { translate } from './i18n';
@@ -643,6 +647,121 @@ describe('App', () => {
     await app.refresh();
     expect(app.selectedId).toBeNull();
     app.stop();
+  });
+
+  it('an area group of the snapshot filters like its member areas and counts their tasks', async () => {
+    const { app, hub } = make({ token: 't' });
+    hub.doc = {
+      ...snapshot([task('lib.nvim/a'), task('ui.nvim/b'), task('takt/c')], 'rev:1'),
+      area_groups: [
+        { name: 'nvim', members: ['lib.nvim', 'ui.nvim'], open: 2, by_status: {} },
+        { name: 'none', members: [], open: 0, by_status: {} },
+      ],
+    } as Snapshot;
+    await app.start(null);
+    app.filter = { ...app.filter, areas: ['nvim'] };
+    expect(app.shown.map((t) => t.id).sort()).toEqual(['lib.nvim/a', 'ui.nvim/b']);
+    expect(app.areaCounts.get('nvim')).toBe(2);
+    expect(app.areaCounts.get('takt')).toBe(1);
+    // a group without members keeps nothing, it never means "every area"
+    app.filter = { ...app.filter, areas: ['none'] };
+    expect(app.shown).toEqual([]);
+    expect(app.areaCounts.get('none')).toBe(0);
+    // a group and an area together: the union
+    app.filter = { ...app.filter, areas: ['nvim', 'takt'] };
+    expect(app.shown.length).toBe(3);
+    app.stop();
+  });
+
+  it('a group is never a write target, a one-member group gives its area; finished asks the engine by the group', async () => {
+    const { app, hub } = make({ token: 't' });
+    hub.doc = {
+      ...snapshot([task('lib.nvim/a'), task('ui.nvim/b'), task('takt/c')], 'rev:1'),
+      area_groups: [
+        { name: 'nvim', members: ['lib.nvim', 'ui.nvim'], open: 2, by_status: {} },
+        { name: 'solo', members: ['takt'], open: 1, by_status: {} },
+        { name: 'none', members: [], open: 0, by_status: {} },
+      ],
+    } as Snapshot;
+    await app.start(null);
+    app.filter = { ...app.filter, areas: ['nvim'] };
+    expect(app.writeArea).toBeUndefined();
+    expect(app.finishedArea).toBe('nvim');
+    app.filter = { ...app.filter, areas: ['solo'] };
+    expect(app.writeArea).toBe('takt');
+    app.filter = { ...app.filter, areas: ['none'] };
+    expect(app.writeArea).toBeUndefined();
+    // the engine resolves an empty group to no area: no finished task
+    expect(app.finishedArea).toBe('none');
+    app.filter = { ...app.filter, areas: ['lib.nvim'] };
+    expect(app.writeArea).toBe('lib.nvim');
+    expect(app.finishedArea).toBe('lib.nvim');
+    app.filter = { ...app.filter, areas: ['nvim', 'takt'] };
+    expect(app.finishedArea).toBeUndefined();
+    app.stop();
+  });
+
+  it('the text hits and the links between areas read a chosen group as its members', async () => {
+    const { app, hub } = make({ token: 't' });
+    hub.doc = {
+      ...snapshot(
+        [task('lib.nvim/a', { title: 'Alpha' }), task('ui.nvim/b', { blocked_by: ['lib.nvim/a'] }), task('takt/c')],
+        'rev:1',
+      ),
+      area_groups: [{ name: 'nvim', members: ['lib.nvim', 'ui.nvim'], open: 2, by_status: {} }],
+    } as Snapshot;
+    await app.start(null);
+    app.filter = { ...app.filter, areas: ['nvim'], query: 'zzz' };
+    app.textSearch = {
+      query: 'zzz',
+      result: { status: 'ready', indexed: 3, total: 3, hits: [{ id: 'lib.nvim/a', snippet: { text: 'zzz', marks: [] } }] },
+    } as unknown as App['textSearch'];
+    const hits = render(TextHits, { props: { app } }).body;
+    expect(hits).toContain('lib.nvim/a');
+    app.filter = { ...app.filter, query: '' };
+    app.textSearch = null;
+    const cross = render(CrossView, { props: { app } }).body;
+    expect(cross).not.toContain(translate(app.lang, 'cross.none_chosen'));
+    expect(cross).toContain('lib.nvim');
+    app.stop();
+  });
+
+  it('an area of the same name wins over an area group', async () => {
+    const { app, hub } = make({ token: 't' });
+    hub.areaList = [
+      { name: 'nvim', data_class: 'public' },
+      { name: 'lib.nvim', data_class: 'public' },
+    ];
+    hub.doc = {
+      ...snapshot([task('nvim/own'), task('lib.nvim/a')], 'rev:1'),
+      area_groups: [{ name: 'nvim', members: ['lib.nvim'], open: 1, by_status: {} }],
+    } as Snapshot;
+    await app.start(null);
+    app.filter = { ...app.filter, areas: ['nvim'] };
+    expect(app.shown.map((t) => t.id)).toEqual(['nvim/own']);
+    expect(app.isAreaGroup('nvim')).toBe(false);
+    app.stop();
+  });
+
+  it('a group chosen before keeps its meaning in the cached list while the hub is away', async () => {
+    const prefs = new Map([['tasks-desktop.filter', serializeFilter({ ...freshFilter(), areas: ['grp'] })]]);
+    const cached: CachedList = {
+      vault: 'v',
+      rev: 'rev:0',
+      etag: 'old',
+      savedAt: 5,
+      tasks: [task('pub/old'), task('int/other')],
+      areaGroups: [{ name: 'grp', members: ['pub'], open: 0 }],
+    };
+    const { app, hub } = make({ token: 't', cached, prefs });
+    hub.hubDown = true;
+    const started = app.start(null);
+    await vi.waitFor(() => expect(app.cachedAt).toBe(5));
+    expect(app.filter.areas).toEqual(['grp']);
+    expect(app.shown.map((t) => t.id)).toEqual(['pub/old']);
+    app.stop();
+    hub.hubDown = false;
+    await started;
   });
 
   it('reveals a task a filter hides: the filter and its text search go, the list is shown', async () => {

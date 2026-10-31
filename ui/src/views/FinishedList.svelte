@@ -23,8 +23,10 @@
   let loading = $state(false);
   let seq = 0;
 
-  const areas = $derived(app.filter.areas);
-  const oneArea = $derived(areas.length === 1 ? areas[0] : undefined);
+  // an area group stands for its member areas
+  const areas = $derived(app.matchAreas);
+  // One name to ask the engine for (an area or one area group); with several the page filters below.
+  const oneArea = $derived(app.finishedArea);
   const words = $derived(
     app.filter.query
       .trim()
@@ -34,7 +36,7 @@
   );
   const shown = $derived(
     loaded.filter((item) => {
-      if (areas.length > 1 && !areas.includes(item.area)) return false;
+      if (oneArea === undefined && areas.length > 0 && !areas.includes(item.area)) return false;
       const text = `${item.id} ${item.title}`.toLowerCase();
       return words.every((w) => text.includes(w));
     }),

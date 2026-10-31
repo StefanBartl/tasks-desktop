@@ -156,8 +156,17 @@
   const extraOn = $derived(extraCount(app.filter) + (app.showFinished && app.can('finished') ? 1 : 0));
   // Beside each area how many tasks it would keep under the other filters (switched off in Options).
   const counts = $derived(app.areaCountsShown ? app.areaCounts : null);
-  const areaOptions = $derived(
-    app.areaNames
+  const areaOptions = $derived([
+    // the area groups first: a name that stands for several areas (the engine's `area_groups`)
+    ...app.areaGroups
+      .filter((g) => !app.allAreaNames.includes(g.name))
+      .map((g) => ({
+        value: g.name,
+        label: t('areas.group', { name: g.name }),
+        title: t('areas.group.title', { members: g.members.join(', ') || '-' }),
+        ...(counts ? { suffix: String(counts.get(g.name) ?? 0) } : {}),
+      })),
+    ...app.areaNames
       .map((name) => ({
         value: name,
         label: app.shortAreas ? areaLabel(name, app.allAreaNames) : name,
@@ -165,7 +174,7 @@
         ...(counts ? { suffix: String(counts.get(name) ?? 0) } : {}),
       }))
       .sort((x, y) => x.label.localeCompare(y.label)),
-  );
+  ]);
   // Counts from the first picture of the cache may still change when the hub answers: the choice says so.
   const areasNote = $derived(
     counts && app.cachedAt !== null ? `${t('multi.note.areas')} ${t('multi.note.counts_cached')}` : t('multi.note.areas'),

@@ -9,6 +9,7 @@
 import type { Snapshot, TaskEntry } from './contract';
 import { cacheableClass as kitCacheableClass, indexedDbStore as kitIndexedDbStore, type CacheStore } from 'appkit-ui/cache';
 import type { HubArea } from './api';
+import type { AreaGroupInfo } from './areaGroups';
 
 export interface CachedList {
   /** The id of the vault the list is of. */
@@ -23,6 +24,8 @@ export interface CachedList {
   etag: string | null;
   savedAt: number;
   tasks: TaskEntry[];
+  /** The area groups of the snapshot, members only of the areas that may be cached (absent in an older list). */
+  areaGroups?: AreaGroupInfo[];
 }
 
 /** May tasks of this class be written to the cache? (The kit says it: only public and internal, fail closed.) */
@@ -62,7 +65,13 @@ export function cacheableList(
     }
     return copy;
   });
-  return { vault: doc.vault.id, rev: doc.rev, etag, savedAt: now, tasks };
+  // An area group keeps its name; a member of an area that may not be cached is left out of it.
+  const areaGroups = (doc.area_groups ?? []).map((g) => ({
+    name: g.name,
+    members: g.members.filter((m) => cacheableClass(classes.get(m))),
+    open: 0,
+  }));
+  return { vault: doc.vault.id, rev: doc.rev, etag, savedAt: now, tasks, ...(areaGroups.length > 0 ? { areaGroups } : {}) };
 }
 
 /** Where the list is kept. An interface, so that tests need no browser. */

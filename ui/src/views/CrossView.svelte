@@ -3,6 +3,7 @@
   // the two areas. The areas chosen in the filter narrow it to the links between those.
   import type { App } from '../lib/app.svelte';
   import { areaLabel } from '../lib/filter';
+  import { NO_AREA } from '../lib/areaGroups';
   import { translate, type Key } from '../lib/i18n';
   import { areasOfPairs, crossEdges, pairsOf, pairsOfLinks, type CrossEdge } from '../lib/cross';
   import { markHidden } from '../lib/text';
@@ -20,12 +21,14 @@
   const doc = $derived(app.linksNow);
   const pending = $derived(app.linksPending);
   const allPairs = $derived(doc ? pairsOfLinks(doc) : pending ? [] : pairsOf(crossEdges(app.tasks)));
+  // the areas chosen in the list, an area group as its members
+  const chosen = $derived(app.matchAreas.filter((a) => a !== NO_AREA));
   const pairs = $derived(
     doc
-      ? pairsOfLinks(doc, app.filter.areas)
+      ? pairsOfLinks(doc, chosen)
       : pending
         ? []
-        : pairsOf(crossEdges(app.tasks), app.filter.areas),
+        : pairsOf(crossEdges(app.tasks), chosen),
   );
   const areasWithLinks = $derived(new Set(pairs.flatMap((p) => [p.a, p.b])));
   const linkCount = $derived(pairs.reduce((sum, p) => sum + p.count, 0));
@@ -135,7 +138,7 @@
       <MultiSelect
         label={t('nav.areas')}
         options={areaOptions}
-        selected={app.filter.areas}
+        selected={chosen}
         onchange={(areas) => (app.filter = { ...app.filter, areas })}
         resetLabel={t('multi.reset')}
         searchLabel={t('multi.search')}
@@ -156,7 +159,7 @@
   {#if pending}
     <p class="muted" role="status">{t('state.loading')}</p>
   {:else if pairs.length === 0}
-    <p class="muted">{app.filter.areas.length > 0 ? t('cross.none_chosen') : t('cross.none')}</p>
+    <p class="muted">{app.matchAreas.length > 0 ? t('cross.none_chosen') : t('cross.none')}</p>
   {:else}
     {#if matrixAreas.length >= 2}
       <section class="card" aria-labelledby="cross-matrix-title">

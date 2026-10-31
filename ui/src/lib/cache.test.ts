@@ -27,6 +27,16 @@ describe('cacheableList', () => {
     expect(JSON.stringify(list)).not.toContain('new/');
     expect(JSON.stringify(list)).not.toContain('ghost/');
   });
+  it('keeps the area groups with only the members that may be cached', () => {
+    const snap = {
+      ...doc([task('pub/a'), task('priv/c')]),
+      area_groups: [{ name: 'mixed', members: ['pub', 'priv', 'int'], open: 2, by_status: {} }],
+    } as unknown as Snapshot;
+    const list = cacheableList(snap, null, areas, 5);
+    expect(list?.areaGroups).toEqual([{ name: 'mixed', members: ['pub', 'int'], open: 0 }]);
+    expect(JSON.stringify(list)).not.toContain('priv');
+    expect(cacheableList(doc([task('pub/a')]), null, areas, 5)?.areaGroups).toBeUndefined();
+  });
   it('cuts an edge to a task that was left out', () => {
     const list = cacheableList(
       doc([

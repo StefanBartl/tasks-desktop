@@ -36,8 +36,8 @@ export const DEFAULT_LIMITS: Readonly<LoadLimits> = {
   maxDepth: 32,
 };
 
-/** Files at the root of the vault that are read besides the task files (data classes, vault marker). */
-export const ROOT_FILES: ReadonlySet<string> = new Set(['areas.json', 'vault.json']);
+/** Files at the root of the vault that are read besides the task files (data classes, vault marker, area groups). */
+export const ROOT_FILES: ReadonlySet<string> = new Set(['areas.json', 'vault.json', 'area-groups.json']);
 
 const SKIPPED_DIRS: ReadonlySet<string> = new Set(['node_modules']);
 

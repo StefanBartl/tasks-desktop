@@ -46,8 +46,8 @@
     if (!dialog) return;
     if (app.capturing && !dialog.open) {
       // The area of the filter, when exactly one is chosen, is the one most
-      // likely meant.
-      area = app.filter.areas.length === 1 ? (app.filter.areas[0] ?? '') : (areas[0]?.name ?? '');
+      // likely meant (an area group with one member counts; a group is never a place to write to).
+      area = app.writeArea ?? areas[0]?.name ?? '';
       title = '';
       prio = '';
       kind = '';

@@ -43,7 +43,8 @@
   $effect(() => {
     if (!dialog) return;
     if (app.planning && !dialog.open) {
-      const area = app.filter.areas.length === 1 ? (app.filter.areas[0] ?? '') : (areas[0]?.value ?? '');
+      // one area chosen (an area group with one member counts); a group is never a place to write to
+      const area = app.writeArea ?? areas[0]?.value ?? '';
       form = emptyForm(area);
       answer = null;
       areasTouched = false;

@@ -1124,6 +1124,8 @@ const en = {
   'multi.note.areas':
     'A task lies in one area: it is shown when it lies in any of the ones chosen (OR). The tasks of tasks-desktop lie in the area of tasks.nvim.',
   'multi.note.counts_cached': 'The counts are from the list kept in the browser until the hub has answered.',
+  'areas.group': '{name} (group)',
+  'areas.group.title': 'Area group: {members}',
   'filter.match.any': 'any of them (OR)',
   'filter.match.all': 'all of them (AND)',
   'filter.match.all_short': 'all',
@@ -2352,6 +2354,8 @@ const de: Record<Key, string> = {
   'multi.note.areas':
     'Ein Task liegt in genau einer Area: er wird gezeigt, wenn er in einer der gewählten liegt (ODER). Die Tasks von tasks-desktop liegen in der Area von tasks.nvim.',
   'multi.note.counts_cached': 'Die Zahlen stammen aus der im Browser gemerkten Liste, bis der Hub geantwortet hat.',
+  'areas.group': '{name} (Gruppe)',
+  'areas.group.title': 'Area-Gruppe: {members}',
   'filter.match.any': 'eines davon (ODER)',
   'filter.match.all': 'alle (UND)',
   'filter.match.all_short': 'alle',

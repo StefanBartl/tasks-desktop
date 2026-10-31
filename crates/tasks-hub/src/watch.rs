@@ -41,6 +41,9 @@ fn is_markdown(name: &str) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("md"))
 }
 
+/// The file of the vault root that holds the engine's area groups (tasks.nvim `area_groups.FILE`).
+pub const AREA_GROUPS_FILE: &str = "area-groups.json";
+
 /// Is a change at this path, given relative to the vault, worth a rescan?
 ///
 /// `entry` says what is at the path; it is asked only when the place of the
@@ -62,6 +65,9 @@ pub fn relevant(relative: &Path, entry: impl FnOnce() -> Entry) -> bool {
         // name (`.git`, `.obsidian`, a tool's state file) is not an area, and
         // a scan that is woken by its own tools would never rest. An area is
         // a folder: a file in the root is not one.
+        // The area groups of the engine (`area-groups.json`): the one file of
+        // the root that is read; a change changes the groups of the snapshot.
+        [AREA_GROUPS_FILE] => true,
         [name] => !name.starts_with('.') && !ignored_name(name) && entry() != Entry::File,
         // The structure of an area: its two folders and the folders of the
         // tasks and plans. A folder only.
@@ -138,6 +144,19 @@ mod tests {
         ] {
             assert!(file(yes), "{yes}");
         }
+    }
+
+    #[test]
+    fn the_area_groups_file_matters() {
+        assert!(file("area-groups.json"));
+        assert!(gone("area-groups.json"));
+        // Any other file of the root is still no area.
+        assert!(!file("vault.json"));
+        assert!(!file("lib.nvim/area-groups.json"));
+        // It costs no system call either.
+        let _ = relevant(Path::new("area-groups.json"), || {
+            panic!("asked for the area groups file")
+        });
     }
 
     #[test]

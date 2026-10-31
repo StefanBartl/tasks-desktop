@@ -32,6 +32,7 @@ import type {
   View as SavedView,
   ViewSelect,
 } from './contract';
+import { expandAreas, isAreaGroup, NO_AREA, type AreaGroupInfo } from './areaGroups';
 import type { Op } from './api';
 import { indexOfLinks, touchedAreas } from './cross';
 import { parsePrefs, type Prefs as FinishedPrefs } from './finished';
@@ -649,14 +650,56 @@ export class App {
     return ids === undefined ? undefined : new Set(ids);
   });
 
+  /** The engine's area groups (`area_groups` of the snapshot): a name that stands for several areas in a filter. */
+  areaGroups = $derived.by((): readonly AreaGroupInfo[] => this.snapshot?.area_groups ?? this.cachedGroups);
+
+  /** The area groups of the cached list: a group chosen before keeps its meaning until the snapshot is there. */
+  cachedGroups = $state.raw<readonly AreaGroupInfo[]>([]);
+
+  /** Whether `name` is an area group in force (no area of that name). */
+  isAreaGroup(name: string): boolean {
+    return isAreaGroup(name, this.areaGroups, this.allAreaNames);
+  }
+
+  /** `filter` as the list matches it: a chosen area group stands for its member areas (an area of that name wins). */
+  matchFilter(filter: Filter): Filter {
+    const areas = expandAreas(filter.areas, this.areaGroups, this.allAreaNames);
+    return areas === filter.areas ? filter : { ...filter, areas: [...areas] };
+  }
+
+  /** The areas the filter means, groups resolved: what a part of the page that reads the chosen areas compares with. */
+  get matchAreas(): readonly string[] {
+    return this.matchFilter(this.filter).areas;
+  }
+
+  /**
+   * The area a new task or plan most likely goes to: the one area the filter means (an area group with one member
+   * counts). A group is never a place to write to, so a name that is no area of the vault is not offered.
+   */
+  get writeArea(): string | undefined {
+    const areas = this.matchAreas;
+    return areas.length === 1 && this.allAreaNames.includes(areas[0] ?? '') ? areas[0] : undefined;
+  }
+
+  /**
+   * The one name the finished tasks are asked for: one area, or one area group (the engine resolves it and pages its
+   * members). Undefined for several names (the page filters a page of all) or for only empty groups (`NO_AREA`).
+   */
+  get finishedArea(): string | undefined {
+    const chosen = this.filter.areas;
+    if (chosen.length === 1 && this.isAreaGroup(chosen[0] ?? '')) return chosen[0];
+    const areas = this.matchAreas;
+    return areas.length === 1 && areas[0] !== NO_AREA ? areas[0] : undefined;
+  }
+
   get shown(): TaskEntry[] {
-    const filtered = applyFilter(this.tasks, this.filter, this.today, this.crossIndex, this.quickWinSet);
+    const filtered = applyFilter(this.tasks, this.matchFilter(this.filter), this.today, this.crossIndex, this.quickWinSet);
     return this.sort === 'default' ? filtered : applyOrder(filtered, this.#order);
   }
 
   /** The open tasks a saved view shows: its selection found the way the list finds its filter. */
   tasksOfView(view: SavedView): TaskEntry[] {
-    return applyFilter(this.tasks, filterOfSelect(view.select), this.today, this.crossIndex, this.quickWinSet);
+    return applyFilter(this.tasks, this.matchFilter(filterOfSelect(view.select)), this.today, this.crossIndex, this.quickWinSet);
   }
 
   /**
@@ -1608,7 +1651,13 @@ export class App {
 
   /** The open tasks a selection names (an area, a plan, a group of a view: a tile of the context menu). */
   tasksOfSelect(select: Partial<ViewSelect>): TaskEntry[] {
-    return applyFilter(this.tasks, filterOfSelect({ ...emptySelect(), ...select }), this.today, this.crossIndex, this.quickWinSet);
+    return applyFilter(
+      this.tasks,
+      this.matchFilter(filterOfSelect({ ...emptySelect(), ...select })),
+      this.today,
+      this.crossIndex,
+      this.quickWinSet,
+    );
   }
 
   /**
@@ -2500,7 +2549,14 @@ export class App {
 
   /** For each area how many tasks the filter would keep with that area as its only one (the choice of the areas). */
   get areaCounts(): Map<string, number> {
-    return areaCounts(this.tasks, this.filter, this.areaNames, this.today, this.crossIndex, this.quickWinSet);
+    const counts = areaCounts(this.tasks, this.filter, this.areaNames, this.today, this.crossIndex, this.quickWinSet);
+    // a group counts what it would keep as the only choice: its members' tasks
+    for (const group of this.areaGroups) {
+      if (counts.has(group.name)) continue;
+      const only = this.matchFilter({ ...this.filter, areas: [group.name] });
+      counts.set(group.name, applyFilter(this.tasks, only, this.today, this.crossIndex, this.quickWinSet).length);
+    }
+    return counts;
   }
 
   /** Take every chosen area, status and actor and the search words away. */
@@ -2687,6 +2743,7 @@ export class App {
         this.env.hub.onUnauthorized = () => this.lostSession();
         given = true;
         this.tasks = cached.tasks;
+        this.cachedGroups = cached.areaGroups ?? [];
         this.cachedAt = cached.savedAt;
         this.phase = 'ready';
         // The list is of the vault the hub read when it was saved. A hub that reads another one now (chosen in another

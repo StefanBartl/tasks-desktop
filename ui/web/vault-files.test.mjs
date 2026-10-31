@@ -102,6 +102,8 @@ test('which files and folders are read', () => {
   assert.equal(wantedFile('areas.json', true), true);
   assert.equal(wantedFile('areas.json', false), false, 'the named files count at the root only');
   assert.equal(wantedFile('vault.json', true), true);
+  assert.equal(wantedFile('area-groups.json', true), true, 'the engine reads the area groups');
+  assert.equal(wantedFile('area-groups.json', false), false);
   assert.equal(wantedDir('.git'), false);
   assert.equal(wantedDir('.obsidian'), false);
   assert.equal(wantedDir('node_modules'), false);
