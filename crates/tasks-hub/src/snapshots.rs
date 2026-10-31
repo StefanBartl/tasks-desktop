@@ -70,11 +70,10 @@ fn checked_name(name: &str) -> Result<PathBuf, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hub_testkit::scratch::Scratch;
 
-    fn rig(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("tasks-hub-snap-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+    fn rig(name: &str) -> Scratch {
+        let dir = Scratch::new(&format!("snap-{name}"));
         let snap = dir.join("ui.nvim/TESTS/__snapshots__/sheets/a.sheet");
         std::fs::create_dir_all(&snap).unwrap();
         std::fs::write(snap.join("float.80x24.snap"), "row one\nrow two\n").unwrap();
