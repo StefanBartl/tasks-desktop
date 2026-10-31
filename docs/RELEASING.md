@@ -74,13 +74,12 @@ stays "queued" (no red mark, discarded after 24 h). No workflow has a `pull_requ
 fork too, must never run its own workflow on that machine.
 
 - Only Windows is built and tested: there is no Linux or macOS archive and no `install.sh` any more.
-- The other sources (the engine at the pinned commit of `engine.lock`, appkit through Cargo and pnpm) are read with
-  the login of `gh` and Git's own credentials (`.github/actions/pnpm-auth` hands the token to pnpm for the length of
-  one job). There is no token secret.
+- The other sources (the engine at the pinned commit of `engine.lock`, appkit through Cargo and pnpm) are public
+  and read without credentials. There is no token secret.
 - `release-kit` of appkit runs on the runner from v0.23.1 on (Git Bash by its full path); the apps pin it by the
   commit of the tag that `Cargo.lock` pins.
-- Installing while the repository is private needs `GH_TOKEN` (`$env:GH_TOKEN = (gh auth token)`): see the notes of the
-  release page and the release-kit README of appkit.
+- The repository is public: installing is an anonymous download (`irm .../releases/download/<tag>/install.ps1 | iex`,
+  no `GH_TOKEN`); see the notes of the release page and the release-kit README of appkit.
 
 ## Not yet
 

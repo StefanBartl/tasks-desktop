@@ -1,12 +1,14 @@
 **This is not a release.** It is the newest state of `main`, rebuilt after every green CI run and replaced each time. Nothing here is signed or tested by hand; use a release for anything that matters.
 
-**Windows only** (x86-64). The repository is private: the files of this page are not public, and the install script needs a GitHub login that can read it (`gh auth login`, or a token with read access in `GH_TOKEN`).
+**Windows only** (x86-64). The files of this page are public: no GitHub login is needed.
 
-**Install it with the script** (for the current user, no administrator rights, and no SmartScreen stop: the script downloads the program itself and checks it against `SHA256SUMS`). Save it from this page (`gh release download latest -R WKDSteve/tasks-desktop -p install.ps1`), then:
+**Install it with the script** (for the current user, no administrator rights, and no SmartScreen stop: the script downloads the program itself and checks it against `SHA256SUMS`). In your own PowerShell (not elevated):
 
 ```
-$env:GH_TOKEN = (gh auth token); .\install.ps1
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/WKDSteve/tasks-desktop/releases/download/latest/install.ps1 | iex"
 ```
+
+Or save `install.ps1` from this page and run `.\install.ps1`.
 
 Run it again to update to the newest rolling build.
 

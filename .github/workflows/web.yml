@@ -5,7 +5,7 @@
 #   open file:///C:/repos/tasks-web/tasks.html        (a local file: no server, no hosting)
 #
 # Runs on a tag (v*) and by hand. Like ci.yml it runs on the maintainer's self-hosted Windows runner, whose git credentials
-# push to tasks-web: there is no deploy key and no secret in this workflow, and a workflow that anybody else could
+# push to tasks-web (a public repository: reading it needs no login, only the push needs them): there is no deploy key and no secret in this workflow, and a workflow that anybody else could
 # trigger would have the maintainer's rights, which is why it has no `pull_request` trigger and no `workflow_run`.
 # The file is built from the tag, opened in Chrome from disk with the requests counted (ui/e2e-web), and only then
 # published; SHA256SUMS in tasks-web lists every page of that repository.
@@ -52,7 +52,6 @@ jobs:
           git -C engine/tasks.nvim checkout --quiet "$commit"
           git clone --quiet https://github.com/WKDSteve/lib.nvim engine/lib.nvim
           git -C engine/lib.nvim checkout --quiet "$lib_commit"
-      - uses: ./.github/actions/pnpm-auth
       - name: Install
         working-directory: ui
         run: pnpm install --frozen-lockfile

@@ -3,14 +3,14 @@ The hub as a program for Windows, with the interface inside it.
 ## Install
 
 Without administrator rights, for one user. The `install.ps1` of this release installs exactly this release: it
-downloads the archive, checks it against `SHA256SUMS` and hands over to `tasks-hub install`. The repository is private,
-so the script needs a GitHub login that can read it: save it from this page and run it in your own terminal
-(PowerShell not elevated) with a token:
+downloads the archive, checks it against `SHA256SUMS` and hands over to `tasks-hub install`. No GitHub login is
+needed: run it in your own terminal (PowerShell not elevated):
 
 ```
-gh release download {tag} -R WKDSteve/tasks-desktop -p install.ps1
-$env:GH_TOKEN = (gh auth token); .\install.ps1
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/WKDSteve/tasks-desktop/releases/download/{tag}/install.ps1 | iex"
 ```
+
+Or save `install.ps1` from this page and run `.\install.ps1`.
 
 To register the hub with your login and add a link, pass the arguments: `.\install.ps1 -InstallArgs '--autostart','--shortcut'`.
 The program downloaded by the script is not stopped by SmartScreen; what is checked instead is that it is the file

@@ -63,7 +63,7 @@ For a machine where no program may be installed: the page runs alone in Chrome o
 `tasks.html`, with the tasks.nvim engine inside it. There is no hub, no server and no network request (the page's CSP forbids
 one).
 
-1. Get the file: `git clone` (later `git pull`) of the private repository
+1. Get the file: `git clone` (later `git pull`) of the public repository
    [tasks-web](https://github.com/WKDSteve/tasks-web); compare `Get-FileHash tasks.html` with `SHA256SUMS`.
 2. Open `file:///<path>/tasks-web/tasks.html` in Chrome, or run `start-tasks.cmd` there (it finds Chrome, `/app` for a
    window of its own, `/shortcut` for a shortcut on the desktop and in the Start menu). Without the script: Options >
@@ -107,16 +107,14 @@ There are two channels, and both carry an install script that installs exactly t
 
 The scripts need no administrator rights and install for one user, so they also work where a signed
 Setup is not allowed or SmartScreen stops a downloaded program. Run them in your own terminal (not
-elevated, not from inside a program that sandboxes AppData). The repository is private: an anonymous
-download is answered with a login page, so fetch the script with `gh` and give it a token that may read
-the repository in `GH_TOKEN`:
+elevated, not from inside a program that sandboxes AppData). The repository is public: the download
+needs no GitHub login and no token:
 
 ```
 # the rolling build (Windows)
-gh release download latest -R WKDSteve/tasks-desktop -p install.ps1 -D $env:TEMP --clobber
-$env:GH_TOKEN = (gh auth token); & "$env:TEMP\install.ps1"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/WKDSteve/tasks-desktop/releases/download/latest/install.ps1 | iex"
 
-# a release: the same with the tag in place of latest, e.g. gh release download v0.1.0 ...
+# a release: the same with the tag in place of latest, e.g. .../releases/download/v0.1.0/install.ps1
 ```
 
 They download the program of that build, check it against its `SHA256SUMS` (a wrong or missing
@@ -188,8 +186,8 @@ the vault is not `main` or the file is already schema 2, and keeps what the othe
 ## The rolling build (the newest `main`, one click)
 
 After every green CI run on `main`, the workflow `rolling` builds the program of that commit for Windows
-and puts it on the pre-release [`latest`](https://github.com/WKDSteve/tasks-desktop/releases/tag/latest) (a login
-with read access is needed: the repository is private);
+and puts it on the pre-release [`latest`](https://github.com/WKDSteve/tasks-desktop/releases/tag/latest) (public,
+no login needed);
 the files are replaced each time. It is not a release (see `release.yml` for that): not signed, not tried by hand.
 
 | File | Use |
@@ -234,7 +232,7 @@ ui/web/             its Node side: the bundle of the Lua sources, the tests, the
 ```
 
 The web variant (no install, no server: one HTML file opened from disk, the engine in the browser) is built here
-and used as described under "In the browser, without installing". Its built files go to the private repository [tasks-web](https://github.com/WKDSteve/tasks-web).
+and used as described under "In the browser, without installing". Its built files go to the public repository [tasks-web](https://github.com/WKDSteve/tasks-web).
 
 - **The engine runs unchanged.** `ui/web/engine-bundle.mjs` takes the Lua sources of tasks.nvim and lib.nvim
   from the git objects of the commits in `engine.lock` (never the working tree), follows their requires with a
@@ -348,7 +346,7 @@ and used as described under "In the browser, without installing". Its built file
   moved and kept, a task detached into a window of the same file and the file opened at `#task=<id>`. Every test ends by holding the page to the two rules: no request
   and no violation of the policy. CI runs the project in `ci.yml` (after the build of the page) and in `web.yml` before
   the file is published. The workflow `web.yml`
-  (tag `v*`, or by hand) builds, tests and commits `tasks.html` to the private repository `WKDSteve/tasks-web` with the
+  (tag `v*`, or by hand) builds, tests and commits `tasks.html` to the public repository `WKDSteve/tasks-web` with the
   runner's own git credentials (no deploy key); it is opened there with `file:///.../tasks-web/tasks.html`.
 - The Node tests need `pnpm install` for wasmoon only where they start the engine (`web/engine.test.mjs`,
   `web/worker-client.test.mjs`); the pieces around it run on Node alone: Node strips the types itself.
