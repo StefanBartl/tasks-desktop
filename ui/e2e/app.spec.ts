@@ -6618,3 +6618,21 @@ test('the acceptance view shows the snapshot, writes the ticks into the task and
   await expect(card.getByRole('button', { name: 'Finish the task ...' })).toHaveCount(0);
   await expect.poll(() => readFileSync(file, 'utf8')).toContain('    - [ ] The border is drawn');
 });
+
+test('a tick the hub refuses leaves the box as the task says and writes nothing', async ({ page }) => {
+  await pair(page);
+  await showList(page);
+  await page.keyboard.press('g');
+  await page.keyboard.press('a');
+  const card = page.locator(`article.task[data-task="lib.nvim/${ABNAHME_SLUG}"]`);
+  await expect(card).toBeVisible();
+  const box = card.getByLabel('The text is readable');
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${ABNAHME_SLUG}.md`);
+  const before = readFileSync(file, 'utf8');
+  await page.route('**/api/tasks/ops', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":{"code":"engine_failed","message":"no"}}' }));
+  // The vault is shared with the test above: whatever the box says, one click on it must leave it so.
+  const was = await box.isChecked();
+  await box.click();
+  await expect(box).toBeChecked({ checked: was });
+  expect(readFileSync(file, 'utf8')).toBe(before);
+});

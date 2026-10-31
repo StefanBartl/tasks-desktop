@@ -67,17 +67,21 @@
     }
   }
 
-  async function tick(id: string, doc: TaskDocument, item: Item, checked: boolean): Promise<void> {
-    if (doc.body_truncated) return;
+  /** Whether the tick was written; when not, the task is read again and the boxes are drawn from it (as it was). */
+  async function tick(id: string, doc: TaskDocument, item: Item, checked: boolean): Promise<boolean> {
+    if (doc.body_truncated) return false;
     const body = tickItem(doc.body, item, checked);
     if (body === null) {
       // The text is not what was read: read it again, write nothing.
       changed = id;
       await read(id, doc.task.etag);
-      return;
+      return false;
     }
     changed = null;
-    await app.setBody(id, body, doc.task.etag);
+    const written = await app.setBody(id, body, doc.task.etag);
+    // A refused write (a change made elsewhere, read only) leaves the task as it was: read it again.
+    if (!written) await read(id, doc.task.etag);
+    return written;
   }
 
   const kinds = ['judge', 'manual'] as const;
