@@ -265,8 +265,19 @@ function mapOf<T>(json: Json | undefined, what: string, one: (item: Json, key: s
   return out;
 }
 
+const isClassWord = (word: string): word is Class => (CLASS_WORDS as readonly string[]).includes(word);
+
+/**
+ * A `Class`, a unit enum, read as serde_json reads it: the name as a text (`"public"`), or a map of exactly one pair,
+ * the name and `null` (`{"public":null}`, the externally tagged form of a unit variant). An empty map, two names, a value
+ * that is not null, an unknown name and a list are refused, as by serde.
+ */
 function asClass(json: Json | undefined, what: string): Class {
-  if (json?.kind === 'string' && (CLASS_WORDS as readonly string[]).includes(json.value)) return json.value as Class;
+  if (json?.kind === 'string' && isClassWord(json.value)) return json.value;
+  if (json?.kind === 'object' && json.pairs.length === 1) {
+    const [name, unit] = json.pairs[0] as [string, Json];
+    if (isClassWord(name) && unit.kind === 'null') return name;
+  }
   return reject(`${what}: not one of public, internal, private`);
 }
 
