@@ -6,7 +6,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { expectAccessible, violations, watchViolations } from './a11y';
 import { STATE } from './global';
-import { origin, pairingLink, pickedFolder, removeFile } from './hub';
+import { ABNAHME_SLUG, origin, pairingLink, pickedFolder, removeFile } from './hub';
 
 test.use({ locale: 'en-US' });
 
@@ -6582,4 +6582,39 @@ test('the context menu copies a task, the marked ones it is opened on, and the t
   expect(got[2]).toContain('lib.nvim/ctxcopy-r001-task');
   for (const id of ['ctxcopy-r001-task', 'ctxcopy-r002-task']) rmSync(join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${id}.md`), { force: true });
   expect(consoleProblems.get(page)).toEqual([]);
+});
+
+test('the acceptance view shows the snapshot, writes the ticks into the task and offers done only when all are ticked', async ({ page }) => {
+  await watchViolations(page);
+  await pair(page);
+  await showList(page);
+  await page.keyboard.press('g');
+  await page.keyboard.press('a');
+  const card = page.locator(`article.task[data-task="lib.nvim/${ABNAHME_SLUG}"]`);
+  await expect(card).toBeVisible();
+  // The snapshot comes from the plugin checkouts, as text rows.
+  await expect(card.locator('pre.grid')).toContainText('ABNAHME-ROW-ONE');
+  await expect(card.getByRole('status').first()).toContainText('0 of 3 ticked');
+  await expectAccessible(page, 'acceptance');
+  const file = join(state().vault, 'lib.nvim', 'ROADMAP', 'tasks', `${ABNAHME_SLUG}.md`);
+  // A tick is written into the task: the one line, nothing else.
+  await card.getByLabel('The border is drawn').check();
+  await expect(card.getByRole('status').first()).toContainText('1 of 3 ticked');
+  await expect.poll(() => readFileSync(file, 'utf8')).toContain('    - [x] The border is drawn');
+  expect(readFileSync(file, 'utf8')).toContain('    - [ ] The text is readable');
+  // Done is not offered while a point is open.
+  await expect(card.getByRole('button', { name: 'Finish the task ...' })).toHaveCount(0);
+  await card.getByLabel('The text is readable').check();
+  await expect(card.getByRole('button', { name: 'Finish the task ...' })).toHaveCount(0);
+  await card.getByLabel('Open it in the real config').check();
+  await expect(card.getByRole('status').first()).toContainText('3 of 3 ticked');
+  // All ticked: the page offers done; it opens the dialog and finishes nothing by itself.
+  await card.getByRole('button', { name: 'Finish the task ...' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  expect(readFileSync(file, 'utf8')).toContain('status: open');
+  // Unticking takes the offer back.
+  await page.keyboard.press('Escape');
+  await card.getByLabel('The border is drawn').uncheck();
+  await expect(card.getByRole('button', { name: 'Finish the task ...' })).toHaveCount(0);
+  await expect.poll(() => readFileSync(file, 'utf8')).toContain('    - [ ] The border is drawn');
 });

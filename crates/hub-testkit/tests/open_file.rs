@@ -47,6 +47,16 @@ async fn rig_with(name: &str, with_opener: bool, pick: Option<&str>) -> Rig {
     )
     .unwrap();
     let log = base.join("opened.log");
+    let snaps = base.join("repos/ui.nvim/TESTS/__snapshots__/sheets/a.sheet");
+    std::fs::create_dir_all(&snaps).unwrap();
+    std::fs::write(
+        snaps.join("float.80x24.snap"),
+        "row one
+row two
+",
+    )
+    .unwrap();
+    std::fs::write(base.join("repos/secret.snap"), "no").unwrap();
     let engine: Arc<dyn Engine> = Arc::new(CliEngine::new(CliEngineConfig {
         dialect: tasks_hub::engine::DIALECT,
         nvim: PathBuf::from(env!("CARGO_BIN_EXE_fake-nvim")),
@@ -105,6 +115,7 @@ async fn rig_with(name: &str, with_opener: bool, pick: Option<&str>) -> Rig {
         cfg,
         Extras {
             attach_dirs: Vec::new(),
+            snapshot_root: Some(base.join("repos")),
             vaults: None,
             opener,
         },
@@ -165,6 +176,22 @@ async fn post(r: &Rig, route: &str, body: &str, session: bool) -> (u16, Value) {
         headers.push(("Authorization", &auth));
     }
     let reply = client::request(r.server.addr().port(), "POST", route, &headers, body)
+        .await
+        .unwrap();
+    (
+        reply.status,
+        serde_json::from_str(&reply.body).unwrap_or(Value::Null),
+    )
+}
+
+async fn get(r: &Rig, route: &str) -> (u16, Value) {
+    let auth = format!("Bearer {}", r.token);
+    let origin = format!("http://127.0.0.1:{}", r.server.addr().port());
+    let headers = vec![
+        ("Authorization", auth.as_str()),
+        ("Origin", origin.as_str()),
+    ];
+    let reply = client::request(r.server.addr().port(), "GET", route, &headers, "")
         .await
         .unwrap();
     (
@@ -325,4 +352,30 @@ async fn a_new_vault_is_made_only_when_confirmed_and_never_over_something() {
         (status, doc["error"]["code"].as_str()),
         (400, Some("bad_path"))
     );
+}
+
+#[tokio::test]
+async fn a_snapshot_of_a_checkout_is_read_and_a_name_that_climbs_is_refused() {
+    let r = rig("snap", false).await;
+    let (status, doc) = get(
+        &r,
+        "/api/tasks/sheet_snap?name=ui.nvim/TESTS/__snapshots__/sheets/a.sheet/float.80x24.snap",
+    )
+    .await;
+    assert_eq!(status, 200, "{doc}");
+    assert_eq!(
+        doc["text"],
+        "row one
+row two
+"
+    );
+    for name in [
+        "../secret.snap",
+        "ui.nvim/TESTS/__snapshots__/../../../secret.snap",
+        "ui.nvim/TESTS/__snapshots__/sheets/a.sheet/none.snap",
+    ] {
+        let (status, doc) = get(&r, &format!("/api/tasks/sheet_snap?name={name}")).await;
+        assert_eq!(status, 404, "{name}: {doc}");
+        assert!(doc.get("text").is_none(), "{name}: {doc}");
+    }
 }

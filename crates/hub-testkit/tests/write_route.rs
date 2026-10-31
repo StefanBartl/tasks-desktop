@@ -85,6 +85,7 @@ async fn rig_full(name: &str, limits: Limits, attach_dirs: Vec<PathBuf>) -> Rig 
         },
         Extras {
             attach_dirs,
+            snapshot_root: None,
             ..Extras::default()
         },
     )

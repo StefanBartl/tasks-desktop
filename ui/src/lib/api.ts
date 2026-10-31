@@ -306,6 +306,12 @@ export class Hub extends HubClient<Snapshot> {
     return this.json<Links>('/api/tasks/links');
   }
 
+  /** The text of a snapshot a test-sheet block names (`<repo>/TESTS/__snapshots__/<path>.snap`); the hub reads it. */
+  async sheetSnapshot(name: string, signal?: AbortSignal): Promise<string> {
+    const doc = await this.json<{ text: string }>(`/api/tasks/sheet_snap?name=${encodeURIComponent(name).replace(/%2F/gi, '/')}`, signal ? { signal } : undefined);
+    return doc.text;
+  }
+
   /** What finishing a task would do, and the token `done` needs. */
   donePreview(id: string): Promise<DonePreview> {
     const path = `/api/tasks/done_preview?id=${encodeURIComponent(id).replace(/%2F/gi, '/')}`;

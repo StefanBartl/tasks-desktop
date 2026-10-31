@@ -152,6 +152,9 @@ pub struct Extras {
     pub opener: Option<Arc<dyn FileOpener>>,
     /// The folders `attach` takes the newest screenshot from (the settings' `attach_dirs`); none: only the clipboard.
     pub attach_dirs: Vec<std::path::PathBuf>,
+    /// The folder of the plugin checkouts (`REPOS_DIR`) the text snapshots of the test sheets are read from; none: the
+    /// route answers 404.
+    pub snapshot_root: Option<std::path::PathBuf>,
 }
 
 /// Bind and serve, with a list of vaults the page may choose from.
@@ -168,6 +171,7 @@ pub async fn start_with(cfg: ServerConfig, extras: Extras) -> std::io::Result<Ru
         vaults,
         opener,
         attach_dirs,
+        snapshot_root,
     } = extras;
     let (vault, refresh) = match cfg.watch {
         Some(w) => (Some(w.vault), w.refresh),
@@ -178,6 +182,7 @@ pub async fn start_with(cfg: ServerConfig, extras: Extras) -> std::io::Result<Ru
         opener,
         usage: cfg.usage,
         streams: Arc::new(StreamCounter::default()),
+        snapshot_root: snapshot_root.map(Arc::new),
         attach_dirs: Arc::new(
             attach_dirs
                 .iter()
@@ -245,6 +250,7 @@ fn app_routes(core: &Arc<Shared>) -> Router<Arc<Shared>> {
         .route(&r("search"), get(search_route))
         .route(&r("rescan"), post(rescan))
         .route(&r("done_preview"), get(done_preview))
+        .route(&r("sheet_snap"), get(sheet_snap))
         .route(&r("finished"), get(finished))
         .route(&r("links"), get(links))
         .route(&r("enums"), get(enums))
@@ -390,6 +396,7 @@ mod tests {
                 opener: None,
                 usage: None,
                 streams: Arc::new(StreamCounter::default()),
+                snapshot_root: None,
                 attach_dirs: Arc::default(),
             },
         ))

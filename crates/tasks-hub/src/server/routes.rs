@@ -567,6 +567,37 @@ pub(super) async fn done_preview(
     }
 }
 
+/// `GET /api/tasks/sheet_snap?name=<repo>/TESTS/__snapshots__/<path>.snap`: the text of a snapshot a test-sheet block
+/// names, read from the plugin checkouts (`REPOS_DIR`). The page sends the name the block holds, never a path; the
+/// hub keeps everything but a snapshot file of a checkout out (`snapshots::read_snapshot`).
+pub(super) async fn sheet_snap(
+    State(st): State<Arc<Shared>>,
+    RawQuery(query): RawQuery,
+) -> Response {
+    let params = match parse_query(query.as_deref(), &["name"]) {
+        Ok(p) => p,
+        Err(why) => return error_body(StatusCode::BAD_REQUEST, "bad_query", why),
+    };
+    let Some(name) = params.get("name") else {
+        return error_body(StatusCode::BAD_REQUEST, "bad_query", "name is required");
+    };
+    let Some(root) = st.rt().snapshot_root.clone() else {
+        return error_body(
+            StatusCode::NOT_FOUND,
+            "snapshots_unavailable",
+            "this hub knows no folder of plugin checkouts",
+        );
+    };
+    let name = name.clone();
+    let read = tokio::task::spawn_blocking(move || crate::snapshots::read_snapshot(&root, &name))
+        .await
+        .unwrap_or(Err("the snapshot could not be read"));
+    match read {
+        Ok(text) => axum::Json(json!({ "text": text })).into_response(),
+        Err(why) => error_body(StatusCode::NOT_FOUND, "snapshot_refused", why),
+    }
+}
+
 /// `GET /api/tasks/links`: where the areas hang together (the links between the open tasks of different areas). A
 /// read without parameters; the finding of the links is the engine's.
 pub(super) async fn links(State(st): State<Arc<Shared>>, RawQuery(query): RawQuery) -> Response {

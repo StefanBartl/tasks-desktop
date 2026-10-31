@@ -17,6 +17,7 @@ pub mod newvault;
 pub mod search;
 pub mod server;
 pub mod setup;
+pub mod snapshots;
 pub mod store;
 pub mod ui;
 pub mod watch;

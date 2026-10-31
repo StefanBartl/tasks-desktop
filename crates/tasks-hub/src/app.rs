@@ -589,8 +589,10 @@ pub async fn serve(opts: ServeOptions) -> Result<(), String> {
     let attach_dirs = file.app.attach_dirs.clone();
     let vaults: Arc<dyn VaultAdmin<VaultTarget>> =
         Arc::new(ConfigVaults::new(dir.clone(), env.clone(), file));
+    let snapshot_root = env.path("REPOS_DIR");
     let extras = || Extras {
         attach_dirs: attach_dirs.clone(),
+        snapshot_root: snapshot_root.clone(),
         vaults: Some(Arc::clone(&vaults)),
         opener: nvim.clone().map(|n| {
             Arc::new(TerminalOpener::new(n, env.clone())) as Arc<dyn crate::editor::FileOpener>

@@ -103,7 +103,7 @@ const NOTE_MAX = 1000;
 
 export type Phase = 'starting' | 'needs_pairing' | 'offline' | 'unavailable' | 'ready';
 export type Connection = 'live' | 'reconnecting' | 'offline';
-export type View = 'today' | 'list' | 'board' | 'plan' | 'inbox' | 'cross' | 'done' | 'views';
+export type View = 'today' | 'list' | 'board' | 'plan' | 'inbox' | 'abnahme' | 'cross' | 'done' | 'views';
 export type Theme = 'auto' | 'light' | 'dark';
 /** The blocks of the Today view that a person may hide. */
 export { ORDERED_TILES, TILES, type OrderedTile, type Tile } from './tiles-list';
@@ -616,6 +616,7 @@ export class App {
       view === 'board' ||
       view === 'plan' ||
       view === 'inbox' ||
+      view === 'abnahme' ||
       view === 'cross' ||
       view === 'done' ||
       view === 'views'
@@ -2404,6 +2405,16 @@ export class App {
       ],
       // The way back is to bring the task back (see `inverseOf`).
     );
+  }
+
+  /** One task with its body, for the acceptance view (the detail pane keeps its own). */
+  readTask(id: string): Promise<TaskDocument> {
+    return this.env.hub.task(id);
+  }
+
+  /** The text of a snapshot a test-sheet block names; the hub reads it from the plugin checkouts. */
+  readSheetSnapshot(name: string): Promise<string> {
+    return this.env.hub.sheetSnapshot(name);
   }
 
   /** Show the file of a task in Neovim. The hub starts the window; the answer says when it could not. */

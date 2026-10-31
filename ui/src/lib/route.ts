@@ -48,7 +48,7 @@ export function routedTask(hash: string): string | null {
 // kept: a reload, and the other tabs, open on the view of their own.
 
 /** The views a fragment may name (the `View` of app.svelte.ts). */
-const VIEWS = ['today', 'list', 'board', 'plan', 'inbox', 'cross', 'done', 'views'] as const;
+const VIEWS = ['today', 'list', 'board', 'plan', 'inbox', 'abnahme', 'cross', 'done', 'views'] as const;
 export type RoutedView = (typeof VIEWS)[number];
 
 /** The fragment that opens the view `view`. */

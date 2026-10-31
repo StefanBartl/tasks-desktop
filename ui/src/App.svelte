@@ -8,6 +8,7 @@
   import ListView from './views/ListView.svelte';
   import BoardView from './views/BoardView.svelte';
   import InboxView from './views/InboxView.svelte';
+  import AbnahmeView from './views/AbnahmeView.svelte';
   import CrossView from './views/CrossView.svelte';
   import FinishedView from './views/FinishedView.svelte';
   import ViewsView from './views/ViewsView.svelte';
@@ -432,6 +433,14 @@
           },
           {
             kind: 'radio',
+            label: t('nav.abnahme'),
+            hint: t('hint.item.nav.abnahme'),
+            checked: app.view === 'abnahme',
+            onselect: () => app.setView('abnahme'),
+            ...apart('abnahme'),
+          },
+          {
+            kind: 'radio',
             label: t('nav.cross'),
             hint: t('hint.item.nav.cross'),
             checked: app.view === 'cross',
@@ -675,6 +684,8 @@
                 ? t('nav.board')
                 : app.view === 'inbox'
                   ? t('nav.inbox')
+                  : app.view === 'abnahme'
+                    ? t('nav.abnahme')
                   : app.view === 'cross'
                     ? t('nav.cross')
                     : app.view === 'done'
@@ -695,6 +706,8 @@
           {#if app.can('views')}<ViewsView {app} board />{:else}<BoardView {app} />{/if}
         {:else if app.view === 'inbox'}
           <InboxView {app} />
+        {:else if app.view === 'abnahme'}
+          <AbnahmeView {app} />
         {:else if app.view === 'cross'}
           <CrossView {app} />
         {:else if app.view === 'done'}

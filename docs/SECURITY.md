@@ -48,7 +48,7 @@ itself and never reaches the router.
 |---|---|---|
 | none | | the placeholder page, `GET /api/tasks/hello` (version, instance id, whether the engine is ready, a short problem code; no task, no area, no path) |
 | pairing code | 128 bits, one use, 60 s | `POST /auth/exchange` for a session token |
-| session token | 256 bits, in the memory of the hub only, at most 16 open | the data routes: `GET /api/tasks/snapshot`, `task?id=`, `next`, `areas`, `about`, `finished`, `order`, `lists`, `groupings`, `views`, `links`, `events` (and the other reads of the engine), and `POST /api/tasks/rescan` |
+| session token | 256 bits, in the memory of the hub only, at most 16 open | the data routes: `GET /api/tasks/snapshot`, `task?id=`, `next`, `areas`, `about`, `finished`, `order`, `lists`, `groupings`, `views`, `links`, `sheet_snap?name=` (below), `events` (and the other reads of the engine), and `POST /api/tasks/rescan` |
 | control secret | 256 bits, in `control.secret` | `POST /api/control/pair`: mint a pairing code. Nothing else. |
 
 Comparisons are constant time and look at every stored entry. Secrets come
@@ -617,3 +617,13 @@ platform backends are about twenty) and its policy is in the repository:
 
 This is a personal project. Open an issue without details, or mail the
 maintainer.
+
+## Text snapshots of the test sheets (`GET /api/tasks/sheet_snap`)
+
+The acceptance view shows the snapshots a test-sheet block of a live-check task names. They lie in the plugin
+checkouts (`REPOS_DIR` of the hub's environment, never a setting of the page), not in the vault. The page sends the name
+the block holds, `<repo>/TESTS/__snapshots__/<path>.snap`; the hub resolves it under `REPOS_DIR` and answers its text
+(`snapshots::read_snapshot`). The route reads nothing else: the name is plain components only (no `..`, no drive, no
+backslash, no hidden part), the first part is a plain repository name, the next two are exactly `TESTS/__snapshots__`,
+the file ends in `.snap`, is a plain file (no link) that stays inside the checkouts after the path is resolved, and is at
+most 256 KiB. A hub without `REPOS_DIR` answers 404. The specs name each refusal (`snapshots.rs`, `open_file.rs`).
