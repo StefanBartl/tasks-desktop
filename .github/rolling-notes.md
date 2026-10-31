@@ -8,7 +8,7 @@
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/WKDSteve/tasks-desktop/releases/download/latest/install.ps1 | iex"
 ```
 
-Or save `install.ps1` from this page and run `.\install.ps1`.
+Or save `install.ps1` from this page and run `powershell -ExecutionPolicy Bypass -File .\install.ps1` (a plain `.\install.ps1` is blocked: by the execution policy, or by the mark a browser puts on a downloaded file). To register the hub with your login and add a link, run it as a script block in a PowerShell session instead: `& ([scriptblock]::Create((irm https://github.com/WKDSteve/tasks-desktop/releases/download/latest/install.ps1))) -InstallArgs '--autostart','--shortcut'`.
 
 Run it again to update to the newest rolling build.
 

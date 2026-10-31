@@ -122,8 +122,9 @@ checksum installs nothing), and hand over to `tasks-hub install`, which replaces
 step and brings a running hub back. The installation that is there is found and replaced, never a
 second one beside it: the script of `latest` run again updates to the newest rolling build, the
 script of a release run again repairs that release (to update, take the script of the newer
-release, or pass `-Version`/`-Rolling`). To pass arguments, add them to the call:
-`& "$env:TEMP\install.ps1" -InstallArgs '--autostart','--shortcut'`
+release, or pass `-Version`/`-Rolling`). A pipe into `iex` takes no arguments; to pass them, run the
+downloaded text as a script block in a PowerShell session:
+`& ([scriptblock]::Create((irm https://github.com/WKDSteve/tasks-desktop/releases/download/latest/install.ps1))) -InstallArgs '--autostart','--shortcut'`
 registers the hub with your login and adds a link. The other options are `-Version vX.Y.Z` / `-Rolling` for
 another channel and `-File FILE` for a file you already have, with `-Sums FILE` or `-Sha256 HEX`. Through
 `powershell -File` an array arrives as one string, so a saved `install.ps1` takes one `-InstallArgs`
