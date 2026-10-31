@@ -84,7 +84,7 @@ export function bulkSetOps(
 
 /**
  * The most moves in one batch. A move rewrites several files and asks the vault who names the task. Measured
- * 2026-10-18 on StevesPC with `tools/measure-bulk-move.lua` against the real engine, in a new vault of 650 open tasks
+ * 2026-10-18 with `tools/measure-bulk-move.lua` against the real engine, in a new vault of 650 open tasks
  * (each moved task named by three others), one request: 10 moves 7.9 s, 50 moves 9.5 s, 100 moves 12.0 s. That is
  * about 7.5 s for reading the vault (cold) and 45 ms for a move. The hub gives one engine call 30 s (past them the
  * answer is `outcome_unknown`): the moves are not what uses it up, the size of the vault is (a vault ten times as

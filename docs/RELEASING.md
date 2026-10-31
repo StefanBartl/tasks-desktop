@@ -14,8 +14,7 @@ machine.
 | `SHA256SUMS` | the checksum of every file above |
 
 (Earlier releases also held a Linux and a macOS archive, `install.sh` and `uninstall.sh`; they were built on
-hosted runners, which a private repository without a paid plan does not have. See *Private repositories and
-the runner* below.)
+hosted runners, which this repository no longer uses. See *The runner* below.)
 
 The rolling build `latest` ([`rolling.yml`](../.github/workflows/rolling.yml)) carries the same
 script, stamped for `latest`, beside its Windows program. `rolling.yml` takes the actions `prepare`
@@ -67,20 +66,20 @@ person without administrator rights or with a program that is not signed.
 - *a file is missing from the sums*: the `build` job failed; read it, delete the draft, tag again.
 - *nothing happens after the tag*: the runner is not running; `runners.ps1 status tasks-desktop`.
 
-## Private repositories and the runner
+## The runner
 
-The repository is private and has no paid plan, so CI (`ci.yml`), the rolling build (`rolling.yml`) and the release
-(`release.yml`) all run on the self-hosted Windows runner of the author (`runs-on: [self-hosted, windows]`, Git Bash
-by its full path). Start it with `pwsh $env:NVIM_CONFIG_DIR\scripts\runners.ps1 ensure <repo>`; without it a push or a
-tag stays "queued" (no red mark, discarded after 24 h). Set-up and traps: `tasks-vault/TOOLS/self-hosted-runner.md`.
+CI (`ci.yml`), the rolling build (`rolling.yml`) and the release (`release.yml`) all run on the self-hosted Windows
+runner of the maintainer (`runs-on: [self-hosted, windows]`, Git Bash by its full path); without it a push or a tag
+stays "queued" (no red mark, discarded after 24 h). No workflow has a `pull_request` trigger: a pull request, from a
+fork too, must never run its own workflow on that machine.
 
 - Only Windows is built and tested: there is no Linux or macOS archive and no `install.sh` any more.
-- The private sources (the engine at the pinned commit of `engine.lock`, appkit through Cargo and pnpm) are read with
+- The other sources (the engine at the pinned commit of `engine.lock`, appkit through Cargo and pnpm) are read with
   the login of `gh` and Git's own credentials (`.github/actions/pnpm-auth` hands the token to pnpm for the length of
   one job). There is no token secret.
 - `release-kit` of appkit runs on the runner from v0.23.1 on (Git Bash by its full path); the apps pin it by the
   commit of the tag that `Cargo.lock` pins.
-- Installing from this private repository needs `GH_TOKEN` (`$env:GH_TOKEN = (gh auth token)`): see the notes of the
+- Installing while the repository is private needs `GH_TOKEN` (`$env:GH_TOKEN = (gh auth token)`): see the notes of the
   release page and the release-kit README of appkit.
 
 ## Not yet

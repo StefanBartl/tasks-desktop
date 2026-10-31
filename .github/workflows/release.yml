@@ -9,10 +9,9 @@
 #   uninstall.ps1                                the script of scripts/ at this tag
 #   SHA256SUMS                                   the checksums of all of them
 #
-# Runs on the self-hosted Windows runner of the author (the repository is private and has no paid plan, so
-# hosted runners do not start; see $REPOS_DIR/tasks-vault/TOOLS/self-hosted-runner.md), so only Windows is
+# Runs on the self-hosted Windows runner of the maintainer (`runs-on: [self-hosted, windows]`), so only Windows is
 # built: the Linux and macOS archives and install.sh of the earlier hosted workflow are gone. The release-kit
-# actions run there by Git Bash (appkit v0.23.1 and later). The private source of appkit is read with the
+# actions run there by Git Bash (appkit v0.23.1 and later). The source of appkit is read with the
 # login of `gh` (.github/actions/pnpm-auth, Git's own credentials), not with a token secret.
 #
 # Before anything is built: the tag, the version in crates/tasks-hub/Cargo.toml and the

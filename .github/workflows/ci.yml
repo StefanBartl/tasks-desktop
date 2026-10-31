@@ -1,15 +1,13 @@
 # CI of tasks-desktop.
 #
-# Runs on a self-hosted runner (the author's Windows machine): the repository is private and has no paid plan, so
-# hosted runners do not start (billing/spending-limit errors, not a code problem). Runner: $REPOS_DIR/tasks-vault/
-# TOOLS/self-hosted-runner.md; start it with `scripts/runners.ps1 ensure tasks-desktop` of the nvim config (or
-# `:MyPlugins runner start tasks-desktop`). Without a running runner a push stays "Queued" (no red mark, discarded after
-# 24 h). Only for PRIVATE repos with trusted authors; no `pull_request` trigger on purpose (a PR would run its own
-# workflow with the author's rights on this machine). Windows only: the Linux jobs of the former workflow (hub tests
-# with inotify, install scripts under sh) are gone; ShellCheck runs on the runner.
+# Runs on a self-hosted Windows runner of the maintainer (`runs-on: [self-hosted, windows]`). Without a running runner
+# a push stays "Queued" (no red mark, discarded after 24 h). Only pushes to main of this repository start it: there is
+# no `pull_request` trigger on purpose, because a pull request (from a fork, too) would run its own workflow with the
+# maintainer's rights on that machine. Windows only: the Linux jobs of the former workflow (hub tests with inotify,
+# install scripts under sh) are gone; ShellCheck runs on the runner.
 #
-# The private sources (tasks.nvim at the pinned commit of engine.lock, appkit through Cargo and pnpm) are fetched with
-# the credentials of the runner's user (`gh auth setup-git`), not with a token secret: the runner is this machine.
+# The other sources (tasks.nvim at the pinned commit of engine.lock, appkit through Cargo and pnpm) are fetched with
+# the credentials of the runner's user (`gh auth setup-git`), not with a token secret.
 # Tools (cargo, clippy, rustfmt, cargo-audit, cargo-deny, nvim, pnpm, python, Chrome) are expected on the PATH and not
 # pinned here; the jobs print their versions.
 
@@ -49,7 +47,7 @@ jobs:
         with:
           persist-credentials: false
       # The pins must exist: a typo in engine.lock fails here, not later.
-      - name: Fetch the pinned engine (tasks.nvim is private) and lib.nvim
+      - name: Fetch the pinned engine (tasks.nvim) and lib.nvim
         run: |
           commit="$(sed -n 's/^commit *= *//p' engine.lock)"
           lib_commit="$(sed -n 's/^lib_commit *= *//p' engine.lock)"

@@ -99,9 +99,8 @@ writing, data classes and limits: the web variant section under "Layout" and `do
 There are two channels, and both carry an install script that installs exactly their build:
 
 - **A release** (a tag `vX.Y.Z`, published by hand after a draft was tried) holds the program for
-  Windows. The repository is private and has no paid plan, so CI and the builds run on the author's
-  self-hosted Windows runner (see [docs/RELEASING.md](docs/RELEASING.md)); there is no Linux or macOS archive and
-  no `install.sh` any more. The code still has the Linux and macOS paths (autostart entry, launch agent) and
+  Windows. CI and the builds run on the maintainer's self-hosted Windows runner (see
+  [docs/RELEASING.md](docs/RELEASING.md)); there is no Linux or macOS archive and no `install.sh` any more. The code still has the Linux and macOS paths (autostart entry, launch agent) and
   builds there from source, but nothing builds or tests them in CI.
 - **The rolling build** (the pre-release `latest`) is the newest green commit of `main`, rebuilt
   after every CI run: for trying what is new, not for anything that matters.
