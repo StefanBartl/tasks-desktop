@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite build --watch",
     "build": "vite build",
-    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "check": "svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.kit.json",
     "test": "vitest run",
     "e2e": "playwright test",
     "probe": "node probe/build.mjs",
@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "appkit-ui": "github:WKDSteve/appkit#v0.25.1&path:ui-kit",
+    "appkit-web": "github:WKDSteve/appkit#v0.26.0&path:web-kit",
     "wasmoon": "1.16.0"
   }
 }

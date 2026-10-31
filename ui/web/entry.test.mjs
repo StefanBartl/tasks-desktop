@@ -1,5 +1,6 @@
-// The way into the web variant: the picker, the folders used before, the permission after a restart, and the state
-// machine that joins them. A fake window, fake folder handles and a small fake IndexedDB: no browser.
+// The way into the web variant: the picker with the id and mode of the tasks page, the permission after a restart, and
+// the state machine that joins them to the folders used before. A fake window and fake folder handles: no browser. (The
+// folders used before and their IndexedDB, one database per app, are tested in appkit-web.)
 //
 //   node --experimental-strip-types --test web/entry.test.mjs        (from ui/)
 
@@ -9,12 +10,10 @@ import { Entry, mountFolder } from '../src/web/entry.ts';
 import {
   displayName,
   grantAccess,
-  idbKeyValue,
-  MAX_RECENT,
   oneLine,
   permissionOf,
-  pickerSupport,
   pickFolder,
+  HANDLES_DB,
   PICKER_ID,
   RecentFolders,
 } from '../src/web/folder.ts';
@@ -62,15 +61,9 @@ function memoryKv() {
 
 const SECURE = (showDirectoryPicker) => ({ showDirectoryPicker, isSecureContext: true });
 
-test('which windows can choose a folder', () => {
-  assert.equal(pickerSupport({}), 'missing');
-  assert.equal(pickerSupport({ showDirectoryPicker: 3 }), 'missing');
-  assert.equal(pickerSupport({ showDirectoryPicker: () => {}, isSecureContext: false }), 'insecure');
-  assert.equal(pickerSupport({ showDirectoryPicker: () => {}, isSecureContext: true }), 'ok');
-  assert.equal(pickerSupport({ showDirectoryPicker: () => {} }), 'ok');
-});
-
 test('the picker is asked with the id and the mode, and each way it fails is told apart', async () => {
+  assert.equal(PICKER_ID, 'tasks-web-vault');
+  assert.equal(HANDLES_DB, 'tasks-web', 'the database the browser test revives handles from');
   const asked = [];
   const h = handle('v');
   assert.deepEqual(await pickFolder(SECURE(async (o) => (asked.push(o), h))), { kind: 'picked', handle: h });
@@ -99,60 +92,6 @@ test('the permission of a stored folder, and asking for it again', async () => {
   assert.equal(await grantAccess(handle('v', { perm: 'prompt' })), 'granted');
   assert.equal(await grantAccess(handle('v', { onRequest: () => 'denied' })), 'denied');
   assert.equal(await grantAccess(handle('v', { onRequest: () => { throw domError('NotFoundError'); } })), 'gone');
-});
-
-test('the folders used before: newest first, one entry per folder, a limit, and a list that is not trusted', async () => {
-  const kv = memoryKv();
-  let n = 0;
-  const recent = new RecentFolders(kv, { newId: () => `id${++n}` });
-  assert.deepEqual(await recent.list(), []);
-  // The stored handle answers `isSameEntry`: it knows the handle named 'a-again' as itself.
-  const a = handle('a', { same: ['a-again'] });
-  const b = handle('b');
-  await recent.remember(a, 100);
-  await recent.remember(b, 200);
-  assert.deepEqual((await recent.list()).map((r) => r.name), ['b', 'a']);
-
-  // Another handle for a folder that is in the list moves it up and keeps its id.
-  const moved = await recent.remember(handle('a-again'), 300);
-  assert.equal(moved.id, 'id1', 'the id of the folder stays');
-  assert.deepEqual((await recent.list()).map((r) => r.name), ['a-again', 'b']);
-
-  // A handle that is not the same entry is another folder, also under the same name.
-  await recent.remember(handle('b'), 350);
-  assert.deepEqual((await recent.list()).map((r) => r.name), ['b', 'a-again', 'b']);
-  await recent.forget((await recent.list())[0].id);
-
-  for (let i = 0; i < 8; i++) await recent.remember(handle(`f${i}`), 1000 + i);
-  const names = (await recent.list()).map((r) => r.name);
-  assert.equal(names.length, MAX_RECENT);
-  assert.equal(names[0], 'f7');
-
-  await recent.forget((await recent.list())[0].id);
-  assert.equal((await recent.list()).length, MAX_RECENT - 1);
-});
-
-test('what is stored is checked: an entry that is no folder is dropped, a failing store is an empty list', async () => {
-  const kv = memoryKv();
-  const good = handle('good\u0001name');
-  kv.map.set('recent', [
-    null,
-    3,
-    { id: 'x' },
-    { id: '', handle: good, lastUsed: 1 },
-    { id: 'a', handle: { kind: 'file', name: 'f' }, lastUsed: 1 },
-    { id: 'b', handle: { kind: 'directory', name: 'no functions' }, lastUsed: 1 },
-    { id: 'ok', handle: good, lastUsed: 5 },
-    { id: 'ok', handle: good, lastUsed: 9 },
-    { id: 'nan', handle: handle('n'), lastUsed: Number.NaN },
-  ]);
-  const recent = new RecentFolders(kv);
-  const list = await recent.list();
-  assert.deepEqual(list.map((r) => [r.id, r.name, r.lastUsed]), [['ok', 'good name', 5], ['nan', 'n', 0]]);
-  kv.map.set('recent', 'not a list');
-  assert.deepEqual(await recent.list(), []);
-  const broken = new RecentFolders({ get: async () => { throw new Error('idb closed'); }, put: async () => {} });
-  assert.deepEqual(await broken.list(), []);
 });
 
 function entryOver({ win, recent = new RecentFolders(memoryKv()), open, now = () => 7, forgotten } = {}) {
@@ -317,84 +256,8 @@ test('mountFolder reads the folder and hands the files to the engine', async () 
   assert.deepEqual(mounted, [['/vault', ['a.md', 'b.md']]]);
 });
 
-// -- IndexedDB --------------------------------------------------------------------------------------------------------
-
-/** Just enough of IndexedDB for a store with put and get: requests answer on a later turn, like the real ones. */
-function fakeIdb({ failOpen = 0, abortWrites = false } = {}) {
-  const stores = new Map();
-  let opens = 0;
-  const later = (fn) => queueMicrotask(() => queueMicrotask(fn));
-  return {
-    opens: () => opens,
-    open(name) {
-      opens++;
-      const request = { result: null, error: null };
-      later(() => {
-        if (opens <= failOpen) {
-          request.error = new Error('open failed');
-          request.onerror?.();
-          return;
-        }
-        const db = {
-          createObjectStore: (store) => stores.set(store, new Map()),
-          transaction(store) {
-            const tx = { error: null };
-            return Object.assign(tx, {
-              objectStore: () => ({
-                put(value, key) {
-                  const req = { result: key };
-                  later(() => {
-                    if (abortWrites) {
-                      tx.error = new Error('quota');
-                      tx.onabort?.();
-                    } else {
-                      stores.get(store).set(key, structuredClone(value));
-                      tx.oncomplete?.();
-                    }
-                  });
-                  return req;
-                },
-                get(key) {
-                  const req = { result: undefined };
-                  later(() => {
-                    req.result = stores.get(store).get(key);
-                    tx.oncomplete?.();
-                  });
-                  return req;
-                },
-              }),
-            });
-          },
-        };
-        request.result = db;
-        if (!stores.size) {
-          // the first open of the database: the upgrade comes before success
-          Object.defineProperty(request, 'result', { value: db });
-          request.onupgradeneeded?.();
-        }
-        request.onsuccess?.();
-      });
-      return request;
-    },
-  };
-}
-
-test('the IndexedDB store keeps a value under a key', async () => {
-  const kv = idbKeyValue(fakeIdb(), 'db', 'handles');
-  assert.equal(await kv.get('recent'), undefined);
-  await kv.put('recent', [{ id: 'a', n: 1 }]);
-  assert.deepEqual(await kv.get('recent'), [{ id: 'a', n: 1 }]);
-});
-
-test('a failed open is tried again, an aborted write is an error', async () => {
-  const idb = fakeIdb({ failOpen: 1 });
-  const kv = idbKeyValue(idb);
-  await assert.rejects(kv.get('k'), /open failed/);
-  assert.equal(await kv.get('k'), undefined, 'the second try opens again');
-  assert.equal(idb.opens(), 2);
-  const quota = idbKeyValue(fakeIdb({ abortWrites: true }));
-  await assert.rejects(quota.put('k', 1), /quota/);
-});
+// -- the folder remembered: its id in the folders used before, a store that fails -------------------------------------
+// (The IndexedDB the list is kept in is the kit's, tested there: appkit web-kit/test/folder.test.mjs.)
 
 test('a folder that cannot be remembered is opened all the same', async () => {
   const failing = new RecentFolders({ get: async () => [], put: async () => { throw domError('DataCloneError', 'could not be cloned'); } });

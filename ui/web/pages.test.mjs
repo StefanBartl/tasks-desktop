@@ -13,7 +13,8 @@ import { verify } from '../probe/build.mjs';
 import { bundleJson, classic } from './engine-page.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'">`;
+// The least policy the check takes: nothing may load, connect, set a base or send a form.
+const CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">`;
 
 test('the build refuses a page that loads anything, on any element', () => {
   assert.deepEqual(verify(`<html>${CSP}<body><script>1</script></body></html>`), []);

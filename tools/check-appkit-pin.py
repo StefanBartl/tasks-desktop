@@ -10,7 +10,7 @@ points now.
     python tools/check-appkit-pin.py [--lock Cargo.lock]
 
 Exit 0: every appkit package is pinned by a tag, all by the same tag and commit, the page pins the
-kit's folder (`appkit-ui` in ui/pnpm-lock.yaml) to that same tag and commit, every action of the
+kit's folders (`appkit-ui` and `appkit-web` in ui/pnpm-lock.yaml) to that same tag and commit, every action of the
 kit a workflow takes (`uses: WKDSteve/appkit/release-kit/...@<sha>`) is pinned by that same
 commit, and the tag names that commit. Exit 1: what is wrong is listed. Exit 2: the check itself could not run (git, network); that
 is not a pass.
@@ -62,39 +62,54 @@ def pinned(packages):
 # pnpm writes the specifier as `github:WKDSteve/appkit#v0.3.0&path:ui-kit` (also when it was given as a
 # git+https URL) and the resolved version as the tarball of the commit, `https://codeload.github.com/
 # WKDSteve/appkit/tar.gz/<sha>#path:ui-kit`, with the peers in brackets after it.
-UI_SPECIFIER = re.compile(
-    r"^\s*specifier: (?:github:WKDSteve/appkit|git\+https://github\.com/WKDSteve/appkit(?:\.git)?)"
-    r"#(?P<tag>[^&\s]+)&path:ui-kit\s*$",
-    re.M,
-)
-UI_VERSION = re.compile(
-    r"^\s*version: (?:https://codeload\.github\.com/WKDSteve/appkit/tar\.gz/(?P<sha>[0-9a-f]{40})#path:ui-kit"
-    r"|git\+https://github\.com/WKDSteve/appkit(?:\.git)?#(?P<sha2>[0-9a-f]{40})&path:ui-kit)(?:\([^)]*\))?\s*$",
-    re.M,
-)
+def specifier_pattern(folder):
+    return re.compile(
+        r"^\s*specifier: (?:github:WKDSteve/appkit|git\+https://github\.com/WKDSteve/appkit(?:\.git)?)"
+        rf"#(?P<tag>[^&\s]+)&path:{re.escape(folder)}\s*$",
+        re.M,
+    )
+
+
+def version_pattern(folder):
+    folder = re.escape(folder)
+    return re.compile(
+        rf"^\s*version: (?:https://codeload\.github\.com/WKDSteve/appkit/tar\.gz/(?P<sha>[0-9a-f]{{40}})#path:{folder}"
+        rf"|git\+https://github\.com/WKDSteve/appkit(?:\.git)?#(?P<sha2>[0-9a-f]{{40}})&path:{folder})(?:\([^)]*\))?\s*$",
+        re.M,
+    )
+
+
+# The packages the page takes from appkit, each from its folder: all by the tag the hub takes the crates by.
+KITS = (("appkit-ui", "ui-kit"), ("appkit-web", "web-kit"))
+
+
+def kit_pin(lock_text, name, folder):
+    """The (tag, sha) the page pins the kit package `name` (the folder `folder` of appkit) to in
+    pnpm-lock.yaml, or the list of what is wrong.
+
+    The page takes each package from its folder of the same repository, by the same tag as the hub takes
+    the crates; a `link:` to a checkout, a branch or no package at all is a mistake here.
+    """
+    problems = []
+    block = re.search(rf"^\s+{re.escape(name)}:\n(?P<body>(?:\s+\S.*\n){{1,3}})", lock_text, re.M)
+    if not block:
+        problems.append(f"the page does not pin {name} (ui/pnpm-lock.yaml has no entry)")
+        return None, problems
+    body = block.group("body")
+    spec = specifier_pattern(folder).search(body)
+    version = version_pattern(folder).search(body)
+    if not spec:
+        problems.append(f"{name}: not the folder {folder} of {APPKIT} by a tag: {body.strip().splitlines()[0]}")
+        return None, problems
+    if not version:
+        problems.append(f"{name}: pnpm-lock.yaml pins no commit for it")
+        return None, problems
+    return (spec.group("tag"), version.group("sha") or version.group("sha2")), problems
 
 
 def ui_pin(lock_text):
-    """The (tag, sha) the page pins the kit's folder to in pnpm-lock.yaml, or the list of what is wrong.
-
-    The page takes `appkit-ui` from the folder `ui-kit` of the same repository, by the same tag as the
-    hub takes the crates; a `link:` to a checkout, a branch or no kit at all is a mistake here.
-    """
-    problems = []
-    block = re.search(r"^\s+appkit-ui:\n(?P<body>(?:\s+\S.*\n){1,3})", lock_text, re.M)
-    if not block:
-        problems.append("the page does not pin appkit-ui (ui/pnpm-lock.yaml has no entry)")
-        return None, problems
-    body = block.group("body")
-    spec = UI_SPECIFIER.search(body)
-    version = UI_VERSION.search(body)
-    if not spec:
-        problems.append(f"appkit-ui: not the folder ui-kit of {APPKIT} by a tag: {body.strip().splitlines()[0]}")
-        return None, problems
-    if not version:
-        problems.append("appkit-ui: pnpm-lock.yaml pins no commit for it")
-        return None, problems
-    return (spec.group("tag"), version.group("sha") or version.group("sha2")), problems
+    """kit_pin of `appkit-ui` (the folder ui-kit)."""
+    return kit_pin(lock_text, "appkit-ui", "ui-kit")
 
 
 # A step of a workflow that takes an action of the kit: `uses: WKDSteve/appkit/release-kit/publish@<ref>`,
@@ -167,11 +182,13 @@ def main():
         return 1
     pins, problems = pinned(packages)
     with open(args.ui_lock, encoding="utf-8") as f:
-        ui, ui_problems = ui_pin(f.read())
-    problems.extend(ui_problems)
-    # The page and the hub take one version of the kit: the same tag, and the commit it named for both.
-    if ui is not None and pins and ui not in pins:
-        problems.append(f"the page pins the kit to {ui}, the hub to {sorted(pins)}: one tag for both")
+        ui_lock = f.read()
+    # The page and the hub take one version of the kit: the same tag, and the commit it named, for every package.
+    for name, folder in KITS:
+        kit, kit_problems = kit_pin(ui_lock, name, folder)
+        problems.extend(kit_problems)
+        if kit is not None and pins and kit not in pins:
+            problems.append(f"the page pins {name} to {kit}, the hub to {sorted(pins)}: one tag for both")
     # The actions of the release-kit the workflows take: the same commit as the crates.
     workflows = read_workflows(args.workflows)
     steps = sum(len(WORKFLOW_USES.findall(text)) for text in workflows.values())
@@ -195,7 +212,7 @@ def main():
         return 1
     names = ", ".join(sorted(name for name, _ in packages))
     # Says how many steps of the workflows it found: none would be a pin that was not looked at.
-    print(f"ok: {names}, appkit-ui and {steps} step(s) of the workflows at {tag} = {sha[:12]}")
+    print(f"ok: {names}, {', '.join(name for name, _ in KITS)} and {steps} step(s) of the workflows at {tag} = {sha[:12]}")
     return 0
 
 

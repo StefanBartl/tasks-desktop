@@ -35,7 +35,9 @@ python tools/check-color-literals.py    # no colour outside the tokens of appkit
 - Die Oberfläche nimmt vom selben Tag das Paket `appkit-ui` (Ordner `ui-kit` in appkit: Tokens, Basisregeln,
   MenuBar, MultiSelect, Info, Markdown-Leser, Hinweis-Popup, SSE, Pairing-Code), eingebunden in `ui/package.json`
   als `"appkit-ui": "github:WKDSteve/appkit#vX.Y.Z&path:ui-kit"` (das `pnpm add "git+https://github.com/WKDSteve/appkit.git#vX.Y.Z&path:ui-kit"` aus dem README des Kits schreibt pnpm in diese Kurzform um; die Pin-Prüfung nimmt beide); `ui/pnpm-lock.yaml` pinnt den Commit,
-  `tools/check-appkit-pin.py` verlangt dasselbe Tag und denselben Commit wie `Cargo.lock`. Tag heben: alle
+  `tools/check-appkit-pin.py` verlangt dasselbe Tag und denselben Commit wie `Cargo.lock`. Dasselbe gilt für
+  `appkit-web` (Ordner `web-kit`: pack/verify, Ordner-Handle, Cache je Ordner, watch, e2e-Hilfen der Web-Variante),
+  eingebunden als `"appkit-web": "github:WKDSteve/appkit#vX.Y.Z&path:web-kit"`. Tag heben: alle
   Stellen (`Cargo.toml`, `ui/package.json` und die `uses: WKDSteve/appkit/release-kit/...@<sha>` in
   `.github/workflows/rolling.yml` und `release.yml`, voller Commit des Tags), `cargo update -p appkit-hub`,
   `cd ui && pnpm install`. Die Pin-Prüfung meldet einen Workflow auf einem anderen Commit.

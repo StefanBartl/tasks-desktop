@@ -13,7 +13,7 @@ import { LuaFactory } from 'wasmoon';
 import { createBrowserHub, WorkerClient } from '../src/web/client.ts';
 import { VaultSession } from '../src/web/vault-session.ts';
 import { vaultSignature } from '../src/web/vault-files.ts';
-import { watchVault } from '../src/web/watch.ts';
+import { watchFolder } from 'appkit-web/watch';
 import { startWorker } from '../src/web/worker.ts';
 import { bundle, readLock } from './engine-bundle.mjs';
 import { fakeDisk } from './fake-folder.mjs';
@@ -316,7 +316,7 @@ test('what cannot be taken back is told as rollback_incomplete', async () => {
 test('after a write the watcher does not take the page\'s own files for a foreign change; a foreign one it does', async () => {
   const p = await page();
   let told = 0;
-  const watcher = watchVault(await p.session.signature(), {
+  const watcher = watchFolder(await p.session.signature(), {
     signature: () => vaultSignature(p.disk.root),
     onChange: () => void told++,
     setTimer: () => 0,
@@ -338,7 +338,7 @@ test('after a write the watcher does not take the page\'s own files for a foreig
 test('a foreign change to a file the write did not touch is still found by the watcher after the write', async () => {
   const p = await page();
   let told = 0;
-  const watcher = watchVault(p.session.knownSignature(), {
+  const watcher = watchFolder(p.session.knownSignature(), {
     signature: () => p.session.signature(),
     onChange: () => void told++,
     setTimer: () => 0,

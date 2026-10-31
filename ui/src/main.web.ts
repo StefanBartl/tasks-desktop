@@ -21,11 +21,11 @@ import { pageCache } from './web/page-cache';
 import { forgetList } from './web/scoped-cache';
 import { loadParts, startBlobWorker, type Parts } from './web/embedded';
 import { Entry } from './web/entry';
-import { idbKeyValue, RecentFolders, type PickerWindow } from './web/folder';
+import { HANDLES_DB, idbKeyValue, RecentFolders, type PickerWindow } from './web/folder';
 import { guardUnload, localDay, VaultSession } from './web/vault-session';
 import type { WebHub } from './web/hub';
 import WebEntry from './web/WebEntry.svelte';
-import { watchVault, type Watcher } from './web/watch';
+import { watchFolder, type Watcher } from 'appkit-web/watch';
 
 /** Where the vault lies in the engine's file system. */
 const ROOT = '/vault';
@@ -83,15 +83,15 @@ started.catch(() => {});
 let vault: VaultSession | null = null;
 // The signature of the folder as the page knows it (taken before it was read): where the look at the folder starts.
 let signature = '';
-// The look at the folder (watch.ts). The session tells it the state of the folder after a write of its own, so that
-// the page's own files are not taken for a change from outside.
+// The look at the folder (appkit-web/watch). The session tells it the state of the folder after a write of its own, so
+// that the page's own files are not taken for a change from outside.
 let watcher: Watcher | null = null;
 // The hub of the page, once the app runs: the session tells it when the data classes changed.
 let hub: WebHub | null = null;
 
 const entry = new Entry({
   win: window as unknown as PickerWindow,
-  recent: new RecentFolders(idbKeyValue(window.indexedDB)),
+  recent: new RecentFolders(idbKeyValue(window.indexedDB, HANDLES_DB)),
   open: async (handle, readOnly) => {
     const { client } = await started;
     const opened = new VaultSession({
@@ -152,7 +152,7 @@ async function begin(folder: string | null, readOnly: boolean): Promise<void> {
   hub = web;
   // A static copy of the files cannot be looked at again; to see changes the person chooses the folder again.
   if (!readOnly) {
-    watcher = watchVault(signature, {
+    watcher = watchFolder(signature, {
       signature: () => session.signature(),
       onChange: async () => {
         await session.reload();

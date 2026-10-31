@@ -23,36 +23,17 @@
 // empty. The generated index (ROADMAP/TASKS.md) is written from the state the page read; another file that changed on
 // disk meanwhile is not checked, because the change does not touch it (the next write rebuilds the index).
 
+import type { WritableDirHandle, WritableFileHandle } from 'appkit-web/folder';
 import {
   safeName,
   wantedDir,
   wantedFile,
-  type DirHandleLike,
-  type FileHandleLike,
   type FileStamp,
   type VaultChanges,
 } from './vault-files.ts';
 
-/** The part of a `FileSystemWritableFileStream` the write-back uses. */
-export interface WritableStreamLike {
-  write(data: Uint8Array): Promise<void>;
-  close(): Promise<void>;
-  abort?(reason?: unknown): Promise<void>;
-}
-
-/** A `FileSystemFileHandle`, as far as the write-back uses one. */
-export interface WritableFileHandle extends FileHandleLike {
-  createWritable(options?: { keepExistingData?: boolean }): Promise<WritableStreamLike>;
-  /** Chrome's `FileSystemHandle.move`: into another folder under a name. Not on every handle. */
-  move?(destination: WritableDirHandle, name: string): Promise<void>;
-}
-
-/** A `FileSystemDirectoryHandle`, as far as the write-back uses one. */
-export interface WritableDirHandle extends DirHandleLike {
-  getFileHandle(name: string, options?: { create?: boolean }): Promise<WritableFileHandle>;
-  getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<WritableDirHandle>;
-  removeEntry(name: string, options?: { recursive?: boolean }): Promise<void>;
-}
+/** The stream, file and folder handles of the File System Access API, as far as the write-back uses them. */
+export type { WritableDirHandle, WritableFileHandle, WritableStreamLike } from 'appkit-web/folder';
 
 /** What the page knows of a file on disk: what it looked like when it was read, and a digest of its bytes. */
 export interface BaselineEntry extends FileStamp {

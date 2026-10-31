@@ -1,11 +1,12 @@
 // What the tests of the web variant share: the built file, the fixture vault as a fake folder, and the watch on what the
-// page must never do (a request, a violation of its policy).
+// page must never do (a request, a violation of its policy; the kit's, appkit-web/e2e).
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { existsSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Page } from '@playwright/test';
+import { idbWrites, spyOnIndexedDb, violations, watchPage as watchKitPage, type IdbWrite, type Watch } from 'appkit-web/e2e';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const FILE = resolve(here, '..', 'dist-web', 'tasks.html');
@@ -30,37 +31,15 @@ export function vaultFiles(): Record<string, string> {
   return files;
 }
 
-/** Everything the page did that it must not have: a request outside the page, a violation of its own policy. */
-export interface Watch {
-  requests: string[];
-  violations: string[];
-  errors: string[];
+/** Everything the page did that it must not have: a request outside the page, an error, a violation of its policy. */
+export type { Watch, IdbWrite };
+
+/** Watch the page from now on (appkit-web/e2e); the page itself is `tasks.html`. */
+export function watchPage(page: Page): Promise<Watch> {
+  return watchKitPage(page, { pageUrl: pageUrl() });
 }
 
-export async function watchPage(page: Page): Promise<Watch> {
-  const seen: Watch = { requests: [], violations: [], errors: [] };
-  page.on('request', (request) => {
-    const url = request.url();
-    // The page itself, the worker's script (a blob) and data: are not the network.
-    if (url === pageUrl() || url.startsWith('blob:') || url.startsWith('data:')) return;
-    seen.requests.push(`${request.method()} ${url}`);
-  });
-  page.on('pageerror', (error) => seen.errors.push(String(error)));
-  page.on('console', (message) => {
-    if (message.type() === 'error') seen.errors.push(message.text());
-  });
-  await page.addInitScript(() => {
-    (window as unknown as { __violations: string[] }).__violations = [];
-    document.addEventListener('securitypolicyviolation', (event) => {
-      (window as unknown as { __violations: string[] }).__violations.push(`${event.violatedDirective} ${event.blockedURI}`);
-    });
-  });
-  return seen;
-}
-
-export async function violations(page: Page): Promise<string[]> {
-  return page.evaluate(() => (window as unknown as { __violations: string[] }).__violations);
-}
+export { violations, spyOnIndexedDb, idbWrites };
 
 /**
  * A `showDirectoryPicker` that hands out the vault as a folder, writable like the real ones: `values()` yields file and
@@ -287,45 +266,6 @@ export async function openVault(page: Page, files: Record<string, string>, ready
   await page.goto(pageUrl());
   await page.getByRole('button', { name: /Choose folder|Ordner wählen/ }).click();
   await page.getByText(ready).first().waitFor({ timeout: 30_000 });
-}
-
-/** One write of the page to IndexedDB, as it was made: the database, the object store, what it did and the value. */
-export interface IdbWrite {
-  db: string;
-  store: string;
-  op: 'put' | 'add' | 'clear' | 'delete';
-  json: string;
-}
-
-/**
- * Record every write the page makes to IndexedDB (before the page's own scripts run). The state of the database at the
- * end shows only what is left; this shows what was ever tried, which is what "never reaches IndexedDB" is about.
- */
-export async function spyOnIndexedDb(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    const writes: IdbWrite[] = [];
-    (window as unknown as { __idbWrites: IdbWrite[] }).__idbWrites = writes;
-    for (const op of ['put', 'add', 'clear', 'delete'] as const) {
-      const original = IDBObjectStore.prototype[op] as (...args: unknown[]) => IDBRequest;
-      (IDBObjectStore.prototype as unknown as Record<string, unknown>)[op] = function (this: IDBObjectStore, ...args: unknown[]) {
-        let json = '';
-        if (op === 'put' || op === 'add') {
-          try {
-            json = JSON.stringify(args[0]);
-          } catch {
-            json = '<not JSON>';
-          }
-        }
-        writes.push({ db: this.transaction.db.name, store: this.name, op, json });
-        return original.apply(this, args);
-      };
-    }
-  });
-}
-
-/** The writes the spy saw, in order. */
-export async function idbWrites(page: Page): Promise<IdbWrite[]> {
-  return page.evaluate(() => (window as unknown as { __idbWrites: IdbWrite[] }).__idbWrites);
 }
 
 /** What the page keeps of its list in IndexedDB now (`tasks-desktop` / `list` / `current`), or null. */

@@ -7,10 +7,11 @@
 
 import { cacheableClass, type ListStore } from '../lib/cache.ts';
 import type { HubArea } from '../lib/api.ts';
+import { noCache } from 'appkit-web/folder-cache';
 import { scopedCache } from './scoped-cache.ts';
 
 /** A cache that keeps nothing: for a folder the browser could not remember, which has no name to keep a list under. */
-export const noCache: ListStore = { load: async () => null, save: async () => {}, clear: async () => {} };
+export { noCache };
 
 /**
  * The list cache for the folder `folder` (the id the folders used before give it; `null`: the browser could not keep

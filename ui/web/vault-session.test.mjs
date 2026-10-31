@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { guardUnload, localDay, VaultSession } from '../src/web/vault-session.ts';
-import { watchVault } from '../src/web/watch.ts';
+import { watchFolder } from 'appkit-web/watch';
 import { fakeDisk } from './fake-folder.mjs';
 
 const enc = (s) => new TextEncoder().encode(s);
@@ -71,7 +71,7 @@ async function open(tree = { 'A/a.md': 'task a', 'A/b.md': 'task b' }, options =
 /** A watcher on the session the way the page wires it: it starts at what the session knows, and is told what the session reads. */
 function watching(session) {
   const seen = { told: 0 };
-  const watcher = watchVault(session.knownSignature(), {
+  const watcher = watchFolder(session.knownSignature(), {
     signature: () => session.signature(),
     onChange: () => void seen.told++,
     setTimer: () => 0,

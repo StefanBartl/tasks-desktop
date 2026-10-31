@@ -7,9 +7,12 @@
 // folders used before give it), and gives it back only while every area in it is still one the data classes release.
 //
 // What may be saved is decided where it always was (`cacheableList` in lib/cache.ts: only public and internal areas, a
-// reference to a task that was left out is cut). This adds nothing to it; it narrows what is read back.
+// reference to a task that was left out is cut). This adds nothing to it; it narrows what is read back. The two rules
+// (named by the folder, given back only while released) are the kit's (appkit-web/folder-cache); this says what
+// "released" means for a list of tasks: every task's area is one the classes release now.
 
-import type { CachedList, ListStore } from '../lib/cache.ts';
+import { folderCache, forgetFolderCache } from 'appkit-web/folder-cache';
+import type { ListStore } from '../lib/cache.ts';
 
 export interface CacheScope {
   /** The folder this cache is for (`Recent.id`). */
@@ -18,43 +21,14 @@ export interface CacheScope {
   permits(area: string): boolean;
 }
 
-/** A list as the scope keeps it: the folder it is of is part of it. */
-type Scoped = CachedList & { folder?: unknown };
-
 export function scopedCache(store: ListStore, scope: CacheScope): ListStore {
-  return {
-    async load() {
-      const list = (await store.load()) as Scoped | null;
-      if (!list) return null;
-      // Another folder's list (or one saved before lists were named by folder): not shown, and not this folder's to clear.
-      if (list.folder !== scope.folder) return null;
-      // A list that holds a task of an area the classes do not release now was saved under other classes: it goes.
-      if (list.tasks.some((task) => !scope.permits(task.area))) {
-        await store.clear();
-        return null;
-      }
-      return list;
-    },
-    save: async (list) => {
-      // The same rule on the way in as on the way out. The page builds a list from the classes it asked for, and a
-      // question that was asked before `areas.json` changed can be answered after it (two refreshes overlap when the file
-      // changes): such a list must not be written, whatever the page believes. What is stored under it is of the same
-      // old classes, so it goes too.
-      if (list.tasks.some((task) => !scope.permits(task.area))) {
-        await store.clear();
-        return;
-      }
-      await store.save({ ...list, folder: scope.folder } as Scoped);
-    },
-    clear: () => store.clear(),
-  };
+  return folderCache(store, scope.folder, (list) => list.tasks.every((task) => scope.permits(task.area)));
 }
 
 /**
  * Forget the list kept for one folder (the person forgot the folder): nothing of it stays in the browser. The list of
  * another folder is not this folder's to clear.
  */
-export async function forgetList(store: ListStore, folder: string): Promise<void> {
-  const list = (await store.load()) as Scoped | null;
-  if (list && list.folder === folder) await store.clear();
+export function forgetList(store: ListStore, folder: string): Promise<void> {
+  return forgetFolderCache(store, folder);
 }

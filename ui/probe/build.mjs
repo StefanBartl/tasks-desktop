@@ -12,29 +12,17 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { verify as verifyPage } from 'appkit-web/pack';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const FILLER_BYTES = 384 * 1024; // about 512 KiB of base64
 
-// Every attribute that makes the browser fetch something, on any element (<a href>, <object data>, <base href>,
-// <form action>, <video poster>, <img srcset>, ...): the page loads nothing, so none may be there.
-const LOADING_ATTRIBUTE = /<[a-z][a-z0-9-]*\b[^>]*\s(src|href|data|action|formaction|poster|srcset|ping|background)\s*=/i;
-
-/** What keeps a built page from being one that loads nothing and reaches no network; empty when it is fine. */
+/**
+ * What keeps a built page from being one that loads nothing and reaches no network; empty when it is fine. The check
+ * is the kit's (appkit-web/pack); the probe's pages may name the one address of its test of a blocked request.
+ */
 export function verify(html, { allowUrls = ['https://example.invalid/'] } = {}) {
-  const problems = [];
-  if (!/<meta http-equiv="Content-Security-Policy"[^>]*connect-src 'none'/.test(html)) {
-    problems.push("the CSP meta with connect-src 'none' is missing");
-  }
-  const loading = html.match(LOADING_ATTRIBUTE);
-  if (loading) problems.push(`an element loads a file (${loading[1]}=)`);
-  if (/<meta[^>]*http-equiv=["']?refresh/i.test(html)) problems.push('a meta refresh');
-  const urls = html.match(/\b(?:https?|wss?|ftp):\/\/[^\s"'<>]+/g) ?? [];
-  const foreign = urls.filter((u) => !allowUrls.includes(u));
-  if (foreign.length > 0) problems.push('a URL in the page: ' + foreign.join(', '));
-  const placeholder = html.match(/__[A-Z][A-Z_]*__/);
-  if (placeholder) problems.push('a placeholder is left: ' + placeholder[0]);
-  return problems;
+  return verifyPage(html, { allowUrls });
 }
 
 function build() {

@@ -41,14 +41,19 @@ def tagged(tag="v0.1.0", sha=SHA, url=URL):
     return f"git+{url}?tag={tag}#{sha}"
 
 
-def ui_lock(specifier=None, version=None):
-    """A pnpm-lock.yaml as pnpm writes it for the kit (the GitHub short form and the tarball of the commit)."""
+def ui_lock(specifier=None, version=None, web_specifier=None, web_version=None, web=True):
+    """A pnpm-lock.yaml as pnpm writes it for the kit (the GitHub short form and the tarball of the commit):
+    appkit-ui and, unless `web` is false, appkit-web."""
     specifier = specifier or "github:WKDSteve/appkit#v0.1.0&path:ui-kit"
     version = version or f"https://codeload.github.com/WKDSteve/appkit/tar.gz/{SHA}#path:ui-kit(svelte@5.57.1)"
+    web_specifier = web_specifier or "github:WKDSteve/appkit#v0.1.0&path:web-kit"
+    web_version = web_version or f"https://codeload.github.com/WKDSteve/appkit/tar.gz/{SHA}#path:web-kit"
+    web_block = f"      appkit-web:\n        specifier: {web_specifier}\n        version: {web_version}\n" if web else ""
     return (
         "lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies:\n      appkit-ui:\n"
         f"        specifier: {specifier}\n        version: {version}\n"
-        "    devDependencies:\n      vite:\n        specifier: ^8.3.2\n        version: 8.3.4\n"
+        + web_block
+        + "    devDependencies:\n      vite:\n        specifier: ^8.3.2\n        version: 8.3.4\n"
     )
 
 
@@ -109,6 +114,14 @@ class UiPin(unittest.TestCase):
         self.assertIsNone(result)
         self.assertTrue(any("does not pin appkit-ui" in p for p in problems), problems)
 
+    def test_the_web_kit_is_read_from_its_own_folder(self):
+        self.assertEqual(pin.kit_pin(ui_lock(), "appkit-web", "web-kit"), (("v0.1.0", SHA), []))
+        # The folder of the other package is not this one's.
+        text = ui_lock(web_specifier="github:WKDSteve/appkit#v0.1.0&path:ui-kit")
+        result, problems = pin.kit_pin(text, "appkit-web", "web-kit")
+        self.assertIsNone(result)
+        self.assertTrue(any("not the folder web-kit" in p for p in problems), problems)
+
 
 class Main(unittest.TestCase):
     """main() over both lock files, with the remote replaced; both files are given, because the page's default
@@ -138,7 +151,7 @@ class Main(unittest.TestCase):
     def test_a_tag_that_still_names_the_commit_passes_for_the_hub_and_the_page(self):
         code, words = self.run_main(lock(tagged(), tagged(), tagged()), [SHA])
         self.assertEqual(code, 0, words)
-        self.assertIn("appkit-ui", words)
+        self.assertIn("appkit-ui, appkit-web", words)
 
     def test_the_release_kit_of_the_workflows_on_the_same_commit_passes(self):
         flow = (
@@ -210,6 +223,27 @@ class Main(unittest.TestCase):
         code, words = self.run_main(lock(tagged(), tagged(), tagged()), RuntimeError("must not be asked"), link)
         self.assertEqual(code, 1)
         self.assertIn("not the folder ui-kit", words)
+
+    def test_the_web_kit_is_checked_like_the_ui_kit(self):
+        """appkit-web: a `link:` to a checkout, a branch, another tag or commit than the hub, or no entry fails."""
+        cases = {
+            "a link": (
+                ui_lock(web_specifier="link:../../appkit/web-kit", web_version="link:../../appkit/web-kit"),
+                "appkit-web: not the folder web-kit",
+            ),
+            "a branch": (ui_lock(web_specifier="github:WKDSteve/appkit#main&path:web-kit"), "appkit-web to ('main'"),
+            "another tag": (ui_lock(web_specifier="github:WKDSteve/appkit#v0.2.0&path:web-kit"), "appkit-web to ('v0.2.0'"),
+            "another commit": (
+                ui_lock(web_version=f"https://codeload.github.com/WKDSteve/appkit/tar.gz/{OTHER}#path:web-kit"),
+                f"appkit-web to ('v0.1.0', '{OTHER}')",
+            ),
+            "no entry": (ui_lock(web=False), "does not pin appkit-web"),
+        }
+        for label, (text, said) in cases.items():
+            with self.subTest(label):
+                code, words = self.run_main(lock(tagged(), tagged(), tagged()), RuntimeError("must not be asked"), text)
+                self.assertEqual(code, 1, words)
+                self.assertIn(said, words)
 
 
 class RemoteCommit(unittest.TestCase):

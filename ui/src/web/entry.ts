@@ -12,7 +12,7 @@ import {
   type PickerWindow,
   type RecentFolders,
 } from './folder.ts';
-import { inputFolderSupport, pickFolderByInput, type InputDocument } from './folder-input.ts';
+import { inputFolderSupport, pickFolderByInput, type InputDocument } from 'appkit-web/folder-input';
 import { readVaultFolder, VaultLimitError, type DirHandleLike, type Skipped } from './vault-files.ts';
 
 export type Access = 'granted' | 'prompt' | 'denied' | 'gone';

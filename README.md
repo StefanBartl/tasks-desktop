@@ -279,7 +279,8 @@ and used as described under "In the browser, without installing". Its built file
   `web/engine.test.mjs`).
 - **The way in.** `ui/src/web/entry.ts` is a small state machine (starting, unsupported, choose, opening, open) behind
   `ui/src/web/WebEntry.svelte`: "Choose folder" calls `showDirectoryPicker({ id, mode: 'readwrite' })`, the folders
-  used before (their handles in IndexedDB, five at most, `ui/src/web/folder.ts`) are listed with the permission each
+  used before (their handles in the IndexedDB `tasks-web`, five at most, `ui/src/web/folder.ts` over `appkit-web/folder`)
+  are listed with the permission each
   has now. After a restart of the browser the permission is `prompt`: the click on "Allow access" asks for it again
   and nothing else comes before that call, because the browser grants it only inside a click. A cancelled or refused
   picker (a policy of the organisation), a folder that is gone and a folder over the budget come back to the start
@@ -309,7 +310,7 @@ and used as described under "In the browser, without installing". Its built file
 - **Reading again.** There is no server to say that a file changed. When the window gets the focus back, and every 30
   seconds, the page asks for the signature of the folder (`vaultSignature`: path, size and time of each file the
   reader would take, no content); if it differs, the vault is read again and the open event streams hear a `resync`
-  (`ui/src/web/watch.ts`, `ui/src/web/hub.ts`).
+  (`watchFolder` of `appkit-web/watch`, `ui/src/web/hub.ts`).
 - **Data classes and the cache.** The page reads the `areas.json` at the root of the folder the person chose
   (`ui/src/web/classes.ts`), in the two schemas of `crates/tasks-hub/src/classes.rs` and with its refusals, fail
   closed: an area the file does not name is `unclassified`, and so is every area when the file is missing, is not valid
@@ -322,14 +323,15 @@ and used as described under "In the browser, without installing". Its built file
   event and the app asks for the areas again (a read that fails leaves no class at all). The list cache is the one of
   the hub-based page (`ui/src/lib/cache.ts`, rule WEB-17, unchanged): only public and internal areas reach IndexedDB,
   and the tab keeps its session (a word, not a secret: there is no server) in `sessionStorage`. Because the engine's `vault.id` is the same for every
-  folder, `ui/src/web/scoped-cache.ts` keeps the list of one folder only, named by the id of the folders used before,
+  folder, `ui/src/web/scoped-cache.ts` (over `appkit-web/folder-cache`) keeps the list of one folder only, named by the id of the folders used before,
   and reads it back only while every area in it is still released; a folder the browser could not remember keeps no
   list. `web/classes.test.mjs` runs 156 cases (`web/classes-cases.mjs`: the cases of the Rust tests and the edges where
   a browser's JSON differs from serde's) that were checked against `classes.rs` itself; `ui/e2e-web/classes.spec.ts`
   watches IndexedDB for every write the page makes. **Open:** a file that cannot be used only shows as "everything is
   unclassified"; the page does not yet say why.
 - **One file.** `pnpm web:build` runs `vite build --mode web` (`ui/src/main.web.ts`, one script, one style) and
-  `web/pack.mjs`, which writes `ui/dist-web/tasks.html` and `SHA256SUMS`: the script and the style inline, the four
+  `web/pack.mjs` (the packer and the check are `appkit-web/pack` of appkit, this names the parts, the policy and the
+  title), which writes `ui/dist-web/tasks.html` and `SHA256SUMS`: the script and the style inline, the four
   parts of the engine (worker, WASM, Lua sources, vim shim) gzip-compressed as base64, and a policy as a meta tag
   (`default-src 'none'; connect-src 'none'; worker-src blob:` and the like: no request of any kind, no outside
   source). The build refuses a shell that loads something (a `src`, a `href`, a URL, a refresh, a stray script).
